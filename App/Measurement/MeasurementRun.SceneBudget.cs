@@ -42,6 +42,8 @@ internal sealed partial class MeasurementRun
     private readonly Queue<SceneSample> _sceneRecent = new();
     private readonly Dictionary<string, object?> _sceneEvidence = [];
     private StreamWriter? _sceneTrace, _sceneOperationTrace, _sceneCollectionTrace, _sceneCostTrace;
+    private GcProbe? _gcProbe;
+    private Issue774Counters? _issue774;
     private FrameMeasurements? _sceneTiming;
     private double _sceneLoadButton, _sceneLoadCompleted;
     private readonly HashSet<string> _sceneOpenedTargets = new(StringComparer.Ordinal);
@@ -68,6 +70,21 @@ internal sealed partial class MeasurementRun
         using var costs = new StreamWriter(Path.Combine(directory, "scene-probe-costs.jsonl"));
         _sceneTrace = frames; _sceneOperationTrace = operations; _sceneCollectionTrace = collections;
         _sceneCostTrace = costs;
+        using var gcProbe = new GcProbe();
+        gcProbe.Start(Path.Combine(directory, "gc-probe.jsonl"));
+        _gcProbe = gcProbe;
+        using var counter = new Issue774Counters(directory, _app.Host!);
+        _issue774 = counter;
+        if (counter.Sample)
+        {
+            var waiting = Seconds();
+            while (!Issue774Markers.Log.IsEnabled())
+            {
+                if (Seconds() - waiting > 30) throw new TimeoutException("#774 external trace did not attach within 30 seconds.");
+                await _app.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            }
+        }
+        counter.MarkNow("run-start");
         _app.Saves!.Changed += OnSceneSaveChanged;
         _app.WorldScenes!.FramePresented += OnScenePresented;
         _identity["scene_budget"] = _sceneEvidence;
@@ -210,6 +227,8 @@ internal sealed partial class MeasurementRun
             _app.Saves!.Changed -= OnSceneSaveChanged;
             _app.WorldScenes!.FramePresented -= OnScenePresented;
             _sceneTrace = _sceneOperationTrace = _sceneCollectionTrace = _sceneCostTrace = null;
+            _gcProbe = null;
+            _issue774 = null;
             ResetSceneProbe();
         }
     }
@@ -408,7 +427,12 @@ internal sealed partial class MeasurementRun
 
     private void OnSceneDraw()
     {
-        if (IsRouteMeasurement && _routeSampling) { OnRouteDraw(); return; }
+        _issue774?.Frame(Seconds(), _routeSampling ? "route" : _scenePhase);
+        if (IsRouteMeasurement && _routeSampling)
+        {
+            _gcProbe?.Frame(Seconds(), "route", _soakSegment, _scenePrivate, _sceneWorking);
+            OnRouteDraw(); return;
+        }
         var observerStarted = Seconds();
         var operation = _sceneOperation;
         var loggingSeconds = 0d;
@@ -478,6 +502,7 @@ internal sealed partial class MeasurementRun
                 _sceneOperation is null ? null : _probeState, _scenePresented, _sceneDrawCount,
                 _scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking,
                 bufferBytes, textureBytes, videoBytes);
+            _gcProbe?.Frame(now, _scenePhase, _soakSegment, _scenePrivate, _sceneWorking);
             _sceneRecent.Enqueue(sample);
             while (_sceneRecent.TryPeek(out var old) && old.At < now - 6) _sceneRecent.Dequeue();
             var loggingStarted = Seconds();
@@ -585,6 +610,7 @@ internal sealed partial class MeasurementRun
         GC.WaitForPendingFinalizers();
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
         var heap = GC.GetGCMemoryInfo();
+        _gcProbe?.Collection(Seconds(), cycle, phase, heap);
         var live = GC.GetTotalMemory(false);
         _sceneCollectionTrace!.WriteLine(JsonSerializer.Serialize(new { cycle, phase, at = Seconds(),
             seconds = Seconds() - started, natural, managed_live_bytes = live,

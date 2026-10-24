@@ -101,6 +101,7 @@ internal sealed partial class MeasurementRun
             await HoldSceneMap("initial-map");
             _soakMapSteady = SoakSteady();
             var started = Seconds();
+            _issue774?.Mark("soak-start", started);
             do
             {
                 _soakSegment++;
@@ -121,6 +122,7 @@ internal sealed partial class MeasurementRun
                 for (var trip = 0; trip < SoakRoundTrips; trip++) await RunSoakRoundTrip(trip % 2 == 0 ? SoakSettlement : SoakLineBattle);
             } while (Seconds() - started < duration);
             _soakHeaps.Add((_soakSegment, "final", Seconds(), CollectSceneHeap(_soakSegment, "final-map")));
+            _issue774?.MarkNow("soak-end");
             _sceneEvidence["soak"] = SummarizeSoak(Seconds() - started, _soakBody ?? 0);
         }
         finally

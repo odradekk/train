@@ -75,6 +75,7 @@ internal sealed partial class MeasurementRun
             var gcCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
             _sceneTiming = new(_routeStarted, host.GetStatus()!.View.Position.CompletedSteps);
             _routeSampling = true;
+            _issue774?.Mark("route-start", _routeStarted);
             EdgeId? first = null, second = null;
             NodeId? middle = null, finalNode = null;
             double? coreCompletedAt = null;
@@ -119,6 +120,7 @@ internal sealed partial class MeasurementRun
                     if (!routeCompleted)
                     {
                         routeCompleted = true; _routeDecisionEndDraw = _routeFrames;
+                        _issue774?.MarkNow("route-end");
                         routeGcEnd = GC.GetTotalPauseDuration();
                         routeGcEndCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
                     }
@@ -140,6 +142,7 @@ internal sealed partial class MeasurementRun
                 if (Seconds() - _routeStarted > 3300) throw new TimeoutException("整条路线在3300秒内未完成。");
                 if (_sceneDuration > 0 && Seconds() - _routeStarted >= _sceneDuration) break;
             }
+            if (!routeCompleted) _issue774?.MarkNow("route-end");
             _routeSampling = false;
             _timing = _sceneTiming.Summarize();
             _sceneTiming = null;
