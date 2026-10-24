@@ -157,15 +157,17 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             await UiCapture.Capture(TestScene, "player-editor");
             var controller = fixture.Controller; var session = fixture.Factory.Session!;
             var initial = controller.Display!.DisplayedFrame!;
-            session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(new FixedSceneFrame
+            var replacement = new FixedSceneFrame
             {
                 Update = initial.Update with { Upserts = [VisibleObject()] },
                 DebugLines = initial.DebugLines,
                 PickResult = ((FixedSceneFrame)initial).PickResult,
                 TerrainHeightResult = new Train.Core.Contracts.Lookup<double>.Missing()
-            });
+            };
+            session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(replacement);
             controller.Display.Timestamp = () => 0;
             controller.Process(0);
+            await FramesUntil(TestScene, () => ReferenceEquals(controller.Display.DisplayedFrame, replacement));
             session.PresentCall = null;
             var displayed = controller.Display.DisplayedFrame!;
             var geometry = controller.Display.Objects[new(1)].Visuals[0].Node;
