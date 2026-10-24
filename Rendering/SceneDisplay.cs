@@ -11,6 +11,16 @@ namespace Train.Rendering;
 internal sealed partial class SceneDisplay : IDisposable
 {
     internal sealed record DisplayObject(SceneObject Source, Node3D Root, PreparedVisual[] Visuals);
+    private sealed class Preparation(ISceneFrame frame)
+    {
+        internal ISceneFrame Frame { get; } = frame;
+        internal ImmutableDictionary<SceneObjectId, DisplayObject>.Builder? Objects;
+        internal int Upsert;
+        internal int Visual;
+        internal PreparedVisual[]? Visuals;
+        internal bool NeedsResources;
+        internal bool Validated;
+    }
     private readonly SceneResources _resources;
     private readonly CombatEffects _effects;
     private readonly AssetResourceCache _cache;
@@ -28,9 +38,8 @@ internal sealed partial class SceneDisplay : IDisposable
     private DebugLineGroup? _debugLines;
     private FogGroup? _pendingFog;
     private DebugLineGroup? _pendingDebugLines;
-    private ISceneFrame? _preparingFrame;
+    private Preparation? _preparation;
     private long _candidate;
-    private HashSet<SceneObjectId>? _reportedResources;
     internal Action<SceneDisplayEvent>? Observe { get; set; }
     internal Action<SceneDisplayWork, TimeSpan>? Measure { get; set; }
     private ScenePoint _spaceOrigin;
@@ -46,7 +55,7 @@ internal sealed partial class SceneDisplay : IDisposable
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
     internal ISceneFrame? PoseFrame { get; private set; }
-    internal bool IsPreparing => _preparingFrame is not null;
+    internal bool IsPreparing => _preparation is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
     internal DisplayObject? FindRoot(WorldObjectId subject) => _subjectRoots.TryGetValue(subject, out var roots)
         ? _objects[roots.First()] : null;
@@ -110,15 +119,15 @@ internal sealed partial class SceneDisplay : IDisposable
             CancelPreparation();
             return null;
         }
-        if (_preparingFrame is { } previousFrame &&
+        if (_preparation is { Frame: var previousFrame } &&
             (previousFrame.Update.Base != frame.Update.Base ||
              previousFrame.Update.Frame.Session != frame.Update.Frame.Session ||
              previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
              previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
             CancelPreparation();
-        if (_preparingFrame is null)
+        if (_preparation is null)
         {
-            _preparingFrame = frame;
+            _preparation = new(frame);
             _candidate++;
             if (Observe is { } observe)
             {
@@ -130,7 +139,8 @@ internal sealed partial class SceneDisplay : IDisposable
                 observe(new(_candidate, frame.Update.Frame, null, SceneDisplayStage.FramePreparationStarted, required));
             }
         }
-        frame = _preparingFrame;
+        var preparation = _preparation;
+        frame = preparation.Frame;
         var spaceChanged = DisplayedFrame is { } displayed
             ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
             : _completeInitialFrame;
@@ -138,62 +148,71 @@ internal sealed partial class SceneDisplay : IDisposable
         var started = Timestamp();
         var preparedResource = false;
         var update = frame.Update;
-        var next = (update.Base is null ? ImmutableDictionary<SceneObjectId, DisplayObject>.Empty : _objects).ToBuilder();
         // 首次打开或切换空间时一次提交首个可操作帧，避免列车继续驶出尚未接入的空间。
         bool BudgetExpired() => !spaceChanged && (preparedResource || budget is not null) &&
             (_preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget ||
              budget is { } allowance && Stopwatch.GetElapsedTime(started, Timestamp()) >= allowance);
         try
         {
-            if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
-                foreach (var id in _rootObjects)
-                {
-                    var item = _objects[id];
-                    next[item.Source.Id] = item with { Source = item.Source with
-                    { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + update.ShiftExistingRoots } } };
-                }
-            foreach (var id in update.Removed) next.Remove(id);
-            foreach (var source in update.Upserts)
+            if (preparation.Objects is null)
             {
+                preparation.Objects = (update.Base is null
+                    ? ImmutableDictionary<SceneObjectId, DisplayObject>.Empty : _objects).ToBuilder();
+                if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
+                    foreach (var id in _rootObjects)
+                    {
+                        var item = _objects[id];
+                        preparation.Objects[item.Source.Id] = item with { Source = item.Source with
+                        { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + update.ShiftExistingRoots } } };
+                    }
+                foreach (var id in update.Removed) preparation.Objects.Remove(id);
+            }
+            var next = preparation.Objects;
+            for (; preparation.Upsert < update.Upserts.Length; preparation.Upsert++)
+            {
+                var source = update.Upserts[preparation.Upsert];
                 _objects.TryGetValue(source.Id, out var previous);
                 if (previous is null && !_pendingRoots.ContainsKey(source.Id))
                     _pendingRoots.Add(source.Id, new Node3D { Name = $"Object{source.Id.Value}" });
                 var root = previous?.Root ?? _pendingRoots[source.Id];
-                var visuals = new PreparedVisual[source.Visuals.Length];
-                var needsResources = false;
-                for (var i = 0; i < visuals.Length; i++)
+                var visuals = preparation.Visuals ??= new PreparedVisual[source.Visuals.Length];
+                for (; preparation.Visual < visuals.Length; preparation.Visual++)
                 {
+                    var i = preparation.Visual;
                     if (CanReuseVisual(previous, i, source.Visuals[i]))
                         visuals[i] = previous!.Visuals[i];
                     else
                     {
-                        needsResources = true;
+                        preparation.NeedsResources = true;
                         var key = (source.Id, i);
-                        if (!_pendingVisuals.TryGetValue(key, out var visual))
-                        {
-                            if (BudgetExpired())
-                                return null;
-                            visual = TakeCandidateVisual(update.Frame, key, source.Visuals[i]) ?? _resources.Prepare(source.Visuals[i]);
-                            _pendingVisuals.Add(key, visual);
-                            preparedResource = true;
-                        }
+                        if (BudgetExpired()) return null;
+                        var visual = TakeCandidateVisual(update.Frame, key, source.Visuals[i]) ?? _resources.Prepare(source.Visuals[i]);
+                        _pendingVisuals.Add(key, visual);
+                        preparedResource = true;
                         visuals[i] = visual;
                     }
                 }
                 next[source.Id] = new(source, root, visuals);
-                if (needsResources && Observe is { } observe && (_reportedResources ??= []).Add(source.Id))
+                if (preparation.NeedsResources && Observe is { } observe)
                     observe(new(_candidate, frame.Update.Frame, source.Id, SceneDisplayStage.ResourcesPrepared));
+                preparation.Visuals = null;
+                preparation.Visual = 0;
+                preparation.NeedsResources = false;
             }
-            foreach (var source in update.Upserts)
-                if (source.Parent is { } parent && !next.ContainsKey(parent))
-                    throw new InvalidOperationException("显示对象的父对象不存在。");
-            if (update.Base is not null)
-                foreach (var id in update.Removed)
-                    if (_children.TryGetValue(id, out var children))
-                        foreach (var child in children)
-                            if (next.TryGetValue(child, out var surviving) &&
-                                surviving.Source.Parent is { } parent && !next.ContainsKey(parent))
-                                throw new InvalidOperationException("显示对象的父对象不存在。");
+            if (!preparation.Validated)
+            {
+                foreach (var source in update.Upserts)
+                    if (source.Parent is { } parent && !next.ContainsKey(parent))
+                        throw new InvalidOperationException("显示对象的父对象不存在。");
+                if (update.Base is not null)
+                    foreach (var id in update.Removed)
+                        if (_children.TryGetValue(id, out var children))
+                            foreach (var child in children)
+                                if (next.TryGetValue(child, out var surviving) &&
+                                    surviving.Source.Parent is { } parent && !next.ContainsKey(parent))
+                                    throw new InvalidOperationException("显示对象的父对象不存在。");
+                preparation.Validated = true;
+            }
             if (_pendingFog is null && (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions)))
             {
                 if (BudgetExpired()) return null;
@@ -213,8 +232,7 @@ internal sealed partial class SceneDisplay : IDisposable
             _pendingDebugLines = null;
             _pendingVisuals.Clear();
             _pendingRoots.Clear();
-            _preparingFrame = null;
-            _reportedResources = null;
+            _preparation = null;
             Observe?.Invoke(new(_candidate, frame.Update.Frame, null, SceneDisplayStage.FramePrepared));
             return prepared;
         }
@@ -342,17 +360,16 @@ internal sealed partial class SceneDisplay : IDisposable
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
-        var cancelled = _preparingFrame;
+        var cancelled = _preparation?.Frame;
         foreach (var visual in _pendingVisuals.Values) visual.Dispose();
         _pendingVisuals.Clear();
-        _preparingFrame = null;
+        _preparation = null;
         foreach (var root in _pendingRoots.Values) root.Free();
         _pendingRoots.Clear();
         _pendingFog?.Dispose();
         _pendingFog = null;
         _pendingDebugLines?.Dispose();
         _pendingDebugLines = null;
-        _reportedResources = null;
         if (cancelled is not null)
             Observe?.Invoke(new(_candidate, cancelled.Update.Frame, null, SceneDisplayStage.HostCancelled));
     }
