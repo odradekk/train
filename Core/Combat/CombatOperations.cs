@@ -418,12 +418,14 @@ internal static class CombatOperations
         if (origin is not WorldLocation.Node node) return null;
         var speed = TrainOperations.Capabilities(world, content, train).MaximumSpeedMetersPerSecond;
         if (speed <= 0) return null;
+        var reachable = TrainRouting.ReachableNodes(world.Nodes, world.Edges, node.Id);
         NodeId? best = null;
         double bestTime = double.PositiveInfinity;
         foreach (var settlement in world.Settlements.Where(settlement =>
                      settlement.Node != node.Id && settlement.Relation is SettlementRelation.PlayerOwned
                          or SettlementRelation.NonHostile))
         {
+            if (!reachable.Contains(settlement.Node)) continue;
             var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node.Id, settlement.Node, speed);
             if (route is not { } found) continue;
             var time = found.DistanceMeters / speed;
