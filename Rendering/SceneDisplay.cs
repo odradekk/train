@@ -22,6 +22,7 @@ internal sealed partial class SceneDisplay : IDisposable
         internal bool Validated;
         internal SceneMeshPacking? Packing;
         internal List<AssetLease<ArrayMesh>> CachedGeometry { get; } = [];
+        internal Dictionary<SceneObjectId, PreparedVisual?[]> ReusedVisuals { get; } = [];
     }
     private readonly SceneResources _resources;
     private readonly CombatEffects _effects;
@@ -136,11 +137,8 @@ internal sealed partial class SceneDisplay : IDisposable
             _candidate++;
             if (Observe is { } observe)
             {
-                var required = frame.Update.Upserts.Where(source =>
-                {
-                    _objects.TryGetValue(source.Id, out var previous);
-                    return source.Visuals.Where((visual, index) => !CanReuseVisual(previous, index, visual)).Any();
-                }).Select(source => source.Id).ToImmutableArray();
+                var required = frame.Update.Upserts.Where(source => ReusedVisuals(_preparation, source).Any(visual => visual is null))
+                    .Select(source => source.Id).ToImmutableArray();
                 observe(new(_candidate, frame.Update.Frame, null, SceneDisplayStage.FramePreparationStarted, required));
             }
         }
@@ -172,7 +170,7 @@ internal sealed partial class SceneDisplay : IDisposable
                     }
                 foreach (var id in update.Removed) preparation.Objects.Remove(id);
                 if (!spaceChanged)
-                    preparation.Packing = StartPacking(UnpreparedVisuals(frame), preparation.CachedGeometry,
+                    preparation.Packing = StartPacking(UnpreparedVisuals(preparation), preparation.CachedGeometry,
                         ref _preparationPackingTail);
             }
             preparation.Packing?.ThrowIfFailed();
@@ -185,11 +183,12 @@ internal sealed partial class SceneDisplay : IDisposable
                     _pendingRoots.Add(source.Id, new Node3D { Name = $"Object{source.Id.Value}" });
                 var root = previous?.Root ?? _pendingRoots[source.Id];
                 var visuals = preparation.Visuals ??= new PreparedVisual[source.Visuals.Length];
+                var reusedVisuals = ReusedVisuals(preparation, source);
                 for (; preparation.Visual < visuals.Length; preparation.Visual++)
                 {
                     var i = preparation.Visual;
-                    if (CanReuseVisual(previous, i, source.Visuals[i]))
-                        visuals[i] = previous!.Visuals[i];
+                    if (reusedVisuals[i] is { } reused)
+                        visuals[i] = reused;
                     else
                     {
                         preparation.NeedsResources = true;
@@ -271,15 +270,22 @@ internal sealed partial class SceneDisplay : IDisposable
         _preparationTime = TimeSpan.Zero;
     }
 
-    private IEnumerable<SceneVisual> UnpreparedVisuals(ISceneFrame frame)
+    private PreparedVisual?[] ReusedVisuals(Preparation preparation, SceneObject source)
     {
-        foreach (var source in frame.Update.Upserts)
+        if (!preparation.ReusedVisuals.TryGetValue(source.Id, out var matched))
+            preparation.ReusedVisuals.Add(source.Id, matched = MatchVisuals(_objects.GetValueOrDefault(source.Id), source.Visuals));
+        return matched;
+    }
+
+    private IEnumerable<SceneVisual> UnpreparedVisuals(Preparation preparation)
+    {
+        foreach (var source in preparation.Frame.Update.Upserts)
         {
-            _objects.TryGetValue(source.Id, out var previous);
+            var reused = ReusedVisuals(preparation, source);
             for (var index = 0; index < source.Visuals.Length; index++)
             {
                 var visual = source.Visuals[index];
-                if (CanReuseVisual(previous, index, visual)) continue;
+                if (reused[index] is not null) continue;
                 yield return visual;
             }
         }
@@ -365,12 +371,33 @@ internal sealed partial class SceneDisplay : IDisposable
         // 较早候选刚提交时P仍引用旧D；两帧都未更新的对象才可继承同一描述。
         if (source is null) return frame.Update.Base == displayed.Update.Frame ||
             !displayed.Update.Upserts.Any(source => source.Id == id);
-        return source.Parent == item.Source.Parent && source.Visuals.Select((visual, index) =>
-            CanReuseVisual(item, index, visual)).All(compatible => compatible);
+        return source.Parent == item.Source.Parent && MatchVisuals(item, source.Visuals).All(visual => visual is not null);
     }
 
-    private static bool CanReuseVisual(DisplayObject? displayed, int index, SceneVisual visual) =>
-        displayed is not null && index < displayed.Visuals.Length && displayed.Visuals[index].CanUpdate(visual);
+    private static PreparedVisual?[] MatchVisuals(DisplayObject? displayed, ImmutableArray<SceneVisual> visuals)
+    {
+        var matched = new PreparedVisual?[visuals.Length];
+        if (displayed is null) return matched;
+        var geometry = new Dictionary<SceneMesh, Queue<PreparedVisual>>(ReferenceEqualityComparer.Instance);
+        foreach (var previous in displayed.Visuals)
+            if (previous.Visual is SceneVisual.Geometry source)
+            {
+                if (!geometry.TryGetValue(source.Mesh, out var available)) geometry.Add(source.Mesh, available = new());
+                available.Enqueue(previous);
+            }
+        for (var index = 0; index < visuals.Length; index++)
+        {
+            var visual = visuals[index];
+            if (visual is SceneVisual.Geometry source)
+            {
+                if (geometry.TryGetValue(source.Mesh, out var available) && available.TryDequeue(out var previous))
+                    matched[index] = previous;
+            }
+            else if (index < displayed.Visuals.Length && displayed.Visuals[index].CanUpdate(visual))
+                matched[index] = displayed.Visuals[index];
+        }
+        return matched;
+    }
 
     internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
     {
