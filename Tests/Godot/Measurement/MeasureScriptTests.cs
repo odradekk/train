@@ -109,10 +109,12 @@ public sealed class MeasureScriptTests
             File.Copy(Path.Combine(repository.FullName, "examples", "starting-trade", "save.json"), Input);
             File.WriteAllText(Path.Combine(Directory, "train.exe"), "fake executable");
             File.WriteAllText(Path.Combine(Directory, "train.pck"), "fake pck");
-            File.Copy(typeof(Train.App.Measurement.WorldCounts).Assembly.Location, Path.Combine(Directory, "Train.dll"));
+            var assembly = typeof(Train.App.Measurement.WorldCounts).Assembly;
+            File.Copy(assembly.Location, Path.Combine(Directory, "Train.dll"));
             // Godot 生成的程序集特性包含脚本类型；读取版本时也需要解析这些类型的依赖。
-            foreach (var dependency in new[] { "GodotSharp.dll", "Train.Core.dll", "Train.Content.dll", "Train.Scenes.dll",
-                         "Train.Core.Contracts.dll", "Train.Content.Contracts.dll", "Train.Scenes.Contracts.dll" })
+            foreach (var dependency in assembly.GetReferencedAssemblies().Select(name => name.Name!)
+                         .Where(name => name == "GodotSharp" || name.StartsWith("Train.", StringComparison.Ordinal))
+                         .Select(name => name + ".dll"))
                 File.Copy(Path.Combine(AppContext.BaseDirectory, dependency), Path.Combine(Directory, dependency));
             File.WriteAllText(Path.Combine(checks, "Invoke-HiddenProcess.ps1"), """
                 function Invoke-HiddenProcess {

@@ -65,6 +65,8 @@ internal static class Isolation
                 }
                 if (test == "Train.Godot.Tests")
                 {
+                    CopyFile(Path.Combine(root, "scripts", "measure.ps1"));
+                    CopyFile(Path.Combine(root, "examples", "starting-trade", "save.json"));
                     var projectPath = Path.Combine(isolated, "Train.csproj");
                     var projectXml = XDocument.Load(projectPath);
                     var projectElement = projectXml.Root!;
