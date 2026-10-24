@@ -17,6 +17,27 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Unchanged_streaming_inputs_reuse_the_plan_and_published_parts()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false, following: new(default, [new(16, 200, 0)], []));
+        var revision = scene.StreamingPlanRevision;
+        var published = cache.Read(NodeFixtures.NodeId);
+        for (var frame = 0; frame < 10; frame++)
+            scene.Pump(allowBuild: false, following: new(default, [new(16, 200, 0)], []));
+        Assert.AreEqual(revision, scene.StreamingPlanRevision,
+            "A new FollowedPath with the same samples must not sort the whole corridor again.");
+        Assert.AreSame(published, cache.Read(NodeFixtures.NodeId), "An unchanged part set must not be republished.");
+        scene.Pump(focus: new ScenePoint(64, 0, 0), allowBuild: false, following: new(default, [new(80, 200, 0)], []));
+        Assert.IsGreaterThan(revision, scene.StreamingPlanRevision);
+        Assert.AreSame(published, cache.Read(NodeFixtures.NodeId));
+    }
+
+    [TestMethod]
     public async Task Dispatch_prioritizes_the_chunk_crossed_between_samples_at_a_corner()
     {
         var started = new ConcurrentQueue<GridColumn>();

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -19,9 +20,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         NodeScene? Node = null, RailwayScene? Railway = null)
     {
         internal SceneFrameStamp? Prepared;
-        internal ImmutableDictionary<SceneObjectId, SceneObject> PreparedObjects = ImmutableDictionary<SceneObjectId, SceneObject>.Empty;
         internal SceneUpdate? Offered;
-        internal ImmutableDictionary<SceneObjectId, SceneObject> OfferedObjects = ImmutableDictionary<SceneObjectId, SceneObject>.Empty;
     }
     private Candidate? candidate;
     private WorldLocation? rejectedCandidate;
@@ -33,6 +32,15 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private readonly List<Task> closingScenes = [];
     private SceneWorldSnapshot? interpolationStart;
     private Dictionary<string, SceneObjectId> ids = [];
+    private readonly ConditionalWeakTable<Dictionary<string, SceneObjectId>, ObjectIds> objectIds = new();
+    private sealed class ObjectIds
+    {
+        internal readonly Dictionary<SceneObjectId, string> Keys = [];
+        internal readonly List<SceneObjectId> New = [];
+        internal SceneFrame? Frame;
+        internal ImmutableArray<TerrainCollisionPatch> Terrain;
+        internal HashSet<SceneObjectId> TerrainIds = [];
+    }
     private SceneWorldSnapshot snapshot;
     private WorldSceneTarget? target;
     private EventEnvelope? lastEvent;
@@ -92,7 +100,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         target = value;
         request = new(request.Value + 1);
         space = new(++nextSpace);
-        ids.Clear();
+        ids = [];
         presentation.Clear();
         switch (CurrentLocation(snapshot, value))
         {
@@ -211,9 +219,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 : railway!.Present(snapshot, interpolationStart, target, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin);
             if (retire is not null) closingScenes.Add(retire.DisposeAsync().AsTask());
             if (railway is not null) sceneOrigin = null;
-            var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
-            foreach (var patch in frame.Update.Environment.TerrainCollision) liveIds.Add(patch.Id);
-            foreach (var key in ids.Where(item => !liveIds.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
+            RetainObjectIds(frame);
             Prebuild();
             PruneCaches();
             return new SceneResult<ISceneFrame>.Success(frame);
@@ -247,29 +253,22 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             if (prepared is not null && prepared == current.Offered?.Frame)
             {
                 current.Prepared = prepared;
-                current.PreparedObjects = current.OfferedObjects;
                 current.Offered = null;
             }
             else if (prepared != current.Prepared)
             {
                 current.Prepared = null;
-                current.PreparedObjects = ImmutableDictionary<SceneObjectId, SceneObject>.Empty;
                 current.Offered = null;
             }
             if (prepared is null && current.Offered?.Base is not null)
             {
                 current.Prepared = null;
-                current.PreparedObjects = ImmutableDictionary<SceneObjectId, SceneObject>.Empty;
                 current.Offered = null;
             }
             if (current.Offered is { } offered) return new SceneResult<SceneUpdate?>.Success(offered);
-            var objects = building.CandidateObjects(snapshot).ToImmutableDictionary(item => item.Id);
-            var upserts = objects.Values.Where(item => !current.PreparedObjects.TryGetValue(item.Id, out var old) || old != item)
-                .OrderBy(item => item.Id.Value).ToImmutableArray();
-            var removed = current.PreparedObjects.Keys.Where(id => !objects.ContainsKey(id)).OrderBy(id => id.Value).ToImmutableArray();
+            var (upserts, removed) = building.CandidateChanges(snapshot, full: current.Prepared is null);
             var stamp = current.Prepared is { } unchanged && upserts.IsEmpty && removed.IsEmpty
                 ? unchanged : new SceneFrameStamp(Id, request, current.Space, ++revision);
-            current.OfferedObjects = objects;
             current.Offered = new(current.Prepared, stamp, default, upserts, removed, new([], []), []);
             return new SceneResult<SceneUpdate?>.Success(current.Offered);
         }
@@ -282,8 +281,41 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     }
     private SceneObjectId AssignId(Dictionary<string, SceneObjectId> map, string key)
     {
-        if (!map.TryGetValue(key, out var value)) map.Add(key, value = new(++nextObject));
+        if (!map.TryGetValue(key, out var value))
+        {
+            map.Add(key, value = new(++nextObject));
+            var assigned = objectIds.GetValue(map, _ => new());
+            assigned.Keys.Add(value, key);
+            assigned.New.Add(value);
+        }
         return value;
+    }
+
+    private void RetainObjectIds(SceneFrame frame)
+    {
+        var assigned = objectIds.GetValue(ids, _ => new());
+        var terrain = frame.Update.Environment.TerrainCollision;
+        HashSet<SceneObjectId>? previousTerrain = null;
+        if (assigned.Terrain != terrain)
+        {
+            previousTerrain = assigned.TerrainIds;
+            assigned.TerrainIds = terrain.Select(patch => patch.Id).ToHashSet();
+            assigned.Terrain = terrain;
+        }
+        foreach (var id in assigned.New) RemoveIfAbsent(id);
+        assigned.New.Clear();
+        // The displayed base can predate objects that were produced and then removed.
+        if (assigned.Frame is { } previous)
+            foreach (var id in frame.RemovedSince(previous)) RemoveIfAbsent(id);
+        if (previousTerrain is not null)
+            foreach (var id in previousTerrain) RemoveIfAbsent(id);
+        assigned.Frame = frame;
+
+        void RemoveIfAbsent(SceneObjectId id)
+        {
+            if (!frame.ContainsObject(id) && !assigned.TerrainIds.Contains(id) && assigned.Keys.Remove(id, out var key))
+                ids.Remove(key);
+        }
     }
 
     private WorldLocation? OpenLocation() => railway is not null ? new WorldLocation.Edge(railway.Edge, 0) :
@@ -526,7 +558,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         finally
         {
-            ids.Clear();
+            ids = [];
         }
     }
 }

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -47,7 +48,29 @@ internal sealed class SceneFrame : ISceneFrame
     private readonly ImmutableArray<NodeScene.Part> nodeParts;
     internal RailwayPath? Railway => railway;
     internal NodeLayout? Node => node;
-    internal ImmutableArray<SceneObject> Objects { get; }
+    private static readonly ConditionalWeakTable<RenderedDesign, SceneFrame> staticGraphs = new();
+    private readonly RenderedDesign? staticGeometry;
+    private readonly int staticPickOffset;
+    private readonly ImmutableArray<SceneObject> dynamicObjects;
+    private readonly Dictionary<SceneObjectId, SceneObject> byId;
+    private readonly Dictionary<SceneObjectId, ScenePose> composed;
+    private readonly SceneFrame? staticFrame;
+    private ImmutableArray<SceneObject> allObjects;
+    internal ImmutableArray<SceneObject> Objects => allObjects.IsDefault
+        ? allObjects = staticGeometry is null ? dynamicObjects : staticGeometry.Objects.AddRange(dynamicObjects)
+        : allObjects;
+
+    internal bool ContainsObject(SceneObjectId id) => byId.ContainsKey(id) || staticFrame?.byId.ContainsKey(id) == true;
+
+    internal IEnumerable<SceneObjectId> RemovedSince(SceneFrame previous)
+    {
+        foreach (var id in previous.byId.Keys)
+            if (!ContainsObject(id)) yield return id;
+        if (ReferenceEquals(staticGeometry, previous.staticGeometry) || previous.staticFrame is null) yield break;
+        foreach (var id in previous.staticFrame.byId.Keys)
+            if (!ContainsObject(id)) yield return id;
+    }
+
     public ScenePoint Origin { get; }
     public ScenePanBounds? NodePanBounds => node?.PanBounds(Origin);
     public SceneNodeOverview? NodeOverview { get; }
@@ -64,12 +87,18 @@ internal sealed class SceneFrame : ISceneFrame
         NodeLayout? node = null, ImmutableArray<NodeScene.Part> nodeParts = default,
         SceneDebugLayer debugLayers = SceneDebugLayer.None, ImmutableDictionary<EdgeId, int>? nodeTracks = null,
         ScenePickRaySample? pickRay = null, ImmutableArray<SceneDebugLine> editLines = default,
-        ImmutableArray<SceneEffectCue> effects = default, ImmutableArray<TerrainCollisionPatch> terrain = default)
+        ImmutableArray<SceneEffectCue> effects = default, ImmutableArray<TerrainCollisionPatch> terrain = default,
+        RenderedDesign? staticGeometry = null, int staticPickOffset = 0)
     {
         Origin = origin;
         SimulationSeconds = seconds;
         Readiness = readiness;
-        Objects = objects;
+        staticFrame = staticGeometry is null ? null : staticGraphs.GetValue(staticGeometry, geometry =>
+            new(new(default, default, default, 0), default, 0, SceneReadiness.Ready,
+                geometry.Objects, geometry.Picking, [], []));
+        this.staticGeometry = staticGeometry;
+        this.staticPickOffset = staticPickOffset;
+        dynamicObjects = objects;
         this.picking = picking;
         Diagnostics = diagnostics;
         this.railway = railway;
@@ -79,36 +108,43 @@ internal sealed class SceneFrame : ISceneFrame
         this.segments = segments.IsDefault ? [] : segments;
         this.fog = fog;
         DebugLines = debugLayers == SceneDebugLayer.None ? [] :
-            SceneDebugLines.Generate(debugLayers, picking, origin, railway, this.segments, node, nodeTracks, stamp, pickRay);
+            SceneDebugLines.Generate(debugLayers, Picking().ToImmutableArray(), origin, railway, this.segments, node, nodeTracks, stamp, pickRay);
         if (!editLines.IsDefaultOrEmpty) DebugLines = DebugLines.AddRange(editLines);
         var environment = new SceneEnvironment(fog.Select(item => item.WorldBounds).ToImmutableArray(),
             terrain.IsDefault ? [] : terrain);
-        var byId = objects.ToDictionary(item => item.Id);
-        var composed = new Dictionary<SceneObjectId, ScenePose>();
+        byId = objects.ToDictionary(item => item.Id);
+        if (staticFrame is not null && objects.Any(item => staticFrame.byId.ContainsKey(item.Id)))
+            throw new ArgumentException("Scene object IDs must be unique.", nameof(objects));
+        composed = new Dictionary<SceneObjectId, ScenePose>();
         var visiting = new HashSet<SceneObjectId>();
         var subjects = ImmutableDictionary.CreateBuilder<WorldObjectId, ScenePose>();
         foreach (var item in objects)
         {
             var pose = Compose(item.Id);
-            if (item.Subject is not null && (item.Parent is null || !subjects.ContainsKey(item.Subject))) subjects[item.Subject] = pose;
+            if (item.Subject is not null && (item.Parent is null || !subjects.ContainsKey(item.Subject) && staticFrame?.poses.ContainsKey(item.Subject) != true)) subjects[item.Subject] = pose;
         }
         poses = subjects.ToImmutable();
         var previous = displayed is not null && displayed.Update.Frame.Session == stamp.Session &&
             displayed.Update.Frame.Request == stamp.Request && displayed.Update.Frame.Space == stamp.Space ? displayed : null;
         var shift = previous is null ? Vector3.Zero : new Vector3(
             (float)(previous.Origin.X - origin.X), (float)(previous.Origin.Y - origin.Y), (float)(previous.Origin.Z - origin.Z));
-        var oldObjects = previous?.Objects.ToDictionary(item => item.Id);
-        var upserts = previous is null ? objects : objects.Where(item => !oldObjects!.TryGetValue(item.Id, out var old) ||
+        var sameStatic = previous is not null && ReferenceEquals(staticGeometry, previous.staticGeometry) && shift == Vector3.Zero;
+        var currentObjects = sameStatic ? objects : Objects;
+        var oldObjects = previous is null ? null : sameStatic ? previous.byId : previous.Objects.ToDictionary(item => item.Id);
+        var upserts = previous is null ? Objects : currentObjects.Where(item => !oldObjects!.TryGetValue(item.Id, out var old) ||
             item != (old.Parent is null
                 ? old with { Pose = old.Pose with { Position = old.Pose.Position + shift } }
                 : old)).ToImmutableArray();
-        var removed = previous is null ? ImmutableArray<SceneObjectId>.Empty : previous.Objects
-            .Where(item => !byId.ContainsKey(item.Id)).Select(item => item.Id).ToImmutableArray();
+        var removed = previous is null ? ImmutableArray<SceneObjectId>.Empty :
+            (sameStatic ? previous.dynamicObjects : previous.Objects)
+            .Where(item => !byId.ContainsKey(item.Id) && staticFrame?.byId.ContainsKey(item.Id) != true)
+            .Select(item => item.Id).ToImmutableArray();
         Update = new(previous?.Update.Frame, stamp, shift, upserts, removed, environment, effects.IsDefault ? [] : effects);
 
         ScenePose Compose(SceneObjectId id)
         {
             if (composed.TryGetValue(id, out var pose)) return pose;
+            if (staticFrame is not null && staticFrame.composed.TryGetValue(id, out pose)) return pose;
             if (!visiting.Add(id) || !byId.TryGetValue(id, out var item))
                 throw new ArgumentException("Scene parents must exist and be acyclic.", nameof(objects));
             SceneGeometry.Validate(item.Pose);
@@ -123,7 +159,7 @@ internal sealed class SceneFrame : ISceneFrame
     {
         SceneGeometry.Validate(ray);
         SceneHit? nearest = null;
-        foreach (var item in picking)
+        foreach (var item in Picking())
         {
             var inverse = Quaternion.Conjugate(item.Pose.Rotation);
             var local = new SceneRay(Vector3.Transform(ray.Origin - item.Pose.Position, inverse),
@@ -148,7 +184,11 @@ internal sealed class SceneFrame : ISceneFrame
         return nearest is null ? new ScenePick.Miss() : new ScenePick.Hit(nearest);
     }
 
-    public Lookup<ScenePose> FindPose(WorldObjectId subject) => poses.TryGetValue(subject, out var pose)
+    private IEnumerable<PickGrid> Picking() => staticGeometry is null ? picking :
+        picking.Take(staticPickOffset).Concat(staticGeometry.Picking).Concat(picking.Skip(staticPickOffset));
+
+    public Lookup<ScenePose> FindPose(WorldObjectId subject) => poses.TryGetValue(subject, out var pose) ||
+        staticFrame is not null && staticFrame.poses.TryGetValue(subject, out pose)
         ? new Lookup<ScenePose>.Found(pose) : new Lookup<ScenePose>.Missing();
     public Lookup<WorldLocation> Locate(Vector3 point)
     {

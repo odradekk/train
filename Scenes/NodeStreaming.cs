@@ -81,9 +81,19 @@ internal static class NodeStreaming
         return (distance, 0);
     }
 
-    internal static bool OverlapsTerrain(SceneBounds bounds, IEnumerable<GridColumn> chunks) => chunks.Any(from =>
-        bounds.Minimum.X < from.X + VoxelGrid.ChunkSize && bounds.Maximum.X > from.X &&
-        bounds.Minimum.Z < from.Z + VoxelGrid.ChunkSize && bounds.Maximum.Z > from.Z);
+    internal static bool OverlapsTerrain(SceneBounds bounds, IEnumerable<GridColumn> chunks)
+    {
+        if (chunks is IReadOnlySet<GridColumn> indexed)
+        {
+            var size = VoxelGrid.ChunkSize;
+            for (var z = (int)Math.Floor(bounds.Minimum.Z / size) * size; z < bounds.Maximum.Z; z += size)
+            for (var x = (int)Math.Floor(bounds.Minimum.X / size) * size; x < bounds.Maximum.X; x += size)
+                if (indexed.Contains(new(x, z))) return true;
+            return false;
+        }
+        return chunks.Any(from => bounds.Minimum.X < from.X + VoxelGrid.ChunkSize && bounds.Maximum.X > from.X &&
+            bounds.Minimum.Z < from.Z + VoxelGrid.ChunkSize && bounds.Maximum.Z > from.Z);
+    }
 }
 
 internal readonly record struct NodeRange(ScenePoint Focus, double RadiusCells)

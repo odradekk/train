@@ -8,10 +8,14 @@ internal sealed partial class SceneDisplay
     private SceneUpdate? _candidateUpdate;
     private SceneFrameStamp? _candidateScope;
     private readonly Dictionary<(SceneObjectId Object, int Index), SceneVisual> _candidateSources = [];
+    private readonly Dictionary<SceneObjectId, int> _candidateSourceCounts = [];
+    private readonly LinkedList<(SceneObjectId Object, int Index)> _candidatePending = [];
+    private readonly Dictionary<(SceneObjectId Object, int Index), LinkedListNode<(SceneObjectId Object, int Index)>> _candidatePendingNodes = [];
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _candidateVisuals = [];
     internal SceneFrameStamp? PreparedCandidate { get; private set; }
     internal SceneFrameStamp? CandidateScope => _candidateScope;
     internal bool IsPreparingCandidate => _candidateUpdate is not null;
+    internal int PendingCandidateVisuals => _candidatePending.Count;
 
     internal bool HasCandidateFor(SceneFrameStamp frame) => _candidateScope is { } candidate &&
         candidate.Session == frame.Session && candidate.Request == frame.Request && candidate.Space == frame.Space;
@@ -29,19 +33,35 @@ internal sealed partial class SceneDisplay
             CancelCandidate();
             return;
         }
-        if (update.Base is null) _candidateSources.Clear();
-        var replaced = update.Removed.Concat(update.Upserts.Select(item => item.Id)).ToHashSet();
-        foreach (var key in _candidateSources.Keys.Where(key => replaced.Contains(key.Object)).ToArray())
-            _candidateSources.Remove(key);
+        var upserted = update.Upserts.Select(item => item.Id).ToHashSet();
+        if (update.Base is null)
+        {
+            foreach (var id in _candidateSourceCounts.Keys.ToArray())
+                if (!upserted.Contains(id)) RemoveCandidateObject(id);
+        }
+        foreach (var id in update.Removed)
+            if (!upserted.Contains(id)) RemoveCandidateObject(id);
         foreach (var source in update.Upserts)
+        {
+            var oldCount = _candidateSourceCounts.GetValueOrDefault(source.Id);
+            for (var index = source.Visuals.Length; index < oldCount; index++)
+                RemoveCandidateSource((source.Id, index));
             for (var index = 0; index < source.Visuals.Length; index++)
-                _candidateSources.Add((source.Id, index), source.Visuals[index]);
-        foreach (var (key, visual) in _candidateVisuals.ToArray())
-            if (!_candidateSources.TryGetValue(key, out var source) || !visual.CanUpdate(source))
             {
-                visual.Dispose();
-                _candidateVisuals.Remove(key);
+                var key = (source.Id, index);
+                var visual = source.Visuals[index];
+                _candidateSources[key] = visual;
+                if (_candidateVisuals.TryGetValue(key, out var prepared))
+                {
+                    if (prepared.CanUpdate(visual)) continue;
+                    prepared.Dispose();
+                    _candidateVisuals.Remove(key);
+                }
+                if (!_candidatePendingNodes.ContainsKey(key))
+                    _candidatePendingNodes.Add(key, _candidatePending.AddLast(key));
             }
+            _candidateSourceCounts[source.Id] = source.Visuals.Length;
+        }
         _candidateScope = update.Frame;
         _candidateUpdate = update;
     }
@@ -54,13 +74,15 @@ internal sealed partial class SceneDisplay
         var started = Timestamp();
         try
         {
-            foreach (var (key, source) in _candidateSources)
+            while (_candidatePending.First is { } pending)
             {
-                if (_candidateVisuals.ContainsKey(key)) continue;
                 var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
                 // 候选始终受预算约束；新空间首帧的例外只属于实际显示帧。
                 if (elapsed >= budget || _preparationTime + elapsed >= PreparationBudget) return;
-                _candidateVisuals.Add(key, _resources.Prepare(source));
+                var key = pending.Value;
+                _candidateVisuals.Add(key, _resources.Prepare(_candidateSources[key]));
+                _candidatePending.Remove(pending);
+                _candidatePendingNodes.Remove(key);
             }
             PreparedCandidate = update.Frame;
             _candidateUpdate = null;
@@ -69,6 +91,19 @@ internal sealed partial class SceneDisplay
         {
             _preparationTime += Stopwatch.GetElapsedTime(started, Timestamp());
         }
+    }
+
+    private void RemoveCandidateObject(SceneObjectId id)
+    {
+        if (!_candidateSourceCounts.Remove(id, out var count)) return;
+        for (var index = 0; index < count; index++) RemoveCandidateSource((id, index));
+    }
+
+    private void RemoveCandidateSource((SceneObjectId Object, int Index) key)
+    {
+        _candidateSources.Remove(key);
+        if (_candidateVisuals.Remove(key, out var visual)) visual.Dispose();
+        if (_candidatePendingNodes.Remove(key, out var pending)) _candidatePending.Remove(pending);
     }
 
     private PreparedVisual? TakeCandidateVisual(SceneFrameStamp frame, (SceneObjectId Object, int Index) key, SceneVisual visual)
@@ -85,6 +120,9 @@ internal sealed partial class SceneDisplay
         foreach (var visual in _candidateVisuals.Values) visual.Dispose();
         _candidateVisuals.Clear();
         _candidateSources.Clear();
+        _candidateSourceCounts.Clear();
+        _candidatePending.Clear();
+        _candidatePendingNodes.Clear();
         _candidateUpdate = null;
         _candidateScope = null;
         PreparedCandidate = null;

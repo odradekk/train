@@ -15,7 +15,14 @@ internal sealed partial class SceneDisplay : IDisposable
     private readonly CombatEffects _effects;
     private readonly AssetResourceCache _cache;
     private readonly bool _completeInitialFrame;
-    private Dictionary<SceneObjectId, DisplayObject> _objects = [];
+    private ImmutableDictionary<SceneObjectId, DisplayObject> _objects = ImmutableDictionary<SceneObjectId, DisplayObject>.Empty;
+    private readonly Dictionary<SceneObjectId, HashSet<SceneObjectId>> _children = [];
+    private readonly HashSet<SceneObjectId> _rootObjects = [];
+    private readonly HashSet<SceneObjectId> _poseRoots = [];
+    private readonly Dictionary<SceneObjectId, DisplayObject> _effectObjects = [];
+    private readonly HashSet<SceneObjectId> _fogDirty = [];
+    private readonly HashSet<VehicleId> _fogVehicles = [];
+    private bool _resetFog;
     private FogGroup? _fog;
     private DebugLineGroup? _debugLines;
     private FogGroup? _pendingFog;
@@ -109,7 +116,7 @@ internal sealed partial class SceneDisplay : IDisposable
         var started = Timestamp();
         var preparedResource = false;
         var update = frame.Update;
-        var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
+        var next = (update.Base is null ? ImmutableDictionary<SceneObjectId, DisplayObject>.Empty : _objects).ToBuilder();
         // 首次打开或切换空间时一次提交首个可操作帧，避免列车继续驶出尚未接入的空间。
         bool BudgetExpired() => !spaceChanged && (preparedResource || budget is not null) &&
             (_preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget ||
@@ -117,10 +124,12 @@ internal sealed partial class SceneDisplay : IDisposable
         try
         {
             if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
-                foreach (var item in _objects.Values)
-                    if (item.Source.Parent is null)
-                        next[item.Source.Id] = item with { Source = item.Source with
-                        { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + update.ShiftExistingRoots } } };
+                foreach (var id in _rootObjects)
+                {
+                    var item = _objects[id];
+                    next[item.Source.Id] = item with { Source = item.Source with
+                    { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + update.ShiftExistingRoots } } };
+                }
             foreach (var id in update.Removed) next.Remove(id);
             foreach (var source in update.Upserts)
             {
@@ -149,9 +158,16 @@ internal sealed partial class SceneDisplay : IDisposable
                 }
                 next[source.Id] = new(source, root, visuals);
             }
-            foreach (var item in next.Values)
-                if (item.Source.Parent is { } parent && !next.ContainsKey(parent))
+            foreach (var source in update.Upserts)
+                if (source.Parent is { } parent && !next.ContainsKey(parent))
                     throw new InvalidOperationException("显示对象的父对象不存在。");
+            if (update.Base is not null)
+                foreach (var id in update.Removed)
+                    if (_children.TryGetValue(id, out var children))
+                        foreach (var child in children)
+                            if (next.TryGetValue(child, out var surviving) &&
+                                surviving.Source.Parent is { } parent && !next.ContainsKey(parent))
+                                throw new InvalidOperationException("显示对象的父对象不存在。");
             if (_pendingFog is null && (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions)))
             {
                 if (BudgetExpired()) return null;
@@ -164,7 +180,7 @@ internal sealed partial class SceneDisplay : IDisposable
                 if (BudgetExpired()) return null;
                 _pendingDebugLines = new(frame.DebugLines);
             }
-            var prepared = new PreparedFrame(this, frame, next, [.. _pendingVisuals.Values],
+            var prepared = new PreparedFrame(this, frame, next.ToImmutable(), [.. _pendingVisuals.Values],
                 [.. _pendingRoots.Values], _pendingFog ?? _fog!, _pendingFog is not null,
                 frame.DebugLines.IsEmpty ? null : _pendingDebugLines ?? _debugLines, _pendingDebugLines is not null);
             _pendingFog = null;
@@ -216,11 +232,14 @@ internal sealed partial class SceneDisplay : IDisposable
                     { Position = source.Pose.Position - new System.Numerics.Vector3(shift.X, shift.Y, shift.Z) } : source.Pose);
         }
         else
-            foreach (var item in _objects.Values)
-                if (item.Source.Parent is null && item.Source.Subject is { } subject &&
+            foreach (var id in _poseRoots)
+            {
+                var item = _objects[id];
+                if (item.Source.Subject is { } subject &&
                     frame.FindPose(subject) is Train.Core.Contracts.Lookup<ScenePose>.Found found)
                     Apply(item, found.Value with
                     { Position = found.Value.Position - new System.Numerics.Vector3(shift.X, shift.Y, shift.Z) });
+            }
         foreach (var id in _posedObjects)
             _objects[id].Root.Transform = ToTransform(_objects[id].Source.Pose);
         _posedObjects = posed;
@@ -263,12 +282,20 @@ internal sealed partial class SceneDisplay : IDisposable
     internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
     {
         _cache.RequireMainThread();
-        var followedVehicles = vehicles.ToHashSet();
-        foreach (var item in _objects.Values)
+        var reset = _resetFog || !_fogVehicles.SetEquals(vehicles);
+        if (reset)
         {
-            var followed = BelongsToFollowedTrain(item.Source, _objects, followedVehicles);
+            _fogVehicles.Clear();
+            _fogVehicles.UnionWith(vehicles);
+        }
+        foreach (var id in reset ? _objects.Keys : _fogDirty)
+        {
+            if (!_objects.TryGetValue(id, out var item)) continue;
+            var followed = BelongsToFollowedTrain(item.Source, _objects, _fogVehicles);
             foreach (var visual in item.Visuals) _resources.ExemptConstructionFog(visual, followed);
         }
+        _fogDirty.Clear();
+        _resetFog = false;
     }
 
     internal static bool BelongsToFollowedTrain(SceneObject source,
@@ -302,33 +329,38 @@ internal sealed partial class SceneDisplay : IDisposable
         var previous = DisplayedFrame;
         var update = prepared.Frame.Update;
         var next = prepared.Objects;
+        var upserts = update.Upserts.Select(item => item.Id).ToHashSet();
+        var changed = update.Base is null ? _objects.Keys.Concat(next.Keys).ToHashSet() :
+            update.Removed.Concat(upserts).ToHashSet();
         // 先摘除退役或换父的对象，避免退役父节点释放仍在使用的子对象。
-        foreach (var item in _objects.Values)
+        foreach (var id in changed)
         {
+            if (!_objects.TryGetValue(id, out var item)) continue;
             var surviving = next.GetValueOrDefault(item.Source.Id);
             if (surviving is null || item.Source.Parent != surviving.Source.Parent)
                 item.Root.GetParent()?.RemoveChild(item.Root);
         }
-        var upserts = update.Upserts.Select(item => item.Id).ToHashSet();
         if (Root.Position != Vector3.Zero) Root.Position = Vector3.Zero;
-        foreach (var item in next.Values)
+        var transformed = upserts.Concat(_posedObjects).ToHashSet();
+        if (update.ShiftExistingRoots != System.Numerics.Vector3.Zero) transformed.UnionWith(_rootObjects);
+        foreach (var id in transformed)
+            if (next.TryGetValue(id, out var item)) item.Root.Transform = ToTransform(item.Source.Pose);
+        foreach (var id in upserts)
         {
-            if (upserts.Contains(item.Source.Id) || _posedObjects.Contains(item.Source.Id) ||
-                item.Source.Parent is null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
-                item.Root.Transform = ToTransform(item.Source.Pose);
-            if (upserts.Contains(item.Source.Id))
+            var item = next[id];
+            for (var i = 0; i < item.Visuals.Length; i++)
             {
-                for (var i = 0; i < item.Visuals.Length; i++)
-                {
-                    var visual = item.Visuals[i];
-                    visual.Update(item.Source.Visuals[i]);
-                    if (visual.Node.GetParent() is null) item.Root.AddChild(visual.Node);
-                }
+                var visual = item.Visuals[i];
+                visual.Update(item.Source.Visuals[i]);
+                if (visual.Node.GetParent() is null) item.Root.AddChild(visual.Node);
             }
         }
-        foreach (var item in next.Values)
+        foreach (var id in upserts)
+        {
+            var item = next[id];
             if (item.Root.GetParent() is null)
                 (item.Source.Parent is { } parent ? next[parent].Root : Root).AddChild(item.Root);
+        }
         var old = _objects;
         var oldFog = _fog;
         if (!ReferenceEquals(oldFog, prepared.Fog))
@@ -337,6 +369,36 @@ internal sealed partial class SceneDisplay : IDisposable
             Root.AddChild(prepared.Fog.Root);
         }
         _fog = prepared.Fog;
+        var changedAncestry = new List<SceneObjectId>();
+        foreach (var id in changed)
+        {
+            if (_objects.TryGetValue(id, out var oldItem) && oldItem.Source.Parent is { } oldParent &&
+                _children.TryGetValue(oldParent, out var siblings))
+            {
+                siblings.Remove(id);
+                if (siblings.Count == 0) _children.Remove(oldParent);
+            }
+            _rootObjects.Remove(id);
+            _poseRoots.Remove(id);
+            _effectObjects.Remove(id);
+            if (!next.TryGetValue(id, out var item)) { _fogDirty.Remove(id); continue; }
+            if (item.Source.Parent is { } parent)
+            {
+                if (!_children.TryGetValue(parent, out var children)) _children.Add(parent, children = []);
+                children.Add(id);
+            }
+            else
+            {
+                _rootObjects.Add(id);
+                if (item.Source.Subject is not null) _poseRoots.Add(id);
+            }
+            if (!item.Source.Lights.IsEmpty || !item.Source.Effects.IsEmpty) _effectObjects[id] = item;
+            _fogDirty.Add(id);
+            if (oldItem is null || oldItem.Source.Parent != item.Source.Parent || oldItem.Source.Subject != item.Source.Subject)
+                changedAncestry.Add(id);
+        }
+        foreach (var id in changedAncestry) MarkFogSubtree(id);
+        _resetFog |= update.Base is null;
         _objects = next;
         if (!ReferenceEquals(_debugLines, prepared.DebugLines))
         {
@@ -350,15 +412,23 @@ internal sealed partial class SceneDisplay : IDisposable
         _spaceOrigin = prepared.Frame.Origin;
         _posedObjects.Clear();
         Root.Visible = true;
-        _effects.Apply(previous, prepared.Frame, _objects);
-        foreach (var item in old.Values)
+        _effects.Apply(previous, prepared.Frame, _effectObjects);
+        foreach (var id in changed)
         {
+            if (!old.TryGetValue(id, out var item)) continue;
             var surviving = next.GetValueOrDefault(item.Source.Id);
             foreach (var visual in item.Visuals)
                 if (surviving is null || !surviving.Visuals.Contains(visual)) visual.Dispose();
             if (surviving is null) item.Root.Free();
         }
         if (!ReferenceEquals(oldFog, _fog)) oldFog?.Dispose();
+    }
+
+    private void MarkFogSubtree(SceneObjectId id)
+    {
+        _fogDirty.Add(id);
+        if (_children.TryGetValue(id, out var children))
+            foreach (var child in children) MarkFogSubtree(child);
     }
 
     public void Dispose()
@@ -375,7 +445,14 @@ internal sealed partial class SceneDisplay : IDisposable
             foreach (var visual in item.Visuals) visual.Dispose();
             item.Root.Free();
         }
-        _objects.Clear();
+        _objects = _objects.Clear();
+        _children.Clear();
+        _rootObjects.Clear();
+        _poseRoots.Clear();
+        _effectObjects.Clear();
+        _fogDirty.Clear();
+        _fogVehicles.Clear();
+        _posedObjects.Clear();
         _fog?.Dispose();
         _fog = null;
         _debugLines?.Dispose();
@@ -387,13 +464,13 @@ internal sealed partial class SceneDisplay : IDisposable
     }
 
     internal sealed class PreparedFrame(SceneDisplay owner, ISceneFrame frame,
-        Dictionary<SceneObjectId, DisplayObject> objects, List<PreparedVisual> visuals,
+        ImmutableDictionary<SceneObjectId, DisplayObject> objects, List<PreparedVisual> visuals,
         List<Node3D> roots, FogGroup fog, bool ownsFog, DebugLineGroup? debugLines, bool ownsDebugLines) : IDisposable
     {
         internal bool Transferred { get; set; }
         private bool _disposed;
         internal ISceneFrame Frame { get; } = frame;
-        internal Dictionary<SceneObjectId, DisplayObject> Objects { get; } = objects;
+        internal ImmutableDictionary<SceneObjectId, DisplayObject> Objects { get; } = objects;
         internal FogGroup Fog { get; } = fog;
         internal DebugLineGroup? DebugLines { get; } = debugLines;
         internal void Commit()

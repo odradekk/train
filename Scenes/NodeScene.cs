@@ -200,8 +200,15 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly SettlementObjects settlement;
     private SceneWorldSnapshot snapshot;
     private readonly Dictionary<string, BuiltGeometry> attached = [];
+    private readonly HashSet<string> staticChanges = [];
+    private readonly Dictionary<string, RenderedDesign> placedParts = [];
+    private readonly Dictionary<string, TerrainCollisionPatch> terrainByPart = [];
+    private readonly HashSet<string> candidateChanges = [];
+    private readonly Dictionary<SceneObjectId, SceneObject> candidateObjects = [];
+    private readonly Dictionary<string, ImmutableArray<SceneObjectId>> candidatePartObjects = [];
+    private ImmutableArray<SceneObject> candidateInstances = [];
     private readonly Dictionary<EdgeId, RailwayPath> adjacentRailways = [];
-    private sealed record PlatformMap(ImmutableArray<NodeLayout.Stop> Stops, ImmutableArray<SceneProblem> Problems);
+    private sealed record PlatformMap(NodeLayout Layout, ImmutableArray<NodeLayout.Stop> Stops, ImmutableArray<SceneProblem> Problems);
     private readonly ConditionalWeakTable<SceneWorldSnapshot, PlatformMap> platformMaps = new();
     private readonly Task<Preparation>? pending;
     private readonly Func<SceneWorldSnapshot, NodeId, Cached?, CancellationToken, Built>? nodeBuild;
@@ -216,10 +223,28 @@ internal sealed class NodeScene : IAsyncDisposable
         internal int Visuals { get; } = Part.Geometry.Geometry.Objects.Sum(item => item.Visuals.Length);
     }
     private readonly Dictionary<GridColumn, Part> chunks = [];
+    private readonly HashSet<GridColumn> peripheralChunks = [];
+    private readonly HashSet<string> peripheralRails = [];
+    private readonly HashSet<GridColumn> unbuiltCorridorChunks = [];
+    private readonly HashSet<string> corridorRails = [];
+    private NodeCorridor? indexedCorridor;
+    private Preparation? indexedPreparation;
+    private readonly HashSet<GridColumn> terrainChunks = [];
+    private readonly SortedSet<GridColumn> corridorTerrainX = new(Comparer<GridColumn>.Create((a, b) =>
+        a.X != b.X ? a.X.CompareTo(b.X) : a.Z.CompareTo(b.Z)));
+    private readonly SortedSet<GridColumn> corridorTerrainZ = new(Comparer<GridColumn>.Create((a, b) =>
+        a.Z != b.Z ? a.Z.CompareTo(b.Z) : a.X.CompareTo(b.X)));
+    private readonly Dictionary<int, ImmutableArray<SceneBounds>> terrainFogRows = [];
+    private readonly HashSet<int> dirtyTerrainRows = [];
+    private (int Left, int Right, int Back, int Front)? terrainFogWindow;
+    private ScenePoint? terrainFogOrigin;
+    private ImmutableArray<SceneFog> cachedTerrainFog = [];
     private readonly Dictionary<string, Part> rails = [];
+    private readonly Dictionary<GridColumn, HashSet<string>> builtRailsByChunk = [];
     private readonly HashSet<string> rebuilding = [];
     private readonly HashSet<string> foggedRails = [];
     private bool railFogDirty = true;
+    private NodeRange? railFogRange;
     private ImmutableArray<SceneBounds> railFogBounds = [];
     private ImmutableArray<SceneFog> translatedRailFog = [];
     private ScenePoint? railFogOrigin;
@@ -239,6 +264,9 @@ internal sealed class NodeScene : IAsyncDisposable
     private (NodeLayout Layout, EdgeId? Entry, int? Track, EdgeId? Exit, int? ExitTrack, int? Platform, bool Departing, double Length)? corridorInput;
     private ImmutableArray<NodeLayout.Stop> corridorPlatforms = [];
     private readonly HashSet<string> retainedCorridorParts = [];
+    private (Preparation Prepared, NodeRange Range, NodeRange Prefetch, NodeCorridor? Corridor, bool Near)? streamingPlan;
+    private IReadOnlyList<ScenePoint> plannedPath = [];
+    internal ulong StreamingPlanRevision { get; private set; }
 
     private readonly DisplayRate displayRate;
     private bool nearCompleted;
@@ -247,6 +275,14 @@ internal sealed class NodeScene : IAsyncDisposable
     private NodeLayout? layout;
     private bool buildAllowed = true;
     private Built? built;
+    private ImmutableDictionary<string, Part> cacheParts = ImmutableDictionary<string, Part>.Empty;
+    private ImmutableDictionary<string, Part>? publishedParts;
+    private Built? publishedBuilt;
+    private ImmutableDictionary<string, Part>? presentedParts;
+    private ScenePoint? staticOrigin;
+    private RenderedDesign staticGeometry = new([], [], []);
+    private ImmutableArray<Part> staticParts = [];
+    private ImmutableArray<TerrainCollisionPatch> staticTerrain = [];
     private SceneProblem? failure;
     internal NodeId Node { get; }
     private readonly PresentationState? presentation;
@@ -396,8 +432,12 @@ internal sealed class NodeScene : IAsyncDisposable
         if (prepared is null) return;
         if (!hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch, corridor);
         lock (workGate) ReconcileParts();
-        cache.Publish(Node, owner, built! with
-        { Parts = prepared.Global.Parts.SetItems(chunks.Select(item => new KeyValuePair<string, Part>(ChunkKey(item.Key), item.Value))).SetItems(rails) });
+        if (!ReferenceEquals(publishedBuilt, built) || !ReferenceEquals(publishedParts, cacheParts))
+        {
+            cache.Publish(Node, owner, built! with { Parts = cacheParts });
+            publishedBuilt = built;
+            publishedParts = cacheParts;
+        }
         ScheduleRefresh();
     }
 
@@ -410,7 +450,7 @@ internal sealed class NodeScene : IAsyncDisposable
             TrainPosition.Edge at => new TrainPosition.Node(Node, at.Id, at.Track, null, null, NodeTravelPhase.Approaching, 0, null),
             _ => throw new ArgumentException("Invalid corridor position.")
         };
-        var platforms = settlement.Platforms(snapshot, currentLayout, ImmutableArray.CreateBuilder<SceneProblem>());
+        var platforms = Platforms(snapshot, currentLayout: currentLayout).Stops;
         var input = (currentLayout, position.EnteredFrom, position.EnteredTrack, position.NextEdge, position.NextTrack,
             position.PlatformNumber, position.Phase == NodeTravelPhase.Departing, train.LengthMeters);
         if (corridorInput == input && corridorPlatforms.SequenceEqual(platforms)) return;
@@ -418,6 +458,11 @@ internal sealed class NodeScene : IAsyncDisposable
         corridorPlatforms = platforms;
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
         corridor = new(currentLayout, dimensions, position, train.LengthMeters * RailwayCoordinates.CellsPerMeter, platforms);
+        corridorTerrainX.Clear();
+        corridorTerrainZ.Clear();
+        foreach (var from in chunks.Keys)
+            if (InCorridor(ChunkKey(from), ChunkBounds(from)))
+            { corridorTerrainX.Add(from); corridorTerrainZ.Add(from); }
     }
 
     private void UpdatePrefetch(WorldSceneTarget? target, FollowedPath? following)
@@ -488,7 +533,7 @@ internal sealed class NodeScene : IAsyncDisposable
         layout = next.Global.Layout;
         if (previousBuilt is not null)
             foreach (var key in previousBuilt.Parts.Keys)
-                if (!built.Parts.ContainsKey(key)) attached.Remove(key);
+                if (!built.Parts.ContainsKey(key)) Detach(key);
         foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal))
         {
             if (previousBuilt?.Parts.TryGetValue(part.Key, out var old) == true && ReferenceEquals(old, part.Value)) continue;
@@ -497,7 +542,7 @@ internal sealed class NodeScene : IAsyncDisposable
         foreach (var key in rails.Keys.Where(key => !next.Rails.ContainsKey(key)).ToArray())
         {
             rails.Remove(key);
-            attached.Remove(key);
+            Detach(key);
             railFogDirty = true;
         }
         rebuilding.Clear();
@@ -505,6 +550,9 @@ internal sealed class NodeScene : IAsyncDisposable
             if (pair.Value.Inputs != next.ChunkInputs(pair.Key)) rebuilding.Add(ChunkKey(pair.Key));
         foreach (var pair in rails)
             if (pair.Value.Inputs != next.Rails[pair.Key].Inputs) rebuilding.Add(pair.Key);
+        builtRailsByChunk.Clear();
+        foreach (var key in rails.Keys) IndexRail(key, true);
+        railFogDirty = true;
     }
 
     private void RetireStreaming()
@@ -542,7 +590,60 @@ internal sealed class NodeScene : IAsyncDisposable
             (!rails.ContainsKey(segment.Key) || rebuilding.Contains(segment.Key)));
     }
 
-    private void Attach(string key, Part part) => attached[key] = WorldSceneSession.Attach(part.Geometry, "node:" + key + ":", objectId);
+    private void Attach(string key, Part part)
+    {
+        attached[key] = WorldSceneSession.Attach(part.Geometry, "node:" + key + ":", objectId);
+        cacheParts = cacheParts.SetItem(key, part);
+        candidateChanges.Add(key);
+        staticChanges.Add(key);
+    }
+
+    private void Detach(string key)
+    {
+        attached.Remove(key);
+        cacheParts = cacheParts.Remove(key);
+        candidateChanges.Add(key);
+        staticChanges.Add(key);
+    }
+
+    private void ChangeTerrain(GridColumn from, bool present)
+    {
+        if (present)
+        {
+            terrainChunks.Add(from);
+            unbuiltCorridorChunks.Remove(from);
+            if (InCorridor(ChunkKey(from), ChunkBounds(from)))
+            { corridorTerrainX.Add(from); corridorTerrainZ.Add(from); peripheralChunks.Remove(from); }
+            else peripheralChunks.Add(from);
+        }
+        else
+        { terrainChunks.Remove(from); corridorTerrainX.Remove(from); corridorTerrainZ.Remove(from); peripheralChunks.Remove(from); }
+        dirtyTerrainRows.Add(from.Z);
+        railFogDirty = true;
+    }
+
+    private static IEnumerable<GridColumn> BoundsChunks(SceneBounds bounds)
+    {
+        var size = VoxelGrid.ChunkSize;
+        for (var z = (int)Math.Floor(bounds.Minimum.Z / size) * size; z < bounds.Maximum.Z; z += size)
+        for (var x = (int)Math.Floor(bounds.Minimum.X / size) * size; x < bounds.Maximum.X; x += size)
+            yield return new(x, z);
+    }
+
+    private void IndexRail(string key, bool present)
+    {
+        foreach (var from in BoundsChunks(prepared!.Rails[key].Bounds))
+            if (present)
+            {
+                if (!builtRailsByChunk.TryGetValue(from, out var keys)) builtRailsByChunk.Add(from, keys = []);
+                keys.Add(key);
+            }
+            else if (builtRailsByChunk.TryGetValue(from, out var keys))
+            {
+                keys.Remove(key);
+                if (keys.Count == 0) builtRailsByChunk.Remove(from);
+            }
+    }
     internal static double GroundHeight(IEnumerable<Part> parts, double x, double z)
     {
         foreach (var part in parts)
@@ -558,21 +659,42 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void ReconcileParts()
     {
-        var retention = range.Around(NodeStreaming.RetainCells);
-        foreach (var key in completedParts.Keys.Where(key => !retention.Intersects(completedParts[key].Bounds) &&
-            !prefetch.Intersects(completedParts[key].Bounds) && !InCorridor(key, completedParts[key].Bounds)).ToArray())
-            completedParts.Remove(key);
-        foreach (var key in pendingParts.Keys.Where(key => !range.Intersects(pendingParts[key].Bounds) &&
-            !prefetch.Intersects(pendingParts[key].Bounds) && !InCorridor(key, pendingParts[key].Bounds)).ToArray())
+        if (indexedCorridor != corridor || indexedPreparation != prepared)
         {
-            var work = pendingParts[key];
-            work.Cancellation.Cancel(); retiring.Add(work); pendingParts.Remove(key);
+            unbuiltCorridorChunks.Clear();
+            if (prepared!.HasChunks && corridor is not null)
+                unbuiltCorridorChunks.UnionWith(corridor.Chunks.Where(from => !chunks.ContainsKey(from) || rebuilding.Contains(ChunkKey(from))));
+            corridorRails.Clear();
+            foreach (var segment in prepared!.Rails.Values)
+                if (corridor?.Intersects(segment.Bounds) == true) corridorRails.Add(segment.Key);
+            peripheralChunks.Clear();
+            peripheralChunks.UnionWith(chunks.Keys.Where(from => !InCorridor(ChunkKey(from), ChunkBounds(from))));
+            peripheralRails.Clear();
+            peripheralRails.UnionWith(rails.Keys.Where(key => !InCorridor(key, prepared.Rails[key].Bounds)));
+            indexedCorridor = corridor;
+            indexedPreparation = prepared;
         }
-        foreach (var from in chunks.Keys.Where(from => !retention.Intersects(from) && !prefetch.Intersects(from) && !InCorridor(ChunkKey(from), ChunkBounds(from))).ToArray())
-        { rebuilding.Remove(ChunkKey(from)); chunks.Remove(from); attached.Remove(ChunkKey(from)); }
-        foreach (var key in rails.Keys.Where(key => !retention.Intersects(prepared!.Rails[key].Bounds) &&
-            !prefetch.Intersects(prepared.Rails[key].Bounds) && !InCorridor(key, prepared.Rails[key].Bounds)).ToArray())
-        { rebuilding.Remove(key); rails.Remove(key); attached.Remove(key); railFogDirty = true; }
+        var plan = (prepared!, range, prefetch, corridor, nearCompleted);
+        var path = followedPath?.Priority ?? [];
+        var changed = streamingPlan != plan || !plannedPath.SequenceEqual(path);
+        if (changed)
+        {
+            var retention = range.Around(NodeStreaming.RetainCells);
+            foreach (var key in completedParts.Keys.Where(key => !retention.Intersects(completedParts[key].Bounds) &&
+                !prefetch.Intersects(completedParts[key].Bounds) && !InCorridor(key, completedParts[key].Bounds)).ToArray())
+                completedParts.Remove(key);
+            foreach (var key in pendingParts.Keys.Where(key => !range.Intersects(pendingParts[key].Bounds) &&
+                !prefetch.Intersects(pendingParts[key].Bounds) && !InCorridor(key, pendingParts[key].Bounds)).ToArray())
+            {
+                var work = pendingParts[key];
+                work.Cancellation.Cancel(); retiring.Add(work); pendingParts.Remove(key);
+            }
+            foreach (var from in peripheralChunks.Where(from => !retention.Intersects(from) && !prefetch.Intersects(from)).ToArray())
+            { rebuilding.Remove(ChunkKey(from)); chunks.Remove(from); ChangeTerrain(from, false); Detach(ChunkKey(from)); }
+            foreach (var key in peripheralRails.Where(key => !retention.Intersects(prepared!.Rails[key].Bounds) &&
+                !prefetch.Intersects(prepared.Rails[key].Bounds)).ToArray())
+            { rebuilding.Remove(key); IndexRail(key, false); rails.Remove(key); peripheralRails.Remove(key); Detach(key); railFogDirty = true; }
+        }
         foreach (var key in pendingParts.Where(pair => pair.Value.Task.IsCompleted).Select(pair => pair.Key).ToArray())
         {
             var work = pendingParts[key];
@@ -594,21 +716,27 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         if (failure is not null) return;
         AdmitCompletedParts();
-        var neededChunks = range.Chunks(layout!);
-        if (prefetch != range) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
-        if (corridor is not null) neededChunks = neededChunks.Concat(corridor.Chunks).Distinct();
-        var terrain = prepared!.HasChunks ? neededChunks.Where(from =>
-            {
-                var key = ChunkKey(from);
-                var current = chunks.ContainsKey(from) && !rebuilding.Contains(key);
-                return !current && !pendingParts.ContainsKey(key) && !completedParts.ContainsKey(key);
-            }).Select(from => (Key: ChunkKey(from), Bounds: ChunkBounds(from), Chunk: (GridColumn?)from)) : [];
-        var tracks = prepared.Rails.Values.Where(segment =>
-                (!rails.ContainsKey(segment.Key) || rebuilding.Contains(segment.Key)) &&
-                !pendingParts.ContainsKey(segment.Key) && !completedParts.ContainsKey(segment.Key) &&
-                (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) || corridor?.Intersects(segment.Bounds) == true))
-            .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
-        waitingParts = new(terrain.Concat(tracks).OrderBy(item => Priority(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
+        if (changed)
+        {
+            var neededChunks = range.Chunks(layout!);
+            if (prefetch != range) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
+            if (corridor is not null) neededChunks = neededChunks.Concat(unbuiltCorridorChunks).Distinct();
+            var terrain = prepared!.HasChunks ? neededChunks.Where(from =>
+                {
+                    var key = ChunkKey(from);
+                    var current = chunks.ContainsKey(from) && !rebuilding.Contains(key);
+                    return !current && !pendingParts.ContainsKey(key) && !completedParts.ContainsKey(key);
+                }).Select(from => (Key: ChunkKey(from), Bounds: ChunkBounds(from), Chunk: (GridColumn?)from)) : [];
+            var tracks = prepared.Rails.Values.Where(segment =>
+                    (!rails.ContainsKey(segment.Key) || rebuilding.Contains(segment.Key)) &&
+                    !pendingParts.ContainsKey(segment.Key) && !completedParts.ContainsKey(segment.Key) &&
+                    (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) || corridorRails.Contains(segment.Key)))
+                .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
+            waitingParts = new(terrain.Concat(tracks).OrderBy(item => Priority(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
+            streamingPlan = plan;
+            plannedPath = path;
+            StreamingPlanRevision++;
+        }
         StartParts();
     }
 
@@ -647,8 +775,14 @@ internal sealed class NodeScene : IAsyncDisposable
             if ((nearCompleted || preparingCandidate) && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
                 visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit ||
                 pathBatch && priority.Distance != 0)) break;
-            if (ready.Chunk is { } from) chunks[from] = ready.Part;
-            else { rails[key] = ready.Part; railFogDirty = true; }
+            if (ready.Chunk is { } from) { chunks[from] = ready.Part; ChangeTerrain(from, true); }
+            else
+            {
+                rails[key] = ready.Part;
+                IndexRail(key, true);
+                if (InCorridor(key, ready.Bounds)) peripheralRails.Remove(key); else peripheralRails.Add(key);
+                railFogDirty = true;
+            }
             rebuilding.Remove(key);
             Attach(key, ready.Part);
             if (corridor?.Intersects(ready.Bounds) == true) retainedCorridorParts.Add(key);
@@ -667,8 +801,41 @@ internal sealed class NodeScene : IAsyncDisposable
             .SelectMany(item => item.Value.Geometry.Objects).ToImmutableArray();
         if (layout is null) return objects;
         var instances = settlement.Present(current, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), findId,
-            range, chunks.Keys, prefetch, allowBuild: false, corridor: corridor);
+            range, terrainChunks, prefetch, allowBuild: false, corridor: corridor);
         return objects.AddRange(instances.Objects);
+    }
+
+    internal (ImmutableArray<SceneObject> Upserts, ImmutableArray<SceneObjectId> Removed) CandidateChanges(
+        SceneWorldSnapshot current, bool full)
+    {
+        var upserts = new Dictionary<SceneObjectId, SceneObject>();
+        var removed = new HashSet<SceneObjectId>();
+        foreach (var key in candidateChanges)
+        {
+            if (candidatePartObjects.Remove(key, out var old))
+                foreach (var id in old) { candidateObjects.Remove(id); removed.Add(id); }
+            if (!attached.TryGetValue(key, out var part)) continue;
+            candidatePartObjects[key] = part.Geometry.Objects.Select(item => item.Id).ToImmutableArray();
+            foreach (var item in part.Geometry.Objects)
+            { candidateObjects[item.Id] = item; upserts[item.Id] = item; removed.Remove(item.Id); }
+        }
+        candidateChanges.Clear();
+        if (layout is not null)
+        {
+            var instances = settlement.Present(current, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), findId,
+                range, terrainChunks, prefetch, allowBuild: false, corridor: corridor).Objects;
+            var oldInstances = candidateInstances.ToDictionary(item => item.Id);
+            foreach (var item in instances)
+            {
+                if (!oldInstances.Remove(item.Id, out var old) || item != old) upserts[item.Id] = item;
+                candidateObjects[item.Id] = item;
+            }
+            foreach (var id in oldInstances.Keys) { candidateObjects.Remove(id); removed.Add(id); }
+            candidateInstances = instances;
+        }
+        return (full ? candidateObjects.Values.OrderBy(item => item.Id.Value).ToImmutableArray() :
+            upserts.Values.OrderBy(item => item.Id.Value).ToImmutableArray(),
+            full ? [] : removed.OrderBy(id => id.Value).ToImmutableArray());
     }
 
     // Caller holds workGate; only Pump replaces the priority order and consumes results.
@@ -715,6 +882,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var trainFog = ImmutableArray.CreateBuilder<SceneFog>();
         var following = layout is null ? null : RenderTrains(snapshot, start, request.Interpolation, origin, objects,
             picking, problems, trainFog, (target as WorldSceneTarget.Follow)?.Vehicle, seconds);
+        var trainPicks = picking.Count;
         ScenePoint? focus = null;
         if (target is WorldSceneTarget.Follow follow && objects.FirstOrDefault(item => item.Parent is null &&
             item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle))) is { } vehicle)
@@ -724,8 +892,8 @@ internal sealed class NodeScene : IAsyncDisposable
             camera.Frame.Update.Frame.Space == stamp.Space)
             focus = RailwayCoordinates.Add(camera.Frame.Origin, camera.Focus);
         Pump(snapshot, focus, following: following, target: target);
-        var shift = new ScenePose(RailwayCoordinates.Relative(default, origin), Quaternion.Identity);
-        foreach (var part in attached.OrderBy(item => item.Key, StringComparer.Ordinal)) Add(SceneGeometry.Place(part.Value.Geometry, shift));
+        UpdateStaticGeometry(origin);
+        problems.AddRange(staticGeometry.Diagnostics);
         var terrainFog = ImmutableArray.CreateBuilder<SceneFog>();
         if (layout is not null && prepared?.HasChunks != false) TerrainFog(origin, terrainFog);
         fog.AddRange(terrainFog);
@@ -752,7 +920,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Lair(lair.Type)),
                     diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds, corridor: corridor));
+            Add(settlement.Present(snapshot, layout, origin, fog, findId, range, terrainChunks, prefetch, presentation, seconds, corridor: corridor));
             if (layout.Lair is { } placed &&
                 snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is NodeOccupant.Lair occupant)
                 objects.Add(new(objectId("lair:" + occupant.Id.Value), null,
@@ -777,60 +945,91 @@ internal sealed class NodeScene : IAsyncDisposable
         if (nearCompleted && awaitingDisplay) admissionFrame ??= stamp;
         var readiness = failure is not null ? SceneReadiness.Failed : !nearCompleted ? SceneReadiness.Loading :
             Complete(NodeStreaming.ViewCells) ? SceneReadiness.Ready : SceneReadiness.Partial;
-        var parts = new List<(string Key, Part Part)>();
-        if (built is not null)
-            parts.AddRange(built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
-        parts.AddRange(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => (ChunkKey(item.Key), item.Value)));
-        parts.AddRange(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
-        var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
-        var terrainKeys = new HashSet<string>();
-        foreach (var (key, part) in parts)
-        {
-            var terrainKey = "terrain:" + key;
-            terrainKeys.Add(terrainKey);
-            var patch = terrainPatches.Get(terrainKey, () => objectId(terrainKey), part.Origin, origin, part.Heights);
-            if (patch is not null) terrain.Add(patch);
-        }
-        terrainPatches.Retain(terrainKeys);
         var effects = ImmutableArray<SceneEffectCue>.Empty;
         if (presentation is { } state && layout is not null)
         {
             state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId,
-                (x, z) => GroundHeight(parts.Select(item => item.Part), x, z));
+                (x, z) => GroundHeight(staticParts, x, z));
             if (failure is null)
                 effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
         }
         return new(stamp, origin, seconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
-            node: layout, nodeParts: parts.Select(item => item.Part).ToImmutableArray(),
+            node: layout, nodeParts: staticParts,
             debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay,
-            effects: effects, terrain: terrain.DrainToImmutable());
+            effects: effects, terrain: staticTerrain, staticGeometry: staticGeometry, staticPickOffset: trainPicks);
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
+    }
+
+    private void UpdateStaticGeometry(ScenePoint origin)
+    {
+        if (ReferenceEquals(presentedParts, cacheParts) && staticOrigin == origin) return;
+        var objects = ImmutableArray.CreateBuilder<SceneObject>();
+        var picking = ImmutableArray.CreateBuilder<PickGrid>();
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        var shift = new ScenePose(RailwayCoordinates.Relative(default, origin), Quaternion.Identity);
+        if (staticOrigin != origin) staticChanges.UnionWith(attached.Keys);
+        foreach (var key in staticChanges)
+        {
+            var terrainKey = "terrain:" + key;
+            if (!attached.TryGetValue(key, out var part))
+            { placedParts.Remove(key); terrainByPart.Remove(key); terrainPatches.Remove(terrainKey); continue; }
+            placedParts[key] = SceneGeometry.Place(part.Geometry, shift);
+            var raw = cacheParts[key];
+            if (terrainPatches.Get(terrainKey, () => objectId(terrainKey), raw.Origin, origin, raw.Heights) is { } patch)
+                terrainByPart[key] = patch;
+            else terrainByPart.Remove(key);
+        }
+        staticChanges.Clear();
+        foreach (var part in placedParts.OrderBy(item => item.Key, StringComparer.Ordinal))
+        {
+            var geometry = part.Value;
+            objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics);
+        }
+        staticGeometry = new(objects.ToImmutable(), picking.ToImmutable(), RailwayTerrain.UniqueProblems(problems));
+        var parts = new List<(string Key, Part Part)>();
+        if (built is not null)
+            parts.AddRange(built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
+        parts.AddRange(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => (ChunkKey(item.Key), item.Value)));
+        parts.AddRange(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
+        staticParts = parts.Select(item => item.Part).ToImmutableArray();
+        staticTerrain = parts.Where(item => terrainByPart.ContainsKey(item.Key)).Select(item => terrainByPart[item.Key]).ToImmutableArray();
+        presentedParts = cacheParts;
+        staticOrigin = origin;
     }
 
     private ImmutableArray<SceneFog> RailFog(ScenePoint origin)
     {
         if (prepared is null) return [];
         bool NeedsFog(RailSegment segment) => !rails.ContainsKey(segment.Key) &&
-            (range.Intersects(segment.Bounds) || NodeStreaming.OverlapsTerrain(segment.Bounds, chunks.Keys));
-        var count = 0;
-        foreach (var segment in prepared.Rails.Values)
-            if (NeedsFog(segment))
-            {
-                count++;
-                if (!foggedRails.Contains(segment.Key)) railFogDirty = true;
-            }
-        if (count != foggedRails.Count) railFogDirty = true;
-        if (railFogDirty)
+            (range.Intersects(segment.Bounds) || NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks));
+        if (railFogDirty || railFogRange != range)
         {
-            foggedRails.Clear();
-            foreach (var segment in prepared.Rails.Values.Where(NeedsFog)) foggedRails.Add(segment.Key);
-            railFogBounds = ConstructionFog.Clip(foggedRails.Select(key => prepared.Rails[key].Bounds),
-                rails.Keys.SelectMany(key => prepared.Rails[key].Footprint));
-            railFogDirty = false;
-            railFogOrigin = null;
+            var count = 0;
+            foreach (var segment in prepared.Rails.Values)
+                if (NeedsFog(segment))
+                {
+                    count++;
+                    if (!foggedRails.Contains(segment.Key)) railFogDirty = true;
+                }
+            if (count != foggedRails.Count) railFogDirty = true;
+            if (railFogDirty)
+            {
+                foggedRails.Clear();
+                foreach (var segment in prepared.Rails.Values.Where(NeedsFog)) foggedRails.Add(segment.Key);
+                var missing = foggedRails.Select(key => prepared.Rails[key].Bounds).ToImmutableArray();
+                var cutters = new HashSet<string>();
+                foreach (var area in missing)
+                foreach (var from in BoundsChunks(area))
+                    if (builtRailsByChunk.TryGetValue(from, out var keys)) cutters.UnionWith(keys);
+                railFogBounds = ConstructionFog.Clip(missing, cutters.Order(StringComparer.Ordinal)
+                    .SelectMany(key => prepared.Rails[key].Footprint));
+                railFogDirty = false;
+                railFogOrigin = null;
+            }
+            railFogRange = range;
         }
         if (railFogOrigin != origin)
         {
@@ -850,25 +1049,48 @@ internal sealed class NodeScene : IAsyncDisposable
         { Add(minimum.X, maximum.X, minimum.Y, maximum.Y); return; }
         var retained = range.Around(NodeStreaming.RetainCells).Window(layout);
         var ahead = prefetch.Window(layout);
-        var corridorChunks = chunks.Keys.Where(from => InCorridor(ChunkKey(from), ChunkBounds(from))).ToArray();
-        var left = Math.Min(retained.Left, Math.Min(ahead.Left, corridorChunks.Select(from => from.X).DefaultIfEmpty(retained.Left).Min()));
-        var right = Math.Max(retained.Right, Math.Max(ahead.Right, corridorChunks.Select(from => from.X + VoxelGrid.ChunkSize).DefaultIfEmpty(retained.Right).Max()));
-        var back = Math.Min(retained.Back, Math.Min(ahead.Back, corridorChunks.Select(from => from.Z).DefaultIfEmpty(retained.Back).Min()));
-        var front = Math.Max(retained.Front, Math.Max(ahead.Front, corridorChunks.Select(from => from.Z + VoxelGrid.ChunkSize).DefaultIfEmpty(retained.Front).Max()));
+        var left = Math.Min(retained.Left, Math.Min(ahead.Left, corridorTerrainX.Count == 0 ? retained.Left : corridorTerrainX.Min.X));
+        var right = Math.Max(retained.Right, Math.Max(ahead.Right, corridorTerrainX.Count == 0 ? retained.Right : corridorTerrainX.Max.X + VoxelGrid.ChunkSize));
+        var back = Math.Min(retained.Back, Math.Min(ahead.Back, corridorTerrainZ.Count == 0 ? retained.Back : corridorTerrainZ.Min.Z));
+        var front = Math.Max(retained.Front, Math.Max(ahead.Front, corridorTerrainZ.Count == 0 ? retained.Front : corridorTerrainZ.Max.Z + VoxelGrid.ChunkSize));
+        if (terrainFogWindow == (left, right, back, front) && dirtyTerrainRows.Count == 0 && terrainFogOrigin == origin)
+        { fog.AddRange(cachedTerrainFog); return; }
         Add(minimum.X, left, minimum.Y, maximum.Y);
         Add(right, maximum.X, minimum.Y, maximum.Y);
         Add(left, right, minimum.Y, back);
         Add(left, right, front, maximum.Y);
-        for (var z = back; z < front; z += VoxelGrid.ChunkSize)
+        var window = (left, right, back, front);
+        if (terrainFogWindow is not { } old || old.Left != left || old.Right != right)
         {
+            terrainFogRows.Clear();
+            for (var z = back; z < front; z += VoxelGrid.ChunkSize) dirtyTerrainRows.Add(z);
+        }
+        else if (old.Back != back || old.Front != front)
+        {
+            for (var z = back; z < front; z += VoxelGrid.ChunkSize)
+                if (z < old.Back || z >= old.Front) dirtyTerrainRows.Add(z);
+            foreach (var z in terrainFogRows.Keys.Where(z => z < back || z >= front).ToArray()) terrainFogRows.Remove(z);
+        }
+        terrainFogWindow = window;
+        foreach (var z in dirtyTerrainRows)
+        {
+            if (z < back || z >= front) continue;
+            var row = ImmutableArray.CreateBuilder<SceneBounds>();
             int? start = null;
             for (var x = left; x < right; x += VoxelGrid.ChunkSize)
             {
-                if (!chunks.ContainsKey(new(x, z))) start ??= x;
-                else if (start is { } begin) { Add(begin, x, z, z + VoxelGrid.ChunkSize); start = null; }
+                if (!terrainChunks.Contains(new(x, z))) start ??= x;
+                else if (start is { } begin) { Missing(begin, x); start = null; }
             }
-            if (start is { } last) Add(last, right, z, z + VoxelGrid.ChunkSize);
+            if (start is { } last) Missing(last, right);
+            terrainFogRows[z] = row.ToImmutable();
+            void Missing(int begin, int end) => row.Add(new(new(begin, -128, z), new(end, 128, z + VoxelGrid.ChunkSize)));
         }
+        dirtyTerrainRows.Clear();
+        for (var z = back; z < front; z += VoxelGrid.ChunkSize)
+            foreach (var bounds in terrainFogRows[z]) Add(bounds.Minimum.X, bounds.Maximum.X, bounds.Minimum.Z, bounds.Maximum.Z);
+        cachedTerrainFog = fog.ToImmutable();
+        terrainFogOrigin = origin;
 
         void Add(double left, double right, double back, double front)
         {
@@ -1249,7 +1471,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
         var queues = QueuePositions(trains, dimensions);
         var founded = FoundedSinceOpen(snapshot);
-        var mapping = founded ? new PlatformMap([], []) : Platforms(snapshot);
+        var mapping = founded ? new PlatformMap(layout!, [], []) : Platforms(snapshot);
         problems.AddRange(mapping.Problems);
         var platforms = mapping.Stops;
         var oldTrains = previous is null ? [] : NodeTrains(previous);
@@ -1344,12 +1566,17 @@ internal sealed class NodeScene : IAsyncDisposable
         return points;
     }
 
-    private PlatformMap Platforms(SceneWorldSnapshot input, bool cacheProjections = true) => platformMaps.GetValue(input, value =>
+    private PlatformMap Platforms(SceneWorldSnapshot input, bool cacheProjections = true, NodeLayout? currentLayout = null)
     {
+        currentLayout ??= layout!;
+        if (platformMaps.TryGetValue(input, out var cached) && cached.Layout == currentLayout) return cached;
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var stops = settlement.Platforms(value, layout!, problems, cacheProjections);
-        return new(stops, problems.ToImmutable());
-    });
+        var stops = settlement.Platforms(input, currentLayout, problems, cacheProjections);
+        var result = new PlatformMap(currentLayout, stops, problems.ToImmutable());
+        platformMaps.Remove(input);
+        platformMaps.Add(input, result);
+        return result;
+    }
 
     private Dictionary<TrainId, double> QueuePositions(TrainView[] trains, NodeView dimensions)
     {

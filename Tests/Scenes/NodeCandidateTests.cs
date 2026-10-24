@@ -27,10 +27,15 @@ public sealed class NodeCandidateTests
         AssertVisualOnly(full);
         var delta = Candidate(session, full.Frame);
         Assert.AreEqual(full.Frame, delta.Base);
+        Assert.AreEqual(full.Frame, delta.Frame, "An unchanged candidate must reuse the prepared frame identity.");
         Assert.AreEqual(full.Frame.Space, delta.Frame.Space);
         Assert.IsTrue(delta.Upserts.IsEmpty);
         Assert.IsTrue(delta.Removed.IsEmpty);
         AssertVisualOnly(delta);
+        var unchanged = Candidate(session, delta.Frame);
+        Assert.AreEqual(full.Frame, unchanged.Frame);
+        Assert.IsTrue(unchanged.Upserts.IsEmpty);
+        Assert.IsTrue(unchanged.Removed.IsEmpty);
 
         var replacement = Candidate(session, null);
         Assert.IsNull(replacement.Base);
@@ -101,6 +106,14 @@ public sealed class NodeCandidateTests
             CollectionAssert.AreEquivalent(oldIds, delta.Removed.ToArray(),
                 "The replacement must remove the objects acknowledged from the old offer.");
             AssertVisualOnly(delta);
+
+            var invalid = offered.Frame with { Revision = delta.Frame.Revision + 1 };
+            var reset = Candidate(session, invalid);
+            Assert.IsNull(reset.Base, "An unknown receipt must discard the delta base.");
+            Assert.IsTrue(reset.Removed.IsEmpty);
+            CollectionAssert.AreEquivalent(delta.Upserts.Select(item => item.Id).ToArray(),
+                reset.Upserts.Select(item => item.Id).ToArray(),
+                "Resetting after a consumed delta must still return the complete replacement.");
         }
         finally { release.Set(); }
     }

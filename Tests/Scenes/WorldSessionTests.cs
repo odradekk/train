@@ -263,7 +263,9 @@ public sealed class WorldSessionTests
     }
 
     [TestMethod]
-    public async Task DestroyedCompositeGetsANewObjectIdWhenRepaired()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task DestroyedCompositeGetsANewObjectIdWhenRepaired(bool acknowledgeProducedFrame)
     {
         var evaluation = RailwayFixtures.Vehicle() with
         {
@@ -283,8 +285,8 @@ public sealed class WorldSessionTests
         var nested = first.Objects.Single(item => item.Parent == root.Id);
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, steps: 1, content: content, trains: [RailwayFixtures.Train(1)],
             instances: [healthy with { Parts = [new(new(9), new(0, 10), false, true)] }]), []);
-        var destroyed = await RailwayFixtures.Settled(session, Request, first);
-        Assert.IsTrue(destroyed.Update.Removed.Contains(nested.Id));
+        var destroyed = await RailwayFixtures.Settled(session, Request, acknowledgeProducedFrame ? first : null);
+        Assert.AreEqual(acknowledgeProducedFrame, destroyed.Update.Removed.Contains(nested.Id));
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, steps: 2, content: content,
             trains: [RailwayFixtures.Train(1)], instances: [healthy]), []);
         var repaired = await RailwayFixtures.Settled(session, Request, destroyed);
