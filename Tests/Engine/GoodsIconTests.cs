@@ -123,13 +123,19 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
                 TestScene.AddChild(icon);
             }
             // 预算让步时待用节点尚未挂树，通过引擎的孤立节点查询观察真实资源释放。
-            using var orphanNodes = (Godot.Collections.Array)Node.GetOrphanNodeIds();
-            var orphans = orphanNodes.Select(id => id.AsUInt64()).Except(before)
-                .Select(GodotObject.InstanceFromId).OfType<Node>().ToArray();
-            var roots = orphans.OfType<Node3D>()
-                .Where(node => node.GetParent() is null).ToArray();
-            var meshes = roots.SelectMany(node => node.FindChildren("*", "MeshInstance3D", true, false)
-                .Cast<MeshInstance3D>()).ToArray();
+            Node[] orphans = [];
+            Node3D[] roots = [];
+            MeshInstance3D[] meshes = [];
+            await FramesUntil(TestScene, () =>
+            {
+                using var orphanNodes = (Godot.Collections.Array)Node.GetOrphanNodeIds();
+                orphans = orphanNodes.Select(id => id.AsUInt64()).Except(before)
+                    .Select(GodotObject.InstanceFromId).OfType<Node>().ToArray();
+                roots = orphans.OfType<Node3D>().Where(node => node.GetParent() is null).ToArray();
+                meshes = roots.SelectMany(node => node.FindChildren("*", "MeshInstance3D", true, false)
+                    .Cast<MeshInstance3D>()).ToArray();
+                return meshes.Length != 0;
+            });
             Require(meshes.Length == 1, $"准备中必须只有一个待用网格；孤立节点：{string.Join('；', orphans.Select(node => $"{node.Name}:{node.GetClass()}:{node.GetParent()?.Name}"))}。");
             var mesh = meshes[0].Mesh;
             Require(cache.GetChildCount() == 0 && GodotObject.IsInstanceValid(mesh) && previews[0].DisposeCalls == 0,
@@ -194,13 +200,14 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             var shared = cache.Create(Second, null);
             controls.Add(immediate); controls.Add(shared);
             TestScene.AddChild(immediate); TestScene.AddChild(shared);
+            await FramesUntil(TestScene, () => preview.DisposeCalls != 0);
             Require(Texture(immediate) is null && immediate.TooltipText == failure && shared.TooltipText == failure &&
                 diagnostics.Count == 1 && diagnostics[0] == failure && cache.GetChildCount() == 0 &&
                 preview.PresentCalls == 1 && preview.DisposeCalls == 1,
-                "不让步的准备失败不能从Create抛出，必须与后续帧失败显示相同原因并只诊断、释放一次。");
+                "未耗尽预算的准备失败不能从Create抛出，必须与预算让步后失败显示相同原因并只诊断、释放一次。");
             await new UiTestInput(TestScene).Frames(3);
             Require(preview.DisposeCalls == 1 && diagnostics.Count == 1 && factory.PreviewCalls.Count == 2,
-                "同步失败条目也不得在后续帧重复释放或诊断。");
+                "失败条目也不得在后续帧重复释放或诊断。");
         }
         finally
         {
@@ -314,6 +321,7 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             TestScene.AddChild(first); TestScene.AddChild(second);
             Require(factory.PreviewCalls.Count == 1 && previews[0].PresentCalls == 1,
                 "同设计、同世代的不同货物必须共享一次只读预览及完整帧。");
+            await FramesUntil(TestScene, () => cache.GetChildCount() != 0);
             var viewport = cache.GetChildren().OfType<SubViewport>().Single();
             var mesh = viewport.FindChildren("*", "MeshInstance3D", true, false).Cast<MeshInstance3D>().Single().Mesh;
             binding = new(Guid.NewGuid());
@@ -328,6 +336,7 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             var next = cache.Create(First, null);
             TestScene.AddChild(next);
             Require(factory.PreviewCalls.Count == 2, "新绑定不得复用旧绑定已退役的图标。");
+            await FramesUntil(TestScene, () => cache.GetChildCount() != 0);
             var secondViewport = cache.GetChildren().OfType<SubViewport>().Single();
             cache.Bind(binding, Content(2));
             Require(previews[1].DisposeCalls == 1 && !GodotObject.IsInstanceValid(secondViewport) && Texture(next) is null,
@@ -335,6 +344,7 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             next.Free();
             var final = cache.Create(First, null);
             TestScene.AddChild(final);
+            await FramesUntil(TestScene, () => cache.GetChildCount() != 0);
             var finalViewport = cache.GetChildren().OfType<SubViewport>().Single();
             cache.Free();
             Require(previews[2].DisposeCalls == 1 && !GodotObject.IsInstanceValid(finalViewport) && Texture(final) is null,
