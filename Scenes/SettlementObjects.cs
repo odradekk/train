@@ -41,6 +41,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
 
     internal Task[] PendingWork => buildings.PendingWork.Concat(parked.PendingWork).ToArray();
     internal bool HasPendingBuilds => buildings.HasPendingBuilds || parked.HasPendingBuilds;
+    internal (ulong Buildings, ulong Parked) CompleteBuilds() => (buildings.CompleteBuilds(), parked.CompleteBuilds());
 
     private Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)> Buildings(
         SceneWorldSnapshot snapshot, NodeLayout layout)
@@ -153,16 +154,36 @@ internal sealed class SettlementObjects : IAsyncDisposable
         return null;
     }
 
-    private static TItem[] Select<TItem, TKey>(TItem[] items, HashSet<TKey> retained, Func<TItem, TKey> key,
-        Func<TItem, SceneBounds?> bounds, Func<TItem, ScenePose> pose, NodeRange? range, NodeRange? prefetch)
+    private readonly HashSet<InstanceId> corridorBuildings = [];
+    private readonly HashSet<InstanceId> corridorParked = [];
+
+    private NodeCorridor? cachedCorridor;
+    private readonly Dictionary<(SceneBounds Bounds, ScenePose Pose), bool> corridorIntersections = [];
+
+    private bool IntersectsCorridor(NodeCorridor? corridor, SceneBounds bounds, ScenePose pose)
+    {
+        if (!ReferenceEquals(cachedCorridor, corridor))
+        {
+            cachedCorridor = corridor;
+            corridorIntersections.Clear();
+        }
+        if (corridor is null) return false;
+        var key = (bounds, pose);
+        if (!corridorIntersections.TryGetValue(key, out var intersects))
+            corridorIntersections.Add(key, intersects = corridor.Intersects(bounds, pose));
+        return intersects;
+    }
+
+    private TItem[] Select<TItem, TKey>(TItem[] items, HashSet<TKey> retained, Func<TItem, TKey> key,
+        Func<TItem, SceneBounds?> bounds, Func<TItem, ScenePose> pose, NodeRange? range, NodeRange? prefetch, NodeCorridor? corridor = null, HashSet<TKey>? corridorRetained = null)
         where TKey : notnull
     {
         var selected = items.Where(item =>
         {
             var area = bounds(item);
             var at = pose(item);
-            return range is null || area is null ||
-                range.Value.Intersects(area, at) || prefetch is { } ahead && ahead.Intersects(area, at) ||
+            return range is null || area is null || corridorRetained?.Contains(key(item)) == true ||
+                range.Value.Intersects(area, at) || IntersectsCorridor(corridor, area, at) || prefetch is { } ahead && ahead.Intersects(area, at) ||
                 retained.Contains(key(item)) && range.Value.Around(NodeStreaming.RetainCells).Intersects(area, at);
         }).ToArray();
         retained.Clear();
@@ -176,15 +197,15 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout, NodeRange? range = null, bool allowBuild = true,
-        NodeRange? prefetch = null)
+        NodeRange? prefetch = null, NodeCorridor? corridor = null)
     {
         var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings,
-            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorBuildings);
         buildings.Retain(placed.Select(item => item.Instance.Id));
         foreach (var id in facilitySmoke.Keys.Where(id => !retainedBuildings.Contains(id)).ToArray()) facilitySmoke.Remove(id);
         foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance, allowBuild);
         var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked,
-            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorParked);
         parked.Retain(vehicles.Select(item => item.Instance.Id));
         foreach (var item in vehicles)
             if (item.Bounds is not null) parked.Prepare(snapshot.Content, item.Instance, allowBuild);
@@ -219,12 +240,12 @@ internal sealed class SettlementObjects : IAsyncDisposable
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
         ImmutableArray<SceneFog>.Builder fog, Func<string, SceneObjectId?> findId,
         NodeRange? range = null, IReadOnlyCollection<GridColumn>? terrainChunks = null,
-        NodeRange? prefetch = null, PresentationState? presentation = null, double seconds = 0)
+        NodeRange? prefetch = null, PresentationState? presentation = null, double seconds = 0, bool allowBuild = true, NodeCorridor? corridor = null)
     {
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        Pump(snapshot, layout, range, prefetch: prefetch);
+        Pump(snapshot, layout, range, allowBuild, prefetch, corridor);
         var allBuildings = BuildingPlacements(snapshot, layout);
         var allParked = ParkedPlacements(snapshot, layout);
         var shift = RailwayCoordinates.Relative(origin, default);
@@ -232,7 +253,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             presentation.Place(allBuildings.Concat(allParked).Select(item =>
                 (Subject: (WorldObjectId)new WorldObjectId.Instance(item.Instance.Id),
                     Pose: item.Pose with { Position = item.Pose.Position - shift })));
-        var placed = Select(allBuildings, retainedBuildings, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+        var placed = Select(allBuildings, retainedBuildings, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorBuildings);
         Fog(allBuildings, placed, item => item.Instance.Id, item => item.Bounds, item => item.Pose);
         foreach (var item in placed)
         {
@@ -243,6 +264,8 @@ internal sealed class SettlementObjects : IAsyncDisposable
             var hasBody = body is not null;
             if (hasBody)
             {
+                if (!corridorBuildings.Contains(instance.Id) && item.Bounds is { } bounds && IntersectsCorridor(corridor, bounds, item.Pose))
+                    corridorBuildings.Add(instance.Id);
                 var geometry = body!.Geometry;
                 if (Settlement(snapshot, layout)?.Facilities.Any(facility =>
                         facility.Key.Building == buildingId && facility.State == ProductionState.Running) == true &&
@@ -267,7 +290,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
         }
 
         var sites = ConstructionPlacements(snapshot, layout);
-        var placedSites = Select(sites, retainedSites, item => item.Plot, item => item.Bounds, item => item.Pose, range, prefetch);
+        var placedSites = Select(sites, retainedSites, item => item.Plot, item => item.Bounds, item => item.Pose, range, prefetch, corridor);
         Fog(sites, placedSites, item => item.Plot, item => item.Bounds, item => item.Pose);
         BuiltGeometry? siteBuilt = null;
         ContentReference? missingReference = null;
@@ -300,7 +323,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             }
         }
 
-        var vehicles = Select(allParked, retainedParked, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+        var vehicles = Select(allParked, retainedParked, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorParked);
         Fog(allParked, vehicles, item => item.Instance.Id, item => item.Bounds, item => item.Pose);
         foreach (var item in vehicles)
         {
@@ -315,6 +338,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             var design = (ContentLookup<DesignEvaluation>.Found)item.Design;
             if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
             {
+                if (!corridorParked.Contains(instance.Id) && IntersectsCorridor(corridor, item.Bounds, item.Pose)) corridorParked.Add(instance.Id);
                 Add(RailwayVehicles.Place(rendered, pose, 0));
                 presentation?.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", findId, seconds, snapshot, origin);
             }
@@ -370,6 +394,37 @@ internal sealed class SettlementObjects : IAsyncDisposable
         return new(source.Geometry with { Objects = smoking }, source.Keys.Add(lightId, ":light:facility"));
     }
 
+    private NodeLayout? platformLayout;
+    private IContentView? platformContent;
+    private readonly Dictionary<(DesignHash Design, int Plot), ImmutableArray<(PartId Part, NodeLayout.Stop Stop)>> platformLocations = [];
+
+    private ImmutableArray<(PartId Part, NodeLayout.Stop Stop)> PlatformLocations(IContentView content, NodeLayout layout,
+        DesignHash design, DesignEvaluation evaluation, int plot)
+    {
+        if (platformLayout != layout || !ReferenceEquals(platformContent, content))
+        { platformLocations.Clear(); platformLayout = layout; platformContent = content; }
+        if (platformLocations.TryGetValue((design, plot), out var cached)) return cached;
+        var result = ImmutableArray.CreateBuilder<(PartId, NodeLayout.Stop)>();
+        var scene = DesignGeometry.Projection(evaluation);
+        foreach (var part in DesignGeometry.Parts(evaluation).Where(part => !part.Missing &&
+            part.Capabilities.Any(capability => capability is PartCapability.Platform)))
+        {
+            double? localZ = null;
+            var element = scene.Elements.FirstOrDefault(item => item.Number == part.Id && !item.Missing);
+            if (element?.OccupiedCells is ComputedValue<ImmutableArray<GridPosition>>.Known { Value.IsEmpty: false } cells)
+                localZ = cells.Value.Average(cell => (double)cell.Z);
+            else if (scene.Voxels.FirstOrDefault(voxel => voxel.Number == part.Id && !voxel.Missing) is { } voxel)
+                localZ = voxel.At.Z;
+            else if (scene.NestedObjects.FirstOrDefault(item => item.Details is NestedObjectDetails.FunctionalComposite composite && composite.Number == part.Id) is { } nested)
+                localZ = SceneGeometry.NestedPose(scene, nested.NestedItemIndices).Position.Z;
+            if (localZ is null) continue;
+            var stop = layout.Stops.Where(stop => stop.PlotNumber == plot)
+                .OrderBy(stop => Math.Abs(stop.LocalZ - localZ.Value)).ThenBy(stop => stop.LocalZ).FirstOrDefault();
+            if (stop is not null) result.Add((part.Id, stop));
+        }
+        return platformLocations[(design, plot)] = result.ToImmutable();
+    }
+
     internal ImmutableArray<NodeLayout.Stop> Platforms(SceneWorldSnapshot snapshot, NodeLayout layout,
         ImmutableArray<SceneProblem>.Builder problems, bool cacheProjections = true)
     {
@@ -383,28 +438,8 @@ internal sealed class SettlementObjects : IAsyncDisposable
                     Instance(snapshot.Core, new InstanceId.Building(building.Id), cacheProjections) is not Lookup<InstanceView>.Found instance ||
                     snapshot.Content.FindDesign(instance.Value.Design) is not ContentLookup<DesignEvaluation>.Found found ||
                     found.Value is DesignEvaluation.Failed || instance.Value.Structure.EffectiveCurrent <= 0) continue;
-                var parts = DesignGeometry.Parts(found.Value);
-                var scene = DesignGeometry.Projection(found.Value);
-                var destroyed = WorldSceneSession.Destroyed(instance.Value);
-                foreach (var part in parts.Where(part => !part.Missing && !destroyed.Contains(part.Id) &&
-                    instance.Value.Parts.Any(damage => damage.Part == part.Id && damage.Durability.EffectiveCurrent > 0) &&
-                    part.Capabilities.Any(capability => capability is PartCapability.Platform)))
-                {
-                    double? localZ = null;
-                    var element = scene.Elements.FirstOrDefault(item => item.Number == part.Id && !item.Missing);
-                    if (element?.OccupiedCells is ComputedValue<ImmutableArray<GridPosition>>.Known { Value.IsEmpty: false } cells)
-                        localZ = cells.Value.Average(cell => (double)cell.Z);
-                    else if (scene.Voxels.FirstOrDefault(voxel => voxel.Number == part.Id && !voxel.Missing) is { } voxel)
-                        localZ = voxel.At.Z;
-                    else if (scene.NestedObjects.FirstOrDefault(item => item.Details is NestedObjectDetails.FunctionalComposite composite && composite.Number == part.Id) is { } nested)
-                    {
-                        localZ = SceneGeometry.NestedPose(scene, nested.NestedItemIndices).Position.Z;
-                    }
-                    if (localZ is null) continue;
-                    var stop = layout.Stops.Where(stop => stop.PlotNumber == plot.TemplatePlotNumber)
-                        .OrderBy(stop => Math.Abs(stop.LocalZ - localZ.Value)).ThenBy(stop => stop.LocalZ).FirstOrDefault();
-                    if (stop is not null) stops.Add(stop);
-                }
+                foreach (var (part, stop) in PlatformLocations(snapshot.Content, layout, instance.Value.Design, found.Value, plot.TemplatePlotNumber))
+                    if (instance.Value.Parts.Any(damage => damage.Part == part && !damage.Destroyed && damage.Durability.EffectiveCurrent > 0)) stops.Add(stop);
             }
         var expected = snapshot.Core.World.Nodes.Single(node => node.Id == layout.Node).Platforms;
         if (stops.Count != expected)

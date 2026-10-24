@@ -8,76 +8,109 @@ namespace Train.App.Measurement;
 internal sealed class RouteRangeRecorder
 {
     private sealed record LocalBounds(Vector3 Minimum, Vector3 Maximum);
-    private sealed record CachedVisual(SceneMesh Mesh, bool Rail, RouteRange Range);
-    private sealed record CachedObject(ScenePoint Position, Quaternion Rotation, Dictionary<int, CachedVisual> Visuals);
+    internal sealed record CachedVisual(bool Rail, RouteRange Range);
+    internal sealed record CachedObject(Dictionary<int, CachedVisual> Visuals);
+    internal sealed record Snapshot(ISceneFrame Frame, ImmutableDictionary<ulong, CachedObject> Objects,
+        ImmutableHashSet<ulong> Changed, bool IsDelta);
     private readonly ConditionalWeakTable<SceneMesh, LocalBounds> meshBounds = new();
-    private Dictionary<ulong, CachedObject> current = [];
     private (SceneSessionId Session, SceneRequestId Request, SceneSpaceId Space, SceneSpaceId Coordinates)? identity;
     private RouteBounds[] fog = [];
     private ImmutableArray<SceneBounds> inputFog = [];
     private ScenePoint fogTranslation;
     internal long? Id { get; private set; }
+    private Snapshot? recorded;
+    private ScenePoint recordedTranslation;
 
-    internal RouteRangeChange? Update(long nextId, ISceneFrame frame, SceneSpaceId coordinates,
-        ScenePoint origin, Vector3 shift, IEnumerable<SceneObject> objects)
+    internal Snapshot? CapturePresented(ISceneFrame frame, Snapshot? displayed) =>
+        frame.Update.Base is { } baseline && displayed?.Frame.Update.Frame != baseline ? null :
+        Capture(frame, displayed, () => frame.Update.Upserts);
+
+    internal Snapshot Capture(ISceneFrame frame, Snapshot? baseline, Func<IEnumerable<SceneObject>> fullSnapshot)
     {
-        var stamp = frame.Update.Frame;
-        var nextIdentity = (stamp.Session, stamp.Request, stamp.Space, coordinates);
-        var reset = identity != nextIdentity;
-        if (reset) current.Clear();
-        var next = new Dictionary<ulong, CachedObject>();
-        var terrain = new List<RouteRange>();
-        var rails = new List<RouteRange>();
-        var removed = new HashSet<RouteRangeKey>();
-        foreach (var item in objects)
+        var delta = baseline is not null && frame.Update.Base == baseline.Frame.Update.Frame;
+        var objects = (delta ? baseline!.Objects : ImmutableDictionary<ulong, CachedObject>.Empty).ToBuilder();
+        var changed = ImmutableHashSet.CreateBuilder<ulong>();
+        if (delta)
         {
-            if (item.Parent is not null || item.Subject is not null) continue;
-            var position = new ScenePoint(origin.X + ((double)item.Pose.Position.X + shift.X),
-                origin.Y + ((double)item.Pose.Position.Y + shift.Y), origin.Z + ((double)item.Pose.Position.Z + shift.Z));
-            current.TryGetValue(item.Id.Value, out var old);
-            var samePose = old is not null && old.Position == position && old.Rotation == item.Pose.Rotation;
-            if (samePose && SameGeometry(item, old!))
-            {
-                next.Add(item.Id.Value, old!);
-                continue;
-            }
-            Dictionary<int, CachedVisual>? visuals = null;
+            var shift = frame.Update.ShiftExistingRoots;
+            var translation = new ScenePoint(frame.Origin.X - baseline!.Frame.Origin.X + shift.X,
+                frame.Origin.Y - baseline.Frame.Origin.Y + shift.Y, frame.Origin.Z - baseline.Frame.Origin.Z + shift.Z);
+            if (translation != default)
+                foreach (var (id, item) in baseline.Objects)
+                {
+                    objects[id] = item with
+                    {
+                        Visuals = item.Visuals.ToDictionary(pair => pair.Key,
+                            pair => pair.Value with { Range = Translate(pair.Value.Range, translation) })
+                    };
+                    changed.Add(id);
+                }
+            foreach (var id in frame.Update.Removed) { objects.Remove(id.Value); changed.Add(id.Value); }
+        }
+        foreach (var item in delta ? frame.Update.Upserts : fullSnapshot())
+        {
+            changed.Add(item.Id.Value);
+            if (item.Parent is not null || item.Subject is not null) { objects.Remove(item.Id.Value); continue; }
+            var position = new ScenePoint(frame.Origin.X + item.Pose.Position.X,
+                frame.Origin.Y + item.Pose.Position.Y, frame.Origin.Z + item.Pose.Position.Z);
+            var visuals = new Dictionary<int, CachedVisual>();
             for (var index = 0; index < item.Visuals.Length; index++)
             {
                 if (RecordedMesh(item.Visuals[index]) is not { } mesh) continue;
-                var rail = mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel };
-                var previous = old?.Visuals.GetValueOrDefault(index);
-                var range = samePose && previous is not null && ReferenceEquals(previous.Mesh, mesh) ? previous.Range :
-                    new RouteRange(item.Id.Value, index, Transform(meshBounds.GetValue(mesh, Bounds), position, item.Pose.Rotation));
-                (visuals ??= []).Add(index, new(mesh, rail, range));
-                if (previous is null || previous.Rail != rail || previous.Range != range)
-                {
-                    if (previous is not null && previous.Rail != rail) removed.Add(new(item.Id.Value, index));
-                    (rail ? rails : terrain).Add(range);
-                }
+                visuals.Add(index, new(mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel },
+                    new(item.Id.Value, index, Transform(meshBounds.GetValue(mesh, Bounds), position, item.Pose.Rotation))));
             }
-            if (visuals is not null) next.Add(item.Id.Value, new(position, item.Pose.Rotation, visuals));
+            if (visuals.Count == 0) objects.Remove(item.Id.Value);
+            else objects[item.Id.Value] = new(visuals);
         }
-        foreach (var (id, item) in current)
-            foreach (var index in item.Visuals.Keys)
-                if (!next.TryGetValue(id, out var replacement) || !replacement.Visuals.ContainsKey(index)) removed.Add(new(id, index));
-        var nextInputFog = frame.Update.Environment.FoggedRegions;
-        var translation = new ScenePoint(origin.X + shift.X, origin.Y + shift.Y, origin.Z + shift.Z);
-        var nextFog = fog;
-        if (translation != fogTranslation || !nextInputFog.AsSpan().SequenceEqual(inputFog.AsSpan()))
+        return new(frame, objects.ToImmutable(), changed.ToImmutable(), delta);
+    }
+
+    // changed 包含上一 P 的覆盖 ID、此间 D 的变化，以及本次 P 的覆盖 ID；P 的状态始终从 D 派生。
+    internal RouteRangeChange? Record(long nextId, Snapshot snapshot, IEnumerable<ulong>? changed,
+        SceneSpaceId coordinates, ScenePoint translation)
+    {
+        var frame = snapshot.Frame;
+        var stamp = frame.Update.Frame;
+        var nextIdentity = (stamp.Session, stamp.Request, stamp.Space, coordinates);
+        var reset = identity != nextIdentity || recorded is null;
+        var ids = reset || changed is null || recordedTranslation != translation
+            ? snapshot.Objects.Keys.Concat(recorded?.Objects.Keys ?? []).Distinct()
+            : changed.Distinct();
+        var terrain = new List<RouteRange>();
+        var rails = new List<RouteRange>();
+        var removed = new HashSet<RouteRangeKey>();
+        foreach (var id in ids)
         {
-            nextFog = new RouteBounds[nextInputFog.Length];
-            for (var index = 0; index < nextFog.Length; index++)
-            {
-                var bounds = nextInputFog[index];
-                nextFog[index] = new(Absolute(bounds.Minimum), Absolute(bounds.Maximum));
-            }
+            snapshot.Objects.TryGetValue(id, out var item);
+            CachedObject? old = null;
+            if (!reset) recorded!.Objects.TryGetValue(id, out old);
+            if (item is not null)
+                foreach (var (index, visual) in item.Visuals)
+                {
+                    var range = Translate(visual.Range, translation);
+                    var previous = old?.Visuals.GetValueOrDefault(index);
+                    if (previous is not null && previous.Rail == visual.Rail &&
+                        Translate(previous.Range, recordedTranslation) == range) continue;
+                    if (previous is not null && previous.Rail != visual.Rail) removed.Add(new(id, index));
+                    (visual.Rail ? rails : terrain).Add(range);
+                }
+            if (old is not null)
+                foreach (var index in old.Visuals.Keys)
+                    if (item is null || !item.Visuals.ContainsKey(index)) removed.Add(new(id, index));
         }
-        ScenePoint Absolute(Vector3 point) => new(translation.X + point.X, translation.Y + point.Y, translation.Z + point.Z);
+        var nextInputFog = frame.Update.Environment.FoggedRegions;
+        var fogOffset = Add(frame.Origin, translation);
+        var nextFog = fog;
+        if (fogOffset != fogTranslation || !nextInputFog.AsSpan().SequenceEqual(inputFog.AsSpan()))
+            nextFog = nextInputFog.Select(bounds => new RouteBounds(
+                new(fogOffset.X + bounds.Minimum.X, fogOffset.Y + bounds.Minimum.Y, fogOffset.Z + bounds.Minimum.Z),
+                new(fogOffset.X + bounds.Maximum.X, fogOffset.Y + bounds.Maximum.Y, fogOffset.Z + bounds.Maximum.Z))).ToArray();
         var fogChanged = reset || !fog.AsSpan().SequenceEqual(nextFog);
         inputFog = nextInputFog;
-        fogTranslation = translation;
-        current = next;
+        fogTranslation = fogOffset;
+        recorded = snapshot;
+        recordedTranslation = translation;
         identity = nextIdentity;
         if (!reset && terrain.Count == 0 && rails.Count == 0 && removed.Count == 0 && !fogChanged) return null;
         var change = new RouteRangeChange(nextId, reset ? null : Id, stamp, coordinates,
@@ -87,17 +120,9 @@ internal sealed class RouteRangeRecorder
         return change;
     }
 
-    private static bool SameGeometry(SceneObject item, CachedObject previous)
-    {
-        var count = 0;
-        for (var index = 0; index < item.Visuals.Length; index++)
-        {
-            if (RecordedMesh(item.Visuals[index]) is not { } mesh) continue;
-            if (!previous.Visuals.TryGetValue(index, out var visual) || !ReferenceEquals(visual.Mesh, mesh)) return false;
-            count++;
-        }
-        return count == previous.Visuals.Count;
-    }
+    private static ScenePoint Add(ScenePoint point, ScenePoint offset) => new(point.X + offset.X, point.Y + offset.Y, point.Z + offset.Z);
+    private static RouteRange Translate(RouteRange range, ScenePoint translation) => translation == default ? range :
+        range with { Bounds = new(Add(range.Bounds.Minimum, translation), Add(range.Bounds.Maximum, translation)) };
 
     private static SceneMesh? RecordedMesh(SceneVisual visual) => visual is SceneVisual.Geometry { Mesh: var mesh } &&
         !mesh.Vertices.IsEmpty && mesh.Material is not SceneMaterial.BuiltIn { Kind: not BuiltInMaterial.RailSteel } ? mesh : null;

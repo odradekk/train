@@ -54,6 +54,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
     internal bool Failed => failure is not null;
+    internal bool Ready { get; private set; }
     internal bool HasPendingBuilds => waitingSegments || PendingWork.Any(task => !task.IsCompleted) || vehicles.HasPendingBuilds;
     internal Task[] PendingWork => pendingSegments.Values.Select(item => (Task)item.Task).Concat(vehicles.PendingWork)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
@@ -130,7 +131,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         if (failure is not null) frame.Problems.Add(failure);
         RetireCompletedWork();
         var radius = RailwayCoordinates.ViewRadiusSegments;
-        var ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
+        Ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
             Math.Max(0, middle - radius) + 1).All(segments.ContainsKey) && !waiting;
         var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
         var terrainKeys = new HashSet<string>();
@@ -151,7 +152,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 streamingCoverage.At(origin));
         }
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
-            ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
+            Ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
             segments.Values.Select(item => item.Source).ToImmutableArray(), debugLayers: request.DebugLayers, pickRay: request.PickRay,
             effects: effects, terrain: terrain.DrainToImmutable());
@@ -170,7 +171,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         var middle = Math.Clamp((int)(focal / RailwayCoordinates.SegmentLengthCells), 0, path!.SegmentCount - 1);
         var (minimum, maximum) = NeededRange(middle, followed);
-        ReconcileSegments(snapshot, middle, minimum, maximum, followed, allowBuild);
+        ReconcileSegments(snapshot, focal, middle, minimum, maximum, followed, allowBuild);
         return middle;
     }
 
@@ -219,7 +220,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             ? new(position.Direction == TravelDirection.Forward ? edge.End : edge.Start) : null;
     }
 
-    private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
+    private void ReconcileSegments(SceneWorldSnapshot snapshot, double focal, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
     {
         Streaming?.Demand(SceneStreamingPartKind.RailwaySegment, Enumerable.Range(minimum, maximum - minimum + 1).Select(RailwayStreamingCoverage.SegmentKey));
         var (retainMinimum, retainMaximum) = NeededRange(middle, followed,

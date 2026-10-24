@@ -82,7 +82,7 @@ public sealed class NodeLifecycleTests
         line = Present(session, line);
         foreach (var work in session.PendingPrebuilds) await AwaitExpectedBuildFailure(work);
         line = Present(session, line);
-        Assert.AreEqual(2, attempts, "Reentering the prefetch range permits a new candidate after leaving it.");
+        Assert.AreEqual(1, attempts, "Changing speed must not retry the same rejected candidate now that its start no longer depends on the prefetch range.");
         Assert.IsNull(session.PrebuiltLocation);
         session.Observe(Small(NodeFixtures.Train(enteredFrom: new(1)), 3), []);
         Present(session, line);

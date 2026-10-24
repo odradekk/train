@@ -1081,6 +1081,7 @@ Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneBin
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<PickSubject> Resolve(SceneHit hit);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<SceneRequestId> RequestView(WorldSceneTarget target);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneSessionId Id { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|new ValueTask DisposeAsync();
@@ -1173,7 +1174,7 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneRequestId|public readonl
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult.Failure|public sealed record Failure(ImmutableArray<SceneProblem> Problems) : SceneResult<T>;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult.Faulted|public sealed record Faulted(SceneProblem Problem) : SceneResult<T>;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult.Success|public sealed record Success(T Value) : SceneResult<T>;
-Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult|public abstract record SceneResult<T> where T : notnull
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult|public abstract record SceneResult<T>
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSessionId|public readonly record struct SceneSessionId(Guid Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSpaceId|public readonly record struct SceneSpaceId(ulong Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStage|public enum SceneStage

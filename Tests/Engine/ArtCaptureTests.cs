@@ -568,6 +568,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             session.Observe(snapshot, events);
         public SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame) =>
             new SceneResult<ISceneFrame>.Success(frame(request));
+        public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared) => session.PresentCandidate(prepared);
         public SceneResult<PickSubject> Resolve(SceneHit hit) => session.Resolve(hit);
         public ValueTask DisposeAsync() => session.DisposeAsync();
     }

@@ -36,9 +36,62 @@ internal static class NodeStreaming
         return new(new(center.X, 0, center.Y), Vector2.Distance(minimum, maximum) / 2);
     }
 
-    internal static bool OverlapsTerrain(SceneBounds bounds, IEnumerable<GridColumn> chunks) => chunks.Any(from =>
-        bounds.Minimum.X < from.X + VoxelGrid.ChunkSize && bounds.Maximum.X > from.X &&
-        bounds.Minimum.Z < from.Z + VoxelGrid.ChunkSize && bounds.Maximum.Z > from.Z);
+    internal static (double Distance, double Progress) PathPriority(SceneBounds bounds, IReadOnlyList<ScenePoint> path)
+    {
+        if (path.Count == 0) return (double.PositiveInfinity, 0);
+        var distance = new NodeRange(path[0], 0).DistanceSquared(bounds);
+        if (distance == 0) return (0, 0);
+        for (var i = 1; i < path.Count; i++)
+        {
+            distance = Math.Min(distance, new NodeRange(path[i], 0).DistanceSquared(bounds));
+            var from = path[i - 1];
+            var dx = path[i].X - from.X;
+            var dz = path[i].Z - from.Z;
+            double enter = 0, exit = 1;
+            for (var axis = 0; axis < 2; axis++)
+            {
+                var start = axis == 0 ? from.X : from.Z;
+                var delta = axis == 0 ? dx : dz;
+                var minimum = axis == 0 ? bounds.Minimum.X : bounds.Minimum.Z;
+                var maximum = axis == 0 ? bounds.Maximum.X : bounds.Maximum.Z;
+                if (delta == 0)
+                {
+                    if (start < minimum || start > maximum) { enter = 1; exit = 0; break; }
+                }
+                else
+                {
+                    var first = (minimum - start) / delta;
+                    var last = (maximum - start) / delta;
+                    enter = Math.Max(enter, Math.Min(first, last));
+                    exit = Math.Min(exit, Math.Max(first, last));
+                }
+            }
+            if (enter <= exit) return (0, i - 1 + enter);
+            var lengthSquared = dx * dx + dz * dz;
+            for (var corner = 0; corner < 4 && lengthSquared > 0; corner++)
+            {
+                var x = corner % 2 == 0 ? bounds.Minimum.X : bounds.Maximum.X;
+                var z = corner < 2 ? bounds.Minimum.Z : bounds.Maximum.Z;
+                var along = Math.Clamp(((x - from.X) * dx + (z - from.Z) * dz) / lengthSquared, 0, 1);
+                var offsetX = from.X + along * dx - x;
+                var offsetZ = from.Z + along * dz - z;
+                distance = Math.Min(distance, offsetX * offsetX + offsetZ * offsetZ);
+            }
+        }
+        return (distance, 0);
+    }
+
+    internal static bool OverlapsTerrain(SceneBounds bounds, IEnumerable<GridColumn> chunks)
+    {
+        if (chunks is IReadOnlySet<GridColumn> indexed)
+        {
+            foreach (var from in NodeScene.BoundsChunks(bounds))
+                if (indexed.Contains(from)) return true;
+            return false;
+        }
+        return chunks.Any(from => bounds.Minimum.X < from.X + VoxelGrid.ChunkSize && bounds.Maximum.X > from.X &&
+            bounds.Minimum.Z < from.Z + VoxelGrid.ChunkSize && bounds.Maximum.Z > from.Z);
+    }
 }
 
 internal readonly record struct NodeRange(ScenePoint Focus, double RadiusCells)

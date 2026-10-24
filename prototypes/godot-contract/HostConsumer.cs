@@ -57,6 +57,7 @@ public interface IFrameDisplay
 public sealed class WorldDisplayConsumer(IWorldSceneSession scene, IFrameDisplay display)
 {
     private ISceneFrame? _displayed;
+    private SceneFrameStamp? _preparedStamp;
     private ScenePickRaySample? _pickRay;
 
     public SceneResult<SceneRequestId> RequestView(WorldSceneTarget target)
@@ -90,6 +91,28 @@ public sealed class WorldDisplayConsumer(IWorldSceneSession scene, IFrameDisplay
             _displayed = null;
             throw;
         }
+        return result;
+    }
+
+    public SceneResult<SceneUpdate?> PrepareCandidate(Action<SceneVisual> prepareVisual)
+    {
+        var result = scene.PresentCandidate(_preparedStamp);
+        if (result is SceneResult<SceneUpdate?>.Success { Value.Base: { } basis } && basis != _preparedStamp)
+            result = scene.PresentCandidate(null);
+        if (result is not SceneResult<SceneUpdate?>.Success success)
+        {
+            _preparedStamp = null;
+            return result;
+        }
+        if (success.Value is not { } update)
+        {
+            _preparedStamp = null;
+            return result;
+        }
+        // 视觉准备完成后才确认候选；不调用 TryInstall，也不更改活动显示基准。
+        foreach (var item in update.Upserts)
+        foreach (var visual in item.Visuals) prepareVisual(visual);
+        _preparedStamp = update.Frame;
         return result;
     }
 

@@ -39,6 +39,12 @@ public sealed class FixedWorldRequestSession(WorldSceneTarget nextTarget) : IWor
     public SceneResult<ISceneFrame> Present(SceneFrameRequest frame, ISceneFrame? displayedFrame) =>
         throw new InvalidOperationException("UNCONFIGURED: 帧接入未配置。");
 
+    public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        return new SceneResult<SceneUpdate?>.Success(null);
+    }
+
     public ValueTask DisposeAsync()
     {
         disposed = true;

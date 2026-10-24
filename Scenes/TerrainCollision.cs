@@ -18,6 +18,7 @@ internal static class TerrainCollision
         internal TerrainCollisionPatch? Get(string key, Func<SceneObjectId> id, ScenePoint partOrigin, ScenePoint frameOrigin,
             ImmutableDictionary<GridColumn, double> heights)
         {
+            if (heights.Count == 0) { entries.Remove(key); return null; }
             if (entries.TryGetValue(key, out var cached) && ReferenceEquals(cached.Heights, heights) &&
                 cached.PartOrigin.Equals(partOrigin) && cached.FrameOrigin.Equals(frameOrigin))
                 return cached.Patch;
@@ -35,6 +36,8 @@ internal static class TerrainCollision
         {
             foreach (var key in entries.Keys.Where(item => !keys.Contains(item)).ToArray()) entries.Remove(key);
         }
+
+        internal void Remove(string key) => entries.Remove(key);
     }
 
     internal static TerrainCollisionPatch? Patch(SceneObjectId id, ScenePoint partOrigin, ScenePoint frameOrigin,

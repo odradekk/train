@@ -20,6 +20,180 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
+    public async Task Promoted_subset_retains_prebuilt_visuals_for_later_batches_until_the_space_changes()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        Commit(display, Frame(1, []));
+        var a = Object(1, Mesh());
+        var b = Object(2, Mesh());
+        var c = Object(3, Mesh());
+        var candidate = Frame(2, [a, b, c], space: 2);
+        var before = OrphanIds();
+        display.ReceiveCandidate(candidate.Update);
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => 0;
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        var detached = NewOrphanRoots(before);
+        Require(detached.Length == 3, "候选必须预备三个脱树视觉。");
+        var meshes = detached.ToDictionary(node => node,
+            node => node.GetChild<MeshInstance3D>(0).Mesh);
+        var first = Frame(3, [a], space: 2);
+        Commit(display, first);
+        var firstVisual = display.Objects[a.Id].Visuals[0];
+        Require(detached.Contains(firstVisual.Node) && display.CandidateProgress(first.Update.Frame) is (2, 3),
+            "缩小后的晋升首帧必须保留尚未接入的B和C。");
+        var next = Frame(4, [b], first.Update.Frame, space: 2);
+        using (var prepared = Prepare(display, next))
+        {
+            var visual = prepared.Objects[b.Id].Visuals[0];
+            Require(detached.Contains(visual.Node) && ReferenceEquals(meshes[visual.Node],
+                visual.Node.GetChild<MeshInstance3D>(0).Mesh),
+                "后续批次必须转移预备视觉及同一网格，不能再次Prepare。");
+            prepared.Commit();
+            Require(ReferenceEquals(visual, display.Objects[b.Id].Visuals[0]),
+                "提交必须保留已转移的PreparedVisual本体。");
+        }
+        var unused = detached.Single(node => node.GetParent() is null);
+        var unusedMesh = meshes[unused];
+        Require(display.CandidateProgress(next.Update.Frame) is (1, 3), "C必须继续等待后续批次。");
+        Commit(display, Frame(5, [], space: 3));
+        Require(!GodotObject.IsInstanceValid(unused) && !GodotObject.IsInstanceValid(unusedMesh) &&
+            !display.HasCandidateFor(candidate.Update.Frame), "切换Space必须释放尚未取用的C及其网格。");
+    }
+
+    [Test]
+    public async Task Prebuilt_candidate_obeys_its_budget_and_remains_detached_until_all_visuals_are_prepared()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var displayed = Frame(1, [Object(1, Mesh())]);
+        Commit(display, displayed);
+        var children = display.Root.GetChildren().Select(node => node.GetInstanceId()).ToArray();
+        var before = OrphanIds();
+        var update = Frame(2, [Object(2, Mesh()), Object(3, Mesh())], space: 2).Update;
+        display.ReceiveCandidate(update);
+        await new UiTestInput(TestScene).Frames(1);
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 1000;
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(1.5));
+        Require(display.CandidateProgress(update.Frame) is (1, 2) && display.PreparedCandidate is null,
+            "预建候选必须在配额内只准备一个视觉，新空间也不能绕过预算提前给回执。");
+        Require(ReferenceEquals(display.DisplayedFrame, displayed) && display.Objects.Count == 1 &&
+            display.Root.GetChildren().Select(node => node.GetInstanceId()).SequenceEqual(children),
+            "部分候选准备不得改变D或显示对象树。");
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => 0;
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        Require(display.PreparedCandidate == update.Frame && display.CandidateProgress(update.Frame) is (2, 2),
+            "全部视觉准备完毕后才可给出候选回执。");
+        var detached = NewOrphanRoots(before);
+        Require(detached.Length == 2 && detached.All(node => node.GetParent() is null && !node.IsInsideTree()),
+            "预建候选只能创建两个脱树视觉，不能为场景对象创建root。");
+        Require(ReferenceEquals(display.DisplayedFrame, displayed) && display.Objects.Count == 1 &&
+            display.Root.GetChildren().Select(node => node.GetInstanceId()).SequenceEqual(children),
+            "完整候选准备也不得发布显示对象。");
+    }
+
+    [Test]
+    public async Task Prebuilt_candidate_visual_transfers_to_the_formal_frame_and_uses_its_pose_and_material_state()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var asset = Png("prebuilt-transfer-texture");
+        using var display = Attach(cache, new FixedContentView
+        { Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+            { [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset) } });
+        var displayed = Frame(1, [Object(1, Mesh())]);
+        Commit(display, displayed);
+        var mesh = Mesh(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.PaintedMetal, new("#204080")));
+        var update = Frame(2, [Object(2, mesh, new(7, 0, 9))], space: 2).Update;
+        var before = OrphanIds();
+        display.ReceiveCandidate(update);
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => 0;
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        var detached = NewOrphanRoots(before);
+        Require(detached.Length == 1 && display.PreparedCandidate == update.Frame, "必须已有一个准备完成的脱树视觉。");
+        var node = detached[0];
+        var formalVisual = new SceneVisual.Geometry(mesh with
+        { Material = new SceneMaterial.Voxel(asset.Revision, MaterialCategory.PaintedMetal, new("#80a0c0")) },
+            new(true, 19, .75f, true));
+        var formal = Frame(3, [Object(2, mesh, new(-70, 4, 12)) with { Visuals = [formalVisual] }],
+            origin: new(100, 0, 0), space: 2);
+        using var prepared = Prepare(display, formal);
+        var transferred = prepared.Objects[new(2)].Visuals[0];
+        Require(ReferenceEquals(transferred.Node, node) && node.GetParent() is null && !node.IsInsideTree() &&
+            display.CandidateProgress(update.Frame) is (0, 1),
+            "正式准备必须转移候选视觉本体，提交前仍保持脱树。");
+        Require(ReferenceEquals(display.DisplayedFrame, displayed), "正式准备不得提前更新D。");
+        prepared.Commit();
+        Require(ReferenceEquals(transferred, display.Objects[new(2)].Visuals[0]) &&
+            ReferenceEquals(display.DisplayedFrame, formal), "提交必须接入同一PreparedVisual及正式帧。");
+        Near(display.Objects[new(2)].Root.GlobalPosition, new(-70, 4, 12));
+        Near(display.Root.Position, Vector3.Zero);
+        Require(display.DisplayedFrame!.Origin == new ScenePoint(100, 0, 0), "正式Origin必须成为新的显示基准。");
+        var material = (ShaderMaterial)node.GetChild<MeshInstance3D>(0).MaterialOverride;
+        Require(material.GetShaderParameter("paint_color").AsColor().IsEqualApprox(Color.FromHtml("#80a0c0")) &&
+            material.GetShaderParameter("wear_enabled").AsBool() && material.GetShaderParameter("scorched").AsBool(),
+            "复用视觉必须应用正式P的涂装与表面参数。");
+        Require(MathF.Abs(material.GetShaderParameter("surface_damage").AsSingle() - .75f) < .001f,
+            "复用视觉必须应用正式P的损伤参数。");
+        display.CancelCandidate();
+        Require(GodotObject.IsInstanceValid(node), "取消已转移候选不得释放活动视觉。");
+    }
+
+    [Test]
+    public async Task Cancelling_or_replacing_a_prebuilt_space_releases_only_candidate_leases()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var shared = Png("prebuilt-active-texture");
+        var exclusive = Png("prebuilt-exclusive-texture");
+        using var display = Attach(cache, new FixedContentView
+        { Assets = new[] { shared, exclusive }.ToDictionary(asset => asset.Revision,
+            asset => (ContentLookup<ContentAsset>)new ContentLookup<ContentAsset>.Found(asset)) });
+        var activeMesh = Mesh(new SceneMaterial.Voxel(shared.Revision, MaterialCategory.BareMetal, null));
+        var exclusiveMesh = Mesh(new SceneMaterial.Voxel(exclusive.Revision, MaterialCategory.BareMetal, null));
+        var displayed = Frame(1, [Object(1, activeMesh)]);
+        Commit(display, displayed);
+        var activeRoot = display.Objects[new(1)].Root;
+        foreach (var replace in new[] { false, true })
+        {
+            using var sharedObserver = cache.AcquireFaceTexture(shared);
+            using var exclusiveObserver = cache.AcquireFaceTexture(exclusive);
+            var activeTexture = sharedObserver.Value;
+            var candidateTexture = exclusiveObserver.Value;
+            var before = OrphanIds();
+            var update = Frame(2, [Object(2, activeMesh), Object(3, exclusiveMesh)], space: 2).Update;
+            display.ReceiveCandidate(update);
+            await new UiTestInput(TestScene).Frames(1);
+            display.Timestamp = () => 0;
+            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+            var nodes = NewOrphanRoots(before);
+            Require(nodes.Length == 2 && display.PreparedCandidate == update.Frame, "释放前必须完成两个候选视觉。");
+            sharedObserver.Dispose();
+            exclusiveObserver.Dispose();
+            Require(GodotObject.IsInstanceValid(candidateTexture), "候选必须独立持有纹理租约。");
+            if (replace) display.ReceiveCandidate(Frame(3, [], space: 3).Update);
+            else display.CancelCandidate();
+            Require(nodes.All(node => !GodotObject.IsInstanceValid(node)) && !GodotObject.IsInstanceValid(candidateTexture),
+                "取消或换Space必须释放候选独有节点与纹理。");
+            Require(GodotObject.IsInstanceValid(activeTexture) && GodotObject.IsInstanceValid(activeRoot) &&
+                ReferenceEquals(display.DisplayedFrame, displayed) && ReferenceEquals(display.Objects[new(1)].Root, activeRoot),
+                "候选释放不得破坏活动对象及其共享纹理租约。");
+            Require(!display.HasCandidateFor(update.Frame) && display.PreparedCandidate is null,
+                "取消或更换空间必须撤销旧候选回执。");
+        }
+    }
+
+    [Test]
     public async Task Building_top_is_the_whole_displayed_object_and_empty_when_absent()
     {
         await new UiTestInput(TestScene).Frames(2);
@@ -756,9 +930,28 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(!GodotObject.IsInstanceValid(parent) && GodotObject.IsInstanceValid(child) &&
             ReferenceEquals(child.GetParent(), display.Root), "退役父节点不能释放换父后存活的子对象。");
         Near(child.Position, new(4, 0, 0));
-        var replacement = Frame(3, [], next.Update.Frame, fog: []);
+        var retainedBox = fog.GetChild<MeshInstance3D>(0);
+        var fogExits = 0;
+        retainedBox.TreeExiting += () => fogExits++;
+        var changedRegions = Frame(3, [], next.Update.Frame, fog: [regions[0], new(new(4), new(7)), regions[0]]);
+        using (var abandoned = Prepare(display, changedRegions)) { }
+        Require(fog.GetChildCount() == 1 && GodotObject.IsInstanceValid(retainedBox),
+            "放弃换雾准备不能接入新增矩形或释放借用的当前矩形。");
+        Commit(display, changedRegions);
+        Require(ReferenceEquals(fog, display.Root.GetNode<Node3D>("LoadingFog")) && fog.GetChildCount() == 3 &&
+            ReferenceEquals(retainedBox.GetParent(), fog) && fogExits == 0,
+            "换雾只接入新增矩形，未变化矩形不能重建或退出树，重复矩形仍须分别显示。");
+        var retiredBoxes = fog.GetChildren().OfType<MeshInstance3D>().Where(item => item != retainedBox).ToArray();
+        var partiallyRemoved = Frame(4, [], changedRegions.Update.Frame, fog: [regions[0], new(new(8), new(10))]);
+        Commit(display, partiallyRemoved);
+        Require(fog.GetChildCount() == 2 && ReferenceEquals(retainedBox.GetParent(), fog) && fogExits == 0 &&
+            GodotObject.IsInstanceValid(retainedBox.Mesh) && GodotObject.IsInstanceValid(retainedBox.MaterialOverride) &&
+            retiredBoxes.All(item => !GodotObject.IsInstanceValid(item)),
+            "同时增删雾矩形只释放移除项，保留项及其网格、材质必须仍有效。");
+        var replacement = Frame(5, [], partiallyRemoved.Update.Frame, fog: []);
         Commit(display, replacement);
-        Require(!GodotObject.IsInstanceValid(fog), "雾区域变化后必须释放旧雾节点。");
+        Require(!GodotObject.IsInstanceValid(retainedBox) && fog.GetChildCount() == 0,
+            "删除雾区域必须释放退役矩形并保留空雾组。");
         Require(display.Root.GetNodeOrNull<Node3D>("LoadingFog") is { } currentFog &&
             ReferenceEquals(currentFog.GetParent(), display.Root), "换雾组不能因根节点重名失去当前组的命名入口。");
     }
@@ -886,6 +1079,15 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Commit(display, Frame(5, []));
         Require(!GodotObject.IsInstanceValid(reloaded), "空完整帧没有释放最后模型材质。");
     }
+
+    private static HashSet<ulong> OrphanIds()
+    {
+        using var nodes = (Godot.Collections.Array)Node.GetOrphanNodeIds();
+        return nodes.Select(id => id.AsUInt64()).ToHashSet();
+    }
+
+    private static Node3D[] NewOrphanRoots(HashSet<ulong> before) => OrphanIds().Except(before)
+        .Select(GodotObject.InstanceFromId).OfType<Node3D>().Where(node => node.GetParent() is null).ToArray();
 
     private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content, bool completeInitialFrame = false)
     {

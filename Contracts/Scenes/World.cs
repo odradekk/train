@@ -32,6 +32,7 @@ public interface IWorldSceneSession : IAsyncDisposable
     SceneResult<SceneRequestId> RequestView(WorldSceneTarget target);
     SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events);
     SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame);
+    SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared);
     SceneResult<PickSubject> Resolve(SceneHit hit);
     new ValueTask DisposeAsync();
 }

@@ -17,6 +17,27 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Unchanged_streaming_inputs_reuse_the_plan_and_published_parts()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false, following: new(default, [new(16, 200, 0)], []));
+        var revision = scene.StreamingPlanRevision;
+        var published = cache.Read(NodeFixtures.NodeId);
+        for (var frame = 0; frame < 10; frame++)
+            scene.Pump(allowBuild: false, following: new(default, [new(16, 200, 0)], []));
+        Assert.AreEqual(revision, scene.StreamingPlanRevision,
+            "A new FollowedPath with the same samples must not sort the whole corridor again.");
+        Assert.AreSame(published, cache.Read(NodeFixtures.NodeId), "An unchanged part set must not be republished.");
+        scene.Pump(focus: new ScenePoint(64, 0, 0), allowBuild: false, following: new(default, [new(80, 200, 0)], []));
+        Assert.IsGreaterThan(revision, scene.StreamingPlanRevision);
+        Assert.AreSame(published, cache.Read(NodeFixtures.NodeId));
+    }
+
+    [TestMethod]
     public async Task Dispatch_prioritizes_the_chunk_crossed_between_samples_at_a_corner()
     {
         var started = new ConcurrentQueue<GridColumn>();
@@ -754,9 +775,12 @@ public sealed class NodeStreamingTests
         var ahead = new ScenePoint(0, 0, -40 + lead);
         var demanded = new NodeRange(ahead, 160).Chunks(scene.Layout!).ToArray();
         Assert.IsTrue(demanded.All(started.ContainsKey), "The entire predicted circle must be built from the train head.");
-        Assert.IsFalse(started.Keys.Any(from => from.Z > ahead.Z + 160),
-            "A unit or sign error must not move prefetch beyond the predicted circle.");
-        Assert.IsFalse(started.ContainsKey(new(0, 448)), "The lead remains capped at 160 m even at 64x.");
+        var corridor = new NodeCorridor(scene.Layout!,
+            ((Lookup<NodeView>.Found)current.Core.FindNode(NodeFixtures.NodeId)).Value,
+            (TrainPosition.Node)train.Position, train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        Assert.IsTrue(started.Keys.All(from => new NodeRange(scene.StreamingFocus, NodeStreaming.PrefetchCells).Intersects(from) ||
+            new NodeRange(ahead, NodeStreaming.PrefetchCells).Intersects(from) || corridor.Chunks.Contains(from)),
+            "Work beyond the predictive circles must belong to the finite remaining node corridor.");
     }
 
     [TestMethod]
@@ -799,8 +823,12 @@ public sealed class NodeStreamingTests
         var boundary = new NodeRange(scene.Layout.TrainBoundary(entry).Position, 160);
         Assert.IsTrue(predicted.Chunks(scene.Layout).All(started.ContainsKey),
             "The first candidate must build the circle ahead of the predicted head, using the session rate.");
-        Assert.IsTrue(started.Keys.All(from => boundary.Intersects(from) || predicted.Intersects(from)),
-            "The candidate must retain the existing two circles and capped lead.");
+        var corridor = new NodeCorridor(scene.Layout,
+            ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value,
+            new TrainPosition.Node(NodeFixtures.NodeId, new(1), 1, null, null, NodeTravelPhase.Approaching, 0, null),
+            train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        Assert.IsTrue(started.Keys.All(from => boundary.Intersects(from) || predicted.Intersects(from) || corridor.Chunks.Contains(from)),
+            "Additional candidate work must belong to the finite node corridor.");
     }
 
     [TestMethod]

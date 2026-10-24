@@ -17,16 +17,32 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private RailwayScene? railway;
     private NodeScene? node;
     private NodeScene? successor;
-    private sealed record Candidate(WorldLocation Location, Dictionary<string, SceneObjectId> Ids, NodeScene? Node = null, RailwayScene? Railway = null);
+    private sealed record Candidate(WorldLocation Location, ObjectIds Ids, SceneSpaceId Space,
+        NodeScene? Node = null, RailwayScene? Railway = null)
+    {
+        internal SceneFrameStamp? Prepared;
+        internal SceneUpdate? Offered;
+    }
     private Candidate? candidate;
     private WorldLocation? rejectedCandidate;
+    private SceneProblem? candidateFailure;
     private Task? retiringCandidate;
     // Nodes retain the handoff origin for their whole scene; railways use it only for the first frame.
     private ScenePoint? sceneOrigin;
     private readonly Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built>? nodeBuild;
     private readonly List<Task> closingScenes = [];
     private SceneWorldSnapshot? interpolationStart;
-    private Dictionary<string, SceneObjectId> ids = [];
+    private ObjectIds ids = new();
+    private sealed class ObjectIds
+    {
+        internal readonly Dictionary<string, SceneObjectId> ByKey = [];
+        internal readonly Dictionary<SceneObjectId, string> Keys = [];
+        internal readonly List<SceneObjectId> New = [];
+        internal readonly HashSet<SceneObjectId> Prebuilt = [];
+        internal SceneFrame? Frame;
+        internal ImmutableArray<TerrainCollisionPatch> Terrain;
+        internal HashSet<SceneObjectId> TerrainIds = [];
+    }
     private SceneWorldSnapshot snapshot;
     private WorldSceneTarget? target;
     private EventEnvelope? lastEvent;
@@ -34,6 +50,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private SceneProblem? fault;
     private SceneRequestId request;
     private SceneSpaceId space;
+    private ulong nextSpace;
     private ulong revision;
     private ulong nextObject;
     private Task? closing;
@@ -80,14 +97,14 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         ArgumentNullException.ThrowIfNull(value);
         if (fault is not null) return new SceneResult<SceneRequestId>.Faulted(fault);
         if (!Exists(value)) return Failure<SceneRequestId>("target_missing", SceneStage.Input);
-        CancelCandidate(); rejectedCandidate = null; sceneOrigin = null;
+        CancelCandidate(); rejectedCandidate = null; candidateFailure = null; sceneOrigin = null;
         if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
         if (node is not null) { closingScenes.Add(node.DisposeAsync().AsTask()); node = null; }
         target = value;
         request = new(request.Value + 1);
-        space = new(space.Value + 1);
-        ids.Clear();
+        space = new(++nextSpace);
+        ids = new();
         presentation.Clear();
         switch (CurrentLocation(snapshot, value))
         {
@@ -158,6 +175,17 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         if (fault is not null) return new SceneResult<SimulationPosition>.Faulted(fault);
         var before = snapshot;
+        // Revision includes every completed command and step; Sequence alone misses a command followed by Advance.
+        if ((node is not null || successor is not null || candidate?.Node is not null) &&
+            (input.Core.Revision.Value < before.Core.Revision.Value ||
+             input.Core.Revision.Value - before.Core.Revision.Value != input.Core.Position.CompletedSteps - before.Core.Position.CompletedSteps ||
+             events.Any(item => item.Event is CoreEvent.ConstructionCompleted or CoreEvent.InstanceDesignChanged or
+                 CoreEvent.CombatDestruction or CoreEvent.SettlementFounded)))
+        {
+            node?.InvalidatePlatforms();
+            successor?.InvalidatePlatforms();
+            candidate?.Node?.InvalidatePlatforms();
+        }
         if (input.Core.Position.CompletedSteps != before.Core.Position.CompletedSteps)
             interpolationStart = input.Core.Position.CompletedSteps == before.Core.Position.CompletedSteps + 1 ? before : null;
         snapshot = input;
@@ -207,10 +235,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 : railway!.Present(snapshot, interpolationStart, target, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin);
             if (retire is not null) closingScenes.Add(retire.DisposeAsync().AsTask());
             if (railway is not null) sceneOrigin = null;
-            var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
-            foreach (var patch in frame.Update.Environment.TerrainCollision) liveIds.Add(patch.Id);
-            foreach (var key in ids.Where(item => !liveIds.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
-            Prebuild();
+            RetainObjectIds(frame);
+            Prebuild(displayedFrame as SceneFrame);
             PruneCaches();
             return new SceneResult<ISceneFrame>.Success(frame);
         }
@@ -225,10 +251,90 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         return AssignId(ids, key);
     }
-    private SceneObjectId AssignId(Dictionary<string, SceneObjectId> map, string key)
+
+    public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared)
     {
-        if (!map.TryGetValue(key, out var value)) map.Add(key, value = new(++nextObject));
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (prepared is not null && prepared.Session != Id)
+            throw new ArgumentException("The prepared candidate belongs to another session.", nameof(prepared));
+        if (fault is not null) return new SceneResult<SceneUpdate?>.Faulted(fault);
+        if (candidateFailure is { } problem)
+        {
+            candidateFailure = null;
+            return new SceneResult<SceneUpdate?>.Failure([problem]);
+        }
+        if (candidate is not { Node: { } building } current) return new SceneResult<SceneUpdate?>.Success(null);
+        try
+        {
+            if (prepared is not null && prepared == current.Offered?.Frame)
+            {
+                current.Prepared = prepared;
+                current.Offered = null;
+            }
+            else if (prepared != current.Prepared)
+            {
+                current.Prepared = null;
+                current.Offered = null;
+            }
+            if (prepared is null && current.Offered?.Base is not null)
+            {
+                current.Prepared = null;
+                current.Offered = null;
+            }
+            if (current.Offered is { } offered) return new SceneResult<SceneUpdate?>.Success(offered);
+            var (upserts, removed) = building.CandidateChanges(snapshot, full: current.Prepared is null);
+            var stamp = current.Prepared is { } unchanged && upserts.IsEmpty && removed.IsEmpty
+                ? unchanged : new SceneFrameStamp(Id, request, current.Space, ++revision);
+            current.Offered = new(current.Prepared, stamp, default, upserts, removed, new([], []), []);
+            if (stamp != current.Prepared) building.RecordFrame(stamp, default);
+            return new SceneResult<SceneUpdate?>.Success(current.Offered);
+        }
+        catch (Exception error)
+        {
+            rejectedCandidate = current.Location;
+            CancelCandidate();
+            return new SceneResult<SceneUpdate?>.Failure([new("build_failed", SceneStage.Build, null, null, null, null, error.ToString())]);
+        }
+    }
+    private SceneObjectId AssignId(ObjectIds map, string key)
+    {
+        if (!map.ByKey.TryGetValue(key, out var value))
+        {
+            map.ByKey.Add(key, value = new(++nextObject));
+            map.Keys.Add(value, key);
+            map.New.Add(value);
+        }
         return value;
+    }
+
+    private void RetainObjectIds(SceneFrame frame)
+    {
+        var assigned = ids;
+        if (assigned.Prebuilt.Count > 0)
+            foreach (var item in frame.Update.Upserts) assigned.Prebuilt.Remove(item.Id);
+        var terrain = frame.Update.Environment.TerrainCollision;
+        HashSet<SceneObjectId>? previousTerrain = null;
+        if (assigned.Terrain != terrain)
+        {
+            previousTerrain = assigned.TerrainIds;
+            assigned.TerrainIds = terrain.Select(patch => patch.Id).ToHashSet();
+            assigned.Terrain = terrain;
+        }
+        foreach (var id in assigned.New) RemoveIfAbsent(id);
+        assigned.New.Clear();
+        // The displayed base can predate objects that were produced and then removed.
+        if (assigned.Frame is { } previous)
+            foreach (var id in frame.RemovedSince(previous)) RemoveIfAbsent(id);
+        if (previousTerrain is not null)
+            foreach (var id in previousTerrain) RemoveIfAbsent(id);
+        assigned.Frame = frame;
+
+        void RemoveIfAbsent(SceneObjectId id)
+        {
+            if (!assigned.Prebuilt.Contains(id) && !frame.ContainsObject(id) &&
+                !assigned.TerrainIds.Contains(id) && assigned.Keys.Remove(id, out var key))
+                assigned.ByKey.Remove(key);
+        }
     }
 
     private WorldLocation? OpenLocation() => railway is not null ? new WorldLocation.Edge(railway.Edge, 0) :
@@ -276,18 +382,19 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
         if (node is not null) { closingScenes.Add(node.DisposeAsync().AsTask()); node = null; }
-        space = new(space.Value + 1);
         presentation.Clear();
         if (candidate is { } next && SameLocation(next.Location, location) && next.Node is not { Layout: null })
         {
-            railway = next.Railway; node = next.Node; ids = next.Ids;
+            railway = next.Railway; node = next.Node; ids = next.Ids; space = next.Space;
+            if (node is not null) ids.Prebuilt.UnionWith(ids.Keys.Keys);
             candidate = null;
             railway?.Streaming?.Activate();
             node?.Streaming?.Activate();
         }
         else
         {
-            CancelCandidate(); ids = [];
+            space = new(++nextSpace);
+            CancelCandidate(); ids = new();
             var map = ids;
             if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key),
                 vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
@@ -322,9 +429,9 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             background: background, presentation: presentation, streaming: OpenStreaming(new WorldLocation.Node(id), role));
     }
 
-    private static SceneObjectId? Find(Dictionary<string, SceneObjectId> map, string key) =>
-        map.TryGetValue(key, out var id) ? id : null;
-    private void Prebuild()
+    private static SceneObjectId? Find(ObjectIds map, string key) =>
+        map.ByKey.TryGetValue(key, out var id) ? id : null;
+    private void Prebuild(SceneFrame? displayed)
     {
         if (target is not WorldSceneTarget.Follow follow) return;
         var train = ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value;
@@ -333,23 +440,26 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (railway is not null && train.Position is TrainPosition.Edge at && snapshot.Core.FindEdge(at.Id) is Lookup<EdgeView>.Found current)
         {
             wanted = new WorldLocation.Node(at.Direction == TravelDirection.Forward ? current.Value.Map.End : current.Value.Map.Start);
-            startCandidate = railway.FrontNode(snapshot, train) is not null;
+            startCandidate = displayed is { Readiness: SceneReadiness.Ready } &&
+                displayed.Update.Frame.Request == request && displayed.Update.Frame.Space == space;
         }
         if (node is not null && (train.Position as TrainPosition.Node)?.NextEdge is { } next && snapshot.Core.FindEdge(next) is Lookup<EdgeView>.Found edge)
             wanted = new WorldLocation.Edge(next, edge.Value.Map.Start == node.Node ? 0 : edge.Value.Map.LengthMeters);
         if (wanted is null || !SameLocation(candidate?.Location, wanted)) CancelCandidate();
         if (wanted is null) { rejectedCandidate = null; return; }
-        if (startCandidate && SameLocation(rejectedCandidate, wanted)) return;
+        if (SameLocation(rejectedCandidate, wanted)) return;
         rejectedCandidate = null;
-        var allowBuild = node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true;
+        var allowBuild = wanted is WorldLocation.Node
+            ? startCandidate || candidate?.Node is not null
+            : node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true;
         // Keep at most one background candidate alive, including cancellation that is still draining.
         if (allowBuild && startCandidate && candidate is null && retiringCandidate?.IsCompleted != false)
         {
-            var map = new Dictionary<string, SceneObjectId>();
+            var map = new ObjectIds();
             candidate = wanted is WorldLocation.Node atNode
-                ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true,
+                ? new(wanted, map, new(++nextSpace), Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true,
                     role: SceneStreamingRole.Candidate))
-                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key),
+                : new(wanted, map, new(++nextSpace), Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key),
                     vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
                     streaming: OpenStreaming(wanted, SceneStreamingRole.Candidate)));
         }
@@ -361,9 +471,16 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             }
             if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge, allowBuild);
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)
-            { rejectedCandidate = wanted; CancelCandidate(); }
+            {
+                candidateFailure = candidate.Node?.Failure ?? new("build_failed", SceneStage.Build, null, null, null, null, "Candidate construction failed.");
+                rejectedCandidate = wanted; CancelCandidate();
+            }
         }
-        catch (Exception) { rejectedCandidate = wanted; CancelCandidate(); }
+        catch (Exception error)
+        {
+            candidateFailure = new("build_failed", SceneStage.Build, null, null, null, null, error.ToString());
+            rejectedCandidate = wanted; CancelCandidate();
+        }
     }
 
     internal static BuiltGeometry BuildGeometry(Func<Func<string, SceneObjectId>, RenderedDesign> build)
@@ -434,7 +551,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (hit.Frame.Session != Id || hit.Frame.Request != request) return Failure<PickSubject>("stale_request", SceneStage.Pick);
         if (hit.Frame.Space != space || hit.Frame.Revision > revision || target is null || !Exists(target))
             return Failure<PickSubject>("stale_hit", SceneStage.Pick);
-        if (hit.Object is { } objectId && !ids.Values.Contains(objectId)) return Failure<PickSubject>("stale_hit", SceneStage.Pick);
+        if (hit.Object is { } objectId && !ids.ByKey.Values.Contains(objectId)) return Failure<PickSubject>("stale_hit", SceneStage.Pick);
         if (hit.Subject is PickSubject.Terrain terrain && Exists(terrain.Location))
             return new SceneResult<PickSubject>.Success(hit.Subject);
         if (hit.Subject is PickSubject.WorldObject { Object: WorldObjectId.Instance instance } subject &&
@@ -475,7 +592,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         finally
         {
-            ids.Clear();
+            ids = new();
         }
     }
 }

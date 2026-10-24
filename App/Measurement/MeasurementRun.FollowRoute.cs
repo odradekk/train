@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using Godot;
 using Train.Content.Contracts;
@@ -21,8 +22,11 @@ internal sealed partial class MeasurementRun
     private readonly List<RouteFrame> _routeSamples = [];
     private readonly List<RouteRangeChange> _routeRangeChanges = [];
     private ISceneFrame? _routeSceneFrame;
-    private readonly Dictionary<SceneObjectId, SceneObject> _routeObjects = [];
     private readonly RouteRangeRecorder _routeBuiltRecorder = new(), _routeShownRecorder = new();
+    private RouteRangeRecorder.Snapshot? _routeDisplayedRanges;
+    private ImmutableHashSet<ulong> _routePreviousPresentedChanges = [];
+    // null 表示缺少连续 D 增量，下一条记录必须比较真实完整快照。
+    private HashSet<ulong>? _routeBuiltChanges, _routeShownChanges;
     private readonly Dictionary<VehicleId, double?> _routeLengths = [];
     private long? _routeBuilt, _routeShown;
     private (SceneFrameStamp Frame, SceneSpaceId Coordinates, ScenePoint Translation)? _routeShownIdentity;
@@ -182,30 +186,45 @@ internal sealed partial class MeasurementRun
             var current = ((Lookup<TrainView>.Found)core.FindTrain(_train)).Value.Position;
             var edge = current as TrainPosition.Edge ?? _routePreviousPosition as TrainPosition.Edge;
             var multipleTracks = edge is not null && core.FindEdge(edge.Id) is Lookup<EdgeView>.Found found && found.Value.Map.Tracks > 1;
-            _routeTransition = new(old.Update.Frame, old.Origin, frame.Update.Frame, frame.Origin, multipleTracks);
+            var candidate = _app.WorldScenes.Display.CandidateProgress(frame.Update.Frame);
+            _routeTransition = new(old.Update.Frame, old.Origin, frame.Update.Frame, frame.Origin, multipleTracks,
+                candidate?.Prepared, candidate?.Received);
         }
         _routeSceneFrame = frame;
-        _routeObjects.Clear();
         if (frame.Update.Base is { } baseline)
         {
             if (_app.WorldScenes!.Display?.DisplayedFrame?.Update.Frame != baseline)
-            { _routeBuilt = null; _routePresentedCost += Seconds() - started; return; }
-            foreach (var item in _app.WorldScenes.Display.Objects.Values)
-                if (item.Source.Parent is null && item.Source.Subject is null)
-                    _routeObjects.Add(item.Source.Id, frame.Update.ShiftExistingRoots == NVector.Zero ? item.Source :
-                        item.Source with { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + frame.Update.ShiftExistingRoots } });
+            { _routeBuilt = null; _routeBuiltChanges = null; _routePresentedCost += Seconds() - started; return; }
         }
-        foreach (var id in frame.Update.Removed) _routeObjects.Remove(id);
-        foreach (var item in frame.Update.Upserts)
-            if (item.Parent is null && item.Subject is null) _routeObjects[item.Id] = item;
-        _routeBuilt = RecordRouteRanges(_routeBuiltRecorder, frame, frame.Update.Frame.Space, frame.Origin, NVector.Zero, _routeObjects.Values);
+        ObserveRouteDisplay();
+        var snapshot = _routeBuiltRecorder.CapturePresented(frame, _routeDisplayedRanges)!;
+        // P₂ 以 D 为基准；P₁ 独有的覆盖必须撤销，不能把 P₂ 累积到 P₁ 上。
+        var changed = _routeBuiltChanges is null || !snapshot.IsDelta ? null :
+            _routeBuiltChanges.Concat(_routePreviousPresentedChanges).Concat(snapshot.Changed);
+        _routeBuilt = RecordRouteRanges(_routeBuiltRecorder, snapshot, changed, frame.Update.Frame.Space, default);
+        _routePreviousPresentedChanges = snapshot.Changed;
+        _routeBuiltChanges = [];
         _routePresentedCost += Seconds() - started;
     }
 
-    private long? RecordRouteRanges(RouteRangeRecorder recorder, ISceneFrame frame, SceneSpaceId coordinates,
-        ScenePoint origin, NVector shift, IEnumerable<SceneObject> objects)
+    private void ObserveRouteDisplay()
     {
-        if (recorder.Update(_routeStateId + 1, frame, coordinates, origin, shift, objects) is { } change)
+        var display = _app.WorldScenes!.Display;
+        if (display?.DisplayedFrame is not { } drawn || _routeDisplayedRanges?.Frame.Update.Frame == drawn.Update.Frame) return;
+        var next = _routeBuiltRecorder.Capture(drawn, _routeDisplayedRanges, () => display.Objects.Values.Select(item => item.Source));
+        if (!next.IsDelta) { _routeBuiltChanges = null; _routeShownChanges = null; }
+        else
+        {
+            _routeBuiltChanges?.UnionWith(next.Changed);
+            _routeShownChanges?.UnionWith(next.Changed);
+        }
+        _routeDisplayedRanges = next;
+    }
+
+    private long? RecordRouteRanges(RouteRangeRecorder recorder, RouteRangeRecorder.Snapshot snapshot,
+        IEnumerable<ulong>? changed, SceneSpaceId coordinates, ScenePoint translation)
+    {
+        if (recorder.Record(_routeStateId + 1, snapshot, changed, coordinates, translation) is { } change)
         { _routeStateId++; _routeRangeChanges.Add(change); }
         return recorder.Id;
     }
@@ -246,7 +265,7 @@ internal sealed partial class MeasurementRun
                     {
                         vehicles.Add(new(id.Value, RouteAbsolute(pose.Value.Position, frame.Origin), length));
                     }
-                    var shown = display?.Objects.Values.FirstOrDefault(item => item.Source.Parent is null && item.Source.Subject == subject);
+                    var shown = display?.FindRoot(subject);
                     if (shown is not null && display!.PoseFrame?.Update.Frame.Space == frame.Update.Frame.Space)
                     {
                         var transform = _app.WorldScenes.View.GlobalTransform.AffineInverse() * shown.Root.GlobalTransform;
@@ -256,14 +275,18 @@ internal sealed partial class MeasurementRun
                 }
                 if (display?.DisplayedFrame is { } drawn)
                 {
+                    ObserveRouteDisplay();
                     var shift = new NVector(display.Root.Position.X, display.Root.Position.Y, display.Root.Position.Z);
                     var identity = (drawn.Update.Frame, frame.Update.Frame.Space, RouteAbsolute(shift, frame.Origin));
                     if (drawn.Update.Frame == frame.Update.Frame && shift == NVector.Zero)
                     { _routeShown = _routeBuilt; _routeShownIdentity = null; }
                     else if (_routeShownIdentity != identity)
                     {
-                        _routeShown = RecordRouteRanges(_routeShownRecorder, drawn, frame.Update.Frame.Space, frame.Origin,
-                            shift, display.Objects.Values.Select(item => item.Source));
+                        var translation = new ScenePoint(frame.Origin.X + shift.X - drawn.Origin.X,
+                            frame.Origin.Y + shift.Y - drawn.Origin.Y, frame.Origin.Z + shift.Z - drawn.Origin.Z);
+                        _routeShown = RecordRouteRanges(_routeShownRecorder, _routeDisplayedRanges!, _routeShownChanges,
+                            frame.Update.Frame.Space, translation);
+                        _routeShownChanges = [];
                         _routeShownIdentity = identity;
                     }
                 }

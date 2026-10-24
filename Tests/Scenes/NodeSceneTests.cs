@@ -334,7 +334,7 @@ public sealed class NodeSceneTests
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[1] with { Position = new(400.25, 400.125) });
         snapshot = snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Edges = [snapshot.Core.World.Edges[0]] },
             Nodes = snapshot.Core.World.Nodes.ToDictionary(node => node.Id, node => snapshot.Core.FindNode(node.Id)),
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) },
@@ -433,7 +433,7 @@ public sealed class NodeSceneTests
         var map = snapshot.Core.World.Nodes[0];
         snapshot = snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Edges = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = snapshot.Core.FindTrain(new(1)) },
@@ -470,7 +470,7 @@ public sealed class NodeSceneTests
         var map = snapshot.Core.World.Nodes[0] with { Occupant = new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile) };
         snapshot = snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Trains = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
@@ -721,7 +721,7 @@ public sealed class NodeSceneTests
         {
             Core = new FixedCoreReadView
             {
-                Position = snapshot.Core.Position,
+                Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence),
                 InputIdentity = snapshot.Core.InputIdentity,
                 World = snapshot.Core.World with { Nodes = nodes },
                 Nodes = nodes.ToDictionary(item => item.Id, item => item.Id == neighbor.Id
@@ -782,7 +782,7 @@ public sealed class NodeSceneTests
         {
             Core = new FixedCoreReadView
             {
-                Position = snapshot.Core.Position,
+                Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence),
                 InputIdentity = snapshot.Core.InputIdentity,
                 World = snapshot.Core.World with { Edges = [kept] },
                 Nodes = snapshot.Core.World.Nodes.ToDictionary(item => item.Id, item => snapshot.Core.FindNode(item.Id)),
@@ -1095,7 +1095,7 @@ public sealed class NodeSceneTests
         }
         return snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Edges = [], Trains = trains },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
             Instances = instances,
@@ -1110,7 +1110,7 @@ public sealed class NodeSceneTests
         var map = snapshot.Core.World.Nodes[0];
         return snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Edges = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) }
         } };

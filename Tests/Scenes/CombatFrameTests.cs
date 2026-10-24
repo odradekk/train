@@ -1101,8 +1101,12 @@ public sealed class CombatFrameTests
             groups: group is null ? null : [group]);
     }
 
-    private static SceneFrame Present(WorldSceneSession session, ISceneFrame? displayed = null, SceneFrameRequest? request = null) =>
-        (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request ?? Request, displayed)).Value;
+    private static SceneFrame Present(WorldSceneSession session, ISceneFrame? displayed = null, SceneFrameRequest? request = null)
+    {
+        var result = session.Present(request ?? Request, displayed);
+        Assert.IsInstanceOfType<SceneResult<ISceneFrame>.Success>(result, result.ToString());
+        return (SceneFrame)((SceneResult<ISceneFrame>.Success)result).Value;
+    }
 
     private static EventEnvelope Envelope(SceneWorldSnapshot snapshot, CoreEvent item) => new(snapshot.Core.Position, 0, item);
 

@@ -414,6 +414,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
                 Update = new(null, new(Id, new(1), new(1), 1), default, [], [], new([], []), []),
                 TerrainHeightResult = new Lookup<double>.Missing()
             });
+        public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared) => new SceneResult<SceneUpdate?>.Success(null);
         public SceneResult<PickSubject> Resolve(SceneHit hit) =>
             throw new InvalidOperationException("施工测试不拾取场景。");
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

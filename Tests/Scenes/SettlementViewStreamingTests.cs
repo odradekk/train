@@ -42,9 +42,9 @@ public sealed class SettlementViewStreamingTests
     }
 
     [TestMethod]
-    public async Task Follow_keeps_the_80_meter_chunk_set_on_a_settlement_template()
+    public async Task Follow_keeps_nearby_chunks_and_its_corridor_without_prefetching_the_whole_settlement()
     {
-        var snapshot = Snapshot();
+        var snapshot = Snapshot(follow: true);
         var cache = new NodeScene.Cache();
         await using var vehicles = new SceneVehicles();
         await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, cache, SceneFixtures.NextId(), vehicles, new(), _ => null,
@@ -52,17 +52,74 @@ public sealed class SettlementViewStreamingTests
         await scene.BuildWork!;
         await Settle(scene, snapshot, new WorldSceneTarget.Follow(new(1), new(1)));
 
-        var expected = new NodeRange(default, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).ToArray();
+        var expected = new NodeRange(scene.StreamingFocus, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).ToArray();
         var actual = cache.Read(NodeFixtures.NodeId)!.Parts
             .Where(item => item.Key.StartsWith("terrain:", StringComparison.Ordinal)).Select(item => item.Key).ToArray();
-        CollectionAssert.AreEquivalent(expected.Select(NodeScene.ChunkKey).ToArray(), actual);
+        Assert.IsTrue(expected.Select(NodeScene.ChunkKey).All(actual.Contains));
+        var whole = NodeStreaming.SettlementPrefetch(scene.Layout!).Chunks(scene.Layout!).Select(NodeScene.ChunkKey).ToArray();
+        Assert.IsTrue(whole.Except(actual).Any(), "Follow must not use the Location circle spanning the whole template.");
+    }
+
+    [TestMethod]
+    public async Task Narrowing_the_corridor_does_not_start_builds_for_previously_selected_but_unshown_instances()
+    {
+        var snapshot = Snapshot();
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value;
+        var corridor = new NodeCorridor(layout, dimensions,
+            new(NodeFixtures.NodeId, null, null, null, null, NodeTravelPhase.Approaching, 0, null), 8, layout.Stops);
+        var far = new NodeRange(new(100_000, 0, 100_000), 1);
+        await using var objects = new SettlementObjects(SceneFixtures.NextId());
+        objects.Pump(snapshot, layout, far, allowBuild: false, corridor: corridor);
+        Assert.IsEmpty(objects.PendingWork);
+        objects.Pump(snapshot, layout, far);
+        Assert.IsEmpty(objects.PendingWork,
+            "仅被旧通道选中、尚未显示的建筑和停放车辆不能在通道收窄后开始构建。");
+        var rendered = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null,
+            range: far);
+        Assert.IsFalse(rendered.Objects.Any(item => item.Subject is WorldObjectId.Instance));
+        Assert.IsEmpty(objects.PendingWork);
+    }
+
+    [TestMethod]
+    public async Task Narrowing_the_corridor_keeps_buildings_and_parked_vehicles_that_were_actually_shown()
+    {
+        var snapshot = Snapshot();
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value;
+        var corridor = new NodeCorridor(layout, dimensions,
+            new(NodeFixtures.NodeId, null, null, null, null, NodeTravelPhase.Approaching, 0, null), 8, layout.Stops);
+        var far = new NodeRange(new(100_000, 0, 100_000), 1);
+        await using var objects = new SettlementObjects(SceneFixtures.NextId());
+        RenderedDesign shown;
+        do
+        {
+            shown = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null,
+                range: far, corridor: corridor);
+            await SceneFixtures.AwaitPendingWork(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
+        } while (objects.HasPendingBuilds || objects.PendingWork.Length > 0);
+        // 再接入已完成的构建，只有这一帧显示出的对象获得通道保留资格。
+        shown = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null,
+            range: far, corridor: corridor);
+        var roots = shown.Objects.Where(item => item.Parent is null && item.Subject is WorldObjectId.Instance &&
+            !item.Visuals.IsEmpty).ToArray();
+        Assert.IsTrue(roots.Any(item => item.Subject is WorldObjectId.Instance { Id: InstanceId.Building }),
+            "测试通道必须实际显示建筑。");
+        Assert.IsTrue(roots.Any(item => item.Subject is WorldObjectId.Instance { Id: InstanceId.Vehicle }),
+            "测试通道必须实际显示停放车辆。");
+        var narrowed = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null,
+            range: far);
+        foreach (var root in roots)
+            Assert.IsTrue(narrowed.Objects.Any(item => item.Parent is null && item.Subject == root.Subject &&
+                !item.Visuals.IsEmpty), "通道收窄后已显示的实例必须继续显示。");
+        Assert.IsEmpty(objects.PendingWork);
     }
 
     private static bool Contains(SceneBounds bounds, Vector3 point) => point.X >= bounds.Minimum.X &&
         point.X <= bounds.Maximum.X && point.Y >= bounds.Minimum.Y && point.Y <= bounds.Maximum.Y &&
         point.Z >= bounds.Minimum.Z && point.Z <= bounds.Maximum.Z;
 
-    private static SceneWorldSnapshot Snapshot()
+    private static SceneWorldSnapshot Snapshot(bool follow = false)
     {
         var layout = NodeFixtures.Layout with
         {
@@ -88,6 +145,8 @@ public sealed class SettlementViewStreamingTests
             Details = new InstanceDetails.Building(new(2), PlotSize.Small)
         };
         var instances = new List<InstanceView> { far };
+        var trains = follow ? ImmutableArray.Create(NodeFixtures.Train()) : [];
+        if (follow) instances.Add(RailwayFixtures.Instance() with { Location = NodeFixtures.Location });
         for (var id = 2; id <= SettlementObjects.ParkedVehicleLimit + 1; id++)
             instances.Add(RailwayFixtures.Instance((ulong)id) with { Location = NodeFixtures.Location });
         var station = NodeFixtures.StationEvaluation();
@@ -95,12 +154,13 @@ public sealed class SettlementViewStreamingTests
         var content = NodeFixtures.Content(layout: layout,
             designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(station) });
-        var source = (FixedCoreReadView)NodeFixtures.Snapshot(trains: [], instances: [.. instances], content: content).Core;
+        var source = (FixedCoreReadView)NodeFixtures.Snapshot(trains: trains, instances: [.. instances], content: content).Core;
         var node = source.World.Nodes[0];
         return new(new FixedCoreReadView
         {
             InputIdentity = source.InputIdentity, Position = source.Position,
             World = source.World with { Nodes = [node], Edges = [] },
+            Trains = trains.ToDictionary(train => train.Id, train => source.FindTrain(train.Id)),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = new Lookup<NodeView>.Found(new(node, [], 80, 96, 80)) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) },

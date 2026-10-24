@@ -12,6 +12,36 @@ public sealed class SceneVehiclePoolTests
     private static SceneObjectId Id(string _) => new(1);
 
     [TestMethod]
+    public async Task Completed_build_revision_advances_while_another_instance_is_still_pending()
+    {
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var first = RailwayFixtures.Instance();
+        var second = first with { Id = new InstanceId.Vehicle(new(2)) };
+        using var releaseFirst = new ManualResetEventSlim();
+        using var releaseSecond = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles(build: (view, instance) =>
+        {
+            (instance.Id == first.Id ? releaseFirst : releaseSecond).Wait();
+            return RailwayVehicles.Build(view, instance);
+        });
+        try
+        {
+            vehicles.Prepare(content, first);
+            var firstWork = vehicles.PendingWork.Single();
+            vehicles.Prepare(content, second);
+            var before = vehicles.CompleteBuilds();
+            releaseFirst.Set();
+            await firstWork;
+            var after = vehicles.CompleteBuilds();
+            Assert.IsGreaterThan(before, after);
+            Assert.IsTrue(vehicles.HasPendingBuilds);
+            Assert.IsNotNull(vehicles.Prepare(content, first, allowBuild: false));
+            Assert.AreEqual(after, vehicles.CompleteBuilds(), "Unchanged pending work must not invalidate the candidate again.");
+        }
+        finally { releaseFirst.Set(); releaseSecond.Set(); }
+    }
+
+    [TestMethod]
     public async Task ClosingRailwayCandidateDoesNotWaitForSharedVehicleBuild()
     {
         using var release = new ManualResetEventSlim();

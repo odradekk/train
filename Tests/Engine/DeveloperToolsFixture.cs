@@ -161,6 +161,7 @@ internal sealed class DeveloperToolsFixture
             };
             return new SceneResult<ISceneFrame>.Success(frame);
         }
+        public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared) => new SceneResult<SceneUpdate?>.Success(null);
         public SceneResult<PickSubject> Resolve(SceneHit hit) => throw new InvalidOperationException("UNCONFIGURED: fixture picking");
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
