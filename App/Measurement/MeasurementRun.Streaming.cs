@@ -156,10 +156,12 @@ internal sealed partial class MeasurementRun
             return new
             {
                 needed_to_commit = Distribution(group.Select(part => part.NeededToCommittedSeconds)),
+                needed_to_queued = Distribution(group.Select(part => part.Queued - part.Needed)),
                 queued_to_started = Distribution(group.Select(part => part.QueueSeconds)),
                 started_to_built = Distribution(group.Select(part => part.BuildSeconds)),
                 built_to_admitted = Distribution(group.Select(part => part.BuiltToAdmittedSeconds)),
                 admitted_to_commit = Distribution(group.Select(part => part.AdmittedToCommittedSeconds)),
+                admitted_to_resources_prepared = Distribution(group.Select(part => part.ResourcesPrepared - part.Admitted)),
                 resources_prepared_to_commit = Distribution(group.Select(part => part.Committed - part.ResourcesPrepared))
             };
         }
