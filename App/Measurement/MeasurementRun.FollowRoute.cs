@@ -241,6 +241,8 @@ internal sealed partial class MeasurementRun
             if (status.IsFrozen) throw new InvalidOperationException("路线测量期间核心冻结。");
             if (_app.GetWindow().Mode == Window.ModeEnum.Minimized) throw new InvalidOperationException("测量窗口被最小化。");
             var now = Seconds();
+            AdvanceLowOrbit(now);
+            RecordRouteOrbit(now);
             var completed = status.View.Position.CompletedSteps;
             var frame = _routeSceneFrame; var display = _app.WorldScenes!.Display;
             var train = ((Lookup<TrainView>.Found)status.View.FindTrain(_train)).Value;

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Chickensoft.GoDotTest;
 using Godot;
 using Train.Core.Contracts;
+using Train.App.Measurement;
 using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;
 using Train.Ui;
@@ -57,6 +58,36 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             }
         }
         finally { viewport.Free(); }
+    }
+
+    [Test]
+    public void Measurement_low_orbit_uses_node_and_railway_limits_and_can_restore_default_distance()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            foreach (var nodeFree in new[] { true, false })
+            {
+                camera.DisplayedFrame(Frame(bounds: nodeFree ? NodeBounds : null), null, railwayPan: !nodeFree);
+                foreach (var farthest in new[] { true, false })
+                {
+                    MeasurementRun.ConfigureLowOrbitCamera(camera, farthest);
+                    var expectedDistance = farthest ? nodeFree ? 96 : 240 : 48;
+                    var initialYaw = camera.OrbitYawRadians;
+                    for (var step = 0; step < 8; step++)
+                    {
+                        camera.Orbit(100, 0);
+                        Require(Math.Abs(camera.Camera.Position.DistanceTo(camera.Focus) - expectedDistance) < .001,
+                            "测量环绕必须保持节点96格/线路240格限幅，并能恢复默认48格。");
+                        Require(Math.Abs(camera.OrbitPitchRadians - .15f) < .0001,
+                            "最低俯仰请求必须在持续环绕期间保持0.15。");
+                    }
+                    Require(Math.Abs(camera.OrbitYawRadians - initialYaw) > .1,
+                        "环绕输入必须实际改变相对偏航。");
+                }
+            }
+        }
+        finally { camera.Free(); }
     }
 
     [Test]

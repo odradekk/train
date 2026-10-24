@@ -33,6 +33,7 @@ internal sealed partial class MeasurementRun
 
     private void StartStreamingRoute(VehicleId followed)
     {
+        if (IsLowOrbit) BeginLowOrbit();
         if (_streamingRecorder is null) return;
         _streamingFollowed = followed;
         var camera = _app.WorldScenes!.View.CameraRig;
