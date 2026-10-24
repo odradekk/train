@@ -24,8 +24,7 @@ public sealed class ConstructionFogTests
         var initial = Snapshot(before);
         var changed = Snapshot(after);
         var edge = changed.Core.World.Edges[0];
-        changed = RailwayFixtures.ReplaceCore(changed, edge: edge with
-        { Tracks = edge.Tracks + 1, TrackLimit = Math.Max(edge.TrackLimit, edge.Tracks + 1) });
+        changed = RailwayFixtures.ReplaceCore(changed, edge: edge with { Tracks = 0 });
         await using var vehicles = new SceneVehicles();
         await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), SceneFixtures.NextId(), vehicles, new(), _ => null,
             buildChunk: (_, _, _, token) => Wait(token), buildRail: (_, _, _, token) => Wait(token));

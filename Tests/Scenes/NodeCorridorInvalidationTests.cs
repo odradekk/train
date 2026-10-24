@@ -30,8 +30,8 @@ public sealed class NodeCorridorInvalidationTests
             "The unchanged marker building must be outside the initial corridor and prefetch circles.");
 
         ImmutableArray<EventEnvelope> events = constructionCompleted
-            ? [new(changed.Core.Position, 0, new CoreEvent.ConstructionCompleted(new(1), ConstructionKind.Construction,
-                new ConstructionTarget.NewBuilding(new(1), NodeFixtures.StationDesign), new InstanceId.Building(new(1)), []))]
+            ? [new(changed.Core.Position, 0, new CoreEvent.ConstructionCompleted(new(1), ConstructionKind.Refit,
+                new ConstructionTarget.Existing(new InstanceId.Building(new(1)), NodeFixtures.StationDesign), null, []))]
             : [];
         Assert.IsInstanceOfType<SceneResult<SimulationPosition>.Success>(session.Observe(changed, events));
         var after = await RailwayFixtures.Settled(session, request, displayed);
