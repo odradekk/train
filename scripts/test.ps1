@@ -115,7 +115,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
 }
 function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, [int] $Seconds) {
     if ($Seconds -lt 1) { throw "$Group exhausted its time budget." }
-    Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds)
+    Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds -WorkingDirectory $root)
 }
 function Remove-IsolationTrees([string] $Output) {
     # 外层超时会强杀工具，无法执行其 finally；只清理本次输出内的隔离树。
@@ -262,7 +262,7 @@ try {
                     $result = if ($remaining -lt 1) {
                         [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget before $($task.name) could start."; TimedOut = $false; NotStarted = $true; CleanupSucceeded = $true; DurationMs = 0 }
                     } else {
-                        try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining }
+                        try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining -WorkingDirectory $using:root }
                         catch { [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message; TimedOut = $false; CleanupSucceeded = $false; DurationMs = 0 } }
                     }
                     [pscustomobject]@{ name = $task.name; program = $task.program; arguments = $arguments; result = $result }
