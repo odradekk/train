@@ -181,7 +181,8 @@ internal static class TrainOperations
                     StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
             else trains[train.Id] = Wait(train, checked(step + 1), TrainDispatch.TrackWait(train, edge.Id), events);
         }
-        world = world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() };
+        if (exits.Length > 0)
+            world = world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() };
         var skipBreaks = new HashSet<TrainId>();
         world = TurnEdgeRetreats(world, content, events, skipBreaks);
         foreach (var train in world.Trains)

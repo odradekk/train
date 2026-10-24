@@ -396,6 +396,40 @@ public sealed class TrainDispatchTests
     }
 
     [TestMethod]
+    public void Turning_one_track_keeps_the_train_on_the_other_track_moving_forward()
+    {
+        var state = State(2, 2);
+        using var session = new CoreSession(state with { World = state.World with { Trains =
+            [OnEdge(state.World.Trains[0], 10, 0), OnEdge(state.World.Trains[1], 10, 0, track: 2)] } });
+        Submit(session, new CoreCommand.DebugAddRailBreak(new(1), 1, 10));
+        Step(session);
+        Assert.AreEqual(2, session.Read().World.Trains.Length);
+        Assert.IsTrue(View(session, 1).Position is TrainPosition.Edge { Track: 1, Direction: TravelDirection.Reverse });
+        Assert.AreEqual(TrainOrderFacing.LastEndLeading, View(session, 1).OrderFacing);
+        Assert.IsTrue(View(session, 2).Position is TrainPosition.Edge { Track: 2, Direction: TravelDirection.Forward, DistanceMeters: > 10 });
+        Assert.AreEqual(TrainOrderFacing.FirstEndLeading, View(session, 2).OrderFacing);
+    }
+
+    [TestMethod]
+    public void Consuming_the_last_handoff_keeps_a_same_step_break_turnaround()
+    {
+        var state = State(2, 2) with { Position = new(5, 0) };
+        var queued = Queued(state.World.Trains[1], 2, 0, 1);
+        queued = queued with { Position = ((TrainPosition.Node)queued.Position) with { NextTrack = 2 } };
+        using var session = new CoreSession(state with { World = state.World with
+        {
+            Trains = [OnEdge(state.World.Trains[0], 10, 0), queued],
+            TrackHandoffs = [new(new(1), 2, TravelDirection.Reverse)]
+        } });
+        Submit(session, new CoreCommand.DebugAddRailBreak(new(1), 1, 10));
+        Step(session);
+        Assert.IsTrue(View(session, 1).Position is TrainPosition.Edge { Track: 1, Direction: TravelDirection.Reverse });
+        Assert.IsTrue(View(session, 2).Position is TrainPosition.Edge { Track: 2, Direction: TravelDirection.Reverse });
+        using var saved = JsonDocument.Parse(WorldFixture.Success(session.Capture(CapturePurpose.Save)).Checkpoint.CanonicalText);
+        Assert.AreEqual(0, saved.RootElement.GetProperty("world").GetProperty("track_handoffs").GetArrayLength());
+    }
+
+    [TestMethod]
     [DataRow(10.0)]
     [DataRow(10.001)]
     public void Immediate_break_stops_at_its_center_and_zero_traction_does_not_repeat_the_turn(double distance)
