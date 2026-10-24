@@ -1,5 +1,12 @@
 # PowerShell 调用运算符不能可靠捕获 GUI 程序输出；Start-Process 的等待也会与快速退出竞争。
 
+function ConvertTo-ConsoleOutput([string] $Text, [string] $Root) {
+    $Text = $Text.Replace($Root + [IO.Path]::DirectorySeparatorChar, '').Replace($Root, '.')
+    if ($env:RUNNER_TEMP) { $Text = $Text.Replace($env:RUNNER_TEMP, '<runner temp>') }
+    if ($env:RUNNER_TOOL_CACHE) { $Text = $Text.Replace($env:RUNNER_TOOL_CACHE, '<runner tool cache>') }
+    $Text
+}
+
 function ConvertTo-HiddenProcessArgumentString {
     param([string[]] $ArgumentList)
     if ($null -eq $ArgumentList -or $ArgumentList.Count -eq 0) {

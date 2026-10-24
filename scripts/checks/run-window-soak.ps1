@@ -10,6 +10,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'Invoke-HiddenProcess.ps1')
+trap { [Console]::Error.WriteLine((ConvertTo-ConsoleOutput ($_ | Out-String) ([IO.Path]::GetFullPath($Root)))); exit 1 }
 if (-not $IsLinux) { throw '窗口长测只在 Linux 测试机器上运行。' }
 # 构建放在 runner 的磁盘临时目录而不是 /tmp：/tmp 可能是 tmpfs，会占用被测内存。
 if (-not $env:RUNNER_TEMP) { throw '需要 GitHub Actions 的 RUNNER_TEMP。' }

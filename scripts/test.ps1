@@ -73,7 +73,7 @@ $importDone = $false
 $mtpPipeAlias = $null
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
-    Write-Host $result.Output
+    Write-Host (ConvertTo-ConsoleOutput $result.Output $root)
     $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; notStarted = [bool] $result.NotStarted; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
     Write-Host "CHECK=$Name seconds=$($check.seconds) timeout=$($check.timedOut) notStarted=$($check.notStarted)"
     $trx = Join-Path $run "$Name.trx"
@@ -334,7 +334,7 @@ try {
         }
     }
     $summary.outcome = 'passed'
-} catch { $summary.error = $_.Exception.Message; Write-Error $_ -ErrorAction Continue }
+} catch { $summary.error = $_.Exception.Message; [Console]::Error.WriteLine((ConvertTo-ConsoleOutput ($_ | Out-String) $root)) }
 finally {
     if ($mtpPipeAlias) {
         try { [IO.Directory]::Delete($mtpPipeAlias); $summary.mtpPipeAliasRemoved = $true }
@@ -396,6 +396,6 @@ finally {
     }
     $mutex.ReleaseMutex()
     $mutex.Dispose()
-    Write-Host "SUMMARY=$run/summary.json outcome=$($summary.outcome) seconds=$($summary.seconds)"
+    Write-Host (ConvertTo-ConsoleOutput "SUMMARY=$run/summary.json outcome=$($summary.outcome) seconds=$($summary.seconds)" $root)
 }
 if ($summary.outcome -ne 'passed') { exit 1 }

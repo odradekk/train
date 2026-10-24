@@ -6,11 +6,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$processHelper = Join-Path $PSScriptRoot 'Invoke-HiddenProcess.ps1'
+. $processHelper
+trap { [Console]::Error.WriteLine((ConvertTo-ConsoleOutput ($_ | Out-String) ([IO.Path]::GetFullPath($Root)))); exit 1 }
 $root = [IO.Path]::GetFullPath($Root)
 Set-Location $root
 # Native child processes must also resolve global.json in the tested checkout.
 [Environment]::CurrentDirectory = $root
-$processHelper = Join-Path $PSScriptRoot 'Invoke-HiddenProcess.ps1'
 $commit = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify tested commit.' }
 $run = Join-Path $root "TestResults/long-example-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff'))-$($commit.Substring(0, 7))"
@@ -139,5 +141,5 @@ $outcome = if (-not $passed) { 'failed' } elseif ($load.Count -gt 0) { 'load_unm
 $summary = [ordered]@{ identity = $identity; checks = @($state.records.Values); load_unmet = $load; seconds = $watch.Elapsed.TotalSeconds; outcome = $outcome }
 $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
 foreach ($key in $load.Keys) { Write-Host "LOAD_UNMET $key points=$($load[$key].points) first=$($load[$key].first) last=$($load[$key].last)" }
-Write-Host "SUMMARY=$summaryPath outcome=$outcome seconds=$($summary.seconds)"
+Write-Host (ConvertTo-ConsoleOutput "SUMMARY=$summaryPath outcome=$outcome seconds=$($summary.seconds)" $root)
 if ($outcome -ne 'passed') { exit 1 }
