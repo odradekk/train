@@ -112,6 +112,8 @@ internal sealed class SceneVehicles : IAsyncDisposable
         this.build = build ?? RailwayVehicles.Build;
     }
     private readonly CancellationTokenSource cancellation = new();
+    private ulong revision;
+    internal ulong CompleteBuilds() { Drain(); return revision; }
     internal Task[] PendingWork => pending.Values.Cast<Task>().ToArray();
     internal bool HasPendingBuilds => pending.Values.Any(task => !task.IsCompleted) || requested.Any(id =>
         !ready.TryGetValue(id, out var body) || !WorldSceneSession.Matches(body, current[id]));
@@ -121,7 +123,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
         requested.Clear();
         live = instances.ToHashSet();
         cache.Retain(owner, live);
-        foreach (var id in ready.Keys.Where(id => !live.Contains(id)).ToArray()) ready.Remove(id);
+        foreach (var id in ready.Keys.Where(id => !live.Contains(id)).ToArray()) { ready.Remove(id); revision++; }
         foreach (var id in current.Keys.Where(id => !live.Contains(id)).ToArray()) current.Remove(id);
         Drain();
         // In-flight work remains owned and counted until completion; removed instances cannot republish to the cache.
@@ -160,6 +162,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
                 WorldSceneSession.Matches(built.Body, wanted))
             {
                 ready[pair.Key] = built.Body;
+                revision++;
                 cache.Publish(owner, pair.Key, built.Key, built.Body);
             }
         }

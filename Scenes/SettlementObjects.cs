@@ -41,6 +41,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
 
     internal Task[] PendingWork => buildings.PendingWork.Concat(parked.PendingWork).ToArray();
     internal bool HasPendingBuilds => buildings.HasPendingBuilds || parked.HasPendingBuilds;
+    internal (ulong Buildings, ulong Parked) CompleteBuilds() => (buildings.CompleteBuilds(), parked.CompleteBuilds());
 
     private Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)> Buildings(
         SceneWorldSnapshot snapshot, NodeLayout layout)

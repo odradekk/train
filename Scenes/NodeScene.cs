@@ -201,12 +201,17 @@ internal sealed class NodeScene : IAsyncDisposable
     private SceneWorldSnapshot snapshot;
     private readonly Dictionary<string, BuiltGeometry> attached = [];
     private readonly HashSet<string> staticChanges = [];
-    private readonly Dictionary<string, RenderedDesign> placedParts = [];
-    private readonly Dictionary<string, TerrainCollisionPatch> terrainByPart = [];
+    private readonly Dictionary<string, (int Kind, int Z, int X, string Key)> framePartKeys = [];
+    private ImmutableSortedDictionary<(int Kind, int Z, int X, string Key), (Part Part, TerrainCollisionPatch? Terrain)> frameParts =
+        ImmutableSortedDictionary.Create<(int Kind, int Z, int X, string Key), (Part Part, TerrainCollisionPatch? Terrain)>(
+            Comparer<(int Kind, int Z, int X, string Key)>.Create((a, b) =>
+                a.Kind != b.Kind ? a.Kind.CompareTo(b.Kind) : a.Z != b.Z ? a.Z.CompareTo(b.Z) :
+                a.X != b.X ? a.X.CompareTo(b.X) : StringComparer.Ordinal.Compare(a.Key, b.Key)));
     private readonly HashSet<string> candidateChanges = [];
     private readonly Dictionary<SceneObjectId, SceneObject> candidateObjects = [];
     private readonly Dictionary<string, ImmutableArray<SceneObjectId>> candidatePartObjects = [];
     private ImmutableArray<SceneObject> candidateInstances = [];
+    private (SceneWorldSnapshot Snapshot, NodeLayout Layout, NodeRange Range, NodeRange Prefetch, NodeCorridor? Corridor, (ulong Buildings, ulong Parked) Builds)? candidateInstancesInput;
     private readonly Dictionary<EdgeId, RailwayPath> adjacentRailways = [];
     private sealed record PlatformMap(NodeLayout Layout, ImmutableArray<NodeLayout.Stop> Stops, ImmutableArray<SceneProblem> Problems);
     private readonly ConditionalWeakTable<SceneWorldSnapshot, PlatformMap> platformMaps = new();
@@ -280,7 +285,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private Built? publishedBuilt;
     private ImmutableDictionary<string, Part>? presentedParts;
     private ScenePoint? staticOrigin;
-    private RenderedDesign staticGeometry = new([], [], []);
+    private SceneFrame.StaticGeometry staticGeometry = SceneFrame.StaticGeometry.Empty;
     private ImmutableArray<Part> staticParts = [];
     private ImmutableArray<TerrainCollisionPatch> staticTerrain = [];
     private SceneProblem? failure;
@@ -820,7 +825,8 @@ internal sealed class NodeScene : IAsyncDisposable
             { candidateObjects[item.Id] = item; upserts[item.Id] = item; removed.Remove(item.Id); }
         }
         candidateChanges.Clear();
-        if (layout is not null)
+        var instanceInput = layout is null ? candidateInstancesInput : (current, layout, range, prefetch, corridor, settlement.CompleteBuilds());
+        if (layout is not null && candidateInstancesInput != instanceInput)
         {
             var instances = settlement.Present(current, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), findId,
                 range, terrainChunks, prefetch, allowBuild: false, corridor: corridor).Objects;
@@ -832,6 +838,7 @@ internal sealed class NodeScene : IAsyncDisposable
             }
             foreach (var id in oldInstances.Keys) { candidateObjects.Remove(id); removed.Add(id); }
             candidateInstances = instances;
+            candidateInstancesInput = instanceInput;
         }
         return (full ? candidateObjects.Values.OrderBy(item => item.Id.Value).ToImmutableArray() :
             upserts.Values.OrderBy(item => item.Id.Value).ToImmutableArray(),
@@ -966,38 +973,36 @@ internal sealed class NodeScene : IAsyncDisposable
     private void UpdateStaticGeometry(ScenePoint origin)
     {
         if (ReferenceEquals(presentedParts, cacheParts) && staticOrigin == origin) return;
-        var objects = ImmutableArray.CreateBuilder<SceneObject>();
-        var picking = ImmutableArray.CreateBuilder<PickGrid>();
-        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        var changes = new Dictionary<string, RenderedDesign?>();
         var shift = new ScenePose(RailwayCoordinates.Relative(default, origin), Quaternion.Identity);
         if (staticOrigin != origin) staticChanges.UnionWith(attached.Keys);
         foreach (var key in staticChanges)
         {
             var terrainKey = "terrain:" + key;
+            if (framePartKeys.Remove(key, out var oldOrder)) frameParts = frameParts.Remove(oldOrder);
             if (!attached.TryGetValue(key, out var part))
-            { placedParts.Remove(key); terrainByPart.Remove(key); terrainPatches.Remove(terrainKey); continue; }
-            placedParts[key] = SceneGeometry.Place(part.Geometry, shift);
+            { changes[key] = null; terrainPatches.Remove(terrainKey); continue; }
+            changes[key] = SceneGeometry.Place(part.Geometry, shift);
             var raw = cacheParts[key];
-            if (terrainPatches.Get(terrainKey, () => objectId(terrainKey), raw.Origin, origin, raw.Heights) is { } patch)
-                terrainByPart[key] = patch;
-            else terrainByPart.Remove(key);
+            var patch = terrainPatches.Get(terrainKey, () => objectId(terrainKey), raw.Origin, origin, raw.Heights);
+            var order = PartOrder(key);
+            framePartKeys[key] = order;
+            frameParts = frameParts.SetItem(order, (raw, patch));
         }
         staticChanges.Clear();
-        foreach (var part in placedParts.OrderBy(item => item.Key, StringComparer.Ordinal))
-        {
-            var geometry = part.Value;
-            objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics);
-        }
-        staticGeometry = new(objects.ToImmutable(), picking.ToImmutable(), RailwayTerrain.UniqueProblems(problems));
-        var parts = new List<(string Key, Part Part)>();
-        if (built is not null)
-            parts.AddRange(built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
-        parts.AddRange(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => (ChunkKey(item.Key), item.Value)));
-        parts.AddRange(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
-        staticParts = parts.Select(item => item.Part).ToImmutableArray();
-        staticTerrain = parts.Where(item => terrainByPart.ContainsKey(item.Key)).Select(item => terrainByPart[item.Key]).ToImmutableArray();
+        staticGeometry = staticGeometry.Apply(changes);
+        staticParts = frameParts.Values.Select(item => item.Part).ToImmutableArray();
+        staticTerrain = frameParts.Values.Where(item => item.Terrain is not null).Select(item => item.Terrain!).ToImmutableArray();
         presentedParts = cacheParts;
         staticOrigin = origin;
+    }
+
+    private (int Kind, int Z, int X, string Key) PartOrder(string key)
+    {
+        if (built?.Parts.ContainsKey(key) == true) return (0, 0, 0, key);
+        if (!key.StartsWith("terrain:", StringComparison.Ordinal)) return (2, 0, 0, key);
+        var at = key.Split(':');
+        return (1, int.Parse(at[2]), int.Parse(at[1]), key);
     }
 
     private ImmutableArray<SceneFog> RailFog(ScenePoint origin)
