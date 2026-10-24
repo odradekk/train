@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 

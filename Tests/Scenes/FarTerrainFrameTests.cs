@@ -75,8 +75,8 @@ public sealed class FarTerrainFrameTests
             new SceneMaterial.BuiltIn(BuiltInMaterial.Water), lowerBounds: [cap]);
         var properties = new CellProperties(VoxelOrientation.PxPy, SceneFixtures.Cube, null, null,
             new PickSubject.Terrain(NodeFixtures.Location), []);
-        var grid = new VoxelGrid(from z in Enumerable.Range(8, 8)
-            from x in Enumerable.Range(8, 8) select new SceneCell(new(x, 11, z), properties));
+        var grid = new VoxelGrid((from z in Enumerable.Range(8, 8)
+            from x in Enumerable.Range(8, 8) select new SceneCell(new(x, 11, z), properties)).ToImmutableArray());
         var frame = Frame(new([far]), picking: [new(new(1), SceneFixtures.Identity, grid)]);
         foreach (var origin in new[] { new Vector3(10.25f, 13, 10.25f), new(12.4f, 13.7f, 9.8f), new(12.75f, 14.25f, 12.75f) })
         foreach (var direction in new[] { new Vector3(-.6f, -1, .7f), new(.8f, -1, -.6f), new(.1f, -1, .1f) })
