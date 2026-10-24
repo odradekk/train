@@ -739,9 +739,28 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(!GodotObject.IsInstanceValid(parent) && GodotObject.IsInstanceValid(child) &&
             ReferenceEquals(child.GetParent(), display.Root), "退役父节点不能释放换父后存活的子对象。");
         Near(child.Position, new(4, 0, 0));
-        var replacement = Frame(3, [], next.Update.Frame, fog: []);
+        var retainedBox = fog.GetChild<MeshInstance3D>(0);
+        var fogExits = 0;
+        retainedBox.TreeExiting += () => fogExits++;
+        var changedRegions = Frame(3, [], next.Update.Frame, fog: [regions[0], new(new(4), new(7)), regions[0]]);
+        using (var abandoned = Prepare(display, changedRegions)) { }
+        Require(fog.GetChildCount() == 1 && GodotObject.IsInstanceValid(retainedBox),
+            "放弃换雾准备不能接入新增矩形或释放借用的当前矩形。");
+        Commit(display, changedRegions);
+        Require(ReferenceEquals(fog, display.Root.GetNode<Node3D>("LoadingFog")) && fog.GetChildCount() == 3 &&
+            ReferenceEquals(retainedBox.GetParent(), fog) && fogExits == 0,
+            "换雾只接入新增矩形，未变化矩形不能重建或退出树，重复矩形仍须分别显示。");
+        var retiredBoxes = fog.GetChildren().OfType<MeshInstance3D>().Where(item => item != retainedBox).ToArray();
+        var partiallyRemoved = Frame(4, [], changedRegions.Update.Frame, fog: [regions[0], new(new(8), new(10))]);
+        Commit(display, partiallyRemoved);
+        Require(fog.GetChildCount() == 2 && ReferenceEquals(retainedBox.GetParent(), fog) && fogExits == 0 &&
+            GodotObject.IsInstanceValid(retainedBox.Mesh) && GodotObject.IsInstanceValid(retainedBox.MaterialOverride) &&
+            retiredBoxes.All(item => !GodotObject.IsInstanceValid(item)),
+            "同时增删雾矩形只释放移除项，保留项及其网格、材质必须仍有效。");
+        var replacement = Frame(5, [], partiallyRemoved.Update.Frame, fog: []);
         Commit(display, replacement);
-        Require(!GodotObject.IsInstanceValid(fog), "雾区域变化后必须释放旧雾节点。");
+        Require(!GodotObject.IsInstanceValid(retainedBox) && fog.GetChildCount() == 0,
+            "删除雾区域必须释放退役矩形并保留空雾组。");
         Require(display.Root.GetNodeOrNull<Node3D>("LoadingFog") is { } currentFog &&
             ReferenceEquals(currentFog.GetParent(), display.Root), "换雾组不能因根节点重名失去当前组的命名入口。");
     }

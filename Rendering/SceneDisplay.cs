@@ -174,7 +174,7 @@ internal sealed partial class SceneDisplay : IDisposable
             if (_pendingFog is null && (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions)))
             {
                 if (BudgetExpired()) return null;
-                _pendingFog = new(update.Environment.FoggedRegions, _resources.ConstructionFogMaterial());
+                _pendingFog = new(update.Environment.FoggedRegions, _fog?.Material ?? _resources.ConstructionFogMaterial(), _fog);
                 preparedResource = true;
             }
             if (_pendingDebugLines is null && !frame.DebugLines.IsEmpty &&
@@ -366,7 +366,8 @@ internal sealed partial class SceneDisplay : IDisposable
         }
         var old = _objects;
         var oldFog = _fog;
-        if (!ReferenceEquals(oldFog, prepared.Fog))
+        prepared.Fog.Activate();
+        if (!ReferenceEquals(oldFog?.Root, prepared.Fog.Root))
         {
             oldFog?.Root.GetParent()?.RemoveChild(oldFog.Root);
             Root.AddChild(prepared.Fog.Root);
@@ -542,34 +543,74 @@ internal sealed partial class SceneDisplay : IDisposable
 
     internal sealed class FogGroup : IDisposable
     {
+        private sealed record Box(BoxMesh Mesh, MeshInstance3D Node);
         internal System.Collections.Immutable.ImmutableArray<SceneBounds> Regions { get; }
-        internal Node3D Root { get; } = new() { Name = "LoadingFog" };
-        private readonly List<BoxMesh> _meshes = [];
+        internal Node3D Root { get; }
+        internal ShaderMaterial Material => _material;
+        private readonly Dictionary<(SceneBounds Bounds, int Occurrence), Box> _boxes = [];
+        private List<Box> _added = [], _removed = [], _all = [];
+        private List<Box> _owned;
+        private FogGroup? _source;
+        private bool _ownsRoot, _ownsMaterial, _activated;
         private bool _disposed;
         private readonly ShaderMaterial _material;
-        internal FogGroup(System.Collections.Immutable.ImmutableArray<SceneBounds> regions, ShaderMaterial material)
+        internal FogGroup(System.Collections.Immutable.ImmutableArray<SceneBounds> regions, ShaderMaterial material, FogGroup? source = null)
         {
             _material = material;
+            _source = source;
+            Root = source?.Root ?? new() { Name = "LoadingFog" };
+            _ownsRoot = _ownsMaterial = source is null;
+            _owned = _added;
             Regions = regions;
+            var occurrences = new Dictionary<SceneBounds, int>();
             foreach (var region in regions)
             {
-                var mesh = new BoxMesh { Size = ToGodot(region.Maximum - region.Minimum) };
-                _meshes.Add(mesh);
-                Root.AddChild(new MeshInstance3D
+                var occurrence = occurrences.GetValueOrDefault(region);
+                occurrences[region] = occurrence + 1;
+                var key = (region, occurrence);
+                if (source is null || !source._boxes.TryGetValue(key, out var box))
                 {
-                    Mesh = mesh, MaterialOverride = _material,
-                    CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-                    Position = ToGodot((region.Minimum + region.Maximum) / 2)
-                });
+                    var mesh = new BoxMesh { Size = ToGodot(region.Maximum - region.Minimum) };
+                    box = new(mesh, new()
+                    {
+                        Mesh = mesh, MaterialOverride = _material,
+                        CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+                        Position = ToGodot((region.Minimum + region.Maximum) / 2)
+                    });
+                    _added.Add(box);
+                }
+                _boxes.Add(key, box);
+                _all.Add(box);
             }
+            if (source is not null)
+                _removed = source._boxes.Where(pair => !_boxes.ContainsKey(pair.Key)).Select(pair => pair.Value).ToList();
+        }
+        internal void Activate()
+        {
+            if (_activated) return;
+            // 准备只借用未变的矩形；提交才转交所有权，取消准备不能触碰 D。
+            if (_source is { } source)
+            {
+                source._owned = _removed;
+                source._ownsRoot = source._ownsMaterial = false;
+                _source = null;
+            }
+            foreach (var box in _added) Root.AddChild(box.Node);
+            _owned = _all;
+            _added = []; _removed = []; _all = [];
+            _ownsRoot = _ownsMaterial = _activated = true;
         }
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            Root.Free();
-            foreach (var mesh in _meshes) mesh.Dispose();
-            _material.Dispose();
+            if (_ownsRoot) Root.Free();
+            foreach (var box in _owned)
+            {
+                if (GodotObject.IsInstanceValid(box.Node)) box.Node.Free();
+                box.Mesh.Dispose();
+            }
+            if (_ownsMaterial) _material.Dispose();
         }
     }
 
