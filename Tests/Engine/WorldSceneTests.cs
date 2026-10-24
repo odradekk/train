@@ -91,6 +91,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             long timestamp = 0;
             world.Display!.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+            Prime(world.Display, candidates[0]);
             var root = world.Display.Objects[new(1)].Root;
             for (var i = 0; i < 2; i++)
             {
@@ -130,6 +131,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 ReferenceEquals(session.PresentCalls[3].Request.Camera!.Frame, candidates[1]),
                 "Present网格基准必须保持完整提交帧，相机样本则跟随实际最新姿态帧。");
             world.Display.Timestamp = () => 0;
+            Prime(world.Display, next);
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display.DisplayedFrame, next) &&
                 ReferenceEquals(session.PresentCalls[^1].DisplayedFrame, candidates[0]) &&
@@ -1026,6 +1028,9 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var display = world.Display!;
             display.Timestamp = () => 0;
             world.ProcessFrame(0, false);
+            display.ReceiveCandidate(candidate);
+            display.PrepareCandidate(TimeSpan.Zero);
+            display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
             var before = OrphanRoots();
             display.Timestamp = () => (display.CandidateProgress(candidate.Frame)?.Prepared ?? 0) *
                 (System.Diagnostics.Stopwatch.Frequency / 1000);
@@ -1104,6 +1109,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             await new UiTestInput(TestScene).Frames(1);
             world.ProcessFrame(0, false);
             Require(world.Display.PreparedCandidate == full.Frame, "先完成无视觉的候选，并进入活动侧先执行的下一帧。");
+            Prime(world.Display, active);
             await new UiTestInput(TestScene).Frames(1);
             world.ProcessFrame(0, false);
             Require(world.Display.PreparedCandidate == delta.Frame && ReferenceEquals(world.Display.DisplayedFrame, active),
@@ -1129,6 +1135,9 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.Open(Target);
             world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
+            world.Display.ReceiveCandidate(candidate);
+            world.Display.PrepareCandidate(TimeSpan.Zero);
+            world.Display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
             // 每完成一个候选视觉收取1ms，活动空更新不消耗资源时间。
             world.Display.Timestamp = () => (world.Display.CandidateProgress(candidate.Frame)?.Prepared ?? 0) *
                 (System.Diagnostics.Stopwatch.Frequency / 1000);
@@ -1160,6 +1169,10 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.Open(Target);
             world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
+            world.Display.ReceiveCandidate(candidate);
+            world.Display.PrepareCandidate(TimeSpan.Zero);
+            world.Display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            Prime(world.Display, active);
             long timestamp = 0;
             world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 4000;
             await new UiTestInput(TestScene).Frames(1);
@@ -1240,6 +1253,13 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         app.SetProcess(false);
         return app;
     }
+    private static void Prime(Train.Rendering.SceneDisplay display, ISceneFrame frame)
+    {
+        using var prepared = display.Prepare(frame, TimeSpan.Zero);
+        Require(prepared is null, "零预算只能启动后台打包。");
+        display.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+    }
+
     private async Task Until(Func<bool> complete)
     {
         var limit = System.Diagnostics.Stopwatch.StartNew();

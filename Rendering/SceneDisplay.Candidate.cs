@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Godot;
+using Train.App.Assets;
 using Train.Scenes.Contracts;
 
 namespace Train.Rendering;
@@ -13,6 +15,11 @@ internal sealed partial class SceneDisplay
     private readonly LinkedList<(SceneObjectId Object, int Index)> _candidatePending = [];
     private readonly Dictionary<(SceneObjectId Object, int Index), LinkedListNode<(SceneObjectId Object, int Index)>> _candidatePendingNodes = [];
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _candidateVisuals = [];
+    private SceneMeshPacking? _candidatePacking;
+    private Task? _candidatePackingTail;
+    private bool _candidatePackingStarted;
+    private readonly List<AssetLease<ArrayMesh>> _candidateCachedGeometry = [];
+    internal Task CandidatePacking => _candidatePacking?.Completion ?? Task.CompletedTask;
     internal SceneFrameStamp? PreparedCandidate { get; private set; }
     internal SceneFrameStamp? CandidateScope => _candidateScope;
     internal bool IsPreparingCandidate => _candidateUpdate is not null;
@@ -34,6 +41,11 @@ internal sealed partial class SceneDisplay
             CancelCandidate();
             return;
         }
+        _candidatePacking?.Dispose();
+        foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
+        _candidateCachedGeometry.Clear();
+        _candidatePacking = null;
+        _candidatePackingStarted = false;
         var upserted = update.Upserts.Select(item => item.Id).ToHashSet();
         if (update.Base is null)
         {
@@ -75,18 +87,31 @@ internal sealed partial class SceneDisplay
         var started = Timestamp();
         try
         {
+            if (!_candidatePackingStarted)
+            {
+                _candidatePacking = StartPacking(_candidatePending.Select(key => _candidateSources[key]),
+                    _candidateCachedGeometry, ref _candidatePackingTail);
+                _candidatePackingStarted = true;
+            }
+            _candidatePacking?.ThrowIfFailed();
             while (_candidatePending.First is { } pending)
             {
                 var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
                 // 候选始终受预算约束；新空间首帧的例外只属于实际显示帧。
                 if (elapsed >= budget || _preparationTime + elapsed >= PreparationBudget) return;
                 var key = pending.Value;
-                _candidateVisuals.Add(key, _resources.Prepare(_candidateSources[key]));
+                var visual = _resources.TryPrepare(_candidateSources[key], _candidatePacking);
+                if (visual is null) return;
+                _candidateVisuals.Add(key, visual);
                 _candidatePending.Remove(pending);
                 _candidatePendingNodes.Remove(key);
             }
             PreparedCandidate = update.Frame;
             _candidateUpdate = null;
+            _candidatePacking?.Dispose();
+            foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
+            _candidateCachedGeometry.Clear();
+            _candidatePacking = null;
         }
         finally
         {
@@ -120,6 +145,11 @@ internal sealed partial class SceneDisplay
     internal void CancelCandidate()
     {
         _cache.RequireMainThread();
+        _candidatePacking?.Dispose();
+        foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
+        _candidateCachedGeometry.Clear();
+        _candidatePacking = null;
+        _candidatePackingStarted = false;
         foreach (var visual in _candidateVisuals.Values) visual.Dispose();
         _candidateVisuals.Clear();
         _candidateSources.Clear();

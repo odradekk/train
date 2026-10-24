@@ -20,6 +20,8 @@ internal sealed partial class SceneDisplay : IDisposable
         internal PreparedVisual[]? Visuals;
         internal bool NeedsResources;
         internal bool Validated;
+        internal SceneMeshPacking? Packing;
+        internal List<AssetLease<ArrayMesh>> CachedGeometry { get; } = [];
     }
     private readonly SceneResources _resources;
     private readonly CombatEffects _effects;
@@ -51,6 +53,9 @@ internal sealed partial class SceneDisplay : IDisposable
     private static ulong _budgetFrame;
     private static TimeSpan _preparationTime;
     internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
+    internal Func<SceneMesh, CancellationToken, PackedSceneMesh> PackMesh { get; set; } = PackedSceneMesh.Create;
+    private Task? _preparationPackingTail;
+    internal Task PreparationPacking => _preparation?.Packing?.Completion ?? Task.CompletedTask;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
@@ -166,7 +171,11 @@ internal sealed partial class SceneDisplay : IDisposable
                         { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + update.ShiftExistingRoots } } };
                     }
                 foreach (var id in update.Removed) preparation.Objects.Remove(id);
+                if (!spaceChanged)
+                    preparation.Packing = StartPacking(UnpreparedVisuals(frame), preparation.CachedGeometry,
+                        ref _preparationPackingTail);
             }
+            preparation.Packing?.ThrowIfFailed();
             var next = preparation.Objects;
             for (; preparation.Upsert < update.Upserts.Length; preparation.Upsert++)
             {
@@ -186,7 +195,10 @@ internal sealed partial class SceneDisplay : IDisposable
                         preparation.NeedsResources = true;
                         var key = (source.Id, i);
                         if (BudgetExpired()) return null;
-                        var visual = TakeCandidateVisual(update.Frame, key, source.Visuals[i]) ?? _resources.Prepare(source.Visuals[i]);
+                        var visual = TakeCandidateVisual(update.Frame, key, source.Visuals[i]) ??
+                            (spaceChanged ? _resources.Prepare(source.Visuals[i]) :
+                                _resources.TryPrepare(source.Visuals[i], preparation.Packing));
+                        if (visual is null) return null;
                         _pendingVisuals.Add(key, visual);
                         preparedResource = true;
                         visuals[i] = visual;
@@ -232,6 +244,8 @@ internal sealed partial class SceneDisplay : IDisposable
             _pendingDebugLines = null;
             _pendingVisuals.Clear();
             _pendingRoots.Clear();
+            preparation.Packing?.Dispose();
+            foreach (var geometry in preparation.CachedGeometry) geometry.Dispose();
             _preparation = null;
             Observe?.Invoke(new(_candidate, frame.Update.Frame, null, SceneDisplayStage.FramePrepared));
             return prepared;
@@ -255,6 +269,39 @@ internal sealed partial class SceneDisplay : IDisposable
         if (_budgetFrame == processFrame) return;
         _budgetFrame = processFrame;
         _preparationTime = TimeSpan.Zero;
+    }
+
+    private IEnumerable<SceneVisual> UnpreparedVisuals(ISceneFrame frame)
+    {
+        foreach (var source in frame.Update.Upserts)
+        {
+            _objects.TryGetValue(source.Id, out var previous);
+            for (var index = 0; index < source.Visuals.Length; index++)
+            {
+                var visual = source.Visuals[index];
+                if (CanReuseVisual(previous, index, visual)) continue;
+                if (HasCandidateFor(frame.Update.Frame) &&
+                    _candidateVisuals.TryGetValue((source.Id, index), out var candidate) && candidate.CanUpdate(visual)) continue;
+                yield return visual;
+            }
+        }
+    }
+
+    private SceneMeshPacking? StartPacking(IEnumerable<SceneVisual> visuals, List<AssetLease<ArrayMesh>> cached,
+        ref Task? previous)
+    {
+        List<SceneMesh> meshes = [];
+        foreach (var mesh in visuals.OfType<SceneVisual.Geometry>().Select(visual => visual.Mesh)
+            .Distinct<SceneMesh>(ReferenceEqualityComparer.Instance))
+        {
+            // 对侧准备可随时取消；未列入打包作业的缓存网格必须由本次准备保有。
+            if (_resources.AcquireCachedGeometry(mesh) is { } geometry) cached.Add(geometry);
+            else meshes.Add(mesh);
+        }
+        if (meshes.Count == 0) return null;
+        var packing = new SceneMeshPacking([.. meshes], previous, PackMesh);
+        previous = packing.Completion;
+        return packing;
     }
 
     internal Vector3 UpdatePoses(ISceneFrame frame)
@@ -361,6 +408,9 @@ internal sealed partial class SceneDisplay : IDisposable
     {
         _cache.RequireMainThread();
         var cancelled = _preparation?.Frame;
+        _preparation?.Packing?.Dispose();
+        if (_preparation is { } preparation)
+            foreach (var geometry in preparation.CachedGeometry) geometry.Dispose();
         foreach (var visual in _pendingVisuals.Values) visual.Dispose();
         _pendingVisuals.Clear();
         _preparation = null;
