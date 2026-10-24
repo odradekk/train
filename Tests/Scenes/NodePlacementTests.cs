@@ -93,7 +93,7 @@ public sealed class NodePlacementTests
         {
             Core = new FixedCoreReadView
             {
-                Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+                Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
                 World = world with { Edges = world.Edges.Reverse().ToImmutableArray() },
                 Nodes = world.Nodes.ToDictionary(item => item.Id, item => snapshot.Core.FindNode(item.Id)),
                 Edges = world.Edges.ToDictionary(item => item.Id, item => snapshot.Core.FindEdge(item.Id)),
@@ -268,7 +268,7 @@ public sealed class NodePlacementTests
         {
             Core = new FixedCoreReadView
             {
-                Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity, World = world,
+                Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity, World = world,
                 Nodes = world.Nodes.ToDictionary(item => item.Id, item => item.Id == NodeFixtures.NodeId
                     ? new Lookup<NodeView>.Found(((Lookup<NodeView>.Found)snapshot.Core.FindNode(item.Id)).Value with
                         { PlatformLengthMeters = 0 }) : snapshot.Core.FindNode(item.Id)),

@@ -170,6 +170,17 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         if (fault is not null) return new SceneResult<SimulationPosition>.Faulted(fault);
         var before = snapshot;
+        // Revision includes every completed command and step; Sequence alone misses a command followed by Advance.
+        if ((node is not null || successor is not null || candidate?.Node is not null) &&
+            (input.Core.Revision.Value < before.Core.Revision.Value ||
+             input.Core.Revision.Value - before.Core.Revision.Value != input.Core.Position.CompletedSteps - before.Core.Position.CompletedSteps ||
+             events.Any(item => item.Event is CoreEvent.ConstructionCompleted or CoreEvent.InstanceDesignChanged or
+                 CoreEvent.CombatDestruction or CoreEvent.SettlementFounded)))
+        {
+            node?.InvalidatePlatforms();
+            successor?.InvalidatePlatforms();
+            candidate?.Node?.InvalidatePlatforms();
+        }
         if (input.Core.Position.CompletedSteps != before.Core.Position.CompletedSteps)
             interpolationStart = input.Core.Position.CompletedSteps == before.Core.Position.CompletedSteps + 1 ? before : null;
         snapshot = input;

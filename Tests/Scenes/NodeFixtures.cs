@@ -31,7 +31,7 @@ internal static class NodeFixtures
         node = node with { Terrain = node.Terrain with { Relief = relief } };
         return original with { Core = new FixedCoreReadView
         {
-            Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
+            Position = original.Core.Position, Revision = original.Core.Revision, InputIdentity = original.Core.InputIdentity,
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
                 [node.Id] = new Lookup<NodeView>.Found(
@@ -205,7 +205,7 @@ internal static class NodeFixtures
         if (sameSideEntry) edges = edges.Add(Edge(new(3), NodeId, new(4), tracks, trackLimit));
         return new(new FixedCoreReadView
         {
-            Position = new(steps, sequence), InputIdentity = new("scenes-test"),
+            Position = new(steps, sequence), Revision = new(steps + sequence), InputIdentity = new("scenes-test"),
             World = new(3, RailwayFixtures.Rule, 1200, 1200, nodes, edges,
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(),
                 (groups ?? []).Select(group => new CreatureGroupMapItem(group.Id, group.Location, group.Activity)).ToImmutableArray(),

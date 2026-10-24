@@ -266,8 +266,9 @@ internal sealed class NodeScene : IAsyncDisposable
     private FollowedPath? followedPath;
     private NodeCorridor? corridor;
     private bool preparingCandidate;
-    private (NodeLayout Layout, EdgeId? Entry, int? Track, EdgeId? Exit, int? ExitTrack, int? Platform, bool Departing, double Length)? corridorInput;
+    private (NodeLayout Layout, EdgeId? Entry, int? Track, EdgeId? Exit, int? ExitTrack, int? Platform, bool Departing, double Length, int Platforms)? corridorInput;
     private ImmutableArray<NodeLayout.Stop> corridorPlatforms = [];
+    private bool corridorPlatformsDirty;
     private readonly HashSet<string> retainedCorridorParts = [];
     private (Preparation Prepared, NodeRange Range, NodeRange Prefetch, NodeCorridor? Corridor, bool Near)? streamingPlan;
     private IReadOnlyList<ScenePoint> plannedPath = [];
@@ -446,6 +447,8 @@ internal sealed class NodeScene : IAsyncDisposable
         ScheduleRefresh();
     }
 
+    internal void InvalidatePlatforms() => corridorPlatformsDirty = true;
+
     private void UpdateCorridor(TrainView? train)
     {
         if (train is null || Layout is not { } currentLayout) return;
@@ -455,9 +458,12 @@ internal sealed class NodeScene : IAsyncDisposable
             TrainPosition.Edge at => new TrainPosition.Node(Node, at.Id, at.Track, null, null, NodeTravelPhase.Approaching, 0, null),
             _ => throw new ArgumentException("Invalid corridor position.")
         };
-        var platforms = Platforms(snapshot, currentLayout: currentLayout).Stops;
         var input = (currentLayout, position.EnteredFrom, position.EnteredTrack, position.NextEdge, position.NextTrack,
-            position.PlatformNumber, position.Phase == NodeTravelPhase.Departing, train.LengthMeters);
+            position.PlatformNumber, position.Phase == NodeTravelPhase.Departing, train.LengthMeters,
+            snapshot.Core.World.Nodes.Single(item => item.Id == Node).Platforms);
+        if (corridorInput == input && !corridorPlatformsDirty) return;
+        var platforms = Platforms(snapshot, currentLayout: currentLayout).Stops;
+        corridorPlatformsDirty = false;
         if (corridorInput == input && corridorPlatforms.SequenceEqual(platforms)) return;
         corridorInput = input;
         corridorPlatforms = platforms;

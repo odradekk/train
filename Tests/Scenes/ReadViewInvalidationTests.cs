@@ -96,7 +96,7 @@ public sealed class ReadViewInvalidationTests
         {
             Core = new FixedCoreReadView
             {
-                Position = core.Position, InputIdentity = core.InputIdentity, World = core.World,
+                Position = core.Position, Revision = new(core.Position.CompletedSteps + core.Position.Sequence), InputIdentity = core.InputIdentity, World = core.World,
                 Nodes = core.World.Nodes.ToDictionary(item => item.Id, item => core.FindNode(item.Id)),
                 Edges = core.World.Edges.ToDictionary(item => item.Id, item => core.FindEdge(item.Id)),
                 Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },

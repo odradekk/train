@@ -335,7 +335,7 @@ public sealed class NodeSwitchTests
             }).ToImmutableArray();
             value = value with { Core = new FixedCoreReadView
             {
-                Position = core.Position, InputIdentity = core.InputIdentity, World = core.World with { Nodes = nodes },
+                Position = core.Position, Revision = new(core.Position.CompletedSteps + core.Position.Sequence), InputIdentity = core.InputIdentity, World = core.World with { Nodes = nodes },
                 Nodes = nodes.ToDictionary(map => map.Id, map => (Lookup<NodeView>)new Lookup<NodeView>.Found(
                     ((Lookup<NodeView>.Found)core.FindNode(map.Id)).Value with { Map = map })),
                 Edges = core.World.Edges.ToDictionary(edge => edge.Id, edge => core.FindEdge(edge.Id)),

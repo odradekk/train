@@ -38,6 +38,7 @@ internal static class RailwayFixtures
         return new(new FixedCoreReadView
         {
             Position = new(steps, sequence),
+            Revision = new(steps + sequence),
             InputIdentity = new("scenes-test"),
             World = new(3, Rule, directMeters, directMeters, [first, last], [edge],
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(),
@@ -107,6 +108,7 @@ internal static class RailwayFixtures
             Core = new FixedCoreReadView
             {
                 Position = snapshot.Core.Position,
+                Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence),
                 InputIdentity = snapshot.Core.InputIdentity,
                 World = world with { Nodes = nodes, Edges = edges, WorldSeed = worldSeed ?? world.WorldSeed },
                 Nodes = nodes.ToDictionary(item => item!.Id, item => item!.Id == node?.Id
