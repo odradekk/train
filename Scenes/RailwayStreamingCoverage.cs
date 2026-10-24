@@ -8,9 +8,7 @@ namespace Train.Scenes;
 internal sealed class RailwayStreamingCoverage(RailwayPath path, SceneStreamingSceneId scene)
 {
     private readonly object gate = new();
-    private int cachedSegment = -1;
-    private ScenePoint cachedOrigin;
-    private Dictionary<GridColumn, bool>? columns;
+    private readonly Dictionary<int, (ScenePoint Origin, Dictionary<GridColumn, bool> Columns)> segments = [];
     internal static string SegmentKey(int index) => index.ToString(CultureInfo.InvariantCulture);
     internal RailwayPath Path => path;
     internal ISceneStreamingCoverage At(ScenePoint origin) => new Snapshot(this, origin);
@@ -34,19 +32,18 @@ internal sealed class RailwayStreamingCoverage(RailwayPath path, SceneStreamingS
         var index = Math.Min(path.SegmentCount - 1, (int)(arc / RailwayCoordinates.SegmentLengthCells));
         lock (gate)
         {
-            // Share one exact segment footprint across frame snapshots, without retaining the whole route.
-            if (cachedSegment != index)
+            if (!segments.TryGetValue(index, out var cached))
             {
                 var anchor = path.Sample(index * RailwayCoordinates.SegmentLengthCells).Position;
-                cachedOrigin = new(Math.Floor(anchor.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
+                var origin = new ScenePoint(Math.Floor(anchor.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
                     0, Math.Floor(anchor.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
-                columns = RailwayTerrain.SampleColumns(path, index, cachedOrigin, static (_, _, _, _) => true);
-                cachedSegment = index;
+                cached = (origin, RailwayTerrain.SampleColumns(path, index, origin, static (_, _, _, _) => true));
+                segments.Add(index, cached);
             }
-            var cx = wx - cachedOrigin.X; var cz = wz - cachedOrigin.Z;
+            var cx = wx - cached.Origin.X; var cz = wz - cached.Origin.Z;
             if (cx < int.MinValue || cx >= int.MaxValue || cz < int.MinValue || cz >= int.MaxValue) return [];
             var column = new GridColumn((int)cx, (int)cz);
-            return columns!.ContainsKey(column)
+            return cached.Columns.ContainsKey(column)
                 ? [new(scene, SceneStreamingPartKind.RailwaySegment, SegmentKey(index))] : [];
         }
     }

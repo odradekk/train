@@ -57,7 +57,8 @@ internal static class ViewCoverage
             if (parts is null) Count("layout_unknown");
             else if (parts.Value.IsEmpty) Count("outside_terrain_domain");
             else foreach (var stage in parts.Value.Select(part => category?.Invoke(part) ?? "layout_unknown").Distinct())
-                Count(stage is "not_needed" or "layout_unknown" ? stage : stage == "committed" ? "displayed" : "needed_" + stage);
+                Count(stage is "not_needed" or "layout_unknown" or "needed_not_queued"
+                    ? stage : stage == "committed" ? "displayed" : "needed_" + stage);
             if (inFog) fogOnly++;
             else neither++;
 

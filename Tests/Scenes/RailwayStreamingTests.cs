@@ -97,7 +97,7 @@ public sealed class RailwayStreamingTests
     {
         var path = new RailwayPath(RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 800, relief: 0), RailwayFixtures.Edge);
         var coverage = new RailwayStreamingCoverage(path, new(new(Guid.Empty), 1)).At(default);
-        foreach (var z in new[] { 127.01, 127.99, 128.01, 128.99 })
+        foreach (var z in new[] { 127.01, 128.01, 127.99, 128.99 })
         {
             var owner = coverage.FindTerrainParts(.1, z).Single();
             Assert.AreEqual(z < 128 ? "0" : "1", owner.Key);
