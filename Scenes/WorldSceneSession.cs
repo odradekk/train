@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Runtime.CompilerServices;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -16,7 +15,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private RailwayScene? railway;
     private NodeScene? node;
     private NodeScene? successor;
-    private sealed record Candidate(WorldLocation Location, Dictionary<string, SceneObjectId> Ids, SceneSpaceId Space,
+    private sealed record Candidate(WorldLocation Location, ObjectIds Ids, SceneSpaceId Space,
         NodeScene? Node = null, RailwayScene? Railway = null)
     {
         internal SceneFrameStamp? Prepared;
@@ -31,10 +30,10 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private readonly Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built>? nodeBuild;
     private readonly List<Task> closingScenes = [];
     private SceneWorldSnapshot? interpolationStart;
-    private Dictionary<string, SceneObjectId> ids = [];
-    private readonly ConditionalWeakTable<Dictionary<string, SceneObjectId>, ObjectIds> objectIds = new();
+    private ObjectIds ids = new();
     private sealed class ObjectIds
     {
+        internal readonly Dictionary<string, SceneObjectId> ByKey = [];
         internal readonly Dictionary<SceneObjectId, string> Keys = [];
         internal readonly List<SceneObjectId> New = [];
         internal SceneFrame? Frame;
@@ -100,7 +99,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         target = value;
         request = new(request.Value + 1);
         space = new(++nextSpace);
-        ids = [];
+        ids = new();
         presentation.Clear();
         switch (CurrentLocation(snapshot, value))
         {
@@ -290,21 +289,20 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             return new SceneResult<SceneUpdate?>.Failure([new("build_failed", SceneStage.Build, null, null, null, null, error.ToString())]);
         }
     }
-    private SceneObjectId AssignId(Dictionary<string, SceneObjectId> map, string key)
+    private SceneObjectId AssignId(ObjectIds map, string key)
     {
-        if (!map.TryGetValue(key, out var value))
+        if (!map.ByKey.TryGetValue(key, out var value))
         {
-            map.Add(key, value = new(++nextObject));
-            var assigned = objectIds.GetValue(map, _ => new());
-            assigned.Keys.Add(value, key);
-            assigned.New.Add(value);
+            map.ByKey.Add(key, value = new(++nextObject));
+            map.Keys.Add(value, key);
+            map.New.Add(value);
         }
         return value;
     }
 
     private void RetainObjectIds(SceneFrame frame)
     {
-        var assigned = objectIds.GetValue(ids, _ => new());
+        var assigned = ids;
         var terrain = frame.Update.Environment.TerrainCollision;
         HashSet<SceneObjectId>? previousTerrain = null;
         if (assigned.Terrain != terrain)
@@ -325,7 +323,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         void RemoveIfAbsent(SceneObjectId id)
         {
             if (!frame.ContainsObject(id) && !assigned.TerrainIds.Contains(id) && assigned.Keys.Remove(id, out var key))
-                ids.Remove(key);
+                assigned.ByKey.Remove(key);
         }
     }
 
@@ -382,7 +380,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         else
         {
             space = new(++nextSpace);
-            CancelCandidate(); ids = [];
+            CancelCandidate(); ids = new();
             var map = ids;
             if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation);
             else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key));
@@ -410,8 +408,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, findId, nodeBuild, caches.Buildings, caches.Parked, background: background, presentation: presentation);
     }
 
-    private static SceneObjectId? Find(Dictionary<string, SceneObjectId> map, string key) =>
-        map.TryGetValue(key, out var id) ? id : null;
+    private static SceneObjectId? Find(ObjectIds map, string key) =>
+        map.ByKey.TryGetValue(key, out var id) ? id : null;
     private void Prebuild()
     {
         if (target is not WorldSceneTarget.Follow follow) return;
@@ -435,7 +433,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         // Keep at most one background candidate alive, including cancellation that is still draining.
         if (allowBuild && startCandidate && candidate is null && retiringCandidate?.IsCompleted != false)
         {
-            var map = new Dictionary<string, SceneObjectId>();
+            var map = new ObjectIds();
             candidate = wanted is WorldLocation.Node atNode
                 ? new(wanted, map, new(++nextSpace), Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true))
                 : new(wanted, map, new(++nextSpace), Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation));
@@ -528,7 +526,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (hit.Frame.Session != Id || hit.Frame.Request != request) return Failure<PickSubject>("stale_request", SceneStage.Pick);
         if (hit.Frame.Space != space || hit.Frame.Revision > revision || target is null || !Exists(target))
             return Failure<PickSubject>("stale_hit", SceneStage.Pick);
-        if (hit.Object is { } objectId && !ids.Values.Contains(objectId)) return Failure<PickSubject>("stale_hit", SceneStage.Pick);
+        if (hit.Object is { } objectId && !ids.ByKey.Values.Contains(objectId)) return Failure<PickSubject>("stale_hit", SceneStage.Pick);
         if (hit.Subject is PickSubject.Terrain terrain && Exists(terrain.Location))
             return new SceneResult<PickSubject>.Success(hit.Subject);
         if (hit.Subject is PickSubject.WorldObject { Object: WorldObjectId.Instance instance } subject &&
@@ -569,7 +567,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         finally
         {
-            ids = [];
+            ids = new();
         }
     }
 }

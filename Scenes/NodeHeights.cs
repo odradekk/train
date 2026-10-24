@@ -6,7 +6,7 @@ namespace Train.Scenes;
 internal sealed class NodeHeights
 {
     private sealed record Entry(NodeScene.Part Part, ImmutableArray<(double X, double Z)> Buckets);
-    private static readonly IComparer<PartOrder> Order = Comparer<PartOrder>.Create((a, b) =>
+    internal static readonly IComparer<PartOrder> Order = Comparer<PartOrder>.Create((a, b) =>
         a.Kind != b.Kind ? a.Kind.CompareTo(b.Kind) : a.Z != b.Z ? a.Z.CompareTo(b.Z) :
         a.X != b.X ? a.X.CompareTo(b.X) : StringComparer.Ordinal.Compare(a.Key, b.Key));
     internal static NodeHeights Empty { get; } = new(

@@ -85,10 +85,8 @@ internal static class NodeStreaming
     {
         if (chunks is IReadOnlySet<GridColumn> indexed)
         {
-            var size = VoxelGrid.ChunkSize;
-            for (var z = (int)Math.Floor(bounds.Minimum.Z / size) * size; z < bounds.Maximum.Z; z += size)
-            for (var x = (int)Math.Floor(bounds.Minimum.X / size) * size; x < bounds.Maximum.X; x += size)
-                if (indexed.Contains(new(x, z))) return true;
+            foreach (var from in NodeScene.BoundsChunks(bounds))
+                if (indexed.Contains(from)) return true;
             return false;
         }
         return chunks.Any(from => bounds.Minimum.X < from.X + VoxelGrid.ChunkSize && bounds.Maximum.X > from.X &&

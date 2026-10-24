@@ -12,6 +12,34 @@ namespace Train.Scenes.Tests;
 public sealed class NodeCorridorInvalidationTests
 {
     [TestMethod]
+    [DataRow(0UL, 1UL, false, true)]
+    [DataRow(1UL, 0UL, true, true)]
+    [DataRow(1UL, 0UL, false, false)]
+    public async Task Observe_updates_the_followed_node_corridor_for_commands_and_construction_but_not_a_plain_step(
+        ulong steps, ulong sequence, bool constructionCompleted, bool changesPlatform)
+    {
+        var content = Content(marker: true);
+        var initial = Snapshot(content, secondPlatform: false, marker: true);
+        var changed = Snapshot(content, secondPlatform: changesPlatform, steps: steps, sequence: sequence, marker: true);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), new(), RailwayFixtures.EmptyNode);
+        session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var displayed = await RailwayFixtures.Settled(session, request);
+        var marker = new WorldObjectId.Instance(new InstanceId.Building(new(2)));
+        Assert.IsFalse(displayed.Objects.Any(item => item.Subject == marker),
+            "The unchanged marker building must be outside the initial corridor and prefetch circles.");
+
+        ImmutableArray<EventEnvelope> events = constructionCompleted
+            ? [new(changed.Core.Position, 0, new CoreEvent.ConstructionCompleted(new(1), ConstructionKind.Construction,
+                new ConstructionTarget.NewBuilding(new(1), NodeFixtures.StationDesign), new InstanceId.Building(new(1)), []))]
+            : [];
+        Assert.IsInstanceOfType<SceneResult<SimulationPosition>.Success>(session.Observe(changed, events));
+        var after = await RailwayFixtures.Settled(session, request, displayed);
+        Assert.AreEqual(changesPlatform, after.Objects.Any(item => item.Subject == marker),
+            "Observe must admit the unchanged building only when the updated platform corridor reaches it.");
+    }
+
+    [TestMethod]
     public async Task New_read_views_and_unchanged_invalidated_stops_do_not_restart_corridor_work()
     {
         var content = Content();
@@ -65,33 +93,46 @@ public sealed class NodeCorridorInvalidationTests
 
     private static TrainView Train() => RailwayFixtures.Train(direction: TravelDirection.Reverse, speed: 1);
 
-    private static IContentView Content() => NodeFixtures.Content(rules: RailwayFixtures.Rules with
+    private static IContentView Content(bool marker = false) => NodeFixtures.Content(design: RailwayFixtures.Vehicle() with
+    { Scene = SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)), SceneFixtures.Cell(new(0, 0, 7), 2)]) with
+        { OccupiedBounds = new(new(0, 0, 0), new(0, 0, 7)) } }, rules: RailwayFixtures.Rules with
     { MinimumCurveRadiusMeters = 1 }, layout: NodeFixtures.Layout with
     {
+        Plots = marker ? NodeFixtures.Layout.Plots.Add(new(2, PlotSize.Small, new(-96, 0, 0), VoxelOrientation.PzPy)) : NodeFixtures.Layout.Plots,
         SceneModel = NodeFixtures.Layout.SceneModel with
         { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-192, 0, -192), new(191, 0, 191)) } }
     });
 
-    private static SceneWorldSnapshot Snapshot(IContentView content, bool secondPlatform, ulong steps = 0)
+    private static SceneWorldSnapshot Snapshot(IContentView content, bool secondPlatform, ulong steps = 0, ulong sequence = 0,
+        bool marker = false)
     {
-        var train = Train();
-        var basis = NodeFixtures.Snapshot(platforms: 1, trains: [train], content: content, steps: steps);
+        var train = marker ? Train() with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(1), 1, new(1), 1, NodeTravelPhase.Approaching, 0, 1) } : Train();
+        var basis = NodeFixtures.Snapshot(platforms: 1, trains: [train], content: content, steps: steps, sequence: sequence);
         var edges = basis.Core.World.Edges.Where(edge => edge.Id == new EdgeId(1)).ToImmutableArray();
         var station = NodeFixtures.Station(1);
         if (secondPlatform) station = station with { Parts = station.Parts.Select(part => part with
         { Destroyed = part.Part.Value == 1, Durability = new(part.Part.Value == 1 ? 0 : 100, 100) }).ToImmutableArray() };
+        var instances = train.Vehicles.Select(id => ((Lookup<InstanceView>.Found)basis.Core.FindInstance(new InstanceId.Vehicle(id))).Value)
+            .Append(station).ToList();
+        var settlement = ((Lookup<SettlementView>.Found)basis.Core.FindSettlement(new(1))).Value;
+        if (marker)
+        {
+            instances.Add(RailwayFixtures.Instance() with { Id = new InstanceId.Building(new(2)), Location = NodeFixtures.Location,
+                Details = new InstanceDetails.Building(new(1), PlotSize.Small) });
+            settlement = settlement with { Plots = settlement.Plots.Add(new(new(2), 2, PlotSize.Small, [], new PlotOccupant.Building(new(2)))) };
+        }
         return basis with { Core = new FixedCoreReadView
         {
-            Revision = new(steps), Position = basis.Core.Position, InputIdentity = basis.Core.InputIdentity,
+            Revision = new(steps + sequence), Position = basis.Core.Position, InputIdentity = basis.Core.InputIdentity,
             World = basis.Core.World with { Edges = edges },
             Nodes = basis.Core.World.Nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(
                 ((Lookup<NodeView>.Found)basis.Core.FindNode(node.Id)).Value with
                 { AdjacentEdges = edges.Where(edge => edge.Start == node.Id || edge.End == node.Id).Select(edge => edge.Id).ToImmutableArray() })),
             Edges = edges.ToDictionary(edge => edge.Id, edge => basis.Core.FindEdge(edge.Id)),
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },
-            Instances = train.Vehicles.ToDictionary(id => (InstanceId)new InstanceId.Vehicle(id), id => basis.Core.FindInstance(new InstanceId.Vehicle(id)))
-                .Append(new(station.Id, new Lookup<InstanceView>.Found(station))).ToDictionary(pair => pair.Key, pair => pair.Value),
-            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = basis.Core.FindSettlement(new(1)) }
+            Instances = instances.ToDictionary(item => item.Id, item => (Lookup<InstanceView>)new Lookup<InstanceView>.Found(item)),
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = new Lookup<SettlementView>.Found(settlement) }
         } };
     }
 

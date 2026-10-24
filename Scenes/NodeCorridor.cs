@@ -53,10 +53,8 @@ internal sealed class NodeCorridor
 
     internal bool Intersects(SceneBounds bounds)
     {
-        var size = VoxelGrid.ChunkSize;
-        for (var z = (int)Math.Floor(bounds.Minimum.Z / size) * size; z < bounds.Maximum.Z; z += size)
-        for (var x = (int)Math.Floor(bounds.Minimum.X / size) * size; x < bounds.Maximum.X; x += size)
-            if (Chunks.Contains(new(x, z))) return true;
+        foreach (var from in NodeScene.BoundsChunks(bounds))
+            if (Chunks.Contains(from)) return true;
         return false;
     }
 

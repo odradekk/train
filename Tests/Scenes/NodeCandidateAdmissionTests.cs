@@ -44,6 +44,6 @@ public sealed class NodeCandidateAdmissionTests
             previous = current;
         }
 
-        int VisualCount() => scene.CandidateObjects(snapshot).Sum(item => item.Visuals.OfType<SceneVisual.Wheelset>().Count());
+        int VisualCount() => scene.CandidateChanges(snapshot, full: true).Upserts.Sum(item => item.Visuals.OfType<SceneVisual.Wheelset>().Count());
     }
 }

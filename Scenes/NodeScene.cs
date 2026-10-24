@@ -204,9 +204,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Dictionary<string, (int Kind, int Z, int X, string Key)> framePartKeys = [];
     private ImmutableSortedDictionary<(int Kind, int Z, int X, string Key), (Part Part, TerrainCollisionPatch? Terrain)> frameParts =
         ImmutableSortedDictionary.Create<(int Kind, int Z, int X, string Key), (Part Part, TerrainCollisionPatch? Terrain)>(
-            Comparer<(int Kind, int Z, int X, string Key)>.Create((a, b) =>
-                a.Kind != b.Kind ? a.Kind.CompareTo(b.Kind) : a.Z != b.Z ? a.Z.CompareTo(b.Z) :
-                a.X != b.X ? a.X.CompareTo(b.X) : StringComparer.Ordinal.Compare(a.Key, b.Key)));
+            NodeHeights.Order);
     private readonly HashSet<string> candidateChanges = [];
     private readonly Dictionary<SceneObjectId, SceneObject> candidateObjects = [];
     private readonly Dictionary<string, ImmutableArray<SceneObjectId>> candidatePartObjects = [];
@@ -537,6 +535,7 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         RetireStreaming();
         corridorInput = null;
+        terrainFogWindow = null;
         retainedCorridorParts.Clear();
         var previousBuilt = built;
         prepared = next;
@@ -633,7 +632,7 @@ internal sealed class NodeScene : IAsyncDisposable
         railFogDirty = true;
     }
 
-    private static IEnumerable<GridColumn> BoundsChunks(SceneBounds bounds)
+    internal static IEnumerable<GridColumn> BoundsChunks(SceneBounds bounds)
     {
         var size = VoxelGrid.ChunkSize;
         for (var z = (int)Math.Floor(bounds.Minimum.Z / size) * size; z < bounds.Maximum.Z; z += size)
@@ -804,16 +803,6 @@ internal sealed class NodeScene : IAsyncDisposable
             count++;
         }
         if (!preparingCandidate && nearCompleted && count > 0) awaitingDisplay = true;
-    }
-
-    internal ImmutableArray<SceneObject> CandidateObjects(SceneWorldSnapshot current)
-    {
-        var objects = attached.OrderBy(item => item.Key, StringComparer.Ordinal)
-            .SelectMany(item => item.Value.Geometry.Objects).ToImmutableArray();
-        if (layout is null) return objects;
-        var instances = settlement.Present(current, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), findId,
-            range, terrainChunks, prefetch, allowBuild: false, corridor: corridor);
-        return objects.AddRange(instances.Objects);
     }
 
     internal (ImmutableArray<SceneObject> Upserts, ImmutableArray<SceneObjectId> Removed) CandidateChanges(
