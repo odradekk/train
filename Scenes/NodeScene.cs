@@ -204,12 +204,17 @@ internal sealed class NodeScene : IAsyncDisposable
     private sealed record PlatformMap(ImmutableArray<NodeLayout.Stop> Stops, ImmutableArray<SceneProblem> Problems);
     private readonly ConditionalWeakTable<SceneWorldSnapshot, PlatformMap> platformMaps = new();
     private readonly Task<Preparation>? pending;
+    internal SceneStreamingScope? Streaming { get; }
+    private readonly SceneStreamingAttemptId? preparationAttempt;
+    private SceneStreamingAttemptId? refreshAttempt;
+    private NodeStreamingCoverage? streamingCoverage;
     private readonly Func<SceneWorldSnapshot, NodeId, Cached?, CancellationToken, Built>? nodeBuild;
     private Task<Preparation>? refresh;
     private readonly List<SceneProblem> reported = [];
     internal bool AcceptTrackChanges { get; set; } = true;
-    private sealed record PartWork(Task<Part> Task, CancellationTokenSource Cancellation, SceneBounds Bounds, GridColumn? Chunk);
-    private sealed record CompletedPart(Part Part, SceneBounds Bounds, GridColumn? Chunk)
+    private sealed record PartWork(Task<Part> Task, CancellationTokenSource Cancellation, SceneBounds Bounds, GridColumn? Chunk,
+        SceneStreamingAttemptId? Attempt);
+    private sealed record CompletedPart(Part Part, SceneBounds Bounds, GridColumn? Chunk, SceneStreamingAttemptId? Attempt = null)
     {
         internal long Vertices { get; } = Part.Geometry.Geometry.Objects.Sum(item =>
             item.Visuals.OfType<SceneVisual.Geometry>().Sum(visual => (long)visual.Mesh.Vertices.Length));
@@ -290,8 +295,9 @@ internal sealed class NodeScene : IAsyncDisposable
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
         Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
-        PresentationState? presentation = null)
+        PresentationState? presentation = null, SceneStreamingScope? streaming = null)
     {
+        Streaming = streaming;
         Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId; this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
@@ -306,10 +312,16 @@ internal sealed class NodeScene : IAsyncDisposable
             InitializeRange();
         }
         var previous = cache.Read(node);
+        preparationAttempt = Streaming?.Need(SceneStreamingPartKind.NodePreparation, NodePartKeys.Preparation);
+        if (preparationAttempt is { } queued) Streaming?.Queue(queued);
         pending = Task.Run(() =>
         {
-            var currentLayout = layout ?? NodeLayout.Build(initial, node, cancellation.Token);
-            return BuildPreparation(initial, currentLayout, previous, cancellation.Token);
+            Preparation Build()
+            {
+                var currentLayout = layout ?? NodeLayout.Build(initial, node, cancellation.Token);
+                return BuildPreparation(initial, currentLayout, previous, cancellation.Token);
+            }
+            return preparationAttempt is { } attempt ? Streaming!.Build(attempt, Build) : Build();
         }, cancellation.Token);
     }
     // 首个相机采样前以节点原点为焦点：站点和巢穴都在原点附近，范围中心可能离它们几百米（#674）。
@@ -362,19 +374,22 @@ internal sealed class NodeScene : IAsyncDisposable
                 built = prepared.Global;
                 if (layout is null) { layout = built.Layout; InitializeRange(); }
                 if (focus is { } initialFocus) range = new(initialFocus, NodeStreaming.PrefetchCells);
+                UpdatePrefetch(target, following);
+                ReportDemand();
                 foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal)) Attach(part.Key, part.Value);
+                AdmitPreparation(preparationAttempt);
                 if (cache.Read(Node) is { } previous)
                 {
                     foreach (var segment in prepared.Rails.Values.Where(segment => range.Around(NodeStreaming.RetainCells).Intersects(segment.Bounds)))
                         if (previous.Parts.TryGetValue(segment.Key, out var old) && old.Inputs == segment.Inputs)
-                            completedParts.Add(segment.Key, new(old, segment.Bounds, null));
+                            completedParts.Add(segment.Key, new(old, segment.Bounds, null, CachedPart(segment.Key)));
                     if (prepared.HasChunks)
                     foreach (var from in range.Around(NodeStreaming.RetainCells).Chunks(layout!))
                         if (previous.Parts.TryGetValue(ChunkKey(from), out var old))
                         {
                             // Validate the value key before retaining geometry from another binding.
                             if (old.Inputs == prepared.ChunkInputs(from))
-                                completedParts.Add(ChunkKey(from), new(old, ChunkBounds(from), from));
+                                completedParts.Add(ChunkKey(from), new(old, ChunkBounds(from), from, CachedPart(ChunkKey(from))));
                         }
                 }
             }
@@ -404,16 +419,19 @@ internal sealed class NodeScene : IAsyncDisposable
         var task = refresh;
         if (task?.IsCompleted != true) return;
         refresh = null;
+        var attempt = refreshAttempt;
+        refreshAttempt = null;
         if (cancellation.IsCancellationRequested || failure is not null) return;
         try
         {
             var next = task.GetAwaiter().GetResult();
             if (NeedsRefresh(snapshot, next.Global.Layout))
             {
+                if (attempt is { } rejected) Streaming?.Cancel(rejected);
                 ScheduleRefresh();
                 return;
             }
-            Adopt(next);
+            Adopt(next, attempt);
         }
         catch (RailwayBuildException error) { Fail(error); }
         catch (OperationCanceledException) { }
@@ -427,11 +445,16 @@ internal sealed class NodeScene : IAsyncDisposable
         var node = Node;
         var previous = cache.Read(node);
         var token = cancellation.Token;
-        refresh = Task.Run(() => BuildPreparation(captured, NodeLayout.Build(captured, node, token), previous, token), token);
+        var attempt = Streaming?.Begin(SceneStreamingPartKind.NodePreparation, NodePartKeys.Preparation);
+        refreshAttempt = attempt;
+        if (attempt is { } queued) Streaming?.Queue(queued);
+        refresh = Task.Run(() => attempt is { } work
+            ? Streaming!.Build(work, () => BuildPreparation(captured, NodeLayout.Build(captured, node, token), previous, token))
+            : BuildPreparation(captured, NodeLayout.Build(captured, node, token), previous, token), token);
     }
 
     private Preparation BuildPreparation(SceneWorldSnapshot current, NodeLayout currentLayout, Cached? previous, CancellationToken token) =>
-        nodeBuild is null ? Prepare(current, currentLayout, previous, token) :
+        nodeBuild is null ? Prepare(current, currentLayout, previous, token, Streaming) :
             new(current, nodeBuild(current, Node, previous, token), null, default, [], [], [], [], "", [], [], false);
 
     private static bool NeedsRefresh(SceneWorldSnapshot snapshot, NodeLayout layout) =>
@@ -447,7 +470,7 @@ internal sealed class NodeScene : IAsyncDisposable
         return false;
     }
 
-    private void Adopt(Preparation next)
+    private void Adopt(Preparation next, SceneStreamingAttemptId? attempt)
     {
         RetireStreaming();
         var previousBuilt = built;
@@ -459,9 +482,11 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (!built.Parts.ContainsKey(key)) attached.Remove(key);
         foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal))
         {
-            if (previousBuilt?.Parts.TryGetValue(part.Key, out var old) == true && ReferenceEquals(old, part.Value)) continue;
+            if (previousBuilt?.Parts.TryGetValue(part.Key, out var old) == true && ReferenceEquals(old, part.Value))
+            { AdmitAttached(part.Key); continue; }
             Attach(part.Key, part.Value);
         }
+        AdmitPreparation(attempt);
         foreach (var key in rails.Keys.Where(key => !next.Rails.ContainsKey(key)).ToArray())
         {
             rails.Remove(key);
@@ -483,9 +508,14 @@ internal sealed class NodeScene : IAsyncDisposable
             {
                 var work = pendingParts[key];
                 work.Cancellation.Cancel();
+                if (work.Attempt is { } cancelled) Streaming?.Cancel(cancelled);
                 retiring.Add(work);
                 pendingParts.Remove(key);
             }
+            foreach (var (key, part) in completedParts)
+                if (part.Attempt is { } cancelled) Streaming?.Cancel(cancelled);
+            if (Streaming is { } streaming)
+                foreach (var part in waitingParts) streaming.Cancel(StreamingKind(part.Key), part.Key);
             completedParts.Clear();
             waitingParts.Clear();
         }
@@ -510,7 +540,48 @@ internal sealed class NodeScene : IAsyncDisposable
             (!rails.ContainsKey(segment.Key) || rebuilding.Contains(segment.Key)));
     }
 
-    private void Attach(string key, Part part) => attached[key] = WorldSceneSession.Attach(part.Geometry, "node:" + key + ":", objectId);
+    private static SceneStreamingPartKind StreamingKind(string key) => key.StartsWith("terrain:", StringComparison.Ordinal)
+        ? SceneStreamingPartKind.NodeTerrain : NodePartKeys.IsBoundary(key)
+        ? SceneStreamingPartKind.NodeBoundary : SceneStreamingPartKind.NodeRail;
+
+    private SceneStreamingAttemptId? CachedPart(string key)
+    {
+        var attempt = Streaming?.Begin(StreamingKind(key), key);
+        if (attempt is { } hit) Streaming?.CacheHit(hit);
+        return attempt;
+    }
+
+    private void Attach(string key, Part part, SceneStreamingAttemptId? attempt = null)
+    {
+        attached[key] = WorldSceneSession.Attach(part.Geometry, "node:" + key + ":", objectId);
+        AdmitAttached(key, attempt);
+    }
+
+    private void AdmitAttached(string key, SceneStreamingAttemptId? attempt = null)
+    {
+        if (Streaming is not { } streaming || key == NodePartKeys.Diagnostics) return;
+        streaming.Admit(attempt ?? streaming.Begin(StreamingKind(key), key),
+            attached[key].Geometry.Objects.Select(item => item.Id).ToImmutableArray());
+    }
+
+    private void AdmitPreparation(SceneStreamingAttemptId? attempt)
+    {
+        if (Streaming is not { } streaming || attempt is not { } ready || prepared is null) return;
+        streaming.Admit(ready, attached.Where(item => item.Key == NodePartKeys.Diagnostics)
+            .SelectMany(item => item.Value.Geometry.Objects).Select(item => item.Id).ToImmutableArray());
+        streamingCoverage = new(prepared.Global.Layout, prepared.HasChunks, prepared.Global.Parts, streaming.Id);
+    }
+
+    private void ReportDemand()
+    {
+        if (Streaming is not { } streaming || prepared is null || layout is null) return;
+        var needed = range.Chunks(layout);
+        if (prefetch != range) needed = needed.Concat(prefetch.Chunks(layout)).Distinct();
+        streaming.Demand(SceneStreamingPartKind.NodeTerrain, prepared.HasChunks ? needed.Select(ChunkKey) : []);
+        streaming.Demand(SceneStreamingPartKind.NodeRail, prepared.Rails.Values
+            .Where(segment => range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)).Select(segment => segment.Key));
+        streaming.Demand(SceneStreamingPartKind.NodeBoundary, prepared.Global.Parts.Keys.Where(key => NodePartKeys.IsBoundary(key)));
+    }
     internal static double GroundHeight(IEnumerable<Part> parts, double x, double z)
     {
         foreach (var part in parts)
@@ -526,14 +597,19 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void ReconcileParts()
     {
+        ReportDemand();
         var retention = range.Around(NodeStreaming.RetainCells);
         foreach (var key in completedParts.Keys.Where(key => !retention.Intersects(completedParts[key].Bounds) &&
             !prefetch.Intersects(completedParts[key].Bounds)).ToArray())
+        {
+            if (completedParts[key].Attempt is { } cancelled) Streaming?.Cancel(cancelled);
             completedParts.Remove(key);
+        }
         foreach (var key in pendingParts.Keys.Where(key => !range.Intersects(pendingParts[key].Bounds) &&
             !prefetch.Intersects(pendingParts[key].Bounds)).ToArray())
         {
             var work = pendingParts[key];
+            if (work.Attempt is { } cancelled) Streaming?.Cancel(cancelled);
             work.Cancellation.Cancel(); retiring.Add(work); pendingParts.Remove(key);
         }
         foreach (var from in chunks.Keys.Where(from => !retention.Intersects(from) && !prefetch.Intersects(from)).ToArray())
@@ -548,7 +624,7 @@ internal sealed class NodeScene : IAsyncDisposable
             try
             {
                 var part = work.Task.GetAwaiter().GetResult() with { Bounds = work.Bounds };
-                completedParts.Add(key, new(part, work.Bounds, work.Chunk));
+                completedParts.Add(key, new(part, work.Bounds, work.Chunk, work.Attempt));
             }
             catch (OperationCanceledException) when (work.Cancellation.IsCancellationRequested) { }
             catch (RailwayBuildException error) { Fail(error); }
@@ -575,7 +651,17 @@ internal sealed class NodeScene : IAsyncDisposable
                 !pendingParts.ContainsKey(segment.Key) && !completedParts.ContainsKey(segment.Key) &&
                 (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
-        waitingParts = new(terrain.Concat(tracks).OrderBy(item => Priority(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
+        var nextWaiting = new Queue<(string Key, SceneBounds Bounds, GridColumn? Chunk)>(terrain.Concat(tracks)
+            .OrderBy(item => Priority(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
+        if (Streaming is { } streaming)
+        {
+            var nextKeys = nextWaiting.Select(item => item.Key).ToHashSet(StringComparer.Ordinal);
+            foreach (var item in waitingParts.Where(item => !nextKeys.Contains(item.Key)))
+                streaming.Cancel(StreamingKind(item.Key), item.Key);
+        }
+        waitingParts = nextWaiting;
+        if (Streaming is { } queuedStreaming)
+            foreach (var item in waitingParts) queuedStreaming.Queue(queuedStreaming.Begin(StreamingKind(item.Key), item.Key));
         StartParts();
     }
 
@@ -658,7 +744,7 @@ internal sealed class NodeScene : IAsyncDisposable
             if (ready.Chunk is { } from) chunks[from] = ready.Part;
             else { rails[key] = ready.Part; railFogDirty = true; }
             rebuilding.Remove(key);
-            Attach(key, ready.Part);
+            Attach(key, ready.Part, ready.Attempt);
             completedParts.Remove(key);
             vertices += ready.Vertices;
             visuals += ready.Visuals;
@@ -678,9 +764,11 @@ internal sealed class NodeScene : IAsyncDisposable
             var item = waitingParts.Dequeue();
             var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
             var data = prepared!;
-            var task = Task.Run(() => item.Chunk is { } from ? buildChunk(data, from, null, stop.Token) :
-                buildRail(data, data.Rails[item.Key], null, stop.Token), stop.Token);
-            pendingParts.Add(item.Key, new(task, stop, item.Bounds, item.Chunk));
+            var attempt = Streaming?.Begin(StreamingKind(item.Key), item.Key);
+            Part Build() => item.Chunk is { } from ? buildChunk(data, from, null, stop.Token) :
+                buildRail(data, data.Rails[item.Key], null, stop.Token);
+            var task = Task.Run(() => attempt is { } work ? Streaming!.Build(work, Build) : Build(), stop.Token);
+            pendingParts.Add(item.Key, new(task, stop, item.Bounds, item.Chunk, attempt));
             _ = task.ContinueWith(_ => { lock (workGate) StartParts(); }, CancellationToken.None,
                 TaskContinuationOptions.None, TaskScheduler.Default);
         }
@@ -797,6 +885,11 @@ internal sealed class NodeScene : IAsyncDisposable
             if (failure is null)
                 effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
         }
+        if (Streaming is { } streaming)
+            streaming.Frame(stamp, (prepared is null ? Enumerable.Empty<SceneStreamingPartId>() :
+                new[] { streaming.PartId(SceneStreamingPartKind.NodePreparation, NodePartKeys.Preparation) })
+                .Concat(attached.Keys.Where(key => key != NodePartKeys.Diagnostics).Select(key => streaming.PartId(StreamingKind(key), key))),
+                streamingCoverage?.At(origin));
         return new(stamp, origin, seconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
             node: layout, nodeParts: parts.Select(item => item.Part).ToImmutableArray(),
@@ -875,7 +968,7 @@ internal sealed class NodeScene : IAsyncDisposable
     }
 
     internal static Preparation Prepare(SceneWorldSnapshot snapshot, NodeLayout layout, Cached? previous = null,
-        CancellationToken token = default)
+        CancellationToken token = default, SceneStreamingScope? streaming = null)
     {
         var node = layout.Node;
         var map = snapshot.Core.World.Nodes.Single(item => item.Id == node);
@@ -993,11 +1086,11 @@ internal sealed class NodeScene : IAsyncDisposable
             var inputs = RailwayDependencies.Values(new object[] { layout.Inputs, boundary.Dependencies.Key,
                 boundary.Heights.Keys.Where(column => !allowed.Contains(column)).OrderBy(column => column.X).ThenBy(column => column.Z).ToArray(),
                 skirt.Bottoms });
-            Put("boundary:" + entry.Edge.Value, inputs, () => GridPart(
+            Put(NodePartKeys.Boundary(entry.Edge), inputs, () => GridPart(
                 boundary.Grid.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).Concat(skirt.Cells).ToImmutableArray(),
                 boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
         }
-        Put("diagnostics", problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
+        Put(NodePartKeys.Diagnostics, problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
         return new(snapshot, new(layout, parts.ToImmutable(), boundaries.ToImmutable()), terrain, ballastVoxel,
             appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable(),
             BoundarySurfaces: boundarySurfaces);
@@ -1005,7 +1098,20 @@ internal sealed class NodeScene : IAsyncDisposable
         void Put(string name, string inputs, Func<Part> create)
         {
             token.ThrowIfCancellationRequested();
-            parts.Add(name, previous?.Parts.TryGetValue(name, out var old) == true && old.Inputs == inputs ? old : create() with { Inputs = inputs });
+            var attempt = NodePartKeys.IsBoundary(name) ?
+                streaming?.Need(SceneStreamingPartKind.NodeBoundary, name) : null;
+            if (attempt is not null) attempt = streaming!.Begin(SceneStreamingPartKind.NodeBoundary, name);
+            if (previous?.Parts.TryGetValue(name, out var old) == true && old.Inputs == inputs)
+            {
+                if (attempt is { } hit) streaming?.CacheHit(hit);
+                parts.Add(name, old);
+            }
+            else
+            {
+                if (attempt is { } queued) streaming?.Queue(queued);
+                var part = attempt is { } work ? streaming!.Build(work, create) : create();
+                parts.Add(name, part with { Inputs = inputs });
+            }
         }
         void AddRoute(string route, string inputs, Func<double, RailwaySample> sample, double length)
         {
@@ -1389,6 +1495,7 @@ internal sealed class NodeScene : IAsyncDisposable
         lock (workGate)
         {
             cancellation.Cancel();
+            Streaming?.CancelPending();
             cache.Close(Node, owner);
             waitingParts.Clear();
             completedParts.Clear();
@@ -1402,5 +1509,6 @@ internal sealed class NodeScene : IAsyncDisposable
         lock (workGate) foreach (var work in parts) work.Cancellation.Dispose();
         await settlement.DisposeAsync();
         cancellation.Dispose();
+        Streaming?.Close();
     }
 }

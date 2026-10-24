@@ -7,9 +7,9 @@ namespace Train.Scenes;
 
 public static class ScenesFactory
 {
-    public static IScenesFactory Create() => new Factory();
+    public static IScenesFactory Create(ISceneStreamingObserver? observer = null) => new Factory(observer);
 
-    private sealed class Factory : IScenesFactory
+    private sealed class Factory(ISceneStreamingObserver? observer) : IScenesFactory
     {
         private readonly RailwayCache railwayCache = new();
         private readonly NodeScene.Cache nodeCache = new();
@@ -17,7 +17,8 @@ public static class ScenesFactory
         public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial)
         {
             WorldSceneSession.ValidateSnapshot(initial);
-            return new SceneResult<IWorldSceneSession>.Success(new WorldSceneSession(binding, initial, railwayCache, nodeCache, vehicleCache: vehicleCache));
+            return new SceneResult<IWorldSceneSession>.Success(new WorldSceneSession(binding, initial, railwayCache, nodeCache,
+                vehicleCache: vehicleCache, observer: observer));
         }
         public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial)
         {

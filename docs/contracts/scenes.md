@@ -67,12 +67,29 @@ Follow 单候选的布局和准备在后台完成。当前场景仍有等待中�
 | [Values.cs](../../Contracts/Scenes/Values.cs) | 运行身份、坐标、结果、诊断与命中 |
 | [World.cs](../../Contracts/Scenes/World.cs) | 工厂、世界快照、观察目标与场景会话 |
 | [Rendering.cs](../../Contracts/Scenes/Rendering.cs) | 不可变显示帧、增量、网格、实例和特效 |
+| [Streaming.cs](../../Contracts/Scenes/Streaming.cs) | 可选流式记录观察器、构建尝试身份与固定地形覆盖查询 |
 | [Editing.cs](../../Contracts/Scenes/Editing.cs) | 编辑修订、操作、预览、选取、撤销与固定快照 |
 | [Authoring.cs](../../Contracts/Scenes/Authoring.cs) | 只读设计预览、固定聚居地模板的空间预览与地块拾取 |
 
-实现程序集只公开 `Train.Scenes.ScenesFactory.Create()`，返回 `IScenesFactory`；其余实现类型为 internal。Godot 的 `App/Composition/` 调用真实工厂，其他代码只接收契约。体素实现负责地形与铁路生成、网格与遮面、对象姿态、逐格拾取、编辑动作及内部任务；不把区块、中心线算法、重建队列、线程池或缓存策略交给宿主配置。
+实现程序集只公开 `Train.Scenes.ScenesFactory.Create(ISceneStreamingObserver? observer = null)`，返回 `IScenesFactory`；其余实现类型为 internal。Godot 的 `App/Composition/` 调用真实工厂，其他代码只接收契约。体素实现负责地形与铁路生成、网格与遮面、对象姿态、逐格拾取、编辑动作及内部任务；不把区块、中心线算法、重建队列、线程池或缓存策略交给宿主配置。
 
 核心负责世界规则，内容负责设计计算、外观定义与资产原始字节。Godot 负责输入、相机控制、界面覆盖层、文件、日志和真实渲染资源；它不遍历设计布局生成场景，也不计算设计哈希、部件编号或路线。宏观地图与管理面板可直接读取核心，场景接口不是这些查询的中转层。
+
+## 可选流式记录
+
+流式记录声明见 [Streaming.cs](../../Contracts/Scenes/Streaming.cs)，变更经 [#740 用户决定](https://github.com/odradekk/train/issues/740#issuecomment-6378866039)确认。正常游戏向工厂传 null；测量宿主才传入观察器。记录不改变场景调度、帧内容或接入资格，Scenes 不负责读时钟、写文件或统计。
+
+`SceneStreamingSceneId` 区分会话以及同一地点并存的活动、候选、后继场景。创建时发出 `Opened`，晋升活动时保留身份并发出 `Activated`，关闭时发出 `Closed`。部件类型区分线路分段、节点准备任务、节点地形、节点轨道和节点边界；`Key` 是不透明身份，调用方只比较相等，不解析。取消后重建增加尝试编号，迟到结果仍关联旧尝试。
+
+`Changed` 的 `Needed`／`DemandEnded` 表示进入／离开需求范围；`Queued` 表示入队（线路是提交线程池）；`Started`／`Built` 表示任务体开始／几何完成；缓存复用发出 `CacheHit`，不补造构建阶段；`Admitted` 表示获准接入，`Objects` 提供该部件的对象 ID，供宿主关联资源准备和提交；其他阶段的 `Objects` 为空。`Cancelled`／`Failed` 分别表示取消／失败。取消后迟到的 `Built` 可以继续被记录，但不恢复接入资格。
+
+`Started` 和 `Built` 在构建任务体内由 worker 线程发出，其他事件在发生处的线程发出；不承诺跨线程的全局顺序。观察器必须线程安全、不阻塞、不抛异常，并在回调入口自行读取单调时钟；不能在回调中重入场景操作或执行文件 I/O。
+
+每个世界场景帧在返回调用方之前发出一条 `Frame`，`Stamp` 对应该帧，`Parts` 列出帧中实际接入的构建尝试，包括保留对象所属的尝试；不只列本次新增。移除由相邻帧的集合差推出，不增设退役阶段。`Coverage` 为 null 表示布局尚未准备好；非 null 时绑定该帧固定的布局与 Origin，只读且可在后续更新、晋升或 `Closed` 后继续查询。调用方释放引用即可，不需要归还。
+
+`FindTerrainParts(x, z)` 接受对应帧根局部 X、Z 格坐标，与该帧 `TerrainHeight` 使用相同坐标；输入必须有限。返回预期地面所属部件，不受其需求、构建或显示进度影响；空数组明确表示在生成器预期地面域之外。线路按生成器实际体素列判断，包括弯道和端点；同一列中的点归属一致。所有返回集合不可为 default。查询只供测量使用，不能由缺少地形反推该点必在预期域内。宿主测量只保留已提交帧和当前准备帧的查询对象，不逐帧累积布局。
+
+共享支持见 [StreamingScenario.cs](../../Tests/ContractSupport/Scenes/StreamingScenario.cs)：观察器可接收并发回调，固定覆盖替身只接受显式配置的点（配置空数组表示域外，未配置则失败）；`AssertFrameMatches` 可由真实实现和替身共用，检查帧与场景／尝试身份对应。实际构建线程、缓存、取消与迟到完成仍由 Scenes 受控构建用例验证，替身自测不代替生产证据。
 
 ## 坐标与身份
 
@@ -235,7 +252,7 @@ SceneResult.Success 表示本次操作正常完成，包括仍在加载的帧和
 
 稳定错误码至少覆盖 `target_missing`、`stale_request`、`stale_hit`、`content_missing`、`build_failed`、`edit_locked`、`invalid_operation`、`region_limit`、`occupancy_conflict`、`stale_preview`、`confirmation_required`、`scene_internal_fault`。Godot 不解析 Detail 分支；SceneProblem.Content 和 Package 保留引用及已知来源包，内容提供了来源时不得丢弃，确实未知时 Package 为空。宿主据此同时在界面与控制台显示缺失资料，不按设计哈希猜包名。绑定、内容世代或业务输入身份不匹配、Observe 位置倒退及事件顺序或重复错误属于接口前提违反，抛 ArgumentException，接入前仍须检查；真实交互过期继续返回 stale_hit、stale_request 或 stale_preview。default 集合/非有限数/无效枚举等编程前提错误抛 ArgumentException；关闭后的修改调用抛 ObjectDisposedException，AcceptEvaluation/MarkSaved 则按约定返回 false。
 
-工厂无可变调用会话状态，可独立创建多个候选；世界和编辑会话的变更只在各自协调线程串行执行。只读设计预览的 Present 和 Dispose 在调用方协调线程串行调用。固定帧、输入快照与模板预览可并发只读。体素背景线程不调用 Godot 或内容加载器，不读文件、不回调宿主；内部任务完成状态只经 Present 暴露。
+工厂无可变调用会话状态，可独立创建多个候选；世界和编辑会话的变更只在各自协调线程串行执行。只读设计预览的 Present 和 Dispose 在调用方协调线程串行调用。固定帧、输入快照与模板预览可并发只读。体素背景线程不调用 Godot 或内容加载器、不读文件；除可选流式观察器的诊断事件外，不回调宿主。产品使用的内部任务完成状态仍只经 Present 暴露。
 
 [消费样例](../../prototypes/scenes-contract/README.md)证明公开面可调用，不提供生产算法或复制业务规则的替身。后续共享契约用例须对真实实现及有限情景替身分别执行：
 

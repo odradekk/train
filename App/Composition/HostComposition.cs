@@ -50,5 +50,7 @@ internal static class HostComposition
             installation, logger, notifications.Decide, sessionOptions: new(runtime, OS.IsDebugBuild(), 3));
     }
 
-    internal static IScenesFactory CreateScenes() => Train.Scenes.ScenesFactory.Create();
+    internal static IScenesFactory CreateScenes() => CreateScenes(null);
+
+    internal static IScenesFactory CreateScenes(ISceneStreamingObserver? observer) => Train.Scenes.ScenesFactory.Create(observer);
 }

@@ -17,6 +17,9 @@ internal static class HostComposition
 
     internal static IScenesFactory CreateScenes() => new UnconfiguredScenesFactory();
 
+    internal static IScenesFactory CreateScenes(ISceneStreamingObserver? observer) => observer is null ? CreateScenes() :
+        throw new InvalidOperationException("UNCONFIGURED: 流式记录场景未配置。");
+
     private sealed class UnconfiguredScenesFactory : IScenesFactory
     {
         public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial) =>

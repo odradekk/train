@@ -44,17 +44,19 @@ internal sealed partial class MeasurementRun : IDisposable
     private static readonly Vector2I WindowSize = new(1920, 1080);
     private static readonly string[] SoftwareAdapters = ["llvmpipe", "lavapipe", "softpipe", "swiftshader"];
 
-    internal MeasurementRun(App app, IReadOnlyList<string> arguments)
+    internal MeasurementRun(App app, IReadOnlyList<string> arguments, StreamingRecorder? streaming = null)
     {
         _app = app;
+        _streamingRecorder = streaming;
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var argument in arguments.Where(value => value.StartsWith("--measure=", StringComparison.Ordinal)))
             values.Add("scenario", argument["--measure=".Length..].ToLowerInvariant());
         for (var i = 0; i < arguments.Count; i++)
         {
             if (arguments[i].StartsWith("--measure=", StringComparison.Ordinal)) continue;
+            if (arguments[i] == "--measure-streaming") { values.Add("--measure-streaming", "true"); continue; }
             if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration" or "--measure-reference" or
-                    "--measure-train" or "--measure-node") ||
+                    "--measure-train" or "--measure-node" or "--measure-route-camera") ||
                 ++i >= arguments.Count) throw new ArgumentException("测量需要情景、输入存档、输出报告和构建身份路径。");
             values.Add(arguments[i - 1], arguments[i]);
         }
@@ -65,6 +67,11 @@ internal sealed partial class MeasurementRun : IDisposable
             "scene-route-1x" or "scene-route-2x" or "scene-route-4x" or "scene-route-8x" or
             "scene-route-capture-1x" or "scene-route-capture-8x"))
             throw new ArgumentException("未知测量情景。");
+        _streamingCamera = values.GetValueOrDefault("--measure-route-camera", "default");
+        if (_streamingRecorder is not null && !IsRouteMeasurement ||
+            values.ContainsKey("--measure-route-camera") && _streamingRecorder is null ||
+            _streamingCamera is not ("default" or "farthest"))
+            throw new ArgumentException("流式诊断只用于 scene-route-*，镜头距离必须是 default 或 farthest。");
         if (values.TryGetValue("--measure-duration", out var duration))
         {
             if (!int.TryParse(duration, out _sceneDuration) || _sceneDuration < 0 ||
