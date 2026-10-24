@@ -37,7 +37,7 @@ internal static class DefinitionDraftJson
         return $"resources/{kind}s/{address.LocalId}.{kind}.json";
     }
 
-    internal static JsonObject Write(C.DefinitionDraft draft, JsonNode? templateDisplay = null, bool incomplete = false)
+    internal static JsonObject Write(C.DefinitionDraft draft, bool incomplete = false)
     {
         ArgumentNullException.ThrowIfNull(draft);
         var address = Address(draft);
@@ -113,17 +113,13 @@ internal static class DefinitionDraftJson
                     return (JsonNode?)item;
                 }).ToArray());
                 root["founding"] = new JsonArray(p.FoundingBuildings.Select(b => (JsonNode?)new JsonObject { ["plot"] = b.PlotNumber, ["building"] = b.Building.Value }).ToArray());
-                root["inventory"] = new JsonArray(p.Inventory.Select((quantity, index) =>
+                root["inventory"] = new JsonArray(p.Inventory.Select(item => (JsonNode?)(item switch
                 {
-                    var item = new JsonObject { ["quantity"] = quantity.Quantity };
-                    switch (quantity.Good)
-                    {
-                        case K.GoodId.Voxel good: item["voxel"] = good.Definition.Value; break;
-                        case K.GoodId.Composite good: item["blueprint"] = good.Definition.Value; break;
-                        default: Fail($"/inventory/{index}", "组装体构成哈希不能还原源蓝图；请手工编辑库存文件。"); break;
-                    }
-                    return (JsonNode?)item;
-                }).ToArray());
+                    C.TemplateInventoryDraft.Voxel voxel => new JsonObject { ["voxel"] = voxel.Id.Value, ["quantity"] = voxel.Quantity },
+                    C.TemplateInventoryDraft.Blueprint blueprint => new JsonObject { ["blueprint"] = blueprint.Id.Value, ["quantity"] = blueprint.Quantity },
+                    _ => throw new ArgumentException("未知库存项。")
+                })).ToArray());
+                root["display"] = DisplayNode(p.Display);
                 root["production_plans"] = new JsonArray(p.ProductionPlans.Select(plan =>
                 {
                     var item = new JsonObject { ["plot"] = plan.PlotNumber, ["capability"] = DesignEvaluator.Wire(plan.Capability),
@@ -132,8 +128,6 @@ internal static class DefinitionDraftJson
                     if (incomplete) item["process_kind"] = plan.Process is K.ProcessRef.Recovery ? "recovery" : "production";
                     return (JsonNode?)item;
                 }).ToArray());
-                if (templateDisplay is not null) root["display"] = templateDisplay.DeepClone();
-                else if (!incomplete) Fail("/display", "新建模板需要契约提供显示文本；当前只能编辑已有模板。");
                 break;
             case C.DefinitionDraft.LairType lair:
                 WriteLair(root, lair.Value, incomplete);
@@ -143,7 +137,7 @@ internal static class DefinitionDraftJson
     }
 
     internal static C.DefinitionDraft Read(JsonElement root, C.DefinitionKind kind, LoadPackage? package = null,
-        Func<string, bool>? isComposite = null, Func<string, bool>? isRecovery = null)
+        Func<string, bool>? isRecovery = null)
     {
         Kind(kind);
         var expected = kind switch { C.DefinitionKind.SettlementTemplate => 2, C.DefinitionKind.LairType => 1, _ => 3 };
@@ -233,10 +227,11 @@ internal static class DefinitionDraftJson
                     var voxel = item.Value.TryGetProperty("voxel", out var good);
                     if (voxel == item.Value.TryGetProperty("blueprint", out var blueprint)) Fail(item.Field, "库存必须且只能指定 voxel 或 blueprint。");
                     var reference = Reference(voxel ? good : blueprint, item.Field + (voxel ? "/voxel" : "/blueprint"));
-                    if (!voxel && isComposite is not null && !isComposite(reference))
-                        Fail(item.Field, "无法无损映射此库存蓝图；请手工编辑文件。");
-                    K.GoodId key = voxel ? new K.GoodId.Voxel(new(reference)) : new K.GoodId.Composite(new(reference));
-                    return new K.GoodsQuantity(key, Int64(Required(item.Value, "quantity", item.Field), item.Field + "/quantity"));
+                    var quantity = Int64(Required(item.Value, "quantity", item.Field), item.Field + "/quantity");
+                    C.TemplateInventoryDraft entry = voxel
+                        ? new C.TemplateInventoryDraft.Voxel(new(reference), quantity)
+                        : new C.TemplateInventoryDraft.Blueprint(new(reference), quantity);
+                    return entry;
                 }).ToImmutableArray() : [];
                 var plans = root.TryGetProperty("production_plans", out var planValues) ? Items(planValues, "/production_plans").Select(item =>
                 {
@@ -253,7 +248,8 @@ internal static class DefinitionDraftJson
                 }).ToImmutableArray() : [];
                 var type = OptionalReference(root, "settlement_type", "");
                 var scene = OptionalReference(root, "scene_model", "");
-                return new C.DefinitionDraft.SettlementTemplate(new(id, type is null ? null : new(type), OptionalInt(root, "weight", "") ?? (package is null ? null : 1),
+                var displayText = RawDisplay(Required(root, "display", ""));
+                return new C.DefinitionDraft.SettlementTemplate(new(id, displayText, type is null ? null : new(type), OptionalInt(root, "weight", "") ?? (package is null ? null : 1),
                     scene is null ? null : new(scene), plots, founding, inventory, plans));
             case C.DefinitionKind.LairType:
                 return new C.DefinitionDraft.LairType(ReadLair(root, Reference));

@@ -13,7 +13,7 @@ internal sealed class GodotAssetInspector(GodotMainThreadDispatcher dispatcher) 
             switch (kind)
             {
                 case AssetKind.Png:
-                    return dispatcher.Invoke<AssetInspection>(() =>
+                    return dispatcher.InvokeOnCallingThread<AssetInspection>(() =>
                     {
                         using var image = GodotAssetDecoder.Png(bytes);
                         return new AssetInspection.Success(new AssetMetadata.Png(image.GetWidth(), image.GetHeight()));

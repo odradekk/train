@@ -15,11 +15,128 @@ namespace Train.Engine.Tests;
 
 public class EditorUiTests(Node testScene) : TestClass(testScene)
 {
-    private async Task<EditorPreview> Ready()
+    private async Task<EditorPreview> Ready(EditorPreview? fixture = null)
     {
-        var fixture = new EditorPreview { Name = "EditorUiFixture" }; TestScene.AddChild(fixture);
+        fixture ??= new EditorPreview { Name = "EditorUiFixture" }; TestScene.AddChild(fixture);
         await FramesUntil(TestScene, () => fixture.Editor.Session is not null && fixture.Controller.Display?.DisplayedFrame is not null);
         return fixture;
+    }
+    [Test]
+    public async Task Editor_details_show_item_names_capabilities_and_numeric_coordinates()
+    {
+        var voxel = new GoodId.Voxel(new("fixture:motor"));
+        var assembly = new GoodId.Assembly(new("fixture-assembly-composition"));
+        var unpublished = new GoodId.Assembly(new("unpublished-assembly-composition"));
+        var definition = new CoreDefinitionReference.Voxel(voxel.Definition);
+        var missing = new CoreDefinitionReference.Composite(new("fixture:missing-part"));
+        var address = new BlueprintAddress(BlueprintLibrary.User, new("fixture-equipment"));
+        var evaluation = (DesignEvaluation.Complete)EditorPreviewSession.Evaluate(EditorPreviewSession.Draft);
+        var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+        {
+            LocalDrafts = [], Voxels = [], GenerationProfiles = [],
+            Blueprints = [new(address, new("设备样本", ""), null, true, [])],
+            BlueprintRecords = new Dictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>
+            {
+                [address] = new ContentLookup<BlueprintRecord>.Found(new(address, evaluation.Definition, [], evaluation))
+            },
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
+            {
+                [voxel] = new ContentLookup<GoodPresentation>.Found(new(voxel, new(new("牵引电机", ""), null, null, false), null, false)),
+                [assembly] = new ContentLookup<GoodPresentation>.Found(new(assembly, new(new("转动设备", ""), null, null, false), null, false)),
+                [unpublished] = new ContentLookup<GoodPresentation>.NotFound()
+            },
+            DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            {
+                [definition] = new ContentLookup<ContentDisplay>.Found(new(new("牵引电机", ""), null, null, false)),
+                [missing] = new ContentLookup<ContentDisplay>.NotFound()
+            }
+        };
+        var fixture = await Ready(new EditorPreview { Name = "EditorTextFixture", Content = content });
+        try
+        {
+            var session = fixture.Factory.Session!;
+            ImmutableArray<GoodsQuantity> bom = [new(voxel, 3), new(assembly, 2), new(unpublished, 1)];
+            ImmutableArray<PartCapability> capabilities =
+            [
+                new PartCapability.Propulsion(12.56789, 34.56789), new PartCapability.Control(), new PartCapability.Storage(56),
+                new PartCapability.Production(7.1234), new PartCapability.Extraction(8.56789),
+                new PartCapability.Construction(9.87654, PlotSize.SmallStation, SizeClass.Titan), new PartCapability.Power(10.12345),
+                new PartCapability.Weapon(11, 1.2345), new PartCapability.Platform()
+            ];
+            var projection = new DesignProjection(new("fixture-design"), new("fixture-composition"), new DesignKind.Vehicle(SizeClass.Small, 1),
+                [new(new(1), definition, voxel, 1, 1, new(1), capabilities, false), new(new(2), missing, voxel, 1, 1, new(1), [], true)],
+                2, 2, 1, new(1), [], bom, 5, [], true, []);
+            evaluation = evaluation with
+            {
+                Core = new(HostCoreScenario.Input, projection, []),
+                Scene = evaluation.Scene with { RotationSweeps = [new([0],
+                    new ComputedValue<ImmutableArray<GridPosition>>.Known([new(-2, 3, 4)]),
+                    new ComputedValue<ImmutableArray<GridPosition>>.Known([new(-2, 3, 4)]))] }
+            };
+            session.SetState(state => state with { CurrentEvaluation = evaluation });
+            var panel = EditorPanel(fixture);
+            await FramesUntil(TestScene, () => Displayed(panel, "牵引电机 × 3"));
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var rows = string.Join("\n", Enumerable.Range(0, list.ItemCount).Select(list.GetItemText));
+            Require(rows.Contains("体素 (0, 0, 0)") && rows.Contains("组装体 (8, 0, 0)") && rows.Contains("功能复合体"),
+                "层级列表必须显示中文种类和数值坐标。");
+            foreach (var text in new[] { "转动设备 × 2", "组装体（名称不可用）", "12.57", "部件定义不可用", "(-2, 3, 4)" })
+                Require(Displayed(panel, text), $"设计信息缺少玩家文字或数值：{text}");
+            foreach (var text in new[] { "GridPosition {", "GoodId", "Voxel {", "Assembly {", "Propulsion {", "fixture-assembly-composition", unpublished.Composition.Value, "fixture:missing-part", "fixture-design" })
+                Require(!rows.Contains(text, StringComparison.Ordinal) && !Displayed(panel, text), $"编辑器不能显示记录原文或内部标识：{text}");
+            Require(panel.FindChildren("PlaceEquipment", "Button", true, false).OfType<Button>().Single().Text.Contains("用户库"),
+                "设备来源必须使用中文库名。");
+            await UiCapture.Capture(TestScene, "player-editor-item-text");
+
+            session.SetState(state => state with
+            {
+                CurrentEvaluation = new DesignEvaluation.Partial(evaluation.Definition,
+                    new(new ComputedValue<double>.Unknown([]), new ComputedValue<Money>.Unknown([]), new ComputedValue<long>.Unknown([]),
+                        new ComputedValue<ImmutableArray<PartProjection>>.Unknown([]), new ComputedValue<ImmutableArray<GoodsQuantity>>.Known(bom),
+                        new ComputedValue<int>.Unknown([])), new(0, new(0), 0, [], []), null, evaluation.Scene, [])
+            });
+            await FramesUntil(TestScene, () => Displayed(panel, "信息不完整") && Displayed(panel, "转动设备 × 2"));
+            Require(Displayed(panel, "组装体（名称不可用）") && !Displayed(panel, unpublished.Composition.Value)
+                && !Displayed(panel, assembly.Composition.Value) && !Displayed(panel, "GoodId"), "部分评估的材料清单也必须使用物品名称。");
+            session.SetState(state => state with { CurrentEvaluation = evaluation with { Core = evaluation.Core! with { Design = projection with { BillOfMaterials = [] } } } });
+            await FramesUntil(TestScene, () => Displayed(panel, "BOM：无"));
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Orientation_labels_preserve_allowed_order_and_selected_orientation()
+    {
+        var core = HostContentScenario.CreateProjection(HostCoreScenario.Input);
+        var voxels = new[] { new VoxelDefinitionId("fixture:fixed"), new VoxelDefinitionId("fixture:four-way"), new VoxelDefinitionId("fixture:all-axes") };
+        var content = new FixedContentView(core, new(1))
+        {
+            Blueprints = [], LocalDrafts = [], GenerationProfiles = [], Voxels = [.. voxels.Select(id => new VoxelCatalogEntry(id, core.Goods[0]))],
+            VoxelDisplays = voxels.ToDictionary(id => id, id => (ContentLookup<VoxelDisplayProjection>)new ContentLookup<VoxelDisplayProjection>.Found(new(id, new(id.Value, ""), new("icon")))),
+            VoxelAppearances = voxels.Select((id, index) => (id, index)).ToDictionary(item => item.id, item =>
+                (ContentLookup<VoxelAppearanceProjection>)new ContentLookup<VoxelAppearanceProjection>.Found(new(item.id, (AllowedVoxelOrientations)item.index,
+                    new VoxelCollision.FullBox(), new VoxelPresentation.Mesh(new("model"), []), new(false, null))))
+        };
+        var fixture = await Ready(new EditorPreview { Name = "EditorOrientationFixture", Content = content });
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var choices = panel.FindChildren("*", "OptionButton", true, false).OfType<OptionButton>().ToArray();
+            var palette = choices.Single(choice => choice.ItemCount == 3 && choice.GetItemText(0).Contains("fixture:fixed"));
+            var orientation = choices.Single(choice => choice.ItemCount == 1 && choice.GetItemText(0) == "右 +X · 上 +Y");
+            var input = new UiTestInput(TestScene);
+            foreach (var (index, count, last) in new[] { (0, 1, "右 +X · 上 +Y"), (1, 4, "右 -Z · 上 +Y"), (2, 24, "右 -Z · 上 -Y") })
+            {
+                await input.Choose(palette, index);
+                Require(orientation.ItemCount == count && orientation.GetItemText(0) == "右 +X · 上 +Y" && orientation.GetItemText(count - 1) == last,
+                    "朝向标签必须保留固定、四向和全部朝向的原顺序。");
+            }
+            Require(orientation.GetItemText(18) == "右 +Z · 上 +Y", "转轴标签必须按右方向轴、上方向轴解释。");
+            await input.Choose(orientation, 23);
+            await ActivateEditorButton(panel, "Preview");
+            Require(fixture.Factory.Session!.PreviewCalls.Last() is EditOperation.Cells { Action: CellEdit.Add { Value.Orientation: VoxelOrientation.NzNy } },
+                "更换朝向文字后，所选下标仍必须提交原来的正交朝向。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
     public async Task Editor_uses_displayed_frame_for_picking_and_clears_old_sweep_immediately_after_change()
@@ -376,9 +493,9 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             var dialog = panel.GetChildren().OfType<AcceptDialog>().Single(item => item.Title == "保存有效蓝图");
             await new UiTestInput(TestScene).Activate(dialog.GetOkButton(), dialog);
             await FramesUntil(TestScene, () => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
-            Require(libraryRequests == 0 && fixture.Editor.Message?.Contains("蓝图发布被拒绝") == true,
-                "异步发布失败必须重开编辑器并保留失败原因，不返回蓝图库。");
-            var message = fixture.Editor.Message;
+            Require(libraryRequests == 0 && fixture.Editor.Message?.Contains("失败") == true,
+                "异步发布失败必须重开编辑器并保留失败提示，不返回蓝图库。");
+            var message = fixture.Editor.Message!;
             await new UiTestInput(TestScene).Frames(2);
             var session = fixture.Factory.Session!;
             var frame = fixture.Controller.Display!.DisplayedFrame!;
@@ -392,15 +509,15 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             });
             fixture.Controller.Process(0);
             await new UiTestInput(TestScene).Frames(2);
-            Require(fixture.Editor.Message == message && Displayed(panel, "蓝图发布被拒绝"),
-                "成功帧诊断不得覆盖发布失败原因。");
-            foreach (var text in new[] { "引用的定义缺失，相关部分不能显示或编辑。", "来源内容包不可用。", "蓝图发布被拒绝" })
+            Require(fixture.Editor.Message == message && Displayed(panel, message),
+                "成功帧诊断不得覆盖发布失败提示。");
+            foreach (var text in new[] { "引用的定义缺失，相关部分不能显示或编辑。", "来源内容包不可用。", message })
                 Require(Displayed(EditorPanel(fixture), text), $"成功帧诊断必须在编辑器显示：{text}");
-            foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻" })
-                Require(!Displayed(EditorPanel(fixture), text), $"成功帧诊断不能向玩家显示：{text}");
+            foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "publish-rejected", "蓝图发布被拒绝" })
+                Require(!Displayed(fixture.App.GetNode<Control>("GameUi/Root"), text), $"故障或成功帧诊断的原始详情不能向玩家显示：{text}");
             await UiCapture.Capture(TestScene, "player-editor-failure-diagnostics");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "蓝图发布被拒绝" })
+            foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "publish-rejected", "蓝图发布被拒绝" })
                 Require(ConsoleShows(fixture, text), $"成功帧诊断必须在控制台显示：{text}");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
             session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(new FixedSceneFrame
@@ -411,8 +528,8 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             fixture.Controller.Process(0);
             await new UiTestInput(TestScene).Frames(2);
             Require(!Displayed(panel, "content_missing") && !Displayed(panel, "引用的定义缺失") &&
-                fixture.Editor.Message == message && Displayed(panel, "蓝图发布被拒绝"),
-                "诊断清除后列表必须移除旧诊断，仍保留发布失败原因。");
+                fixture.Editor.Message == message && Displayed(panel, message),
+                "诊断清除后列表必须移除旧诊断，仍保留发布失败提示。");
             fixture.Editor.RequestClose(() => { });
             fixture.Editor.ResolveClose(LeaveChoice.Discard);
             await new UiTestInput(TestScene).Frames(2);

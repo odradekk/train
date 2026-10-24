@@ -142,15 +142,15 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 
 开发模式用 `OpenAuthoringPackage` 取得源包的固定表单输入与来源基准。公开表单只覆盖既定的体素定义、蓝图行为、聚居地类型、生物聚落类型和模板；其他配置继续手写文件，不扩成通用表单系统。能力依据代码提供的行为推导，不能提交手写聚合能力替代计算。
 
-当前实现提供体素、蓝图（含场景模型与生物类别）、聚居地类型、生物聚落类型和已有模板。生物聚落进入 `EditableDefinitions`，读取、写入、删除和外部草稿往返使用 schema 1；未完成字段在具体路径返回 `invalid_field`。
+当前实现提供体素、蓝图（含场景模型与生物类别）、聚居地类型、生物聚落类型和模板。生物聚落进入 `EditableDefinitions`，读取、写入、删除和外部草稿往返使用 schema 1；未完成字段在具体路径返回 `invalid_field`。
 
 打开时只固定 `mod.json` 与 `resources/` 的文件和目录，不读取包根下的 `.git`、模型源文件或其他资料；资源文件沿用加载器的大小上限。之后 `Read` 与 `PreparePackageWrite` 只使用固定字节，不再访问文件端口，也不要求依赖包已安装。`SourceVersion` 是宿主提供的不透明字符串，原样回显。Mod 元数据来自固定 `mod.json`；没有 manifest 的 core 使用只读的创作元数据（ID／名称为 `core`，版本为 `0.0.0`，作者和依赖为空），这个版本不表示游戏版本或来源身份。
 
-模板草稿当前没有显示文本：写回已有文件时保留其 `display` 值；新建模板返回 `/display` 的 `invalid_field`。库存的 `voxel` 与 `GoodId.Voxel` 互转；只有固定源包中能确认为功能复合体的 `blueprint` 才映射为 `GoodId.Composite`。组装体或无法确认类别的蓝图使该模板的 `Read` 返回 `Missing`，诊断定位 `/inventory/<i>`，提示手工编辑；写入 `GoodId.Assembly` 同样拒绝。后续需补齐模板显示文本和保留库存蓝图来源的契约，才能支持这些编辑。
+模板草稿包含显示文本，按 `display` 的 `name` 与 `description` 读写。库存项保存体素定义引用或蓝图引用及数量，草稿不判断该蓝图是功能复合体还是组装体。缺少 `display` 的模板草稿在 `/display` 返回 `invalid_field`。
 
 `PreparePackageWrite` 把指定草稿、资产和 manifest 变更编码成确定的文件补丁。包 ID 不可通过这次操作修改；删除定义自己的目录时明确列出关联文件，不顺手删除 shared。补丁不包含未编辑文件的重写，也不表示整包已经合法。
 
-补丁按包内相对路径的 Ordinal 顺序返回，字节与固定源文件相同的写入项不列入补丁。定义和 manifest 输出紧凑 UTF-8 JSON，中文不转成 Unicode 转义，末尾带换行。定义删除包括该定义文件、其同名目录在快照中的全部文件（包括 `.import`），以及定义文件自身的 `.import`。没有 manifest 的 core 拒绝 `Manifest`；资产编辑不能代替 manifest 编辑（不区分大小写），manifest 的原描述和依赖 `name` 保留，只按依赖 ID 增删或调整最低版本，不输出未改动的隐式 core 依赖。模板写入的 Composite 库存也须在固定源包中确认为本包功能复合体，否则在 `/inventory/<i>` 拒绝。越出包根的路径、同次编辑重复指向同一文件（不区分大小写）或无法编码的编辑使整次准备失败，不返回部分可写补丁；非有限表单数值返回 `invalid_field`，不当作内容内部故障。PNG／GLB 的 Godot 导入声明由宿主负责。
+补丁按包内相对路径的 Ordinal 顺序返回，字节与固定源文件相同的写入项不列入补丁。定义和 manifest 输出紧凑 UTF-8 JSON，中文不转成 Unicode 转义，末尾带换行。定义删除包括该定义文件、其同名目录在快照中的全部文件（包括 `.import`），以及定义文件自身的 `.import`。没有 manifest 的 core 拒绝 `Manifest`；资产编辑不能代替 manifest 编辑（不区分大小写），manifest 的原描述和依赖 `name` 保留，只按依赖 ID 增删或调整最低版本，不输出未改动的隐式 core 依赖。`PreparePackageWrite` 不检查库存蓝图类别，由普通加载确认。越出包根的路径、同次编辑重复指向同一文件（不区分大小写）或无法编码的编辑使整次准备失败，不返回部分可写补丁；非有限表单数值返回 `invalid_field`，不当作内容内部故障。PNG／GLB 的 Godot 导入声明由宿主负责。
 
 宿主在单一写入者约定下复核源基准，按[包写入与重载](editing.md#创作模式包写入与重载)逐文件临时写后替换或执行明确删除，再调用普通 PrepareLoad／Submit／Activate。未知、未编辑文件原样保留。写入前发现外部修改拒绝覆盖并保留草稿；中途失败可能已有文件更新，报告本次已知完成项并由开发者修复，不承诺整包回滚或启动恢复。
 
@@ -166,7 +166,7 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 
 设计条目包含 `hash`、`definition`，根功能复合体还必须带 `composite` 定义身份，其他设计不得携带该字段。设计正文复用 blueprint v3，引用全限定；模板副本复用模板 v2 的地块布局字段，场景模型原设计按设计哈希入档。本局蓝图使用玩家蓝图 v3，字段为 `schema_version`、`id`、`used_packages` 及设计正文；解码只读取结构，恢复时按当前定义重算求值。本局草稿内嵌独立的草稿 v1 对象，字段固定为 `format_version`、`id`、`revision`、`target`、`payload`；`target.kind` 为 `instance`、`local_blueprint` 或外部草稿才可用的 `user_blueprint`，`payload.kind` 为 `design`，`payload.value` 保存设计草稿。实例目标用 `target.instance` 的 `kind`（`vehicle`／`building`）和数值 `id` 表示；库目标用可为空的 UUID `target.id`。`payload.value` 复用 blueprint v3 的 `category`、`simulation`、`layout`、`appearance`、`display` 设计字段，仅允许省略 `size_class`、`plot_size`、`building_type` 以及调色板序号越界；未知字段、非 snake_case 枚举和非有限数值仍拒绝。UUID 只接受规范小写写法，实例身份必须非零。普通载荷的 `local_drafts` 只接受实例及本局库目标；重复草稿身份、同一实例多份草稿或损坏草稿返回 `inconsistent_capture`。
 
-外部包草稿同用草稿 v1：`target` 字段固定为 `kind="package_definition"`、`package`、`definition_kind`、`local_id`、`source_version`。包 ID 为 `core` 或规范 UUID；`source_version` 不修剪、不解析，空字符串、空白和换行均原样往返。`payload` 固定为 `kind="definition"`、`definition_kind`、`value`，定义种类使用 `voxel`、`blueprint`、`settlement_type`、`settlement_template`、`lair_type`，两处种类和 `value.id` 必须与目标配对。`value` 复用对应定义文件的字段及 `schema_version`，体素／蓝图／聚居地类型为 3，模板为 2，生物聚落类型为 1；引用保持原身份，未完成的可空字段以省略表示，显示文本不修剪。模板草稿不含 `display`；草稿生产计划额外用 `process_kind`（`production`／`recovery`）保存工序引用种类，输出有效包时移除该字段。生物蓝图允许缺少 creature 行为的未完成草稿，完整行为使用 `hp`、`speed`、`retreat_threshold`、`raid_duration`，可选 weapon 使用 `damage`、`interval`。这类外部草稿不进入普通存档、检查点或核心命令记录。
+外部包草稿同用草稿 v1：`target` 字段固定为 `kind="package_definition"`、`package`、`definition_kind`、`local_id`、`source_version`。包 ID 为 `core` 或规范 UUID；`source_version` 不修剪、不解析，空字符串、空白和换行均原样往返。`payload` 固定为 `kind="definition"`、`definition_kind`、`value`，定义种类使用 `voxel`、`blueprint`、`settlement_type`、`settlement_template`、`lair_type`，两处种类和 `value.id` 必须与目标配对。`value` 复用对应定义文件的字段及 `schema_version`，体素／蓝图／聚居地类型为 3，模板为 2，生物聚落类型为 1；引用保持原身份，未完成的可空字段以省略表示，显示文本不修剪。模板草稿包含 `display` 的 `name` 与 `description`，缺少该字段时在 `/display` 返回 `invalid_field`，因此省略 `display` 的旧模板外部草稿不再可解码；草稿生产计划额外用 `process_kind`（`production`／`recovery`）保存工序引用种类，输出有效包时移除该字段。生物蓝图允许缺少 creature 行为的未完成草稿，完整行为使用 `hp`、`speed`、`retreat_threshold`、`raid_duration`，可选 weapon 使用 `damage`、`interval`。这类外部草稿不进入普通存档、检查点或核心命令记录。
 
 正文哈希与键不一致、缺内嵌设计、缺副本、地块不配对、组装体缺显示记录或显示记录构成不配对，均返回 `inconsistent_capture`；JSON 损坏返回 `invalid_json`。Restore 优先使用捕获中的全部组装体显示记录，再按与 Initial／Reload 相同的稳定顺序登记当前新增构成；没有新增记录时持久修订取捕获值，有新增时增加修订。运行引用缺失列入 `RuntimeMissing`；本局库、用户库和已保存草稿的缺失引用列入 `AuthoringMissing`。
 

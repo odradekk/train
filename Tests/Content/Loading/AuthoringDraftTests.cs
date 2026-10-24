@@ -17,8 +17,8 @@ public sealed class AuthoringDraftTests
                 new C.VoxelCollision.FullBox(), null, new(false, null))),
             new C.DefinitionDraft.SettlementType(new("unfinished", new("", ""), null, false,
                 null, [new("missing:terrain")], null, null)),
-            new C.DefinitionDraft.SettlementTemplate(new("unfinished", null, null, new("missing:scene"),
-                [], [], [], [])),
+            new C.DefinitionDraft.SettlementTemplate(new("unfinished", new("  名称", "\r\n 说明\t"), null, null, new("missing:scene"),
+                [], [], [new C.TemplateInventoryDraft.Blueprint(new("other:widget"), 2)], [])),
             new C.DefinitionDraft.Blueprint("unfinished", DesignFixtures.Vehicle() with
             {
                 Specification = new C.DesignSpecification.Creature(null, null),
@@ -59,9 +59,14 @@ public sealed class AuthoringDraftTests
             if (definition is C.DefinitionDraft.SettlementTemplate template)
             {
                 var actual = ((C.DefinitionDraft.SettlementTemplate)((C.DraftPayload.Definition)decoded.Payload).Value).Value;
+                Assert.AreEqual(template.Value.Display, actual.Display);
                 Assert.IsNull(actual.Type);
                 Assert.IsNull(actual.Weight);
                 Assert.AreEqual(template.Value.SceneModel, actual.SceneModel);
+                Assert.AreEqual(template.Value.Inventory.Single(), actual.Inventory.Single());
+                var value = root["payload"]!["value"]!;
+                Assert.AreEqual("  名称", value["display"]!["name"]!.GetValue<string>());
+                Assert.AreEqual("other:widget", value["inventory"]![0]!["blueprint"]!.GetValue<string>());
             }
             if (definition is C.DefinitionDraft.SettlementType type)
             {
@@ -78,6 +83,12 @@ public sealed class AuthoringDraftTests
                 CollectionAssert.AreEqual(blueprint.Value.Layout.Palette.ToArray(), actual.Layout.Palette.ToArray());
             }
         }
+        var omitted = Saved(new C.DefinitionDraft.SettlementTemplate(new("unfinished", new("名称", "说明"), null, null, null, [], [], [], [])), C.DefinitionKind.SettlementTemplate);
+        var encoded = JsonNode.Parse(Success(ContentFactory.Create().EncodeDraft(omitted)))!;
+        encoded["payload"]!["value"]!.AsObject().Remove("display");
+        var missing = ContentFactory.Create().DecodeDraft(encoded.ToJsonString());
+        Assert.IsTrue(missing is C.ContentResult<C.SavedContentDraft>.Failure failure && failure.Diagnostics.Any(d =>
+            d.Code == "invalid_field" && d.Field == "/payload/value/display"), missing.ToString());
     }
 
     [TestMethod]
