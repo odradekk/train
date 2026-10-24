@@ -10,6 +10,10 @@ Godot 消费其他三个模块的契约，并实现内容要求的宿主端口�
 
 只有 `App/Composition/` 引用和调用真实创建工厂，取得 `ICoreFactory`、`IContentFactory`、`IScenesFactory`。其余 App、Rendering、Ui 代码接收这些接口及会话，不调用实现静态入口。测试只替换这处装配和实现项目引用，仍执行同一份宿主生产代码；不增加依赖注入容器或反射扫描。
 
+流式测量在这处装配调用 `ScenesFactory.Create(ISceneStreamingObserver? observer = null)` 注入观察器，正常游戏传 null。观察器接收线程、场景／尝试身份和覆盖查询的约定见[体素流式记录](scenes.md#可选流式记录)。回调入口读取单调时钟并写入线程安全内存队列，测量结束后由宿主写文件；回调不阻塞、不抛异常、不重入模块。
+
+宿主按 `Admitted.Objects` 关联部件与对象，并在锁定准备帧 C 时冻结映射；只有新准备视觉资源的对象才记资源准备完成，姿态更新不计入。部件全部对象准备好后记完成，实际 Commit 后记提交显示；取消的候选单独记录，不能把准备耗时算到后续候选。在线覆盖采样只查询已完整提交帧 D，查询坐标与 D 的 `TerrainHeight` 一致。null 覆盖表示布局未知，空结果表示预期地面域外；不可将两者当作已需求未显示。只保留 D 和 C 的覆盖查询引用，候选替换或取消后释放旧引用；查询本身在场景关闭后仍有效。
+
 | 调用场景 | 使用的声明与适配 |
 | --- | --- |
 | 内容发现、固定候选与设计计算 | [IContentFactory](../../Contracts/Content/Lifecycle.cs)；`Discover`、`PrepareLoad`、`EvaluateDesign`、`PrepareEdit` 等返回候选或不可变结果 |

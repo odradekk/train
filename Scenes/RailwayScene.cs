@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Globalization;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -9,7 +10,7 @@ namespace Train.Scenes;
 internal sealed class RailwayScene : IAsyncDisposable
 {
     private sealed record ConnectedSegment(RailwaySegment Source, RenderedDesign Geometry, ImmutableArray<SceneBounds> Footprint);
-    private sealed record SegmentWork(Task<RailwaySegment> Task, CancellationTokenSource Cancellation);
+    private sealed record SegmentWork(Task<RailwaySegment> Task, CancellationTokenSource Cancellation, SceneStreamingAttemptId? Attempt);
     private sealed record MemberPlacement(InstanceId Id, InstanceView Instance,
         ContentLookup<DesignEvaluation> Design, int? Length, double CenterArc, double TrackArc);
     private sealed record TrainPlacement(TrainView Train, bool Positive, double Offset,
@@ -49,6 +50,8 @@ internal sealed class RailwayScene : IAsyncDisposable
     private ImmutableArray<SceneFog> translatedFog = [];
     private ScenePoint? fogOrigin;
     private readonly DisplayRate displayRate;
+    internal SceneStreamingScope? Streaming { get; }
+    private static string SegmentKey(int index) => index.ToString(CultureInfo.InvariantCulture);
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
     internal bool Failed => failure is not null;
@@ -59,8 +62,9 @@ internal sealed class RailwayScene : IAsyncDisposable
     internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
         Func<string, SceneObjectId?> findId,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
-        PresentationState? presentation = null)
+        PresentationState? presentation = null, SceneStreamingScope? streaming = null)
     {
+        Streaming = streaming;
         this.cache = cache;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
@@ -79,9 +83,12 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         if (path is null)
+        {
+            Streaming?.Frame(stamp, [], null);
             return new(stamp, switchedOrigin ?? default, seconds, failure is null ? SceneReadiness.Loading : SceneReadiness.Failed,
                 [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed,
                 debugLayers: request.DebugLayers, pickRay: request.PickRay);
+        }
 
         RefreshPath(snapshot);
         var trains = PlaceTrains(snapshot, start, request.Interpolation);
@@ -137,6 +144,9 @@ internal sealed class RailwayScene : IAsyncDisposable
         }
         terrainPatches.Retain(terrainKeys);
         var effects = Effects(snapshot, frame.Objects, seconds, origin, segments.Count > 0 && failure is null);
+        if (Streaming is { } streaming)
+            streaming.Frame(stamp, segments.Keys.Select(index => streaming.PartId(SceneStreamingPartKind.RailwaySegment, SegmentKey(index))),
+                new RailwayStreamingCoverage(path, origin, streaming.Id));
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
@@ -208,12 +218,14 @@ internal sealed class RailwayScene : IAsyncDisposable
 
     private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
     {
+        Streaming?.Demand(SceneStreamingPartKind.RailwaySegment, Enumerable.Range(minimum, maximum - minimum + 1).Select(SegmentKey));
         var (retainMinimum, retainMaximum) = NeededRange(middle, followed,
             followed is null ? 0 : RailwayCoordinates.MaxPrefetchSegments);
         foreach (var index in pendingSegments.Keys.Where(index => index < retainMinimum || index > retainMaximum).ToArray())
         {
             var work = pendingSegments[index];
             work.Cancellation.Cancel();
+            if (work.Attempt is { } cancelled) Streaming?.Cancel(cancelled);
             retiredSegments.Add(work);
             pendingSegments.Remove(index);
         }
@@ -225,7 +237,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             try
             {
                 var result = pair.Value.Task.GetAwaiter().GetResult();
-                if (result.Dependencies.Matches(snapshot, path!, result.Index)) Connect(result);
+                if (result.Dependencies.Matches(snapshot, path!, result.Index)) Connect(result, pair.Value.Attempt);
+                else if (pair.Value.Attempt is { } rejected) Streaming?.Cancel(rejected);
             }
             catch (RailwayBuildException error) { Fail(error); }
             catch (OperationCanceledException) { }
@@ -235,19 +248,28 @@ internal sealed class RailwayScene : IAsyncDisposable
         {
             if (segments.ContainsKey(index) && !staleSegments.Contains(index)) continue;
             if (pendingSegments.ContainsKey(index)) continue;
-            if (cache.Find(snapshot, path!, index) is { } cached) Connect(cached);
+            if (cache.Find(snapshot, path!, index) is { } cached)
+            {
+                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, SegmentKey(index));
+                if (attempt is { } hit) Streaming?.CacheHit(hit);
+                Connect(cached, attempt);
+            }
             else if (allowBuild && failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
             {
                 var currentPath = path!;
                 var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-                pendingSegments.Add(index, new(Task.Run(() => build(snapshot, currentPath, index, stop.Token), stop.Token), stop));
+                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, SegmentKey(index));
+                if (attempt is { } queued) Streaming?.Queue(queued);
+                pendingSegments.Add(index, new(Task.Run(() => attempt is { } captured
+                    ? Streaming!.Build(captured, () => build(snapshot, currentPath, index, stop.Token))
+                    : build(snapshot, currentPath, index, stop.Token), stop.Token), stop, attempt));
             }
         }
         waitingSegments = Enumerable.Range(minimum, maximum - minimum + 1).Any(index => !segments.ContainsKey(index));
         cache.Publish(Edge, owner, segments.Values.Select(item => item.Source));
     }
 
-    private void Connect(RailwaySegment segment)
+    private void Connect(RailwaySegment segment, SceneStreamingAttemptId? attempt)
     {
         staleSegments.Remove(segment.Index);
         var keys = segment.Geometry.Objects.ToImmutableDictionary(item => item.Id, item => item.Id.Value.ToString());
@@ -261,6 +283,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             .AddRange(RailwayMeshes.Footprint(arc => path.Sample(arc), start, end, path.Edge.Tracks, -128, 128));
         segments[segment.Index] = new(segment, WorldSceneSession.Attach(new(segment.Geometry, keys),
             "segment:" + segment.Index + ":", objectId).Geometry, footprint);
+        if (Streaming is { } streaming && attempt is { } admitted)
+            streaming.Admit(admitted, segments[segment.Index].Geometry.Objects.Select(item => item.Id).ToImmutableArray());
         fogDirty = true;
     }
 
@@ -408,9 +432,11 @@ internal sealed class RailwayScene : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         cancellation.Cancel();
+        Streaming?.CancelPending();
         try { await Task.WhenAll(pendingSegments.Values.Concat(retiredSegments).Select(work => work.Task)); }
         catch (Exception) { /* Closing observes owned build failures; they cannot publish after cancellation. */ }
         foreach (var work in pendingSegments.Values.Concat(retiredSegments)) work.Cancellation.Dispose();
         cancellation.Dispose();
+        Streaming?.Close();
     }
 }

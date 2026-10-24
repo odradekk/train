@@ -1010,6 +1010,23 @@ Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Input|0
 Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Pick|4
 Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Present|3
 Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Reconcile|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingPartKind|NodeBoundary|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingPartKind|NodePreparation|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingPartKind|NodeRail|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingPartKind|NodeTerrain|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingPartKind|RailwaySegment|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingRole|Active|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingRole|Candidate|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingRole|Successor|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|Admitted|6
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|Built|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|CacheHit|5
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|Cancelled|7
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|DemandEnded|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|Failed|8
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|Needed|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|Queued|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStreamingStage|Started|3
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|ContentGeneration Content { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|EditSessionId Id { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|EditSnapshot Capture();
@@ -1048,6 +1065,8 @@ Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePoint Orig
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneReadiness Readiness { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneUpdate Update { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|double SimulationSeconds { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneStreamingCoverage|ImmutableArray<SceneStreamingPartId> FindTerrainParts(double x, double z);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneStreamingObserver|void OnEvent(SceneStreamingEvent value);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision);
@@ -1107,6 +1126,8 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.IDesignEditSession|public int
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.IDesignPreview|public interface IDesignPreview : IDisposable
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.IEditPreview|public interface IEditPreview
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ISceneFrame|public interface ISceneFrame
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ISceneStreamingCoverage|public interface ISceneStreamingCoverage
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ISceneStreamingObserver|public interface ISceneStreamingObserver
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.IScenesFactory|public interface IScenesFactory
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ITemplatePreview|public interface ITemplatePreview
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.IWorldSceneSession|public interface IWorldSceneSession : IAsyncDisposable
@@ -1156,6 +1177,18 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult|public abstract r
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSessionId|public readonly record struct SceneSessionId(Guid Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSpaceId|public readonly record struct SceneSpaceId(ulong Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStage|public enum SceneStage
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingAttemptId|public readonly record struct SceneStreamingAttemptId(SceneStreamingPartId Part, ulong Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingEvent.Activated|public sealed record Activated(SceneStreamingSceneId Scene) : SceneStreamingEvent;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingEvent.Changed|public sealed record Changed(SceneStreamingAttemptId Attempt, SceneStreamingStage Stage, ImmutableArray<SceneObjectId> Objects) : SceneStreamingEvent;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingEvent.Closed|public sealed record Closed(SceneStreamingSceneId Scene) : SceneStreamingEvent;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingEvent.Frame|public sealed record Frame(SceneStreamingSceneId Scene, SceneFrameStamp Stamp, ImmutableArray<SceneStreamingAttemptId> Parts, ISceneStreamingCoverage? Coverage) : SceneStreamingEvent;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingEvent.Opened|public sealed record Opened(SceneStreamingSceneId Scene, WorldLocation Location, SceneStreamingRole Role) : SceneStreamingEvent;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingEvent|public abstract record SceneStreamingEvent
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingPartId|public readonly record struct SceneStreamingPartId(SceneStreamingSceneId Scene, SceneStreamingPartKind Kind, string Key);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingPartKind|public enum SceneStreamingPartKind
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingRole|public enum SceneStreamingRole
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingSceneId|public readonly record struct SceneStreamingSceneId(SceneSessionId Session, ulong Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStreamingStage|public enum SceneStreamingStage
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneUpdate|public sealed record SceneUpdate(SceneFrameStamp? Base, SceneFrameStamp Frame, Vector3 ShiftExistingRoots, ImmutableArray<SceneObject> Upserts, ImmutableArray<SceneObjectId> Removed, SceneEnvironment Environment, ImmutableArray<SceneEffectCue> Effects);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVertex|public readonly record struct SceneVertex(Vector3 Position, Vector3 Normal, Vector2 TextureUv, Vector2 FaceUv, ExposedFaceEdges ExposedEdges, float RelativeHeight, float Damage);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Geometry|public sealed record Geometry(SceneMesh Mesh, SurfaceState Surface) : SceneVisual;

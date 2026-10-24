@@ -137,6 +137,43 @@ public sealed class ViewCoverageTests
         var unknownTail = ViewCoverage.Analyze([new(1, stamp, "entry", gap), new(1.2, stamp, "entry", null)], 1.35);
         Assert.AreEqual(1.2, unknownTail.Neither.Intervals.Single().EndSeconds, .00001);
     }
+    [TestMethod]
+    public void MissingCoverageCountsFogAndNeitherByPhaseWithoutRetainingPoints()
+    {
+        var scene = new SceneStreamingSceneId(new(Guid.Empty), 1);
+        var part = new SceneStreamingPartId(scene, SceneStreamingPartKind.NodeTerrain, "opaque");
+        var frame = Frame(fog: [new(new(-1, -1, -1), new(1, 1, 1))]);
+        var sample = ViewCoverage.Sample(frame, [Vertical(0, 0), Vertical(2, 0), Vertical(4, 0)],
+            new TerrainCoverage(part), _ => "queued");
+        var owned = sample.PartCategories!.Single(value => value.Part == part);
+        Assert.AreEqual("queued", owned.Stage);
+        Assert.AreEqual(1, owned.FogOnly);
+        Assert.AreEqual(1, owned.Neither);
+        var outside = sample.PartCategories!.Single(value => value.Part is null);
+        Assert.AreEqual("outside_terrain_domain", outside.Stage);
+        Assert.AreEqual(1, outside.Neither);
+        Assert.AreEqual(3, sample.PartCategories!.Sum(value => value.Terrain + value.FogOnly + value.Neither));
+    }
+
+    [TestMethod]
+    public void TerrainPointsRetainPartIdentityAndUnknownLayoutUsesNullPart()
+    {
+        var part = new SceneStreamingPartId(new(new(Guid.Empty), 1), SceneStreamingPartKind.RailwaySegment, "opaque");
+        var frame = new FixedSceneFrame { Update = Frame().Update, TerrainHeightResult = new Lookup<double>.Found(0) };
+        var sample = ViewCoverage.Sample(frame, [Vertical(0, 0)], new TerrainCoverage(part), _ => "committed");
+        Assert.AreEqual(part, sample.PartCategories!.Single().Part);
+        Assert.AreEqual(1, sample.PartCategories!.Single().Terrain);
+        var unknown = ViewCoverage.Sample(frame, [Vertical(0, 0)]).PartCategories!.Single();
+        Assert.IsNull(unknown.Part);
+        Assert.AreEqual("layout_unknown", unknown.Stage);
+        Assert.AreEqual(1, unknown.Terrain);
+    }
+
+    private sealed class TerrainCoverage(SceneStreamingPartId part) : ISceneStreamingCoverage
+    {
+        public ImmutableArray<SceneStreamingPartId> FindTerrainParts(double x, double z) => x < 3 ? [part] : [];
+    }
+
     private static CoverageRay Ray(double x, double y, double z) => new(new(0, 10, 0), new(x, y, z), 0, 100);
     private static CoverageRay Vertical(double x, double z) => new(new(x, 10, z), new(0, -1, 0), 0, 100);
     private static FixedSceneFrame Frame(ScenePoint origin = default, ImmutableArray<SceneBounds> fog = default) => new()

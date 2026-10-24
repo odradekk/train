@@ -44,9 +44,10 @@ internal sealed partial class MeasurementRun : IDisposable
     private static readonly Vector2I WindowSize = new(1920, 1080);
     private static readonly string[] SoftwareAdapters = ["llvmpipe", "lavapipe", "softpipe", "swiftshader"];
 
-    internal MeasurementRun(App app, IReadOnlyList<string> arguments)
+    internal MeasurementRun(App app, IReadOnlyList<string> arguments, StreamingRecorder? streaming = null)
     {
         _app = app;
+        _streamingRecorder = streaming;
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var argument in arguments.Where(value => value.StartsWith("--measure=", StringComparison.Ordinal)))
             values.Add("scenario", argument["--measure=".Length..].ToLowerInvariant());

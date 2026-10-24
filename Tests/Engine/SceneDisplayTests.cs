@@ -72,10 +72,11 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(prepared is not null, "第二次调用必须完成锁定候选，不能等待最新帧追加的对象。");
         Require(ReferenceEquals(display.PoseFrame, latest) && ReferenceEquals(display.DisplayedFrame, first),
             "准备期间姿态帧必须更新，网格基准必须保持最后完整帧。");
-        Require(events.Count == 2 && events.All(item => item.Stage == SceneDisplayStage.ResourcesPrepared),
+        Require(events.Count(item => item.Stage == SceneDisplayStage.ResourcesPrepared) == 2 &&
+            events[^1].Stage == SceneDisplayStage.FramePrepared,
             "分预算恢复不得重复记录对象资源，也不能提前记录提交。");
         prepared!.Commit();
-        Require(events.Count == 4 && events.All(item => item.Frame == candidate.Update.Frame &&
+        Require(events.Count == 6 && events.All(item => item.Frame == candidate.Update.Frame &&
             item.Candidate == events[0].Candidate) &&
             events.Count(item => item.Stage == SceneDisplayStage.Committed) == 2,
             "较新输入不能覆盖冻结候选的完整身份，提交必须逐对象记录。");
@@ -115,11 +116,12 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(display.Prepare(frame) is null && events.Count == 0,
             "复用一个、只新准备一个视觉资源不能记录整个对象资源就绪。");
         using var prepared = Prepare(display, frame);
-        Require(events.Count == 1 && events[0].Object == source.Id &&
+        Require(events.Count == 2 && events[1].Stage == SceneDisplayStage.FramePrepared && events[0].Object == source.Id &&
             events[0].Stage == SceneDisplayStage.ResourcesPrepared,
             "全部视觉资源准备完才记录一次对象资源就绪。");
         prepared.Commit();
-        Require(events.Count == 2 && events[1].Stage == SceneDisplayStage.Committed,
+        Require(events.Count == 4 && events[2].Stage == SceneDisplayStage.Committed &&
+            events[3].Stage == SceneDisplayStage.FrameCommitted,
             "对象提交应在资源就绪之后单独记录。");
     }
 
@@ -143,7 +145,10 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
             moving with { Pose = new(new(10, 0, 0), NQuaternion.Identity) },
             shrinking with { Visuals = [shrinking.Visuals[0]] },
             emptied with { Visuals = [] }, empty], first.Update.Frame));
-        Require(events.Count == 0, "姿态、删减视觉与无视觉对象都没有新准备视觉资源，不应记录资源时延。");
+        Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePrepared &&
+            events[1].Stage == SceneDisplayStage.FrameCommitted && events.All(item => item.Object is null) &&
+            events[0].Frame == display.DisplayedFrame!.Update.Frame && events[1].Frame == display.DisplayedFrame.Update.Frame,
+            "全复用候选也必须准确记录完整准备与实际提交，但不能虚构逐对象资源时延。");
         Near(display.Objects[moving.Id].Root.Position, new(10, 0, 0));
         Require(display.Objects[shrinking.Id].Visuals.Length == 1 &&
             display.Objects[emptied.Id].Visuals.Length == 0 && display.Objects.ContainsKey(empty.Id),

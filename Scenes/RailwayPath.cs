@@ -267,12 +267,20 @@ internal sealed class RailwayPath
     }
 
     internal bool IntersectsArcRange(SceneRay ray, ScenePoint origin, RailwayArcRange range, double entry, double exit)
+        => IntersectsArcRange(origin.X + ray.Origin.X, origin.Z + ray.Origin.Z,
+            ray.Direction.X, ray.Direction.Z, range, entry, exit);
+
+    internal bool ContainsArcRange(ScenePoint point, RailwayArcRange range) =>
+        IntersectsArcRange(point.X, point.Z, 0, 0, range, 0, 1);
+
+    private bool IntersectsArcRange(double x, double z, double vx, double vz,
+        RailwayArcRange range, double entry, double exit)
     {
-        var dx = origin.X + ray.Origin.X - start.X;
-        var dz = origin.Z + ray.Origin.Z - start.Z;
+        var dx = x - start.X;
+        var dz = z - start.Z;
         return horizontal.Intersects((dx * forwardZ - dz * forwardX) * side, dx * forwardX + dz * forwardZ,
-            (ray.Direction.X * forwardZ - ray.Direction.Z * forwardX) * side,
-            ray.Direction.X * forwardX + ray.Direction.Z * forwardZ, entry, exit,
+            (vx * forwardZ - vz * forwardX) * side,
+            vx * forwardX + vz * forwardZ, entry, exit,
             vertical.Sample(Math.Clamp(range.Begin, 0, LengthCells)).Forward,
             vertical.Sample(Math.Clamp(range.End, 0, LengthCells)).Forward, range.Width, range.End >= LengthCells);
     }

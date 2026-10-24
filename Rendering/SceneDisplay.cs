@@ -189,6 +189,7 @@ internal sealed class SceneDisplay : IDisposable
             _pendingRoots.Clear();
             _preparingFrame = null;
             _reportedResources = null;
+            Observe?.Invoke(new(_candidate, frame.Update.Frame, null, SceneDisplayStage.FramePrepared));
             return prepared;
         }
         catch
@@ -375,6 +376,7 @@ internal sealed class SceneDisplay : IDisposable
         if (Observe is { } observe && prepared.ResourceObjects is { } resourceObjects)
             foreach (var id in resourceObjects)
                 observe(new(prepared.Candidate, update.Frame, id, SceneDisplayStage.Committed));
+        Observe?.Invoke(new(prepared.Candidate, update.Frame, null, SceneDisplayStage.FrameCommitted));
     }
 
     public void Dispose()

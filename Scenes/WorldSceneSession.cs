@@ -11,6 +11,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private readonly NodeScene.Cache nodeCache;
     private readonly SceneVehicles vehicles;
     private readonly DisplayRate displayRate;
+    private readonly ISceneStreamingObserver? observer;
+    private ulong nextStreamingScene;
     private readonly Dictionary<NodeId, (SceneVehicles.Cache Buildings, SceneVehicles.Cache Parked)> settlementCaches = [];
     private RailwayScene? railway;
     private NodeScene? node;
@@ -49,7 +51,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
 
     internal WorldSceneSession(SceneBinding binding, SceneWorldSnapshot initial, RailwayCache railwayCache,
         NodeScene.Cache nodeCache,
-        Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built>? nodeBuild = null, SceneVehicles.Cache? vehicleCache = null)
+        Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built>? nodeBuild = null, SceneVehicles.Cache? vehicleCache = null,
+        ISceneStreamingObserver? observer = null)
     {
         ValidateSnapshot(initial);
         Binding = binding;
@@ -57,6 +60,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         this.railwayCache = railwayCache;
         this.nodeCache = nodeCache;
         this.nodeBuild = nodeBuild;
+        this.observer = observer;
         vehicles = new(vehicleCache);
         displayRate = new() { Timestamp = () => Timestamp() };
     }
@@ -88,7 +92,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         switch (CurrentLocation(snapshot, value))
         {
             case WorldLocation.Edge edge:
-                railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate, findId: key => Find(ids, key), presentation: presentation);
+                railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate,
+                    findId: key => Find(ids, key), presentation: presentation, streaming: OpenStreaming(edge, SceneStreamingRole.Active));
                 break;
             case WorldLocation.Node location:
                 node = OpenNode(location.Id, ObjectId, key => Find(ids, key));
@@ -242,7 +247,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             if (candidate?.Node?.Node == node.Node) CancelCandidate();
             node.AcceptTrackChanges = false;
-            successor = OpenNode(node.Node, ObjectId, key => Find(ids, key), background: true);
+            successor = OpenNode(node.Node, ObjectId, key => Find(ids, key), background: true, role: SceneStreamingRole.Successor);
         }
         if (successor is null) return null;
         if (!successor.Failed)
@@ -258,6 +263,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 var previous = node;
                 node = successor;
                 successor = null;
+                node.Streaming?.Activate();
                 return previous;
             }
         }
@@ -276,12 +282,16 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             railway = next.Railway; node = next.Node; ids = next.Ids;
             candidate = null;
+            railway?.Streaming?.Activate();
+            node?.Streaming?.Activate();
         }
         else
         {
             CancelCandidate(); ids = [];
             var map = ids;
-            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation);
+            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key),
+                vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
+                streaming: OpenStreaming(edge, SceneStreamingRole.Active));
             else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key));
             else throw new ArgumentException("Invalid follow location.");
         }
@@ -300,11 +310,16 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         foreach (var id in settlementCaches.Keys.Where(id => id != node?.Node && id != candidate?.Node?.Node).ToArray())
             settlementCaches.Remove(id);
     }
-    private NodeScene OpenNode(NodeId id, Func<string, SceneObjectId> objectId, Func<string, SceneObjectId?> findId, bool background = false)
+    private SceneStreamingScope? OpenStreaming(WorldLocation location, SceneStreamingRole role) => observer is null ? null :
+        new(observer, new(Id, ++nextStreamingScene), location, role);
+
+    private NodeScene OpenNode(NodeId id, Func<string, SceneObjectId> objectId, Func<string, SceneObjectId?> findId,
+        bool background = false, SceneStreamingRole role = SceneStreamingRole.Active)
     {
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
-        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, findId, nodeBuild, caches.Buildings, caches.Parked, background: background, presentation: presentation);
+        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, findId, nodeBuild, caches.Buildings, caches.Parked,
+            background: background, presentation: presentation, streaming: OpenStreaming(new WorldLocation.Node(id), role));
     }
 
     private static SceneObjectId? Find(Dictionary<string, SceneObjectId> map, string key) =>
@@ -332,8 +347,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             var map = new Dictionary<string, SceneObjectId>();
             candidate = wanted is WorldLocation.Node atNode
-                ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true))
-                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation));
+                ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true,
+                    role: SceneStreamingRole.Candidate))
+                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key),
+                    vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
+                    streaming: OpenStreaming(wanted, SceneStreamingRole.Candidate)));
         }
         try
         {

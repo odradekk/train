@@ -226,14 +226,18 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `streaming-frames.jsonl` | 每绘制帧的 `draw`、`at`、`steps`、`coordinates`、`displayed`、显示车辆的 `displayed_position`、空间交接 `transition`、`window`、实际 `camera` 和最近覆盖样本 `coverage_draw` |
 | `coordinates` | 显示车辆位置当前采用的场景坐标身份；车辆位置已加该帧原点，故同空间浮动原点变化不会制造位移 |
 | `camera` | 镜头在相机支架坐标中的 `position`、`focus`，实际 `distance_cells`、世界偏航／俯仰（rad），`near_cells`／`far_cells` 是相机视深裁剪值 |
+| `streaming-scenes.jsonl` | Scenes 回调调用时读取时钟，原始事件含 `at`、`kind` 和相关身份；Frame 仅存 `scene`、`stamp`、`parts`，不序列化 Coverage 或保留逐点数据 |
+| `streaming-parts.jsonl` | 按 `attempt` 记录 Needed、Queued、Started、Built/CacheHit、Admitted、宿主资源准备及实际 SceneDisplay.Commit 结束的时刻；`outcome` 为 committed/cancelled/failed/unfinished。未观测阶段为 null，不能推定零时延；缓存外圈部件可能先提交后进入需求，此时保留原始时间，already_visible_before_demand=true，needed_to_committed_seconds=null |
+| `missing_parts` | 每绘制帧中未出现在实际 D 的部件按最新尝试阶段计数：needed_not_queued、queued、started、built_waiting_admission、admitted_waiting_resources、prepared_waiting_commit、cancelled、failed；prepared_waiting_commit 由完整候选的 FramePrepared 确认；仅统计当前 Needed 且场景未关闭的最新尝试；DemandEnded/Closed 的历史部件不计入。视野内未进入需求的缺口仍由覆盖计数的 not_needed 分类报告 |
 | `streaming-host.jsonl` | 每条含 `display`、`at` 和 `value`；`value` 含候选序号 `candidate`、完整 `frame`、可空 `object` 和 `stage`。`display` 区分重新创建的宿主显示实例 |
 | `ResourcesPrepared` | 仅当此对象至少一个视觉资源不能通过 `CanReuseVisual` 复用、需要新准备时记录；在该对象全部视觉资源就绪后发出，不等待整个候选。全复用的姿态更新、仅删除视觉与无视觉对象不记录 |
 | `Committed` | 仅为上述新准备视觉资源的对象，在所属候选完成 `SceneDisplay.Commit` 后记录；时间线止于提交，不增加首次绘制阶段 |
+| `FramePrepared` / `FrameCommitted` | 内部帧级通知，`object=null`；分别在完整 PreparedFrame 生成及实际 Commit 结束时发出。全复用和无视觉候选也发，不替代逐对象资源事件。逐部件资源准备时间仅取同一成功候选中、与 Admitted.Objects 匹配的 ResourcesPrepared 最大值，无新视觉对象为 null |
 | `HostCancelled` | 宿主放弃此候选，`object=null`；同一帧重试分配新的 `candidate`，不沿用被取消候选的准备时间 |
 | `streaming-coverage.jsonl` | 每次实际覆盖采样的 `seconds`、D 的完整 `frame`、`window`、`draw` 和 `sample`；无已提交帧时 `sample=null` |
-| `sample` | 仅保留 `eligible`、`terrain`、`fog_only`、`neither`、三类排除计数和缺地形／无雾缺口比例；空分母的比例为 null，不能当作 0。不保留逐点坐标；Scenes 诊断契约确认后，在采样时在线归属部件，只存各类别计数 |
+| `sample` | 仅保留 `eligible`、`terrain`、`fog_only`、`neither`、三类排除计数和缺地形／无雾缺口比例；空分母的比例为 null，不能当作 0。不保留逐点坐标；在采样时调用绑定 D 帧布局的 `FindTerrainParts` 在线归属部件，`part_categories` 是按 `(part, stage)` 聚合的小型数组，每项保存完整 PartId 和 terrain/fog_only/neither 计数；每个有效点（含已显示地形）都归属，同一点对应多个部件时每部件各计一次，总计可能超过有效点数。未知布局用 `part=null, stage=layout_unknown`，预期地面域外用 `part=null, stage=outside_terrain_domain` |
 | `streaming-probes.jsonl` | 覆盖查询和整个流式绘制回调的实际起止、耗时。`coverage` 嵌套于 `streaming-draw`，后者嵌套于既有 `route-observer`，不能相加重复计算 |
-| `streaming-analysis.json` | 逐区间实际倍率／场景速度、窗口汇总、覆盖缺口区间与分位数，以及按显示实例、候选、完整帧和对象严格配对的准备完成→提交时延 |
+| `streaming-analysis.json` | 逐区间实际倍率／场景速度、窗口汇总、覆盖缺口区间与分位数，以及按显示实例、候选、完整帧和对象严格配对的准备完成→提交时延。`already_visible_before_demand` 报告先显示后进入需求的尝试数，这类样本排除 Needed→Commit 延时分布；`part_outcomes` 汇总部件尝试结果，`part_latency_seconds` 报告已观测阶段差值的 n/p50/p95/p99/max；n=0 时分位数为 null。`parts_by_window_and_kind` 按窗口和 PartKind 给出同样的分布、尝试结果、取消和未完成数；窗口用原始 Frame.Stamp/Parts 与实际绘制帧 Displayed 精确关联，取该尝试首次实际显示时的窗口，未显示尝试归 not-observed；部件 committed 时间来自实际 FrameCommitted 回调，以完整帧身份联结 Parts；逐帧是否已显示仍仅使用实际 D 的 Parts |
 
 覆盖只查询已提交帧 `D = SceneDisplay.DisplayedFrame`，不查询最新但尚未提交的帧。对屏幕均匀分布的 32×18 个点投射射线，经实际显示根的逆变换转入 D 根空间，与稳定场景 `Y=0`（D 局部 `Y=-D.Origin.Y`）求交。没有正向交点、交点在近裁剪面之前或远裁剪面之后，不计入分母。相机裁剪值是视深；入口按每条射线的夹角换算有效距离，不把远裁剪面误作以相机为中心的球面。
 

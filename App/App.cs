@@ -57,7 +57,9 @@ public partial class App : Node
             Host = CreateHost?.Invoke(_logger) ?? HostComposition.CreateHost(_logger, userData, _dispatcher, Notifications);
             GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
             Recording = new RecordingService(Host, new FileSaveStore(userData));
-            var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes();
+            var arguments = OS.GetCmdlineUserArgs();
+            var streaming = arguments.Contains("--measure-streaming", StringComparer.Ordinal) ? new StreamingRecorder() : null;
+            var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes(streaming);
             Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
             Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), AuthoringPaths.ModsDirectory(userData),
                 OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null);
@@ -108,10 +110,9 @@ public partial class App : Node
             AddChild(console);
             _smoke = OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal);
             Host.SetFocused(GetWindow().HasFocus());
-            var arguments = OS.GetCmdlineUserArgs();
             if (arguments.Any(argument => argument.StartsWith("--measure=", StringComparison.Ordinal)))
             {
-                _measurement = new(this, arguments);
+                _measurement = new(this, arguments, streaming);
                 _measurement.Start();
             }
             else if (!Host.IsBusy) Host.BeginReload(CommandSource.UserInterface);

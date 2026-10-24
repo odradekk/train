@@ -20,6 +20,8 @@
 
 节点小地图用 `ReadNodeOverview` 读取实际显示帧的 `Origin`、`NodePanBounds` 和 `NodeOverview`，不额外调用 `Present`。地块四角和铁轨折线已经位于本帧根空间的 X、Z 格坐标；占用由核心 `PlotView.TemplatePlotNumber` 关联，不读取内容布局，也不使用开发中心线图层。
 
+`StreamingConsumer` 示范可传给真实装配入口 `ScenesFactory.Create(observer)` 的线程安全观察器；样例本身只引用契约，不调用实现工厂。回调入口读单调时钟并入队，宿主在回调外 `Drain`，自行关联 `Admitted.Objects` 和实际准备／提交记录。`FindTerrainParts` 先核对流式帧和实际提交帧身份，再以该帧根局部 XZ 查询；null 表示布局未知，空数组表示域外。消费方只保留实际提交帧及当前准备帧的覆盖对象，不能持续累积帧历史。本样例不验证真实构建阶段、线程调度或地形覆盖算法。
+
 在仓库根目录使用锁定 SDK 和 PowerShell 7 验证：
 
 ```powershell

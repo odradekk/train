@@ -12,7 +12,8 @@ internal sealed record RouteCameraMeasurement(ScenePoint Position, ScenePoint Fo
     double YawRadians, double PitchRadians, double NearCells, double FarCells);
 internal sealed record StreamingRouteFrame(long Draw, double At, ulong Steps, SceneFrameStamp? Coordinates,
     SceneFrameStamp? Displayed, ScenePoint? DisplayedPosition, RouteTransition? Transition,
-    RouteWindow Window, RouteCameraMeasurement Camera, long? CoverageDraw);
+    RouteWindow Window, RouteCameraMeasurement Camera, long? CoverageDraw,
+    Dictionary<string, int>? MissingParts = null);
 internal sealed record StreamingHostEvent(int Display, double At, SceneDisplayEvent Value);
 internal sealed record StreamingSpeed(long Draw, double Started, double Ended, string Window,
     double ActualSimulationRate, double? SceneMetersPerRealSecond, string? Unknown);
