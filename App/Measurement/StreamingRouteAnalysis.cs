@@ -13,21 +13,18 @@ internal sealed record RouteCameraMeasurement(ScenePoint Position, ScenePoint Fo
 internal sealed record StreamingRouteFrame(long Draw, double At, ulong Steps, SceneFrameStamp? Coordinates,
     SceneFrameStamp? Displayed, ScenePoint? DisplayedPosition, RouteTransition? Transition,
     RouteWindow Window, RouteCameraMeasurement Camera, long? CoverageDraw,
-    Dictionary<string, int>? MissingParts = null);
+    Dictionary<string, int>? MissingParts = null,
+    Dictionary<SceneStreamingRole, Dictionary<string, int>>? PreviewParts = null,
+    Dictionary<string, int>? RebuildingParts = null);
 internal sealed record StreamingHostEvent(int Display, double At, SceneDisplayEvent Value);
 internal sealed record StreamingSpeed(long Draw, double Started, double Ended, string Window,
     double ActualSimulationRate, double? SceneMetersPerRealSecond, string? Unknown);
 internal sealed record StreamingSpeedSummary(string Window, int Intervals, int UnknownSceneIntervals,
     double Seconds, double ActualSimulationRate, double? SceneMetersPerRealSecond,
     TimingDistribution? FrameSceneMetersPerRealSecond);
-internal sealed record HostPreparationLatency(int Display, long Candidate, SceneFrameStamp Frame,
-    SceneObjectId Object, double ResourcesPreparedAt, double CommittedAt)
-{
-    public double PreparedToCommitSeconds => CommittedAt - ResourcesPreparedAt;
-}
-
 internal static class StreamingRouteAnalysis
 {
+    internal const double WindowBoundaryCoreMeters = 128;
     internal static RouteWindow Window(TrainPosition position, double lengthMeters)
     {
         var labels = new List<string>();
@@ -36,16 +33,16 @@ internal static class StreamingRouteAnalysis
         {
             var progress = edge.Direction == TravelDirection.Forward ? edge.DistanceMeters : lengthMeters - edge.DistanceMeters;
             var remaining = lengthMeters - progress;
-            if (remaining <= 128) { entry = -remaining; labels.Add("node-entry"); }
-            if (progress < 128) { exit = progress; labels.Add("node-exit"); }
-            if (progress >= 128 && remaining >= 128) labels.Add("line-middle");
+            if (remaining <= WindowBoundaryCoreMeters) { entry = -remaining; labels.Add("node-entry"); }
+            if (progress < WindowBoundaryCoreMeters) { exit = progress; labels.Add("node-exit"); }
+            if (progress >= WindowBoundaryCoreMeters && remaining >= WindowBoundaryCoreMeters) labels.Add("line-middle");
         }
         else if (position is TrainPosition.Node node)
         {
             entry = node.DistanceMeters;
             exit = node.DistanceMeters - lengthMeters;
-            if (entry is >= -128 and < 128) labels.Add("node-entry");
-            if (exit is >= -128 and < 128) labels.Add("node-exit");
+            if (entry is >= -WindowBoundaryCoreMeters and < WindowBoundaryCoreMeters) labels.Add("node-entry");
+            if (exit is >= -WindowBoundaryCoreMeters and < WindowBoundaryCoreMeters) labels.Add("node-exit");
         }
         return new(entry, exit, labels.Order(StringComparer.Ordinal).ToArray());
     }
@@ -95,28 +92,6 @@ internal static class StreamingRouteAnalysis
                     (sample.Ended - sample.Started)) / knownSeconds : null,
                 known.Length > 0 ? FrameMeasurements.Distribution(known.Select(sample => sample.SceneMetersPerRealSecond!.Value)) : null);
         }).ToArray();
-
-    internal static HostPreparationLatency[] HostLatencies(IEnumerable<StreamingHostEvent> events)
-    {
-        var prepared = new Dictionary<(int Display, long Candidate, SceneFrameStamp Frame, SceneObjectId Object), double>();
-        var result = new List<HostPreparationLatency>();
-        foreach (var item in events)
-        {
-            var value = item.Value;
-            if (value.Stage == SceneDisplayStage.HostCancelled)
-            {
-                foreach (var cancelled in prepared.Keys.Where(key => key.Display == item.Display &&
-                    key.Candidate == value.Candidate && key.Frame == value.Frame).ToArray()) prepared.Remove(cancelled);
-                continue;
-            }
-            if (value.Object is not { } id) continue;
-            var key = (item.Display, value.Candidate, value.Frame, id);
-            if (value.Stage == SceneDisplayStage.ResourcesPrepared) prepared.Add(key, item.At);
-            else if (value.Stage == SceneDisplayStage.Committed && prepared.Remove(key, out var at))
-                result.Add(new(item.Display, value.Candidate, value.Frame, id, at, item.At));
-        }
-        return result.ToArray();
-    }
 
     internal static bool SameSpace(SceneFrameStamp a, SceneFrameStamp b) =>
         a.Session == b.Session && a.Request == b.Request && a.Space == b.Space;

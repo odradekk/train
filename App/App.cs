@@ -58,7 +58,8 @@ public partial class App : Node
             GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
             Recording = new RecordingService(Host, new FileSaveStore(userData));
             var arguments = OS.GetCmdlineUserArgs();
-            var streaming = arguments.Contains("--measure-streaming", StringComparer.Ordinal) ? new StreamingRecorder() : null;
+            var streaming = arguments.Any(argument => argument.StartsWith("--measure=", StringComparison.Ordinal)) &&
+                arguments.Contains("--measure-streaming", StringComparer.Ordinal) ? new StreamingRecorder() : null;
             var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes(streaming);
             Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
             Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), AuthoringPaths.ModsDirectory(userData),

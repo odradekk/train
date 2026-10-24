@@ -34,6 +34,10 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
     private readonly Dictionary<SceneStreamingSceneId, SceneFrameStamp> _latest = [];
     private readonly Dictionary<(int Display, long Candidate, SceneFrameStamp Frame), HostCandidate> _preparing = [];
     private readonly HashSet<SceneStreamingAttemptId> _ready = [];
+    private readonly Dictionary<SceneStreamingSceneId, SceneStreamingRole> _roles = [];
+    private HashSet<SceneStreamingAttemptId> _displayedAttempts = [];
+    private HashSet<SceneStreamingPartId> _displayedParts = [];
+    private SceneStreamingSceneId? _displayedScene;
     private sealed class HostCandidate(SceneFrameStamp frame, double opened)
     {
         internal SceneFrameStamp Frame = frame;
@@ -43,7 +47,6 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
         internal readonly Dictionary<SceneObjectId, double> Resources = [];
     }
     private readonly HashSet<SceneStreamingSceneId> _closed = [];
-    private SceneFrameStamp? _displayed;
     private sealed class AttemptState
     {
         internal bool Needed;
@@ -55,8 +58,7 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
 
     public void OnEvent(SceneStreamingEvent value)
     {
-        try { _pending.Enqueue((_clock(), value)); }
-        catch { /* Diagnostics must never interrupt the producer. */ }
+        _pending.Enqueue((_clock(), value));
     }
 
     internal void Drain()
@@ -67,9 +69,11 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
             switch (value)
             {
                 case SceneStreamingEvent.Opened opened:
+                    _roles[opened.Scene] = opened.Role;
                     _events.Add(new(at, "Opened", opened.Scene, Role: opened.Role, Location: opened.Location));
                     break;
                 case SceneStreamingEvent.Activated active:
+                    _roles[active.Scene] = SceneStreamingRole.Active;
                     _events.Add(new(at, "Activated", active.Scene));
                     break;
                 case SceneStreamingEvent.Closed closed:
@@ -97,15 +101,13 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
         }
     }
 
-    internal void Host(StreamingHostEvent item)
+    private void Host(StreamingHostEvent item)
     {
-        Drain();
         var value = item.Value;
         var key = (item.Display, value.Candidate, value.Frame);
         if (value.Stage == SceneDisplayStage.HostCancelled)
         {
             _preparing.Remove(key);
-            RefreshReady();
             return;
         }
         if (!_preparing.TryGetValue(key, out var candidate))
@@ -128,7 +130,6 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
                     }
             _preparing.Remove(key);
         }
-        RefreshReady();
     }
 
     private void RefreshReady()
@@ -145,10 +146,16 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
             candidate.Required is { } required && state.Objects.Where(required.Contains)
                 .All(obj => candidate.Resources.TryGetValue(obj, out var at) && at <= until));
 
-    internal void Displayed(SceneFrameStamp? stamp)
+    internal void Displayed(SceneFrameStamp? stamp, IEnumerable<StreamingHostEvent>? hostEvents = null)
     {
         Drain();
-        _displayed = stamp;
+        if (hostEvents is not null)
+            foreach (var item in hostEvents) Host(item);
+        var displayed = stamp is not null ? _frames.GetValueOrDefault(stamp) : null;
+        _displayedScene = displayed?.Scene;
+        _displayedAttempts = displayed?.Parts.ToHashSet() ?? [];
+        _displayedParts = _displayedAttempts.Select(attempt => attempt.Part).ToHashSet();
+        RefreshReady();
         var keep = _latest.Where(pair => !_closed.Contains(pair.Key)).Select(pair => pair.Value)
             .Concat(_preparing.Values.Select(value => value.Frame)).ToHashSet();
         if (stamp is not null) keep.Add(stamp);
@@ -158,21 +165,37 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
     internal ISceneStreamingCoverage? Coverage(SceneFrameStamp stamp) => _frames.GetValueOrDefault(stamp)?.Coverage;
     internal string Category(SceneStreamingPartId part)
     {
+        if (_displayedParts.Contains(part)) return "committed";
         if (!_current.TryGetValue(part, out var attempt) || !_attempts.TryGetValue(attempt, out var state) ||
             !state.Needed || _closed.Contains(part.Scene)) return "not_needed";
-        if (_displayed is not null && _frames.TryGetValue(_displayed, out var frame) && frame.Parts.Contains(attempt)) return "committed";
-        return state.Stage switch
+        return Stage(attempt, state);
+    }
+
+    private string Stage(SceneStreamingAttemptId attempt, AttemptState state) =>
+        state.Stage switch
         {
             SceneStreamingStage.Queued => "queued", SceneStreamingStage.Started => "started",
             SceneStreamingStage.Built or SceneStreamingStage.CacheHit => "built_waiting_admission",
             SceneStreamingStage.Admitted => !_ready.Contains(attempt) ? "admitted_waiting_resources" : "prepared_waiting_commit",
             SceneStreamingStage.Cancelled => "cancelled", SceneStreamingStage.Failed => "failed", _ => "needed_not_queued"
         };
-    }
+
     internal Dictionary<string, int> MissingCounts() => _current
-        .Where(pair => !_closed.Contains(pair.Key.Scene) && _attempts[pair.Value].Needed)
-        .Select(pair => Category(pair.Key)).Where(category => category != "committed")
-        .GroupBy(category => category).ToDictionary(group => group.Key, group => group.Count());
+        .Where(pair => pair.Key.Scene == _displayedScene && !_closed.Contains(pair.Key.Scene) &&
+            _attempts[pair.Value].Needed && !_displayedParts.Contains(pair.Key))
+        .GroupBy(pair => Stage(pair.Value, _attempts[pair.Value])).ToDictionary(group => group.Key, group => group.Count());
+
+    internal Dictionary<string, int> RebuildingCounts() => _current
+        .Where(pair => pair.Key.Scene == _displayedScene && !_closed.Contains(pair.Key.Scene) &&
+            _attempts[pair.Value].Needed && _displayedParts.Contains(pair.Key) && !_displayedAttempts.Contains(pair.Value))
+        .GroupBy(pair => Stage(pair.Value, _attempts[pair.Value])).ToDictionary(group => group.Key, group => group.Count());
+
+    internal Dictionary<SceneStreamingRole, Dictionary<string, int>> PreviewCounts() => _current
+        .Where(pair => !_closed.Contains(pair.Key.Scene) && _attempts[pair.Value].Needed &&
+            _roles.TryGetValue(pair.Key.Scene, out var role) && role != SceneStreamingRole.Active)
+        .GroupBy(pair => _roles[pair.Key.Scene]).ToDictionary(group => group.Key,
+            group => group.GroupBy(pair => Stage(pair.Value, _attempts[pair.Value]))
+                .ToDictionary(stages => stages.Key, stages => stages.Count()));
     internal StreamingSceneEvent[] Events(double origin, double until = double.PositiveInfinity) => _events
         .Where(value => value.At <= until).Select(value => value with { At = value.At - origin }).ToArray();
     internal StreamingPartTiming[] Timings(double origin, double until = double.PositiveInfinity) => _attempts

@@ -12,15 +12,6 @@ public sealed class RecordingStreamingObserver : ISceneStreamingObserver
     public ImmutableArray<SceneStreamingEvent> Snapshot() => [.. events];
 }
 
-public sealed class FixedStreamingCoverage : ISceneStreamingCoverage
-{
-    public required ImmutableDictionary<(double X, double Z), ImmutableArray<SceneStreamingPartId>> Points { get; init; }
-
-    public ImmutableArray<SceneStreamingPartId> FindTerrainParts(double x, double z) =>
-        Points.TryGetValue((x, z), out var parts)
-            ? parts : throw FrameDisplayScenario.Unconfigured("地形部件归属");
-}
-
 public static class StreamingScenario
 {
     public static SceneStreamingEvent.Frame AssertFrameMatches(

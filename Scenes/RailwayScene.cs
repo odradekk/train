@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Numerics;
-using System.Globalization;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -52,7 +51,6 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly DisplayRate displayRate;
     internal SceneStreamingScope? Streaming { get; }
     private RailwayStreamingCoverage? streamingCoverage;
-    private static string SegmentKey(int index) => index.ToString(CultureInfo.InvariantCulture);
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
     internal bool Failed => failure is not null;
@@ -149,7 +147,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         {
             if (streamingCoverage is null || !ReferenceEquals(streamingCoverage.Path, path))
                 streamingCoverage = new(path, streaming.Id);
-            streaming.Frame(stamp, segments.Keys.Select(index => streaming.PartId(SceneStreamingPartKind.RailwaySegment, SegmentKey(index))),
+            streaming.Frame(stamp, segments.Keys.Select(index => streaming.PartId(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index))),
                 streamingCoverage.At(origin));
         }
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
@@ -223,7 +221,7 @@ internal sealed class RailwayScene : IAsyncDisposable
 
     private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
     {
-        Streaming?.Demand(SceneStreamingPartKind.RailwaySegment, Enumerable.Range(minimum, maximum - minimum + 1).Select(SegmentKey));
+        Streaming?.Demand(SceneStreamingPartKind.RailwaySegment, Enumerable.Range(minimum, maximum - minimum + 1).Select(RailwayStreamingCoverage.SegmentKey));
         var (retainMinimum, retainMaximum) = NeededRange(middle, followed,
             followed is null ? 0 : RailwayCoordinates.MaxPrefetchSegments);
         foreach (var index in pendingSegments.Keys.Where(index => index < retainMinimum || index > retainMaximum).ToArray())
@@ -255,7 +253,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (pendingSegments.ContainsKey(index)) continue;
             if (cache.Find(snapshot, path!, index) is { } cached)
             {
-                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, SegmentKey(index));
+                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index));
                 if (attempt is { } hit) Streaming?.CacheHit(hit);
                 Connect(cached, attempt);
             }
@@ -263,7 +261,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             {
                 var currentPath = path!;
                 var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, SegmentKey(index));
+                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index));
                 if (attempt is { } queued) Streaming?.Queue(queued);
                 pendingSegments.Add(index, new(Task.Run(() => attempt is { } captured
                     ? Streaming!.Build(captured, () => build(snapshot, currentPath, index, stop.Token))

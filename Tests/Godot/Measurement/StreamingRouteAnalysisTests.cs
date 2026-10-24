@@ -1,7 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Measurement;
 using Train.Core.Contracts;
-using Train.Rendering;
 using Train.Scenes.Contracts;
 
 namespace Train.Godot.Tests.Measurement;
@@ -88,43 +87,6 @@ public sealed class StreamingRouteAnalysisTests
     }
 
     [TestMethod]
-    public void HostLatencyPairsDisplayCandidateFullFrameAndObjectExactly()
-    {
-        var frame = Stamp();
-        var events = new List<StreamingHostEvent> { Event(1, 1, frame, 1, SceneDisplayStage.ResourcesPrepared, 1) };
-        events.Add(Event(2, 1, frame, 1, SceneDisplayStage.Committed, 2));
-        events.Add(Event(1, 2, frame, 1, SceneDisplayStage.Committed, 2));
-        foreach (var changed in new[] { frame with { Revision = 2 }, frame with { Session = new(Guid.NewGuid()) },
-            frame with { Request = new(2) }, frame with { Space = new(2) } })
-            events.Add(Event(1, 1, changed, 1, SceneDisplayStage.Committed, 2));
-        events.Add(Event(1, 1, frame, 2, SceneDisplayStage.Committed, 2));
-        events.Add(Event(1, 1, frame, 1, SceneDisplayStage.Committed, 2.5));
-        var latency = StreamingRouteAnalysis.HostLatencies(events).Single();
-        Assert.AreEqual(1.5, latency.PreparedToCommitSeconds, .000001);
-        Assert.AreEqual(1, latency.Display);
-        Assert.AreEqual(1L, latency.Candidate);
-        Assert.AreEqual(frame, latency.Frame);
-        Assert.AreEqual(new SceneObjectId(1), latency.Object);
-    }
-
-    [TestMethod]
-    public void CancelledPreparationCannotPairWithFollowingCandidateCommit()
-    {
-        var stamp = Stamp();
-        var result = StreamingRouteAnalysis.HostLatencies([
-            Event(1, 1, stamp, 1, SceneDisplayStage.ResourcesPrepared, 0),
-            new(1, .1, new(1, stamp, null, SceneDisplayStage.HostCancelled)),
-            Event(1, 1, stamp, 1, SceneDisplayStage.Committed, .15),
-            Event(1, 2, stamp, 1, SceneDisplayStage.Committed, .2),
-            Event(1, 3, stamp, 1, SceneDisplayStage.ResourcesPrepared, .3),
-            Event(1, 3, stamp, 1, SceneDisplayStage.Committed, .5),
-            Event(1, 3, stamp, 1, SceneDisplayStage.Committed, .6)]);
-        Assert.AreEqual(1, result.Length);
-        Assert.AreEqual(3L, result[0].Candidate);
-        Assert.AreEqual(.2, result[0].PreparedToCommitSeconds, .000001);
-    }
-
-    [TestMethod]
     public void SummariesWeightActualElapsedTimeKeepUnknownCountsAndSeparateWindows()
     {
         // First window: 1 second at 2x and 3 seconds at 4x => 3.5x.
@@ -158,6 +120,4 @@ public sealed class StreamingRouteAnalysisTests
     private static SceneFrameStamp Stamp() => new(new(Guid.Empty), new(1), new(1), 1);
     private static StreamingRouteFrame Frame(long draw, double at, ulong steps, ScenePoint? point) => new(draw, at, steps,
         Stamp(), Stamp(), point, null, new(null, null, ["line-middle"]), new(default, default, 0, 0, 0, 0, 0), null);
-    private static StreamingHostEvent Event(int display, long candidate, SceneFrameStamp stamp, ulong id,
-        SceneDisplayStage stage, double at) => new(display, at, new(candidate, stamp, new(id), stage));
 }

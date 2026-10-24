@@ -1,23 +1,16 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 
 namespace Train.Scenes.Tests;
 
 [TestClass]
 public sealed class RailwayStreamingTests
 {
-    private sealed class Observer : ISceneStreamingObserver
-    {
-        internal readonly ConcurrentQueue<SceneStreamingEvent> Events = new();
-        public void OnEvent(SceneStreamingEvent value) => Events.Enqueue(value);
-        internal SceneStreamingEvent.Changed[] Changes => Events.OfType<SceneStreamingEvent.Changed>().ToArray();
-    }
-
-    private static SceneStreamingScope Scope(Observer observer, ulong id = 1) =>
+    private static SceneStreamingScope Scope(RecordingStreamingObserver observer, ulong id = 1) =>
         new(observer, new(new(Guid.Empty), id), RailwayFixtures.Location, SceneStreamingRole.Active);
 
     private static RailwayScene Open(SceneWorldSnapshot snapshot, SceneVehicles vehicles, SceneStreamingScope streaming,
@@ -36,32 +29,32 @@ public sealed class RailwayStreamingTests
     public async Task Workers_report_completion_before_another_pump_and_cache_hits_do_not_build()
     {
         var snapshot = RailwayFixtures.Snapshot();
-        var observer = new Observer();
+        var observer = new RecordingStreamingObserver();
         var cache = new RailwayCache();
         await using var vehicles = new SceneVehicles();
         await using (var scene = Open(snapshot, vehicles, Scope(observer), cache))
         {
             scene.Pump(snapshot, new(RailwayFixtures.Edge, 100));
             await Task.WhenAll(scene.PendingWork);
-            Assert.IsTrue(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Started));
-            Assert.IsTrue(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Built));
-            Assert.IsFalse(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Admitted));
+            Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Started));
+            Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Built));
+            Assert.IsFalse(observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Admitted));
             scene.Pump(snapshot, new(RailwayFixtures.Edge, 100), allowBuild: false);
-            Assert.IsTrue(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Admitted));
+            Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Admitted));
         }
-        var reopened = new Observer();
+        var reopened = new RecordingStreamingObserver();
         await using var cached = Open(snapshot, vehicles, Scope(reopened, 2), cache,
             (_, _, _, _) => throw new AssertFailedException("A retained segment must use the cache."));
         cached.Pump(snapshot, new(RailwayFixtures.Edge, 100), allowBuild: false);
-        Assert.IsTrue(reopened.Changes.Any(item => item.Stage == SceneStreamingStage.CacheHit));
-        Assert.IsFalse(reopened.Changes.Any(item => item.Stage == SceneStreamingStage.Started));
+        Assert.IsTrue(reopened.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.CacheHit));
+        Assert.IsFalse(reopened.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Started));
     }
 
     [TestMethod]
     public async Task Late_completion_keeps_the_cancelled_attempt_when_demand_returns()
     {
         var snapshot = RailwayFixtures.Snapshot();
-        var observer = new Observer();
+        var observer = new RecordingStreamingObserver();
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var vehicles = new SceneVehicles();
@@ -77,14 +70,14 @@ public sealed class RailwayStreamingTests
             var enteredIndex = await entered.Task;
             var oldWork = scene.PendingWork;
             scene.Pump(snapshot, new(RailwayFixtures.Edge, 750));
-            var cancelled = observer.Changes.First(item => item.Stage == SceneStreamingStage.Cancelled && item.Attempt.Part.Key == enteredIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)).Attempt;
+            var cancelled = observer.Snapshot().OfType<SceneStreamingEvent.Changed>().First(item => item.Stage == SceneStreamingStage.Cancelled && item.Attempt.Part.Key == enteredIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)).Attempt;
             scene.Pump(snapshot, new(RailwayFixtures.Edge, 0), allowBuild: false);
-            var renewed = observer.Changes.Last(item => item.Stage == SceneStreamingStage.Needed && item.Attempt.Part == cancelled.Part).Attempt;
+            var renewed = observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Last(item => item.Stage == SceneStreamingStage.Needed && item.Attempt.Part == cancelled.Part).Attempt;
             Assert.IsTrue(renewed.Value > cancelled.Value);
             release.Set();
             await Task.WhenAll(oldWork);
-            Assert.IsTrue(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Built && item.Attempt == cancelled));
-            Assert.IsFalse(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Admitted && item.Attempt == cancelled));
+            Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Built && item.Attempt == cancelled));
+            Assert.IsFalse(observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Admitted && item.Attempt == cancelled));
         }
         finally { release.Set(); }
     }
@@ -141,12 +134,12 @@ public sealed class RailwayStreamingTests
     public async Task Coverage_includes_unneeded_curved_segments_and_survives_scene_disposal()
     {
         var snapshot = RailwayFixtures.Snapshot(relief: 0);
-        var observer = new Observer();
+        var observer = new RecordingStreamingObserver();
         await using var vehicles = new SceneVehicles();
         var scene = Open(snapshot, vehicles, Scope(observer));
         var frame = scene.Present(snapshot, null, new WorldSceneTarget.Location(RailwayFixtures.Location),
             new(1, null, SceneDebugLayer.None), new(new(Guid.Empty), new(1), new(1), 1), null);
-        var coverage = observer.Events.OfType<SceneStreamingEvent.Frame>().Last().Coverage!;
+        var coverage = observer.Snapshot().OfType<SceneStreamingEvent.Frame>().Last().Coverage!;
         var arc = scene.Path!.LengthCells - 64;
         var sample = scene.Path.Sample(arc);
         var x = sample.Position.X - frame.Origin.X;
@@ -159,7 +152,7 @@ public sealed class RailwayStreamingTests
         CollectionAssert.AreEqual(expected.ToArray(), coverage.FindTerrainParts(
             Math.Floor(sample.Position.X) + .99 - frame.Origin.X,
             Math.Floor(sample.Position.Z) + .99 - frame.Origin.Z).ToArray());
-        Assert.IsFalse(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Needed && item.Attempt.Part == expected[0]));
+        Assert.IsFalse(observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Any(item => item.Stage == SceneStreamingStage.Needed && item.Attempt.Part == expected[0]));
         var outside = RailwayCoordinates.Add(sample.Position, sample.Right * (float)(RailwayCoordinates.TerrainHalfWidth(1) + 10));
         Assert.IsTrue(coverage.FindTerrainParts(outside.X - frame.Origin.X, outside.Z - frame.Origin.Z).IsEmpty);
         await scene.DisposeAsync();

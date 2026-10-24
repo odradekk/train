@@ -18,7 +18,7 @@ internal sealed class NodeStreamingCoverage
         this.hasChunks = hasChunks;
         this.scene = scene;
         var columns = ImmutableDictionary.CreateBuilder<GridColumn, SceneStreamingPartId>();
-        foreach (var (key, part) in parts.Where(part => part.Key.StartsWith("boundary:", StringComparison.Ordinal)))
+        foreach (var (key, part) in parts.Where(part => NodePartKeys.IsBoundary(part.Key)))
             foreach (var column in part.Heights.Keys)
                 columns[new((int)Math.Round(column.X + part.Origin.X), (int)Math.Round(column.Z + part.Origin.Z))] =
                     new(scene, SceneStreamingPartKind.NodeBoundary, key);

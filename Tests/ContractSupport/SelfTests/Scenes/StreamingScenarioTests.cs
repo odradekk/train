@@ -11,35 +11,6 @@ namespace Train.ContractSupport.Tests.Scenes;
 public sealed class StreamingScenarioTests
 {
     [TestMethod]
-    public void RetainedCoverageAndEventsRemainReadableAfterClosing()
-    {
-        var stamp = WorldRequestScenario.Hit.Frame;
-        var scene = new SceneStreamingSceneId(stamp.Session, 1);
-        var part = new SceneStreamingPartId(scene, SceneStreamingPartKind.NodeTerrain, "opaque");
-        var attempt = new SceneStreamingAttemptId(part, 1);
-        var coverage = new FixedStreamingCoverage
-        {
-            Points = ImmutableDictionary<(double, double), ImmutableArray<SceneStreamingPartId>>.Empty
-                .Add((2, 3), [part]).Add((20, 30), [])
-        };
-        var observer = new RecordingStreamingObserver();
-        observer.OnEvent(new SceneStreamingEvent.Opened(scene, new WorldLocation.Node(new(1)), SceneStreamingRole.Candidate));
-        observer.OnEvent(new SceneStreamingEvent.Changed(attempt, SceneStreamingStage.Admitted, [new(7)]));
-        observer.OnEvent(new SceneStreamingEvent.Frame(scene, stamp, [attempt], coverage));
-        var retained = observer.Snapshot();
-        observer.OnEvent(new SceneStreamingEvent.Activated(scene));
-        observer.OnEvent(new SceneStreamingEvent.Closed(scene));
-        var frame = new FixedSceneFrame { Update = new(null, stamp, Vector3.Zero, [], [], new([], []), []) };
-        var streamed = StreamingScenario.AssertFrameMatches(retained, frame);
-        Assert.AreEqual(3, retained.Length);
-        Assert.AreEqual(5, observer.Snapshot().Length);
-        Assert.AreEqual(part, streamed.Coverage!.FindTerrainParts(2, 3).Single());
-        Assert.IsTrue(streamed.Coverage.FindTerrainParts(20, 30).IsEmpty);
-        var error = Assert.ThrowsExactly<InvalidOperationException>(() => coverage.FindTerrainParts(0, 0));
-        StringAssert.StartsWith(error.Message, "UNCONFIGURED:");
-    }
-
-    [TestMethod]
     public async Task ObserverCapturesConcurrentCallbacksWithoutLosingEvents()
     {
         var observer = new RecordingStreamingObserver();

@@ -10,7 +10,6 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private readonly StreamingRecorder? _streamingRecorder;
-    private readonly bool _streamingEnabled;
     private readonly string _streamingCamera;
     private readonly List<StreamingRouteFrame> _streamingFrames = [];
     private readonly List<StreamingHostEvent> _streamingHost = [];
@@ -18,6 +17,7 @@ internal sealed partial class MeasurementRun
     private readonly List<StreamingProbe> _streamingProbes = [];
     private SceneDisplay? _streamingDisplay;
     private int _streamingDisplayNumber;
+    private int _streamingHostReplayed;
     private VehicleId _streamingFollowed;
     private double _streamingLastCoverage = double.NegativeInfinity;
     private SceneFrameStamp? _streamingCoverageFrame;
@@ -33,7 +33,7 @@ internal sealed partial class MeasurementRun
 
     private void StartStreamingRoute(VehicleId followed)
     {
-        if (!_streamingEnabled) return;
+        if (_streamingRecorder is null) return;
         _streamingFollowed = followed;
         var camera = _app.WorldScenes!.View.CameraRig;
         camera.ShakeEnabled = false;
@@ -41,8 +41,8 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["streaming"] = new
         {
             enabled = true, camera = _streamingCamera, camera_shake = false,
-            window_boundary_core_meters = 128, grid_columns = ViewCoverage.Columns, grid_rows = ViewCoverage.Rows,
-            coverage_hz = 5, ground_plane_scene_y = 0,
+            window_boundary_core_meters = StreamingRouteAnalysis.WindowBoundaryCoreMeters, grid_columns = ViewCoverage.Columns, grid_rows = ViewCoverage.Rows,
+            coverage_hz = ViewCoverage.FrequencyHz, ground_plane_scene_y = 0,
             attribution = "Scenes frame terrain parts classified online; no sampled points retained",
             files = new[] { "streaming-frames.jsonl", "streaming-host.jsonl", "streaming-coverage.jsonl",
                 "streaming-probes.jsonl", "streaming-scenes.jsonl", "streaming-parts.jsonl", "streaming-analysis.json" }
@@ -51,7 +51,7 @@ internal sealed partial class MeasurementRun
 
     private void ObserveStreamingDisplay()
     {
-        if (!_streamingEnabled || _app.WorldScenes!.Display is not { } display || ReferenceEquals(display, _streamingDisplay)) return;
+        if (_streamingRecorder is null || _app.WorldScenes!.Display is not { } display || ReferenceEquals(display, _streamingDisplay)) return;
         _streamingDisplay = display;
         var number = ++_streamingDisplayNumber;
         display.Observe = value =>
@@ -59,15 +59,14 @@ internal sealed partial class MeasurementRun
             if (_routeSampling)
             {
                 var at = Seconds();
-                _streamingHost.Add(new(number, at - _routeStarted, value));
-                _streamingRecorder?.Host(new(number, at, value));
+                _streamingHost.Add(new(number, at, value));
             }
         };
     }
 
     private void RecordStreamingDraw(RouteFrame route, TrainView train, ICoreReadView core)
     {
-        if (!_streamingEnabled) return;
+        if (_streamingRecorder is not { } recorder) return;
         var started = Seconds();
         double length;
         if (train.Position is TrainPosition.Edge edge)
@@ -81,15 +80,16 @@ internal sealed partial class MeasurementRun
         var window = StreamingRouteAnalysis.Window(train.Position, length);
         var display = _app.WorldScenes!.Display;
         var frame = display?.DisplayedFrame;
-        _streamingRecorder?.Displayed(frame?.Update.Frame);
+        recorder.Displayed(frame?.Update.Frame, _streamingHost.Skip(_streamingHostReplayed));
+        _streamingHostReplayed = _streamingHost.Count;
         var previous = _streamingCoverageFrame;
-        if (route.At - _streamingLastCoverage >= .2 || window.Key != _streamingCoverageWindow ||
+        if (route.At - _streamingLastCoverage >= ViewCoverage.IntervalSeconds || window.Key != _streamingCoverageWindow ||
             (frame is null) != (previous is null) || frame is not null && previous is not null &&
             !StreamingRouteAnalysis.SameSpace(frame.Update.Frame, previous))
         {
             var probeStarted = Seconds();
             var sample = frame is not null ? ViewCoverage.Sample(frame, CoverageRays(display!),
-                _streamingRecorder?.Coverage(frame.Update.Frame), _streamingRecorder is { } recorder ? recorder.Category : null) : null;
+                recorder.Coverage(frame.Update.Frame), recorder.Category) : null;
             _streamingCoverage.Add(new(route.At, frame?.Update.Frame, window.Key, sample, route.Draw));
             _streamingLastCoverage = route.At;
             _streamingCoverageFrame = frame?.Update.Frame;
@@ -105,7 +105,7 @@ internal sealed partial class MeasurementRun
         var position = route.DisplayedVehicles.FirstOrDefault(vehicle => vehicle.Id == _streamingFollowed.Value)?.Position;
         _streamingFrames.Add(new(route.Draw, route.At, route.Steps, route.Latest, route.Displayed, position,
             route.Transition, window, camera, _streamingCoverage.Count > 0 ? _streamingCoverage[^1].Draw : null,
-            _streamingRecorder?.MissingCounts()));
+            recorder.MissingCounts(), recorder.PreviewCounts(), recorder.RebuildingCounts()));
         _streamingProbes.Add(new(route.Draw, "streaming-draw", started - _routeStarted, Seconds() - _routeStarted));
     }
 
@@ -133,9 +133,9 @@ internal sealed partial class MeasurementRun
 
     private void WriteStreamingTrace(string directory)
     {
-        if (!_streamingEnabled) return;
+        if (_streamingRecorder is null) return;
         Write("streaming-frames.jsonl", _streamingFrames);
-        Write("streaming-host.jsonl", _streamingHost);
+        Write("streaming-host.jsonl", _streamingHost.Select(value => value with { At = value.At - _routeStarted }));
         Write("streaming-coverage.jsonl", _streamingCoverage);
         Write("streaming-probes.jsonl", _streamingProbes);
         _streamingRecorder?.Drain();
@@ -186,10 +186,6 @@ internal sealed partial class MeasurementRun
             if (draw.Displayed is { } displayed && frameParts.TryGetValue(displayed, out var members))
                 foreach (var member in members) partWindows.TryAdd(member, draw.Window.Key);
         var speeds = StreamingRouteAnalysis.Speeds(_streamingFrames);
-        var latencies = StreamingRouteAnalysis.HostLatencies(_streamingHost);
-        var windows = _streamingFrames.Where(frame => frame.Displayed is not null).GroupBy(frame => frame.Displayed!)
-            .ToDictionary(group => group.Key, group => group.First().Window.Key);
-        var latencyWindows = latencies.GroupBy(item => windows.GetValueOrDefault(item.Frame, "not-observed"));
         var end = _routeSamples.Count > 0 ? _routeSamples[^1].At : (double?)null;
         var analysis = new
         {
@@ -205,15 +201,9 @@ internal sealed partial class MeasurementRun
             {
                 window,
                 analysis = ViewCoverage.Analyze(_streamingCoverage.Select(sample => sample.Window == window
-                    ? sample : sample with { Sample = null }).ToArray(), end)
+                    ? sample : sample with { Sample = null }).ToArray(), end, window),
+                missing_categories = ViewCoverage.SummarizeCategories(_streamingCoverage.Where(sample => sample.Window == window))
             }).ToArray(),
-            host_prepared_to_commit = latencies,
-            host_prepared_to_commit_by_window = latencyWindows.Select(group => new
-            {
-                window = group.Key, objects = group.Count(),
-                seconds = Distribution(group.Select(item => (double?)item.PreparedToCommitSeconds))
-            }).ToArray(),
-            host_prepared_to_commit_seconds = Distribution(latencies.Select(item => (double?)item.PreparedToCommitSeconds)),
             host_cancelled_candidates = _streamingHost.Count(item => item.Value.Stage == SceneDisplayStage.HostCancelled),
             probe_seconds = _streamingProbes.Where(probe => probe.Kind == "streaming-draw").Sum(probe => probe.Seconds),
             probe_scope = "coverage is nested in streaming-draw, which is nested in route-observer; do not sum nested costs"

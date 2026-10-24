@@ -145,28 +145,42 @@ public sealed class ViewCoverageTests
         var frame = Frame(fog: [new(new(-1, -1, -1), new(1, 1, 1))]);
         var sample = ViewCoverage.Sample(frame, [Vertical(0, 0), Vertical(2, 0), Vertical(4, 0)],
             new TerrainCoverage(part), _ => "queued");
-        var owned = sample.PartCategories!.Single(value => value.Part == part);
-        Assert.AreEqual("queued", owned.Stage);
+        var owned = sample.PartCategories!.Single(value => value.Category == "needed_queued");
+        Assert.AreEqual("needed_queued", owned.Category);
         Assert.AreEqual(1, owned.FogOnly);
         Assert.AreEqual(1, owned.Neither);
-        var outside = sample.PartCategories!.Single(value => value.Part is null);
-        Assert.AreEqual("outside_terrain_domain", outside.Stage);
+        var outside = sample.PartCategories!.Single(value => value.Category == "outside_terrain_domain");
+        Assert.AreEqual("outside_terrain_domain", outside.Category);
         Assert.AreEqual(1, outside.Neither);
-        Assert.AreEqual(3, sample.PartCategories!.Sum(value => value.Terrain + value.FogOnly + value.Neither));
+        Assert.AreEqual(3, sample.PartCategories!.Sum(value => value.FogOnly + value.Neither));
     }
 
     [TestMethod]
-    public void TerrainPointsRetainPartIdentityAndUnknownLayoutUsesNullPart()
+    public void TerrainPointsSkipAttributionAndMissingCategoriesSummarizeByWindow()
     {
         var part = new SceneStreamingPartId(new(new(Guid.Empty), 1), SceneStreamingPartKind.RailwaySegment, "opaque");
-        var frame = new FixedSceneFrame { Update = Frame().Update, TerrainHeightResult = new Lookup<double>.Found(0) };
-        var sample = ViewCoverage.Sample(frame, [Vertical(0, 0)], new TerrainCoverage(part), _ => "committed");
-        Assert.AreEqual(part, sample.PartCategories!.Single().Part);
-        Assert.AreEqual(1, sample.PartCategories!.Single().Terrain);
-        var unknown = ViewCoverage.Sample(frame, [Vertical(0, 0)]).PartCategories!.Single();
-        Assert.IsNull(unknown.Part);
-        Assert.AreEqual("layout_unknown", unknown.Stage);
-        Assert.AreEqual(1, unknown.Terrain);
+        var terrain = new FixedSceneFrame { Update = Frame().Update, TerrainHeightResult = new Lookup<double>.Found(0) };
+        var sample = ViewCoverage.Sample(terrain, [Vertical(0, 0)], new TerrainCoverage(part), _ => throw new AssertFailedException());
+        Assert.AreEqual(0, sample.PartCategories!.Length);
+        var stamp = Frame().Update.Frame;
+        var fog = Frame(fog: [new(new(-1, -1, -1), new(1, 1, 1))]);
+        var waiting = ViewCoverage.Sample(fog, [Vertical(0, 0), Vertical(2, 0)], new TerrainCoverage(part), _ => "started");
+        var outside = ViewCoverage.Sample(Frame(), [Vertical(4, 0)], new TerrainCoverage(part));
+        var notNeeded = ViewCoverage.Sample(Frame(), [Vertical(0, 0)], new TerrainCoverage(part), _ => "not_needed");
+        var unknown = ViewCoverage.Sample(Frame(), [Vertical(0, 0)]);
+        CoverageObservation[] observations = [new(0, stamp, "entry", waiting), new(.1, stamp, "exit", outside),
+            new(.4, stamp, "entry", notNeeded), new(.9, stamp, "exit", unknown)];
+        var entry = ViewCoverage.SummarizeCategories(observations.Where(value => value.Window == "entry"));
+        Assert.AreEqual(1, entry.Single(value => value.Category == "needed_started").FogOnly);
+        Assert.AreEqual(1, entry.Single(value => value.Category == "needed_started").Neither);
+        Assert.AreEqual(1, entry.Single(value => value.Category == "not_needed").Neither);
+        var exit = ViewCoverage.SummarizeCategories(observations.Where(value => value.Window == "exit"));
+        Assert.AreEqual(1, exit.Single(value => value.Category == "outside_terrain_domain").Neither);
+        Assert.AreEqual(1, exit.Single(value => value.Category == "layout_unknown").Neither);
+        var entryAnalysis = ViewCoverage.Analyze(observations, window: "entry");
+        var exitAnalysis = ViewCoverage.Analyze(observations, window: "exit");
+        Assert.AreEqual(.4, entryAnalysis.SampleIntervals.TotalSeconds, .00001);
+        Assert.AreEqual(.8, exitAnalysis.SampleIntervals.TotalSeconds, .00001);
     }
 
     private sealed class TerrainCoverage(SceneStreamingPartId part) : ISceneStreamingCoverage

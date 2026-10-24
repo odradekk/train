@@ -11,6 +11,7 @@ internal sealed class RailwayStreamingCoverage(RailwayPath path, SceneStreamingS
     private int cachedSegment = -1;
     private ScenePoint cachedOrigin;
     private Dictionary<GridColumn, bool>? columns;
+    internal static string SegmentKey(int index) => index.ToString(CultureInfo.InvariantCulture);
     internal RailwayPath Path => path;
     internal ISceneStreamingCoverage At(ScenePoint origin) => new Snapshot(this, origin);
 
@@ -46,7 +47,7 @@ internal sealed class RailwayStreamingCoverage(RailwayPath path, SceneStreamingS
             if (cx < int.MinValue || cx >= int.MaxValue || cz < int.MinValue || cz >= int.MaxValue) return [];
             var column = new GridColumn((int)cx, (int)cz);
             return columns!.ContainsKey(column)
-                ? [new(scene, SceneStreamingPartKind.RailwaySegment, index.ToString(CultureInfo.InvariantCulture))] : [];
+                ? [new(scene, SceneStreamingPartKind.RailwaySegment, SegmentKey(index))] : [];
         }
     }
 }

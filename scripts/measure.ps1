@@ -12,8 +12,7 @@ param(
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     [switch] $StreamingDiagnostics,
-    [ValidateSet('default', 'farthest')][string] $RouteCamera = 'default',
-    [switch] $StreamingMatrix,
+    [ValidateSet('default', 'farthest')][string[]] $RouteCamera = @('default'),
     # 启动器超时上限 2147478 秒，扣除 scene-memory 的 600 秒退出余量。
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
     [string] $ReferencePath,
@@ -45,26 +44,11 @@ $displayAwakeState = @{ acquired = $false; restored = $false }
 $idleInhibit = $false
 $wrapper = $null
 try {
-    if ($StreamingMatrix) {
-        foreach ($parameter in @('Scenario', 'RouteCamera', 'ReferencePath', 'TrainId', 'NodeId')) {
-            if ($PSBoundParameters.ContainsKey($parameter)) { throw "-StreamingMatrix 不能与 -$parameter 同时使用。" }
-        }
-        $StreamingDiagnostics = $true
-        $Scenario = @('scene-route-1x', 'scene-route-8x')
-    }
     if ($PSBoundParameters.ContainsKey('RouteCamera') -and -not $StreamingDiagnostics) {
         throw '-RouteCamera 需要 -StreamingDiagnostics。'
     }
     if ($StreamingDiagnostics -and @($Scenario | Where-Object { $_ -notin @('scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x') }).Count -gt 0) {
         throw '-StreamingDiagnostics 仅支持 scene-route-1x/2x/4x/8x。'
-    }
-    if ($StreamingMatrix) {
-        $startingTrade = Join-Path $repo 'examples/starting-trade/save.json'
-        & git -C $repo diff --quiet HEAD -- examples/starting-trade/save.json
-        if ($LASTEXITCODE -ne 0) { throw '矩阵基准 examples/starting-trade/save.json 必须与 HEAD 已提交内容一致。' }
-        if ((Get-FileIdentity $InputPath).sha256 -ne (Get-FileIdentity $startingTrade).sha256) {
-            throw '-StreamingMatrix 需要已提交的 examples/starting-trade/save.json 或 SHA256 相同副本。'
-        }
     }
     if (-not $IsWindows -and -not $IsLinux) { throw '测量入口需要 Windows 或 Linux Release 导出与真实窗口。' }
     # 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
@@ -200,7 +184,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
     }
 
     $selections = @(foreach ($name in ($Scenario | Select-Object -Unique)) {
-        foreach ($camera in $(if ($StreamingMatrix) { @('default', 'farthest') } else { @($RouteCamera) })) {
+        foreach ($camera in ($RouteCamera | Select-Object -Unique)) {
             @{ scenario = $name; camera = $camera }
         }
     })

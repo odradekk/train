@@ -312,7 +312,7 @@ internal sealed class NodeScene : IAsyncDisposable
             InitializeRange();
         }
         var previous = cache.Read(node);
-        preparationAttempt = Streaming?.Need(SceneStreamingPartKind.NodePreparation, "preparation");
+        preparationAttempt = Streaming?.Need(SceneStreamingPartKind.NodePreparation, NodePartKeys.Preparation);
         if (preparationAttempt is { } queued) Streaming?.Queue(queued);
         pending = Task.Run(() =>
         {
@@ -374,11 +374,8 @@ internal sealed class NodeScene : IAsyncDisposable
                 built = prepared.Global;
                 if (layout is null) { layout = built.Layout; InitializeRange(); }
                 if (focus is { } initialFocus) range = new(initialFocus, NodeStreaming.PrefetchCells);
-                if (Streaming is not null)
-                {
-                    UpdatePrefetch(target, following);
-                    ReportDemand();
-                }
+                UpdatePrefetch(target, following);
+                ReportDemand();
                 foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal)) Attach(part.Key, part.Value);
                 AdmitPreparation(preparationAttempt);
                 if (cache.Read(Node) is { } previous)
@@ -448,7 +445,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var node = Node;
         var previous = cache.Read(node);
         var token = cancellation.Token;
-        var attempt = Streaming?.Begin(SceneStreamingPartKind.NodePreparation, "preparation");
+        var attempt = Streaming?.Begin(SceneStreamingPartKind.NodePreparation, NodePartKeys.Preparation);
         refreshAttempt = attempt;
         if (attempt is { } queued) Streaming?.Queue(queued);
         refresh = Task.Run(() => attempt is { } work
@@ -544,7 +541,7 @@ internal sealed class NodeScene : IAsyncDisposable
     }
 
     private static SceneStreamingPartKind StreamingKind(string key) => key.StartsWith("terrain:", StringComparison.Ordinal)
-        ? SceneStreamingPartKind.NodeTerrain : key.StartsWith("boundary:", StringComparison.Ordinal)
+        ? SceneStreamingPartKind.NodeTerrain : NodePartKeys.IsBoundary(key)
         ? SceneStreamingPartKind.NodeBoundary : SceneStreamingPartKind.NodeRail;
 
     private SceneStreamingAttemptId? CachedPart(string key)
@@ -562,7 +559,7 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void AdmitAttached(string key, SceneStreamingAttemptId? attempt = null)
     {
-        if (Streaming is not { } streaming || key == "diagnostics") return;
+        if (Streaming is not { } streaming || key == NodePartKeys.Diagnostics) return;
         streaming.Admit(attempt ?? streaming.Begin(StreamingKind(key), key),
             attached[key].Geometry.Objects.Select(item => item.Id).ToImmutableArray());
     }
@@ -570,7 +567,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private void AdmitPreparation(SceneStreamingAttemptId? attempt)
     {
         if (Streaming is not { } streaming || attempt is not { } ready || prepared is null) return;
-        streaming.Admit(ready, attached.Where(item => item.Key == "diagnostics")
+        streaming.Admit(ready, attached.Where(item => item.Key == NodePartKeys.Diagnostics)
             .SelectMany(item => item.Value.Geometry.Objects).Select(item => item.Id).ToImmutableArray());
         streamingCoverage = new(prepared.Global.Layout, prepared.HasChunks, prepared.Global.Parts, streaming.Id);
     }
@@ -583,7 +580,7 @@ internal sealed class NodeScene : IAsyncDisposable
         streaming.Demand(SceneStreamingPartKind.NodeTerrain, prepared.HasChunks ? needed.Select(ChunkKey) : []);
         streaming.Demand(SceneStreamingPartKind.NodeRail, prepared.Rails.Values
             .Where(segment => range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)).Select(segment => segment.Key));
-        streaming.Demand(SceneStreamingPartKind.NodeBoundary, prepared.Global.Parts.Keys.Where(key => key.StartsWith("boundary:", StringComparison.Ordinal)));
+        streaming.Demand(SceneStreamingPartKind.NodeBoundary, prepared.Global.Parts.Keys.Where(key => NodePartKeys.IsBoundary(key)));
     }
     internal static double GroundHeight(IEnumerable<Part> parts, double x, double z)
     {
@@ -890,8 +887,8 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         if (Streaming is { } streaming)
             streaming.Frame(stamp, (prepared is null ? Enumerable.Empty<SceneStreamingPartId>() :
-                new[] { streaming.PartId(SceneStreamingPartKind.NodePreparation, "preparation") })
-                .Concat(attached.Keys.Where(key => key != "diagnostics").Select(key => streaming.PartId(StreamingKind(key), key))),
+                new[] { streaming.PartId(SceneStreamingPartKind.NodePreparation, NodePartKeys.Preparation) })
+                .Concat(attached.Keys.Where(key => key != NodePartKeys.Diagnostics).Select(key => streaming.PartId(StreamingKind(key), key))),
                 streamingCoverage?.At(origin));
         return new(stamp, origin, seconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
@@ -1089,11 +1086,11 @@ internal sealed class NodeScene : IAsyncDisposable
             var inputs = RailwayDependencies.Values(new object[] { layout.Inputs, boundary.Dependencies.Key,
                 boundary.Heights.Keys.Where(column => !allowed.Contains(column)).OrderBy(column => column.X).ThenBy(column => column.Z).ToArray(),
                 skirt.Bottoms });
-            Put("boundary:" + entry.Edge.Value, inputs, () => GridPart(
+            Put(NodePartKeys.Boundary(entry.Edge), inputs, () => GridPart(
                 boundary.Grid.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).Concat(skirt.Cells).ToImmutableArray(),
                 boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
         }
-        Put("diagnostics", problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
+        Put(NodePartKeys.Diagnostics, problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
         return new(snapshot, new(layout, parts.ToImmutable(), boundaries.ToImmutable()), terrain, ballastVoxel,
             appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable(),
             BoundarySurfaces: boundarySurfaces);
@@ -1101,7 +1098,7 @@ internal sealed class NodeScene : IAsyncDisposable
         void Put(string name, string inputs, Func<Part> create)
         {
             token.ThrowIfCancellationRequested();
-            var attempt = name.StartsWith("boundary:", StringComparison.Ordinal) ?
+            var attempt = NodePartKeys.IsBoundary(name) ?
                 streaming?.Need(SceneStreamingPartKind.NodeBoundary, name) : null;
             if (attempt is not null) attempt = streaming!.Begin(SceneStreamingPartKind.NodeBoundary, name);
             if (previous?.Parts.TryGetValue(name, out var old) == true && old.Inputs == inputs)

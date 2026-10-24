@@ -67,10 +67,9 @@ internal sealed partial class MeasurementRun : IDisposable
             "scene-route-1x" or "scene-route-2x" or "scene-route-4x" or "scene-route-8x" or
             "scene-route-capture-1x" or "scene-route-capture-8x"))
             throw new ArgumentException("未知测量情景。");
-        _streamingEnabled = values.ContainsKey("--measure-streaming");
         _streamingCamera = values.GetValueOrDefault("--measure-route-camera", "default");
-        if (_streamingEnabled && !IsRouteMeasurement ||
-            values.ContainsKey("--measure-route-camera") && !_streamingEnabled ||
+        if (_streamingRecorder is not null && !IsRouteMeasurement ||
+            values.ContainsKey("--measure-route-camera") && _streamingRecorder is null ||
             _streamingCamera is not ("default" or "farthest"))
             throw new ArgumentException("流式诊断只用于 scene-route-*，镜头距离必须是 default 或 farthest。");
         if (values.TryGetValue("--measure-duration", out var duration))
