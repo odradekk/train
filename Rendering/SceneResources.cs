@@ -73,6 +73,7 @@ internal sealed class PreparedVisual : IDisposable
         _cache.RequireMainThread();
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!CanUpdate(visual)) throw new ArgumentException("表现资源身份已改变。", nameof(visual));
+        if (Visual == visual) return;
         switch (visual)
         {
             case SceneVisual.Geometry geometry:

@@ -41,10 +41,12 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var followedShader = Material(childVisual).Shader;
         var oldParent = display.Objects[new(1)].Root;
         var light = oldParent.GetChildren().OfType<OmniLight3D>().Single();
+        Require(ReferenceEquals(display.FindRoot(vehicle)?.Root, oldParent), "车辆根查询必须返回实际显示对象。");
         using (var abandoned = display.Prepare(Frame(2, first.Update.Frame, [parent with { Subject = null }]))!) { }
         display.UpdateConstructionFog([new(7)]);
         Require(ReferenceEquals(display.DisplayedFrame, first) && Material(childVisual).Shader == followedShader &&
-            ReferenceEquals(childRoot.GetParent(), oldParent), "放弃已准备帧不能提前改变对象索引、层级或雾状态。");
+            ReferenceEquals(childRoot.GetParent(), oldParent) && ReferenceEquals(display.FindRoot(vehicle)?.Root, oldParent),
+            "放弃已准备帧不能提前改变对象索引、层级或雾状态。");
 
         var invalid = Frame(2, first.Update.Frame, [], [new(1)]);
         var rejected = false;
@@ -58,8 +60,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         using (var prepared = display.Prepare(changedParent)!) prepared.Commit();
         display.UpdateConstructionFog([new(7)]);
         var normalShader = Material(childVisual).Shader;
-        Require(normalShader != followedShader && ReferenceEquals(childRoot.GetParent(), oldParent),
-            "父Subject改变时，即使子对象未Upsert也必须重算继承的雾状态。");
+        Require(normalShader != followedShader && ReferenceEquals(childRoot.GetParent(), oldParent) &&
+            display.FindRoot(vehicle) is null,
+            "父Subject改变时，即使子对象未Upsert也必须更新根查询和继承的雾状态。");
 
         var reparented = Frame(4, changedParent.Update.Frame, [child with { Parent = new(3) },
             other with { Subject = vehicle }], [new(1)]);
@@ -67,6 +70,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         display.UpdateConstructionFog([new(7)]);
         Require(ReferenceEquals(display.Objects[new(2)].Root, childRoot) &&
             ReferenceEquals(childRoot.GetParent(), display.Objects[new(3)].Root) &&
+            ReferenceEquals(display.FindRoot(vehicle)?.Root, display.Objects[new(3)].Root) &&
             Material(childVisual).Shader == followedShader && !GodotObject.IsInstanceValid(oldParent) &&
             !GodotObject.IsInstanceValid(light),
             "删除旧父并换父必须复用存活子对象，更新雾继承，并释放旧父和灯光。");

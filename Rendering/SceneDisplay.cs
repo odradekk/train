@@ -19,6 +19,7 @@ internal sealed partial class SceneDisplay : IDisposable
     private readonly Dictionary<SceneObjectId, HashSet<SceneObjectId>> _children = [];
     private readonly HashSet<SceneObjectId> _rootObjects = [];
     private readonly HashSet<SceneObjectId> _poseRoots = [];
+    private readonly Dictionary<WorldObjectId, HashSet<SceneObjectId>> _subjectRoots = [];
     private readonly Dictionary<SceneObjectId, DisplayObject> _effectObjects = [];
     private readonly HashSet<SceneObjectId> _fogDirty = [];
     private readonly HashSet<VehicleId> _fogVehicles = [];
@@ -43,6 +44,8 @@ internal sealed partial class SceneDisplay : IDisposable
     internal ISceneFrame? PoseFrame { get; private set; }
     internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
+    internal DisplayObject? FindRoot(WorldObjectId subject) => _subjectRoots.TryGetValue(subject, out var roots)
+        ? _objects[roots.First()] : null;
 
     // 显示坐标 = 显示根局部坐标 + 根节点平移，与 Pick 射线和镜头焦点一致。
     internal float? ObjectTopY(SceneObjectId id)
@@ -380,6 +383,11 @@ internal sealed partial class SceneDisplay : IDisposable
             }
             _rootObjects.Remove(id);
             _poseRoots.Remove(id);
+            if (oldItem?.Source is { Parent: null, Subject: { } oldSubject } && _subjectRoots.TryGetValue(oldSubject, out var oldRoots))
+            {
+                oldRoots.Remove(id);
+                if (oldRoots.Count == 0) _subjectRoots.Remove(oldSubject);
+            }
             _effectObjects.Remove(id);
             if (!next.TryGetValue(id, out var item)) { _fogDirty.Remove(id); continue; }
             if (item.Source.Parent is { } parent)
@@ -390,7 +398,12 @@ internal sealed partial class SceneDisplay : IDisposable
             else
             {
                 _rootObjects.Add(id);
-                if (item.Source.Subject is not null) _poseRoots.Add(id);
+                if (item.Source.Subject is { } subject)
+                {
+                    _poseRoots.Add(id);
+                    if (!_subjectRoots.TryGetValue(subject, out var roots)) _subjectRoots.Add(subject, roots = []);
+                    roots.Add(id);
+                }
             }
             if (!item.Source.Lights.IsEmpty || !item.Source.Effects.IsEmpty) _effectObjects[id] = item;
             _fogDirty.Add(id);
@@ -449,6 +462,7 @@ internal sealed partial class SceneDisplay : IDisposable
         _children.Clear();
         _rootObjects.Clear();
         _poseRoots.Clear();
+        _subjectRoots.Clear();
         _effectObjects.Clear();
         _fogDirty.Clear();
         _fogVehicles.Clear();
