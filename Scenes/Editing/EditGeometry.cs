@@ -31,15 +31,36 @@ internal sealed class EditGeometry
         {
             var id = objectId(element);
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
-            var occupied = new HashSet<GridPosition>();
+            var models = new List<SceneCell>();
+            var ids = new Dictionary<GridPosition, EditElementId>();
+            var palette = new (CellProperties Properties, ImmutableArray<SceneProblem> Problems)?[value.Palette.Length];
             for (var i = 0; i < value.Cells.Length; i++)
             {
                 var cell = value.Cells[i];
-                var entry = value.Palette[cell.PaletteIndex];
-                AddCell(cell.At, entry.Voxel, entry.Orientation, entry.Shape, entry.Paint, cell.Id,
-                    new DesignElementPath.Cell(path, i));
+                if (!ids.TryAdd(cell.At, cell.Id))
+                {
+                    problems.Add(new("occupancy_conflict", SceneStage.Edit, null, null, null, new DesignElementPath.Cell(path, i),
+                        "Multiple cells occupy the same position."));
+                    continue;
+                }
+                if (!Visible(cell.At, composed)) continue;
+                var entry = palette[cell.PaletteIndex];
+                if (entry is null) palette[cell.PaletteIndex] = entry = Properties(value.Palette[cell.PaletteIndex], path);
+                var (properties, diagnostics) = entry.Value;
+                if (!diagnostics.IsEmpty)
+                {
+                    var cellPath = new DesignElementPath.Cell(path, i);
+                    problems.AddRange(diagnostics.Select(problem => problem with { Element = cellPath }));
+                }
+                var sceneCell = new SceneCell(cell.At, properties);
+                cells.Add(sceneCell);
+                if (properties.Appearance?.Presentation is VoxelPresentation.Mesh) models.Add(sceneCell);
+                if (properties.Appearance is null)
+                    objects.Add(new(objectId(cell.Id), id, SceneGeometry.Placement(cell.At, properties.Orientation), null,
+                        [new SceneVisual.Missing(properties.MissingReference!, true)], [], []));
             }
-            AddGrid(parent is null ? rootElement : element, id, parent, pose, composed, cells);
+            AddGrid(parent is null ? rootElement : element, id, parent, pose, composed, cells, models,
+                at => new PickSubject.Editing(session, revision, ids[at]));
             for (var i = 0; i < value.Children.Length; i++)
             {
                 var child = value.Children[i];
@@ -66,44 +87,27 @@ internal sealed class EditGeometry
                     continue;
                 }
                 var compositeCells = ImmutableArray.CreateBuilder<SceneCell>();
+                var compositeModels = new List<SceneCell>();
+                var compositePalette = new Dictionary<VoxelPaletteEntry,
+                    (CellProperties Properties, ImmutableArray<SceneProblem> Problems)>();
                 foreach (var voxel in cached.Voxels)
                 {
                     if (!Visible(voxel.LocalAt, childComposed)) continue;
-                    var lookup = content.Appearance(voxel.Voxel);
-                    var appearance = lookup is ContentLookup<VoxelAppearanceProjection>.Found found ? found.Value : null;
-                    var reference = appearance is null ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
-                    problems.AddRange(EditContent.MissingProblems(lookup,
-                        new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel))));
-                    compositeCells.Add(new(voxel.LocalAt, new(voxel.LocalOrientation, appearance,
-                        voxel.Shape, composite.Paint ?? voxel.Paint, new PickSubject.Editing(session, revision, child.Id), childPath, reference)));
+                    var key = new VoxelPaletteEntry(voxel.Voxel, voxel.LocalOrientation, voxel.Shape, composite.Paint ?? voxel.Paint);
+                    if (!compositePalette.TryGetValue(key, out var entry))
+                        compositePalette.Add(key, entry = Properties(key, childPath));
+                    problems.AddRange(entry.Problems);
+                    var sceneCell = new SceneCell(voxel.LocalAt, entry.Properties);
+                    compositeCells.Add(sceneCell);
+                    if (entry.Properties.Appearance?.Presentation is VoxelPresentation.Mesh) compositeModels.Add(sceneCell);
                 }
-                AddGrid(child.Id, childId, id, childPose, childComposed, compositeCells);
-            }
-
-            void AddCell(GridPosition at, VoxelDefinitionId voxel, VoxelOrientation orientation,
-                VoxelShape? shape, PaintColor? paint, EditElementId cellId, DesignElementPath cellPath)
-            {
-                if (!occupied.Add(at))
-                {
-                    problems.Add(new("occupancy_conflict", SceneStage.Edit, null, null, null, cellPath,
-                        "Multiple cells occupy the same position."));
-                    return;
-                }
-                if (!Visible(at, composed)) return;
-                var lookup = content.Appearance(voxel);
-                var appearance = lookup is ContentLookup<VoxelAppearanceProjection>.Found found ? found.Value : null;
-                var reference = new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel));
-                problems.AddRange(EditContent.MissingProblems(lookup, reference).Select(problem => problem with { Element = cellPath }));
-                cells.Add(new(at, new(orientation, appearance, shape, paint,
-                    new PickSubject.Editing(session, revision, cellId), path, appearance is null ? reference : null)));
-                if (appearance is null)
-                    objects.Add(new(objectId(cellId), id, SceneGeometry.Placement(at, orientation), null,
-                        [new SceneVisual.Missing(reference, true)], [], []));
+                AddGrid(child.Id, childId, id, childPose, childComposed, compositeCells, compositeModels,
+                    _ => new PickSubject.Editing(session, revision, child.Id));
             }
         }
 
         void AddGrid(EditElementId element, SceneObjectId id, SceneObjectId? parent, ScenePose pose, ScenePose composed,
-            ImmutableArray<SceneCell>.Builder cells)
+            ImmutableArray<SceneCell>.Builder cells, List<SceneCell> models, Func<GridPosition, PickSubject> resolveSubject)
         {
             var values = cells.ToImmutable();
             var grid = new VoxelGrid(values);
@@ -127,8 +131,8 @@ internal sealed class EditGeometry
             var visuals = chunks.Values.SelectMany(chunk => chunk.Cubes)
                 .Concat(chunks.Values.SelectMany(chunk => chunk.Shapes)).ToImmutableArray();
             objects.Add(new(id, parent, pose, null, visuals, [], []));
-            objects.AddRange(DesignGeometry.Models(grid, id, null, cell => modelId(id, cell.At), true));
-            if (cells.Count > 0) picking.Add(new(id, composed, grid));
+            objects.AddRange(DesignGeometry.Models(grid, id, null, cell => modelId(id, cell.At), true, cells: models));
+            if (cells.Count > 0) picking.Add(new(id, composed, grid, resolveSubject));
 
             void Change(GridPosition at)
             {
@@ -146,10 +150,20 @@ internal sealed class EditGeometry
 
         bool Visible(GridPosition at, ScenePose pose) => highestY is null ||
             Math.Floor((pose.Position + Vector3.Transform(new Vector3(at.X + .5f, at.Y + .5f, at.Z + .5f), pose.Rotation)).Y) <= highestY;
+
+        (CellProperties Properties, ImmutableArray<SceneProblem> Problems) Properties(VoxelPaletteEntry entry, ImmutableArray<int> path)
+        {
+            var lookup = content.Appearance(entry.Voxel);
+            var appearance = lookup is ContentLookup<VoxelAppearanceProjection>.Found found ? found.Value : null;
+            var reference = new ContentReference.Core(new CoreDefinitionReference.Voxel(entry.Voxel));
+            return (new(entry.Orientation, appearance, entry.Shape, entry.Paint, null, path, appearance is null ? reference : null),
+                EditContent.MissingProblems(lookup, reference));
+        }
     }
 
     // 拾取修订和元素路径会变化，但不参与网格生成。
     private static bool SameAppearance(SceneCell left, SceneCell right) =>
+        ReferenceEquals(left.Properties, right.Properties) ||
         left.Appearance == right.Appearance && left.Orientation == right.Orientation && left.Shape == right.Shape &&
         left.Paint == right.Paint && left.MissingReference == right.MissingReference;
 

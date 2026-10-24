@@ -8,7 +8,8 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal sealed record PickGrid(SceneObjectId Object, ScenePose Pose, VoxelGrid Grid);
+internal sealed record PickGrid(SceneObjectId Object, ScenePose Pose, VoxelGrid Grid,
+    Func<GridPosition, PickSubject>? ResolveSubject = null);
 internal sealed record RenderedDesign(ImmutableArray<SceneObject> Objects,
     ImmutableArray<PickGrid> Picking, ImmutableArray<SceneProblem> Diagnostics);
 
@@ -193,9 +194,10 @@ internal static class DesignGeometry
     }
 
     internal static IEnumerable<SceneObject> Models(VoxelGrid grid, SceneObjectId parent, WorldObjectId? subject,
-        Func<SceneCell, SceneObjectId> id, bool wear, ulong wearSeed = 0, SurfaceState? surface = null)
+        Func<SceneCell, SceneObjectId> id, bool wear, ulong wearSeed = 0, SurfaceState? surface = null,
+        IEnumerable<SceneCell>? cells = null)
     {
-        foreach (var cell in grid.Cells)
+        foreach (var cell in cells ?? grid.Cells)
         {
             if (cell.Appearance?.Presentation is not VoxelPresentation.Mesh mesh) continue;
             var placement = SceneGeometry.Placement(cell.At, cell.Orientation);

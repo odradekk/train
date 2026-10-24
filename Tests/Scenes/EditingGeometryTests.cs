@@ -24,11 +24,39 @@ public sealed class EditingGeometryTests
             new(-33, 0, 0), new(-32, 0, 0), new(-1, 0, 0), new(0, 0, 0), new(96, 0, 0)), content: content);
         var comparison = new FullComparison(session, content);
         var first = comparison.Check();
+        var original = session.Read();
+        var removedId = original.Elements.Single(element => element.At == new GridPosition(-32, 0, 0)).Id;
+        var neighborId = original.Elements.Single(element => element.At == new GridPosition(-33, 0, 0)).Id;
+        var removedRay = EditingFixtures.Ray(-31.5f);
+        var neighborRay = EditingFixtures.Ray(-32.5f);
+        Assert.AreNotEqual(removedId, neighborId);
+        EditingHit(first, removedRay, original.Snapshot.Stamp, removedId, new(-32, 0, 0));
+        EditingHit(first, neighborRay, original.Snapshot.Stamp, neighborId, new(-33, 0, 0));
         var distant = Meshes(first).Single(mesh => mesh.Vertices.All(vertex => vertex.Position.X >= 96));
 
         Edit(new(-32, 0, 0), new CellEdit.Remove());
+        var deleted = comparison.Frame;
+        Assert.IsInstanceOfType<ScenePick.Miss>(deleted.Pick(removedRay));
+        EditingHit(deleted, neighborRay, session.Read().Snapshot.Stamp, neighborId, new(-33, 0, 0));
+        EditingHit(first, removedRay, original.Snapshot.Stamp, removedId, new(-32, 0, 0));
         Assert.AreSame(distant, Meshes(comparison.Frame).Single(mesh => mesh.Vertices.All(vertex => vertex.Position.X >= 96)));
+        EditingFixtures.Value(session.Undo());
+        var undone = comparison.Check();
+        var undoStamp = session.Read().Snapshot.Stamp;
+        EditingHit(undone, removedRay, undoStamp, removedId, new(-32, 0, 0));
+        EditingHit(first, removedRay, original.Snapshot.Stamp, removedId, new(-32, 0, 0));
+        Assert.IsInstanceOfType<ScenePick.Miss>(deleted.Pick(removedRay));
+        EditingFixtures.Value(session.Redo());
+        comparison.Check();
+        Assert.IsInstanceOfType<ScenePick.Miss>(comparison.Frame.Pick(removedRay));
+        EditingHit(comparison.Frame, neighborRay, session.Read().Snapshot.Stamp, neighborId, new(-33, 0, 0));
+        EditingHit(undone, removedRay, undoStamp, removedId, new(-32, 0, 0));
+        EditingHit(first, removedRay, original.Snapshot.Stamp, removedId, new(-32, 0, 0));
         Edit(new(-32, 0, 0), new CellEdit.Add(EditingFixtures.Cube));
+        var replacement = session.Read();
+        var replacementId = replacement.Elements.Single(element => element.At == new GridPosition(-32, 0, 0)).Id;
+        Assert.AreNotEqual(removedId, replacementId);
+        EditingHit(comparison.Frame, removedRay, replacement.Snapshot.Stamp, replacementId, new(-32, 0, 0));
         Edit(new(-1, 0, 0), new CellEdit.Paint(new("#ff0000")));
         Edit(new(0, 0, 0), new CellEdit.Shape(new("wedge")));
         Edit(new(-33, 0, 0), new CellEdit.Remove());
@@ -50,6 +78,9 @@ public sealed class EditingGeometryTests
         comparison.Check();
         comparison.Check(0);
         comparison.Check();
+        EditingHit(first, removedRay, original.Snapshot.Stamp, removedId, new(-32, 0, 0));
+        EditingHit(undone, removedRay, undoStamp, removedId, new(-32, 0, 0));
+        Assert.IsInstanceOfType<ScenePick.Miss>(deleted.Pick(removedRay));
 
         void Edit(GridPosition at, CellEdit action)
         {
@@ -62,6 +93,7 @@ public sealed class EditingGeometryTests
     public void NestedCopiesCompositesAndEnteredClippingMatchFullFramesThroughHistory()
     {
         var definition = new CompositeDefinitionId("test:geometry-composite");
+        var modelDefinition = new VoxelDefinitionId("test:geometry-model");
         var good = new GoodId.Composite(definition);
         var hash = new DesignHash("geometry-composite");
         var composite = EditingFixtures.Draft(new(0, 0, 0), new(1, 0, 0)) with
@@ -70,7 +102,14 @@ public sealed class EditingGeometryTests
         {
             Generation = new(1), Core = SceneFixtures.Content().Core,
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube) },
+            {
+                [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube),
+                [modelDefinition] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
+                {
+                    Definition = modelDefinition,
+                    Presentation = new VoxelPresentation.Mesh(new("geometry-model"), [MaterialCategory.PaintedMetal])
+                })
+            },
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
             {
                 [good] = new ContentLookup<GoodPresentation>.Found(new(good, new(new("Composite", ""), null, null, false), hash, false)),
@@ -92,14 +131,23 @@ public sealed class EditingGeometryTests
         };
         var draft = EditingFixtures.Draft(new GridPosition(-32, 0, 0)) with
         {
-            Layout = new([EditingFixtures.Cube], [new(new(-32, 0, 0), 0)],
+            Layout = new([EditingFixtures.Cube, new(modelDefinition, VoxelOrientation.PxPy, null, null)],
+                [new(new(-32, 0, 0), 0), new(new(-64, 0, 0), 1)],
                 [new NestedDesignItem.AssemblyCopy(new(8, 1, 0), VoxelOrientation.PzPy, outer),
                  new NestedDesignItem.FunctionalCompositeReference(new(16, 0, 0), VoxelOrientation.PxPy, definition, null),
                  new NestedDesignItem.FunctionalCompositeReference(new(24, 0, 0), VoxelOrientation.PxPy, new("test:missing"), null)])
         };
         using var session = EditingFixtures.Open(draft, content: content);
         var comparison = new FullComparison(session, content);
-        Assert.IsFalse(comparison.Check().Diagnostics.IsEmpty);
+        var initialFrame = comparison.Check();
+        var initialState = session.Read();
+        var closed = initialState.Elements.Single(element => element.Kind == EditElementKind.FunctionalComposite && element.At.X == 16);
+        Assert.IsFalse(initialFrame.Diagnostics.IsEmpty);
+        CompositeHits(initialFrame, initialState.Snapshot.Stamp);
+        Assert.AreEqual(new AssetRevision("geometry-model"), initialFrame.Objects.SelectMany(item => item.Visuals)
+            .OfType<SceneVisual.Model>().Single().Asset);
+        var model = initialState.Elements.Single(element => element.Kind == EditElementKind.Cell && element.At.X == -64);
+        EditingHit(initialFrame, EditingFixtures.Ray(-63.5f), initialState.Snapshot.Stamp, model.Id, new(-64, 0, 0));
         comparison.Check(0);
         comparison.Check();
         var assembly = session.Read().Elements.First(element => element.Kind == EditElementKind.Assembly);
@@ -119,14 +167,37 @@ public sealed class EditingGeometryTests
         comparison.Check();
         EditingFixtures.Value(session.Enter(null));
         comparison.Check();
-        var closed = session.Read().Elements.Single(element => element.Kind == EditElementKind.FunctionalComposite && element.At.X == 16);
         EditingFixtures.Value(session.Select(new EditSelection.Elements([closed.Id])));
         EditingFixtures.Apply(session, new EditOperation.PaintSelection(new("#00ff00")));
-        comparison.Check();
+        var painted = comparison.Check();
+        var paintedStamp = session.Read().Snapshot.Stamp;
+        CompositeHits(painted, paintedStamp);
         EditingFixtures.Value(session.Undo());
-        comparison.Check();
+        var undone = comparison.Check();
+        var undoStamp = session.Read().Snapshot.Stamp;
+        CompositeHits(undone, undoStamp);
         EditingFixtures.Value(session.Redo());
         comparison.Check();
+        CompositeHits(comparison.Frame, session.Read().Snapshot.Stamp);
+        CompositeHits(initialFrame, initialState.Snapshot.Stamp);
+        CompositeHits(painted, paintedStamp);
+        CompositeHits(undone, undoStamp);
+
+        void CompositeHits(ISceneFrame frame, EditStamp stamp)
+        {
+            for (var x = 0; x < 2; x++)
+                EditingHit(frame, EditingFixtures.Ray(16.5f + x), stamp, closed.Id, new(x, 0, 0));
+        }
+    }
+
+    private static void EditingHit(ISceneFrame frame, SceneRay ray, EditStamp stamp, EditElementId element, GridPosition cell)
+    {
+        var picked = frame.Pick(ray);
+        Assert.IsInstanceOfType<ScenePick.Hit>(picked);
+        var hit = ((ScenePick.Hit)picked).Value;
+        Assert.AreEqual(frame.Update.Frame, hit.Frame);
+        Assert.AreEqual(new PickSubject.Editing(stamp.Session, stamp.Revision, element), hit.Subject);
+        Assert.AreEqual(cell, hit.Cell);
     }
 
     private static IEnumerable<SceneMesh> Meshes(SceneFrame frame) => frame.Objects
