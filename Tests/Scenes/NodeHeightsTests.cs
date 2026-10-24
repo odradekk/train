@@ -37,5 +37,9 @@ public sealed class NodeHeightsTests
         Assert.IsNull(replaced.At(31.75, 31.75));
         Assert.AreEqual(11d, replaced.At(64.5, 64.5));
         Assert.AreEqual(5d, removed.At(31.75, 31.75));
+        var asymmetric = replaced.WithPart((1, 0, 0, "terrain"), Part(0, (64, 65, 13)));
+        Assert.AreEqual(13d, asymmetric.At(64.5, 65.5));
+        Assert.IsNull(asymmetric.At(65.5, 64.5));
+        Assert.IsNull(asymmetric.WithPart((1, 0, 0, "terrain"), Part(0)).At(64.5, 65.5));
     }
 }
