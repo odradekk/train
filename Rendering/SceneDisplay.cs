@@ -517,7 +517,11 @@ internal sealed partial class SceneDisplay : IDisposable
             if (_debugLines is not null) Root.AddChild(_debugLines.Root);
         }
         prepared.Transferred = true;
-        if (HasCandidateFor(update.Frame)) _candidatePromoted = true;
+        if (HasCandidateFor(update.Frame))
+        {
+            _candidatePromoted = true;
+            CancelCandidatePacking();
+        }
         DisplayedFrame = prepared.Frame;
         PoseFrame = prepared.Frame;
         _spaceOrigin = prepared.Frame.Origin;

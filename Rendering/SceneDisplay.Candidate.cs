@@ -41,11 +41,7 @@ internal sealed partial class SceneDisplay
             CancelCandidate();
             return;
         }
-        _candidatePacking?.Dispose();
-        foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
-        _candidateCachedGeometry.Clear();
-        _candidatePacking = null;
-        _candidatePackingStarted = false;
+        CancelCandidatePacking();
         var upserted = update.Upserts.Select(item => item.Id).ToHashSet();
         if (update.Base is null)
         {
@@ -108,10 +104,7 @@ internal sealed partial class SceneDisplay
             }
             PreparedCandidate = update.Frame;
             _candidateUpdate = null;
-            _candidatePacking?.Dispose();
-            foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
-            _candidateCachedGeometry.Clear();
-            _candidatePacking = null;
+            CancelCandidatePacking();
         }
         finally
         {
@@ -145,11 +138,7 @@ internal sealed partial class SceneDisplay
     internal void CancelCandidate()
     {
         _cache.RequireMainThread();
-        _candidatePacking?.Dispose();
-        foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
-        _candidateCachedGeometry.Clear();
-        _candidatePacking = null;
-        _candidatePackingStarted = false;
+        CancelCandidatePacking();
         foreach (var visual in _candidateVisuals.Values) visual.Dispose();
         _candidateVisuals.Clear();
         _candidateSources.Clear();
@@ -160,5 +149,14 @@ internal sealed partial class SceneDisplay
         _candidateScope = null;
         _candidatePromoted = false;
         PreparedCandidate = null;
+    }
+
+    private void CancelCandidatePacking()
+    {
+        _candidatePacking?.Dispose();
+        foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
+        _candidateCachedGeometry.Clear();
+        _candidatePacking = null;
+        _candidatePackingStarted = false;
     }
 }

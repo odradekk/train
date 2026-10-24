@@ -170,7 +170,7 @@ internal sealed class SceneResources : IDisposable
     internal void ExemptConstructionFog(PreparedVisual visual, bool exempt) =>
         visual.ExemptConstructionFog(exempt, _surfaceShader, _followedShader, _modelShader, _followedModelShader);
 
-    internal bool HasGeometry(SceneMesh mesh) => _geometry.ContainsKey(mesh);
+    private bool HasGeometry(SceneMesh mesh) => _geometry.ContainsKey(mesh);
 
     internal AssetLease<ArrayMesh>? AcquireCachedGeometry(SceneMesh mesh)
     {

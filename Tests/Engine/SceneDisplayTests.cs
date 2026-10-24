@@ -1341,6 +1341,75 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Promotion_cancels_unread_candidate_packing_and_retains_prepared_visuals()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        foreach (var registerBeforeRelease in new[] { true, false })
+        {
+            using var display = Attach(cache, new FixedContentView());
+            var cachedSource = Object(1, Peak(registerBeforeRelease ? 35 : 36));
+            Commit(display, Frame(1, [cachedSource]));
+            var cachedMesh = MeshOf(display.Objects[cachedSource.Id]);
+            var firstMesh = Peak(registerBeforeRelease ? 31 : 32);
+            var blockedMesh = Peak(registerBeforeRelease ? 33 : 34);
+            var first = Object(2, firstMesh);
+            var retained = Object(3, firstMesh);
+            var blocked = Object(4, blockedMesh);
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            using var cancelled = new ManualResetEventSlim();
+            display.PackMesh = (mesh, cancellation) =>
+            {
+                if (!ReferenceEquals(mesh, blockedMesh)) return PackedSceneMesh.Create(mesh, cancellation);
+                using var registration = registerBeforeRelease ? cancellation.Register(cancelled.Set) : default;
+                entered.Set();
+                Require(release.Wait(TimeSpan.FromSeconds(30)), "晋升取消测试未释放候选打包。");
+                using var lateRegistration = registerBeforeRelease ? default : cancellation.Register(cancelled.Set);
+                return PackedSceneMesh.Create(mesh, cancellation);
+            };
+            var candidate = Frame(2, [first, retained, blocked, cachedSource], space: 2);
+            var before = OrphanIds();
+            display.ReceiveCandidate(candidate.Update);
+            display.PrepareCandidate(TimeSpan.Zero);
+            var packing = display.CandidatePacking;
+            try
+            {
+                Require(entered.Wait(TimeSpan.FromSeconds(30)), "候选必须先发布首个网格并停在下一网格。");
+                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+                var detached = NewOrphanRoots(before);
+                Require(detached.Length == 2 && display.CandidateProgress(candidate.Update.Frame) is (2, 4),
+                    "晋升前必须已有两个待取用视觉，剩余网格仍在打包。");
+                var meshes = detached.ToDictionary(node => node, node => node.GetChild<MeshInstance3D>(0).Mesh);
+                var formal = Frame(3, [first], space: 2);
+                Commit(display, formal);
+                var firstVisual = display.Objects[first.Id].Visuals[0];
+                Require(detached.Contains(firstVisual.Node) && GodotObject.IsInstanceValid(firstVisual.Node) &&
+                    ReferenceEquals(meshes[firstVisual.Node], MeshOf(display.Objects[first.Id])),
+                    "首帧必须取用候选视觉及原网格。");
+                release.Set();
+                packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+                Require(cancelled.IsSet, "晋升必须取消并结束不再消费的候选打包作业。");
+                Require(!GodotObject.IsInstanceValid(cachedMesh), "晋升必须释放未取用候选的缓存网格租约。");
+                display.PackMesh = PackedSceneMesh.Create;
+                var next = Frame(4, [retained, blocked], formal.Update.Frame, space: 2);
+                Commit(display, next);
+                var retainedVisual = display.Objects[retained.Id].Visuals[0];
+                Require(detached.Contains(retainedVisual.Node) && GodotObject.IsInstanceValid(retainedVisual.Node) &&
+                    ReferenceEquals(meshes[retainedVisual.Node], MeshOf(display.Objects[retained.Id])) &&
+                    ReferenceEquals(firstVisual, display.Objects[first.Id].Visuals[0]) &&
+                    GodotObject.IsInstanceValid(MeshOf(display.Objects[blocked.Id])),
+                    "取消打包必须保留未取用候选视觉，后续正式批次复用原资源并正常准备剩余网格。");
+            }
+            finally
+            {
+                release.Set();
+                packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            }
+        }
+    }
+
+    [Test]
     public void Candidate_packing_before_and_after_promotion_keeps_the_formal_visual()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
