@@ -65,12 +65,12 @@ try {
 
     $executable = Join-Path $build 'train.x86_64'
     $save = Join-Path $Root 'examples/standard-world/save.json'
-    & pwsh -NoProfile -File (Join-Path $Root 'scripts/measure.ps1') -ExecutablePath $executable -InputPath $save `
-        -OutputDirectory (Join-Path $results 'reference') -Scenario scene-reference -Repeat 1 -Machine test
+    & pwsh -NoProfile -File (Join-Path $Root 'scripts/checks/issue774-run-profile.ps1') -MeasureScript (Join-Path $Root 'scripts/measure.ps1') -DotnetTracePath $env:TRAIN_TRACE_EXE -ExecutablePath $executable -InputPath $save `
+        -OutputDirectory (Join-Path $results 'reference') -Scenario scene-reference -Mode counters -Machine test
     if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
-    & pwsh -NoProfile -File (Join-Path $Root 'scripts/measure.ps1') -ExecutablePath $executable -InputPath $save `
-        -OutputDirectory (Join-Path $results 'soak') -Scenario scene-soak -Repeat 1 -Machine test -DurationSeconds $SoakSeconds `
-        -ReferencePath (Join-Path $results 'reference/scene-reference-1/scene-reference.json')
+    & pwsh -NoProfile -File (Join-Path $Root 'scripts/checks/issue774-run-profile.ps1') -MeasureScript (Join-Path $Root 'scripts/measure.ps1') -DotnetTracePath $env:TRAIN_TRACE_EXE -ExecutablePath $executable -InputPath $save `
+        -OutputDirectory (Join-Path $results 'soak') -Scenario scene-soak -Mode $env:TRAIN_774_MODE -Machine test -DurationSeconds $SoakSeconds `
+        -ReferencePath (Join-Path $results 'reference/measurement/scene-reference-1/scene-reference.json')
     if ($LASTEXITCODE -ne 0) { throw "scene-soak 测量失败，退出码 $LASTEXITCODE。" }
 }
 finally {
