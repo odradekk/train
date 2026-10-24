@@ -12,7 +12,6 @@ internal sealed class RailwayTerrainCaps
     private readonly TerrainSurface.Railway surface;
     private readonly Dictionary<TerrainTypeId, TerrainAppearanceProjection?> terrains = [];
     private readonly Dictionary<DesignHash, FlattenRegion?> decorations = [];
-    private readonly Dictionary<TerrainTypeId, double> decorationWeights = [];
     private readonly Dictionary<int, TerrainHeightCap.Builder> parts = [];
     private readonly bool hasDecorationFlatten;
     private readonly bool hasRailwayFlatten;
@@ -27,7 +26,6 @@ internal sealed class RailwayTerrainCaps
         {
             var terrain = (snapshot.Content.FindTerrain(id) as ContentLookup<TerrainAppearanceProjection>.Found)?.Value;
             terrains[id] = terrain;
-            if (terrain is not null) decorationWeights[id] = terrain.Decorations.Sum(item => Math.Max(0, item.Weight));
             foreach (var item in terrain?.Decorations ?? [])
             {
                 if (decorations.ContainsKey(item.SceneModel)) continue;
@@ -45,6 +43,9 @@ internal sealed class RailwayTerrainCaps
                 DesignGeometry.Projection(found.Value).RootFlatten is not null);
         surface = new(path, id => terrains[id]);
     }
+
+    internal double Height(ScenePoint point) => surface.FarHeight(point);
+    internal TerrainAppearanceProjection? Terrain => terrains[path.Edge.Terrain.TypeId];
 
     internal IEnumerable<(string Key, TerrainHeightCap.Builder Work)> Parts(ScenePanBounds bounds)
     {
@@ -69,26 +70,26 @@ internal sealed class RailwayTerrainCaps
     internal TerrainHeightCap.Builder Part(int index)
     {
         if (index < 0 || index >= path.SegmentCount) throw new ArgumentOutOfRangeException(nameof(index));
-        if (parts.TryGetValue(index, out var existing)) return existing;
-        if (completed?.Invoke(RailwayStreamingCoverage.SegmentKey(index)) is { } saved)
-            return parts[index] = TerrainHeightCap.Builder.FromCompleted(saved);
+        return TerrainHeightCap.CachedPart(parts, index, RailwayStreamingCoverage.SegmentKey(index), completed,
+            () => BeginPart(index));
+    }
+
+    private TerrainHeightCap.Builder BeginPart(int index)
+    {
         var begin = index * RailwayCoordinates.SegmentLengthCells;
         var end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
         var bounds = Bounds(index);
         var fixedFlattens = hasRailwayFlatten
             ? RailwayTerrain.HeightFlattens(snapshot, path, index).Select(FlattenBounds).ToArray() : [];
         var modelMinimum = fixedFlattens.Select(item => item.Top).DefaultIfEmpty(double.PositiveInfinity).Min();
-        var endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
         var width = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
-        var maskX = (int)Math.Floor(bounds.Minimum.X / 4.0) * 4;
-        var maskZ = (int)Math.Floor(bounds.Minimum.Y / 4.0) * 4;
-        var maskWidth = (int)Math.Ceiling(bounds.Maximum.X / 4.0) - maskX / 4;
-        var maskDepth = (int)Math.Ceiling(bounds.Maximum.Y / 4.0) - maskZ / 4;
+        var maskX = (int)Math.Floor(bounds.Minimum.X / (double)TerrainTile.NearSpacingCells) * TerrainTile.NearSpacingCells;
+        var maskZ = (int)Math.Floor(bounds.Minimum.Y / (double)TerrainTile.NearSpacingCells) * TerrainTile.NearSpacingCells;
+        var maskWidth = (int)Math.Ceiling(bounds.Maximum.X / (double)TerrainTile.NearSpacingCells) - maskX / TerrainTile.NearSpacingCells;
+        var maskDepth = (int)Math.Ceiling(bounds.Maximum.Y / (double)TerrainTile.NearSpacingCells) - maskZ / TerrainTile.NearSpacingCells;
         var decorationMask = hasDecorationFlatten ? new int[checked(maskWidth * maskDepth)] : [];
         var negativeFlatten = 0.0;
-        var work = TerrainHeightCap.Begin(bounds, Sample, Finish);
-        parts.Add(index, work);
-        return work;
+        return TerrainHeightCap.Begin(bounds, Sample, Finish);
 
         double? Sample(GridColumn column)
         {
@@ -102,37 +103,27 @@ internal sealed class RailwayTerrainCaps
                 out var water, out _)) + 1;
             if (!hasDecorationFlatten || water || surface.TrackDistance(lateral) < RailwayCoordinates.DecorationRootClearance)
                 return top;
-            var key = unchecked((long)column.X * 73856093 ^ (long)column.Z * 19349663);
-            var terrain = terrains[path.Edge.Terrain.TypeId];
-            var material = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, key, 9);
-            if (arc < endpointBlend && material >= arc / endpointBlend) terrain = terrains[path.Start.Terrain.TypeId];
-            else if (path.LengthCells - arc < endpointBlend && material >= (path.LengthCells - arc) / endpointBlend)
-                terrain = terrains[path.End.Terrain.TypeId];
-            if (terrain is null || terrain.Decorations.IsDefaultOrEmpty ||
-                RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, key, 10) >= Math.Clamp(terrain.DecorationTargetPerSquareMeter / 4, 0, 1)) return top;
-            var total = decorationWeights[terrain.Id];
-            if (total == 0) return top;
-            var selection = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, key, 11) * total;
-            var slot = 0;
-            while (slot < terrain.Decorations.Length - 1 && selection >= Math.Max(0, terrain.Decorations[slot].Weight))
-                selection -= Math.Max(0, terrain.Decorations[slot++].Weight);
-            if (decorations[terrain.Decorations[slot].SceneModel] is not { } flatten) return top;
+            var key = RailwayTerrain.ColumnKey(column.X, column.Z);
+            var terrain = RailwayTerrain.EndpointTerrain(path, arc, key, id => terrains[id]);
+            if (RailwayTerrain.DecorationSlot(path, terrain, key) is not { } slot ||
+                decorations[terrain!.Decorations[slot].SceneModel] is not { } flatten) return top;
             negativeFlatten += Math.Min(0, flatten.Height);
-            Mark(column.X + flatten.From.X - 8, column.Z + flatten.From.Z - 8,
-                column.X + flatten.To.X + 9, column.Z + flatten.To.Z + 9);
+            Mark(column.X + flatten.From.X - RailwayTerrain.FlattenBlendRadiusCells, column.Z + flatten.From.Z - RailwayTerrain.FlattenBlendRadiusCells,
+                column.X + flatten.To.X + 1 + RailwayTerrain.FlattenBlendRadiusCells, column.Z + flatten.To.Z + 1 + RailwayTerrain.FlattenBlendRadiusCells);
             return top;
         }
 
         double Finish(int x, int z, double minimum, double globalMinimum)
         {
             foreach (var flattened in fixedFlattens)
-                if (x < flattened.Bounds.Maximum.X && x + 4 > flattened.Bounds.Minimum.X &&
-                    z < flattened.Bounds.Maximum.Y && z + 4 > flattened.Bounds.Minimum.Y)
+                if (x < flattened.Bounds.Maximum.X && x + TerrainTile.NearSpacingCells > flattened.Bounds.Minimum.X &&
+                    z < flattened.Bounds.Maximum.Y && z + TerrainTile.NearSpacingCells > flattened.Bounds.Minimum.Y)
                     minimum = double.IsPositiveInfinity(minimum) ? minimum : Math.Min(minimum, flattened.Top);
             if (!hasDecorationFlatten) return minimum;
-            var cx = (x - maskX) / 4;
-            var cz = (z - maskZ) / 4;
+            var cx = (x - maskX) / TerrainTile.NearSpacingCells;
+            var cz = (z - maskZ) / TerrainTile.NearSpacingCells;
             var offset = cz * maskWidth + cx;
+            // finishCell visits every fine cell exactly once in row-major order.
             var covered = decorationMask[offset] + (cx > 0 ? decorationMask[offset - 1] : 0) +
                 (cz > 0 ? decorationMask[offset - maskWidth] : 0) - (cx > 0 && cz > 0 ? decorationMask[offset - maskWidth - 1] : 0);
             decorationMask[offset] = covered;
@@ -144,10 +135,10 @@ internal sealed class RailwayTerrainCaps
 
         void Mark(double left, double back, double right, double front)
         {
-            var x0 = Math.Clamp((int)Math.Floor((left - maskX) / 4), 0, maskWidth);
-            var x1 = Math.Clamp((int)Math.Ceiling((right - maskX) / 4), 0, maskWidth);
-            var z0 = Math.Clamp((int)Math.Floor((back - maskZ) / 4), 0, maskDepth);
-            var z1 = Math.Clamp((int)Math.Ceiling((front - maskZ) / 4), 0, maskDepth);
+            var x0 = Math.Clamp((int)Math.Floor((left - maskX) / TerrainTile.NearSpacingCells), 0, maskWidth);
+            var x1 = Math.Clamp((int)Math.Ceiling((right - maskX) / TerrainTile.NearSpacingCells), 0, maskWidth);
+            var z0 = Math.Clamp((int)Math.Floor((back - maskZ) / TerrainTile.NearSpacingCells), 0, maskDepth);
+            var z1 = Math.Clamp((int)Math.Ceiling((front - maskZ) / TerrainTile.NearSpacingCells), 0, maskDepth);
             if (x0 >= x1 || z0 >= z1) return;
             decorationMask[z0 * maskWidth + x0]++;
             if (x1 < maskWidth) decorationMask[z0 * maskWidth + x1]--;
@@ -163,7 +154,7 @@ internal sealed class RailwayTerrainCaps
         var rotation = RailwayCoordinates.Rotation(Vector3.Normalize(new(forward.X, 0, forward.Z)));
         var minimum = new Vector2(float.PositiveInfinity);
         var maximum = new Vector2(float.NegativeInfinity);
-        var margin = 8 + RailwayCoordinates.CellFootprintMargin;
+        var margin = RailwayTerrain.FlattenBlendRadiusCells + RailwayCoordinates.CellFootprintMargin;
         foreach (var x in new[] { region.From.X - margin, region.To.X + 1 + margin })
         foreach (var z in new[] { region.From.Z - margin, region.To.Z + 1 + margin })
         {

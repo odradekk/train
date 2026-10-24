@@ -19,6 +19,36 @@ internal static class RailwayTerrain
     private const int BridgeSpanCells = 16;
     private const int BridgeJointMargin = 4;
 
+    internal const int FlattenBlendRadiusCells = 8;
+
+    internal static long ColumnKey(double x, double z) =>
+        unchecked((long)x * 73856093 ^ (long)z * 19349663);
+
+    internal static TerrainAppearanceProjection? EndpointTerrain(RailwayPath path, double arc, long columnKey,
+        Func<TerrainTypeId, TerrainAppearanceProjection?> terrain)
+    {
+        var blend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
+        var random = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, columnKey, EndpointMaterialPurpose);
+        if (arc < blend && random >= arc / blend) return terrain(path.Start.Terrain.TypeId);
+        if (path.LengthCells - arc < blend && random >= (path.LengthCells - arc) / blend)
+            return terrain(path.End.Terrain.TypeId);
+        return terrain(path.Edge.Terrain.TypeId);
+    }
+
+    internal static int? DecorationSlot(RailwayPath path, TerrainAppearanceProjection? terrain, long columnKey)
+    {
+        if (terrain is null || terrain.Decorations.IsDefaultOrEmpty ||
+            RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, columnKey, DecorationDensityPurpose) >=
+            Math.Clamp(terrain.DecorationTargetPerSquareMeter / (RailwayCoordinates.CellsPerMeter * RailwayCoordinates.CellsPerMeter), 0, 1)) return null;
+        var total = terrain.Decorations.Sum(item => Math.Max(0, item.Weight));
+        if (total == 0) return null;
+        var selection = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, columnKey, DecorationSelectionPurpose) * total;
+        var slot = 0;
+        while (slot < terrain.Decorations.Length - 1 && selection >= Math.Max(0, terrain.Decorations[slot].Weight))
+            selection -= Math.Max(0, terrain.Decorations[slot++].Weight);
+        return slot;
+    }
+
     internal static double BedHeight(double railHeight, double distance) =>
         railHeight - BedTopBelowRailCells - (distance <= RailwayCoordinates.BedTopHalfWidth ? 1 : 2);
 
@@ -285,9 +315,7 @@ internal static class RailwayTerrain
         {
             var terrain = terrains[path.Edge.Terrain.TypeId];
             var height = surface.ColumnHeight(arc, center, lateral, terrain, out var water, out var tunnel);
-            var random = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, ColumnKey(column), EndpointMaterialPurpose);
-            if (arc < endpointBlend && random >= arc / endpointBlend) terrain = terrains[path.Start.Terrain.TypeId];
-            else if (path.LengthCells - arc < endpointBlend && random >= (path.LengthCells - arc) / endpointBlend) terrain = terrains[path.End.Terrain.TypeId];
+            terrain = EndpointTerrain(path, arc, ColumnKey(column), id => terrains[id]);
             return new(arc, lateral, Math.Floor(height), terrain, water, tunnel);
         }
 
@@ -386,17 +414,10 @@ internal static class RailwayTerrain
                 cancellation.ThrowIfCancellationRequested();
                 var value = pair.Value;
                 var terrain = value.Terrain;
-                if (terrain is null || terrain.Decorations.IsDefaultOrEmpty || value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationRootClearance) continue;
-                var key = ColumnKey(pair.Key);
-                if (RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, key, DecorationDensityPurpose) >= Math.Clamp(terrain.DecorationTargetPerSquareMeter / (RailwayCoordinates.CellsPerMeter * RailwayCoordinates.CellsPerMeter), 0, 1)) continue;
-                var total = terrain.Decorations.Sum(item => Math.Max(0, item.Weight));
-                if (total == 0) continue;
-                var selection = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, key, DecorationSelectionPurpose) * total;
-                var slot = 0;
-                while (slot < terrain.Decorations.Length - 1 && selection >= Math.Max(0, terrain.Decorations[slot].Weight))
-                    selection -= Math.Max(0, terrain.Decorations[slot++].Weight);
-                modelReads.Add(new(terrain.Id, slot, RailwayModelRole.Decoration));
-                decorations.Add((pair.Key, terrain.Decorations[slot].SceneModel));
+                if (value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationRootClearance) continue;
+                if (DecorationSlot(path, terrain, ColumnKey(pair.Key)) is not { } slot) continue;
+                modelReads.Add(new(terrain!.Id, slot, RailwayModelRole.Decoration));
+                decorations.Add((pair.Key, terrain!.Decorations[slot].SceneModel));
             }
             foreach (var decoration in decorations)
             {
@@ -463,7 +484,7 @@ internal static class RailwayTerrain
 
         }
 
-        private long ColumnKey(GridColumn column) => unchecked(((long)(column.X + origin.X) * 73856093) ^ ((long)(column.Z + origin.Z) * 19349663));
+        private long ColumnKey(GridColumn column) => RailwayTerrain.ColumnKey(column.X + origin.X, column.Z + origin.Z);
         private double TrackDistance(double offset) => surface.TrackDistance(offset);
         private TerrainAppearanceProjection? GetTerrain(TerrainTypeId id)
         {
@@ -752,7 +773,7 @@ internal static class RailwayTerrain
                     var local = Vector3.Transform(new Vector3(column.X + 0.5f - pose.Position.X, 0, column.Z + 0.5f - pose.Position.Z), inverse);
                     var distance = Math.Max(Math.Max(flatten.From.X - local.X, local.X - flatten.To.X - 1),
                         Math.Max(flatten.From.Z - local.Z, local.Z - flatten.To.Z - 1));
-                    var blend = Math.Clamp(distance / 8, 0, 1);
+                    var blend = Math.Clamp(distance / FlattenBlendRadiusCells, 0, 1);
                     if (blend < 1)
                         columns[column] = value with { Height = Math.Floor((pose.Position.Y + origin.Y + flatten.Height - 1) * (1 - blend) + value.Height * blend) };
                 }

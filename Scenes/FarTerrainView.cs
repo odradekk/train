@@ -18,6 +18,14 @@ internal sealed class FarTerrainView
                 group.ToDictionary(tile => (tile.Origin.X, tile.Origin.Z)))).ToArray();
     }
 
+    internal bool Covers(SceneBounds bounds) => ConstructionFog.Clip([bounds], Coverage(bounds)).IsEmpty;
+
+    internal IEnumerable<SceneBounds> Coverage(SceneBounds bounds) => Tiles
+        .Where(tile => tile.Origin.X < bounds.Maximum.X && tile.Origin.X + tile.SizeCells > bounds.Minimum.X &&
+            tile.Origin.Z < bounds.Maximum.Z && tile.Origin.Z + tile.SizeCells > bounds.Minimum.Z)
+        .Select(tile => new SceneBounds(new((float)tile.Origin.X, bounds.Minimum.Y, (float)tile.Origin.Z),
+            new((float)(tile.Origin.X + tile.SizeCells), bounds.Maximum.Y, (float)(tile.Origin.Z + tile.SizeCells))));
+
     internal double? Height(ScenePoint point)
     {
         foreach (var level in levels)

@@ -65,9 +65,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     internal Task[] PendingNodeBuilds => (node?.PendingWork ?? []).Concat(successor?.PendingWork ?? []).ToArray();
     internal Task[] PendingPrebuilds => (candidate?.Node?.PendingWork ?? []).Concat(candidate?.Railway?.PendingWork ?? [])
         .Concat(retiringCandidate is { IsCompleted: false } ? [retiringCandidate] : []).ToArray();
-    internal Task[] PendingFarBuilds => (node?.PendingFarWork ?? []).Concat(railway?.PendingFarWork ?? [])
-        .Concat(candidate?.Node?.PendingFarWork ?? []).Concat(candidate?.Railway?.PendingFarWork ?? []).ToArray();
-    internal bool HasPendingFarTerrain => node?.HasPendingFarTerrain == true || railway?.HasPendingFarTerrain == true;
     internal WorldLocation? PrebuiltLocation => candidate?.Location;
     internal Func<long> Timestamp { get; set; } = System.Diagnostics.Stopwatch.GetTimestamp;
 
@@ -239,7 +236,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             candidate?.Node?.SetBuildAllowed(false);
             candidate?.Node?.SetFarBuildAllowed(false);
             candidate?.Railway?.SetFarBuildAllowed(false);
-            successor?.SetFarBuildAllowed(false);
             var retire = AdvanceSuccessor();
             PrioritizeCandidateTerrain();
             node?.SetTerrainViewRadius(terrainViewRadiusCells);
@@ -378,9 +374,12 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             TrainView? followed = target is WorldSceneTarget.Follow follow &&
                 snapshot.Core.FindTrain(follow.Train) is Lookup<TrainView>.Found found && found.Value.Position is TrainPosition.Node
                 ? found.Value : null;
+            successor.SetTerrainViewRadius(terrainViewRadiusCells);
+            successor.SetFineTerrainBuildAllowed(false);
+            successor.SetFarBuildAllowed(!node.HasPendingBuilds);
             successor.Pump(snapshot, node.StreamingFocus, allowBuild: node.HasPendingBuilds != true, following: node.StreamingFollow,
                 followedTrain: followed);
-            if (!successor.Failed && successor.NearPrepared)
+            if (!successor.Failed && successor.NearPrepared && !successor.HasPendingCoarseTerrain)
             {
                 successor.MarkNearReady();
                 var previous = node;

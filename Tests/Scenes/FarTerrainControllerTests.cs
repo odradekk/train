@@ -144,6 +144,29 @@ public sealed class FarTerrainControllerTests
         Assert.AreNotSame(tile, FirstCoarse(changedInputs));
     }
 
+    [TestMethod]
+    public void Moving_along_a_line_evicts_tiles_and_objects_outside_the_current_demand()
+    {
+        var cache = new FarTerrain.Cache();
+        var terrain = Bound(cache);
+        terrain.SetFineBuildAllowed(true);
+        for (var step = 0; step < 12; step++)
+        {
+            var focus = Focus with { X = Focus.X + step * TerrainTile.ParentCells * 2 };
+            terrain.Demand(focus, 1);
+            while (!terrain.Advance(10000, CancellationToken.None)) { }
+            terrain.Objects(default, SceneFixtures.NextId());
+            Assert.AreEqual(16, terrain.View.Tiles.Length);
+            var saved = (FarTerrain.Saved)typeof(FarTerrain).GetField("saved",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(terrain)!;
+            Assert.IsTrue(saved.Tiles.Count <= 17,
+                "The session cache must retain the current requested parent and fine children, not the route history.");
+            var objects = (System.Collections.IDictionary)typeof(FarTerrain).GetField("objects",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(terrain)!;
+            Assert.IsTrue(objects.Count <= 16, "Evicted tile objects must not keep their meshes alive.");
+        }
+    }
+
     private static FarTerrain Bound(FarTerrain.Cache cache, double relief = 0)
     {
         var snapshot = RailwayFixtures.Snapshot(relief: relief);

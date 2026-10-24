@@ -63,6 +63,65 @@ public sealed class FarTerrainGeometryTests
     }
 
     [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public void FadeIsContinuousAcrossDenseTransverseAndBetweenSBendSamples(int tracks)
+    {
+        // The fixture explicitly uses the approved minimum curve radius of 80 metres.
+        var (path, surface, _) = Surface(6000, 1, tracks);
+        var width = RailwayCoordinates.TerrainHalfWidth(tracks);
+        var transverseSamples = 0;
+        foreach (var fraction in new[] { .25, .75 })
+        foreach (var side in new[] { -1, 1 })
+        for (var step = 1; step < 128; step++)
+        {
+            var point = path.Sample(path.LengthCells * fraction, side * (width + step / 4.0)).Position;
+            if (AssertInFade(point)) transverseSamples++;
+        }
+
+        Assert.IsTrue(transverseSamples > 128, "Transverse samples must exercise the open fade band.");
+
+        // Find one fade interval between S branches with coarse probes. Densely inspect only
+        // its neighbourhood; kilometres of unmodified ground add no continuity coverage.
+        var a = path.Sample(path.LengthCells / 4).Position;
+        var b = path.Sample(path.LengthCells * 3 / 4).Position;
+        var length = HorizontalDistance(a, b);
+        double? fadeAt = null;
+        for (var distance = 0.0; distance <= length; distance += 8)
+        {
+            var point = Between(distance);
+            if (!InFade(point)) continue;
+            fadeAt = distance;
+            break;
+        }
+        Assert.IsNotNull(fadeAt, "The line between S branches must cross the fade band.");
+        var fadeSamples = 0;
+        for (var offset = -16.0; offset <= 16; offset += .25)
+        {
+            var distance = Math.Clamp(fadeAt.Value + offset, 0, length);
+            if (AssertInFade(Between(distance))) fadeSamples++;
+        }
+        Assert.IsTrue(fadeSamples > 16, "The S-branch neighbourhood must densely sample the open fade band.");
+
+        ScenePoint Between(double distance) =>
+            new(a.X + (b.X - a.X) * distance / length, 0, a.Z + (b.Z - a.Z) * distance / length);
+
+        bool InFade(ScenePoint point)
+        {
+            var distance = HorizontalDistance(point, path.Sample(path.Locate(point)).Position);
+            return distance > width && distance < width + 32;
+        }
+
+        bool AssertInFade(ScenePoint point)
+        {
+            if (!InFade(point)) return false;
+            AssertContinuous(surface, point);
+            return true;
+        }
+    }
+
+    [TestMethod]
     public void FarGroundDoesNotRetainTheHeightOfTheNearestRailwayBranch()
     {
         var (path, surface, appearance) = Surface(6000, 1, 3);
@@ -138,13 +197,15 @@ public sealed class FarTerrainGeometryTests
             var c = mesh.Vertices[indices[2]];
             var normal = Vector3.Cross(b.Position - a.Position, c.Position - a.Position);
             Assert.IsTrue(normal.LengthSquared() > 1e-8, "No triangle may collapse.");
-            Assert.IsTrue(Vector3.Dot(normal, a.Normal + b.Normal + c.Normal) > 0,
-                "Counter-clockwise winding must agree with the published normals.");
             if (Math.Abs(normal.Y) < 1e-6)
                 Assert.IsTrue(Vector3.Dot(normal, (a.Position + b.Position + c.Position) / 3 - new Vector3(32, 0, 32)) > 0,
                     "Skirt triangles must face out from the tile.");
             else
+            {
                 Assert.IsTrue(normal.Y > 0, "Surface triangles must face upward.");
+                Assert.IsTrue(Vector3.Dot(normal, a.Normal + b.Normal + c.Normal) > 0,
+                    "Surface winding must agree with the published normals.");
+            }
         }
         foreach (var side in new[] { 0, 1, 2, 3 })
         {
@@ -158,6 +219,33 @@ public sealed class FarTerrainGeometryTests
             Assert.IsTrue(edge.Length >= 9);
             Assert.IsTrue(edge.All(column => column.Max(vertex => vertex.Position.Y) - column.Min(vertex => vertex.Position.Y) >= 6 - 1e-5),
                 $"Side {side} must have a skirt at least six cells deep.");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(TerrainTile.NearSpacingCells)]
+    [DataRow(TerrainTile.FarSpacingCells)]
+    public void FlatSurfaceNormalsStayVerticalAtTileEdgesAndSkirtBottoms(int spacing)
+    {
+        var tile = Tile(new(0, 0, 0), spacing, _ => 7);
+        foreach (var vertex in tile.Mesh.Vertices)
+            Assert.AreEqual(Vector3.UnitY, vertex.Normal);
+    }
+
+    [TestMethod]
+    [DataRow(TerrainTile.NearSpacingCells)]
+    [DataRow(TerrainTile.FarSpacingCells)]
+    public void FlattenedIntegerTopsStayStrictlyAboveFarSurface(int spacing)
+    {
+        var columns = Enumerable.Range(8, 8).SelectMany(z => Enumerable.Range(8, 8)
+            .Select(x => (Column: new GridColumn(x, z), Top: 12.0))).ToArray();
+        var tile = Tile(new(0, 0, 0), spacing, _ => 100, columns);
+        foreach (var (column, top) in columns)
+        foreach (var offset in new[] { 0.0, .125, .5, .875, 1 })
+        {
+            var height = tile.Height(column.X + offset, column.Z + 1 - offset)!.Value;
+            Assert.IsTrue(height <= top - 1.0 / 16,
+                $"Flattened L0 top must stay above the complete triangle, spacing={spacing}.");
         }
     }
 
@@ -212,7 +300,7 @@ public sealed class FarTerrainGeometryTests
             var z = column.Z + offset.Y;
             Assert.IsTrue(original.Height(x, z)!.Value + origin.Y > top,
                 "The original surface must actually exceed the stepped voxel top.");
-            Assert.IsTrue(tile.Height(x, z)!.Value + origin.Y <= top,
+            Assert.IsTrue(tile.Height(x, z)!.Value + origin.Y <= top - 1.0 / 16,
                 $"The remote surface exceeds voxel {column} at ({x}, {z}); spacing={spacing}, top={top}");
         }
         // 四顶点保守下压会影响相邻三角形；这里选择不受这些顶点影响的非L0区域。
@@ -314,7 +402,6 @@ public sealed class FarTerrainGeometryTests
         Assert.AreEqual(3, seen.Count(cell => double.IsPositiveInfinity(cell.Raw)));
         Assert.AreEqual(-12.0, builder.Result.Minimum(0, 0, 4));
         Assert.AreEqual(-12.0, builder.Result.Minimum(0, 0, 32));
-        Assert.AreEqual(8L * sizeof(double), builder.Result.ArrayBytes);
     }
 
     [TestMethod]

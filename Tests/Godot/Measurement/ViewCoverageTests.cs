@@ -230,7 +230,7 @@ public sealed class ViewCoverageTests
         public Lookup<ScenePose> FindPose(WorldObjectId subject) => frame.FindPose(subject);
         public Lookup<WorldLocation> Locate(System.Numerics.Vector3 point) => frame.Locate(point);
         public Lookup<double> TerrainHeight(double x, double z) => frame.TerrainHeight(x, z);
-        public double? DisplayTerrainHeight(double x, double z) => points.Contains((x, z)) ? 0 : null;
+        public Lookup<double> DisplayTerrainHeight(double x, double z) => points.Contains((x, z)) ? new Lookup<double>.Found(0) : new Lookup<double>.Missing();
     }
 
     private static CoverageRay Ray(double x, double y, double z) => new(new(0, 10, 0), new(x, y, z), 0, 100);

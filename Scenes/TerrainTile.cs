@@ -7,7 +7,6 @@ namespace Train.Scenes;
 internal sealed class TerrainTile
 {
     internal const int ParentCells = 512 * 2;
-    internal const int NearSizeCells = 128 * 2;
     internal const int NearSpacingCells = 2 * 2;
     internal const int FarSpacingCells = 16 * 2;
     internal const int ColumnMarginCells = FarSpacingCells + NearSpacingCells;
@@ -126,12 +125,13 @@ internal sealed class TerrainTile
                     }
                 }
                 positions[bottom + i] = new(at.X, bottomY, at.Z);
+                normals[bottom + i] = normals[Edge(i)];
                 yield return 0;
             }
             for (var i = 0; i < side - 1; i++)
             {
-                Triangle(Edge(i), Edge(i + 1), bottom + i);
-                Triangle(Edge(i + 1), bottom + i + 1, bottom + i);
+                Triangle(Edge(i), Edge(i + 1), bottom + i, false);
+                Triangle(Edge(i + 1), bottom + i + 1, bottom + i, false);
                 yield return 0;
             }
 
@@ -158,9 +158,10 @@ internal sealed class TerrainTile
             System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray(vertices),
             System.Runtime.InteropServices.ImmutableCollectionsMarshal.AsImmutableArray(indices))));
 
-        void Triangle(int a, int b, int c)
+        void Triangle(int a, int b, int c, bool surface = true)
         {
             indices[cursor++] = a; indices[cursor++] = b; indices[cursor++] = c;
+            if (!surface) return;
             var normal = Vector3.Cross(positions[b] - positions[a], positions[c] - positions[a]);
             normals[a] += normal; normals[b] += normal; normals[c] += normal;
         }
@@ -178,7 +179,8 @@ internal sealed class TerrainTile
             var value = height(new(x, origin.Y, z));
             if (lowerBounds is not null)
                 foreach (var cap in lowerBounds)
-                    value = Math.Min(value, cap.Minimum((int)x, (int)z, spacing));
+                    // Keep exact integer L0 tops and far triangles distinct for rendering and picking.
+                    value = Math.Min(value, cap.Minimum((int)x, (int)z, spacing) - 1.0 / 16);
             return value;
         }
     }

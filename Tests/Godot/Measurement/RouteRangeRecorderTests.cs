@@ -272,6 +272,6 @@ public sealed class RouteRangeRecorderTests
         public Lookup<ScenePose> FindPose(WorldObjectId subject) => throw new NotSupportedException();
         public Lookup<WorldLocation> Locate(Vector3 point) => throw new NotSupportedException();
         public Lookup<double> TerrainHeight(double x, double z) => throw new NotSupportedException();
-        public double? DisplayTerrainHeight(double x, double z) => throw new NotSupportedException();
+        public Lookup<double> DisplayTerrainHeight(double x, double z) => throw new NotSupportedException();
     }
 }

@@ -53,7 +53,7 @@ internal static class ViewCoverage
                 point.X >= box.Minimum.X && point.X <= box.Maximum.X &&
                 point.Y >= box.Minimum.Y && point.Y <= box.Maximum.Y &&
                 point.Z >= box.Minimum.Z && point.Z <= box.Maximum.Z);
-            if (!inFog && displayedFrame.DisplayTerrainHeight(point.X, point.Z) is not null)
+            if (!inFog && displayedFrame.DisplayTerrainHeight(point.X, point.Z) is Lookup<double>.Found)
             {
                 simplifiedTerrain++;
                 continue;

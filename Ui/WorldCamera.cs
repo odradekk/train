@@ -54,6 +54,7 @@ internal partial class WorldCamera : Node3D
                 cornerDistance = Math.Max(cornerDistance, far * Math.Sqrt(1 + dx * dx + dy * dy));
             }
         // 三维角点距离包住任意朝向的水平投影；纯垂直地形避让不扩大水平偏移。
+        // 向上按 256 格分档，避免投影的微小变化反复调整远景需求范围。
         return Math.Ceiling((cornerDistance + MaximumDistance + CombatEffects.ShakeDistance) / 256) * 256;
     }
 
@@ -200,7 +201,8 @@ internal partial class WorldCamera : Node3D
         switch (pick)
         {
             case ScenePick.NotReady:
-                height = (float?)_frame!.DisplayTerrainHeight(point.X, point.Z);
+                height = _frame!.DisplayTerrainHeight(point.X, point.Z) is Lookup<double>.Found found
+                    ? (float)found.Value : null;
                 return height is not null;
             case ScenePick.Miss:
                 return true;
@@ -245,8 +247,8 @@ internal partial class WorldCamera : Node3D
     private void PlaceCamera()
     {
         var position = OrbitPosition();
-        if (_frame?.DisplayTerrainHeight(position.X, position.Z) is { } terrain)
-            position.Y = Mathf.Max(position.Y, (float)terrain + TerrainClearance);
+        if (_frame?.DisplayTerrainHeight(position.X, position.Z) is Lookup<double>.Found terrain)
+            position.Y = Mathf.Max(position.Y, (float)terrain.Value + TerrainClearance);
         var offset = ShakeEnabled ? ShakeOffset : Vector3.Zero;
         Camera.Transform = new Transform3D(Basis.LookingAt(Focus - position, Vector3.Up), position + offset);
     }

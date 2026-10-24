@@ -540,7 +540,7 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
-    public async Task Regions_outside_the_required_window_without_far_terrain_are_not_pickable()
+    public async Task Unbuilt_regions_outside_the_required_window_keep_fog_until_far_terrain_is_displayed()
     {
         var snapshot = Snapshot(true);
         await using var vehicles = new SceneVehicles();
@@ -550,10 +550,10 @@ public sealed class NodeStreamingTests
         var loaded = Chunks(cache).Keys.First();
         var frame = Present(scene, snapshot);
         Assert.IsInstanceOfType<ScenePick.Hit>(frame.Pick(Ray(loaded)));
-        Assert.IsInstanceOfType<ScenePick.Miss>(frame.Pick(Ray(new(288, 288))));
+        Assert.IsInstanceOfType<ScenePick.NotReady>(frame.Pick(Ray(new(288, 288))));
         await Settle(scene, snapshot, new(288, 0, 288));
         var after = Present(scene, snapshot, frame);
-        Assert.IsInstanceOfType<ScenePick.Miss>(after.Pick(Ray(loaded)));
+        Assert.IsInstanceOfType<ScenePick.NotReady>(after.Pick(Ray(loaded)));
         Assert.IsInstanceOfType<Lookup<double>.Missing>(after.TerrainHeight(loaded.X + .5, loaded.Z + .5));
         Assert.IsTrue(after.Update.Removed.Length > 0);
         Assert.IsInstanceOfType<ScenePick.Hit>(frame.Pick(Ray(loaded)));
@@ -961,10 +961,8 @@ public sealed class NodeStreamingTests
                 var point = new Vector3(from.X + 16, 0, from.Z + 16);
                 var covered = fog.Any(bounds => point.X > bounds.Minimum.X && point.X < bounds.Maximum.X &&
                     point.Z > bounds.Minimum.Z && point.Z < bounds.Maximum.Z);
-                var required = from.X >= Math.Min(retained.Left, ahead.Left) && from.X < Math.Max(retained.Right, ahead.Right) &&
-                    from.Z >= Math.Min(retained.Back, ahead.Back) && from.Z < Math.Max(retained.Front, ahead.Front);
-                Assert.AreEqual((required || corridor.Chunks.Contains(from)) && !connected.ContainsKey(from), covered,
-                    $"Terrain chunk {from} must be fogged exactly when required and absent.");
+                Assert.AreEqual(!connected.ContainsKey(from), covered,
+                    $"Terrain chunk {from} must stay fogged while neither L0 nor far terrain is displayed.");
             }
             await SceneFixtures.AwaitPendingWork(scene.PendingWork);
         }

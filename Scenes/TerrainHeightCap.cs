@@ -8,22 +8,21 @@ internal sealed class TerrainHeightCap
     private readonly double[] fine;
     private readonly double[] coarse;
     private readonly int coarseX, coarseZ, coarseWidth, coarseDepth;
-    internal int GridOriginX { get; }
-    internal int GridOriginZ { get; }
-    internal int Width { get; }
-    internal int Depth { get; }
-    internal long ArrayBytes => ((long)fine.Length + coarse.Length) * sizeof(double);
+    private int GridOriginX { get; }
+    private int GridOriginZ { get; }
+    private int Width { get; }
+    private int Depth { get; }
 
     private TerrainHeightCap(ScenePanBounds bounds)
     {
-        GridOriginX = (int)Math.Floor(bounds.Minimum.X / 4.0) * 4;
-        GridOriginZ = (int)Math.Floor(bounds.Minimum.Y / 4.0) * 4;
-        Width = Math.Max(1, (int)Math.Ceiling(bounds.Maximum.X / 4.0) - GridOriginX / 4);
-        Depth = Math.Max(1, (int)Math.Ceiling(bounds.Maximum.Y / 4.0) - GridOriginZ / 4);
-        coarseX = (int)Math.Floor(GridOriginX / 32.0) * 32;
-        coarseZ = (int)Math.Floor(GridOriginZ / 32.0) * 32;
-        coarseWidth = (int)Math.Ceiling((GridOriginX + Width * 4) / 32.0) - coarseX / 32;
-        coarseDepth = (int)Math.Ceiling((GridOriginZ + Depth * 4) / 32.0) - coarseZ / 32;
+        GridOriginX = (int)Math.Floor(bounds.Minimum.X / (double)TerrainTile.NearSpacingCells) * TerrainTile.NearSpacingCells;
+        GridOriginZ = (int)Math.Floor(bounds.Minimum.Y / (double)TerrainTile.NearSpacingCells) * TerrainTile.NearSpacingCells;
+        Width = Math.Max(1, (int)Math.Ceiling(bounds.Maximum.X / (double)TerrainTile.NearSpacingCells) - GridOriginX / TerrainTile.NearSpacingCells);
+        Depth = Math.Max(1, (int)Math.Ceiling(bounds.Maximum.Y / (double)TerrainTile.NearSpacingCells) - GridOriginZ / TerrainTile.NearSpacingCells);
+        coarseX = (int)Math.Floor(GridOriginX / (double)TerrainTile.FarSpacingCells) * TerrainTile.FarSpacingCells;
+        coarseZ = (int)Math.Floor(GridOriginZ / (double)TerrainTile.FarSpacingCells) * TerrainTile.FarSpacingCells;
+        coarseWidth = (int)Math.Ceiling((GridOriginX + Width * TerrainTile.NearSpacingCells) / (double)TerrainTile.FarSpacingCells) - coarseX / TerrainTile.FarSpacingCells;
+        coarseDepth = (int)Math.Ceiling((GridOriginZ + Depth * TerrainTile.NearSpacingCells) / (double)TerrainTile.FarSpacingCells) - coarseZ / TerrainTile.FarSpacingCells;
         fine = new double[checked(Width * Depth)];
         coarse = new double[checked(coarseWidth * coarseDepth)];
         Array.Fill(fine, double.PositiveInfinity);
@@ -32,15 +31,14 @@ internal sealed class TerrainHeightCap
 
     internal double Minimum(int vertexX, int vertexZ, int spacing)
     {
-        if (spacing != 4 && spacing != 32) throw new ArgumentOutOfRangeException(nameof(spacing));
-        if (vertexX + (double)spacing <= GridOriginX || vertexX - (double)spacing >= GridOriginX + Width * 4.0 ||
-            vertexZ + (double)spacing <= GridOriginZ || vertexZ - (double)spacing >= GridOriginZ + Depth * 4.0)
+        if (vertexX + (double)spacing <= GridOriginX || vertexX - (double)spacing >= GridOriginX + Width * (double)TerrainTile.NearSpacingCells ||
+            vertexZ + (double)spacing <= GridOriginZ || vertexZ - (double)spacing >= GridOriginZ + Depth * (double)TerrainTile.NearSpacingCells)
             return double.PositiveInfinity;
-        var values = spacing == 4 ? fine : coarse;
-        var originX = spacing == 4 ? GridOriginX : coarseX;
-        var originZ = spacing == 4 ? GridOriginZ : coarseZ;
-        var width = spacing == 4 ? Width : coarseWidth;
-        var depth = spacing == 4 ? Depth : coarseDepth;
+        var values = spacing == TerrainTile.NearSpacingCells ? fine : coarse;
+        var originX = spacing == TerrainTile.NearSpacingCells ? GridOriginX : coarseX;
+        var originZ = spacing == TerrainTile.NearSpacingCells ? GridOriginZ : coarseZ;
+        var width = spacing == TerrainTile.NearSpacingCells ? Width : coarseWidth;
+        var depth = spacing == TerrainTile.NearSpacingCells ? Depth : coarseDepth;
         var x = (int)Math.Floor((vertexX - (double)originX) / spacing);
         var z = (int)Math.Floor((vertexZ - (double)originZ) / spacing);
         var result = double.PositiveInfinity;
@@ -51,72 +49,75 @@ internal sealed class TerrainHeightCap
         return result;
     }
 
+    internal static Builder CachedPart<TKey>(Dictionary<TKey, Builder> parts, TKey key, string partKey,
+        Func<string, TerrainHeightCap?>? completed, Func<Builder> begin) where TKey : notnull
+    {
+        if (parts.TryGetValue(key, out var existing)) return existing;
+        var work = completed?.Invoke(partKey) is { } cap ? Builder.FromCompleted(cap) : begin();
+        parts.Add(key, work);
+        return work;
+    }
+
     internal static Builder Begin(ScenePanBounds bounds, Func<GridColumn, double?> columnTop,
         Func<int, int, double, double, double>? finishCell = null) => new(bounds, columnTop, finishCell);
 
     internal sealed class Builder
     {
+        private IEnumerator<int>? work;
+        private TerrainHeightCap? result;
+        internal bool Complete => result is not null;
+        internal TerrainHeightCap Result => result ?? throw new InvalidOperationException("Terrain height cap is incomplete.");
         internal static Builder FromCompleted(TerrainHeightCap cap) => new(cap);
-        private Builder(TerrainHeightCap cap) { this.cap = cap; Complete = true; }
-        private readonly TerrainHeightCap cap;
-        private Func<GridColumn, double?>? columnTop;
-        private Func<int, int, double, double, double>? finishCell;
-        private long rawCursor;
-        private int fineCursor;
-        private double globalMinimum = double.PositiveInfinity;
-        internal bool Complete { get; private set; }
-        internal TerrainHeightCap Result => Complete ? cap : throw new InvalidOperationException("Terrain height cap is incomplete.");
-        internal int GridOriginX => cap.GridOriginX;
-        internal int GridOriginZ => cap.GridOriginZ;
-        internal int Width => cap.Width;
-        internal int Depth => cap.Depth;
+        private Builder(TerrainHeightCap cap) => result = cap;
 
         internal Builder(ScenePanBounds bounds, Func<GridColumn, double?> columnTop,
-            Func<int, int, double, double, double>? finishCell)
-        {
-            cap = new(bounds);
-            this.columnTop = columnTop;
-            this.finishCell = finishCell;
-        }
+            Func<int, int, double, double, double>? finishCell) =>
+            work = Generate(new(bounds), columnTop, finishCell).GetEnumerator();
 
         internal int Advance(int maxOperations, CancellationToken token = default)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxOperations);
             var operations = 0;
-            var rawWidth = cap.Width * 4;
-            var rawCount = (long)rawWidth * cap.Depth * 4;
             while (!Complete && operations < maxOperations)
             {
                 token.ThrowIfCancellationRequested();
-                if (rawCursor < rawCount)
-                {
-                    var x = (int)(rawCursor % rawWidth);
-                    var z = (int)(rawCursor / rawWidth);
-                    var top = columnTop!(new(cap.GridOriginX + x, cap.GridOriginZ + z));
-                    if (top is { } value)
-                    {
-                        var index = z / 4 * cap.Width + x / 4;
-                        cap.fine[index] = Math.Min(cap.fine[index], value);
-                        globalMinimum = Math.Min(globalMinimum, value);
-                    }
-                    rawCursor++;
-                }
-                else
-                {
-                    var x = cap.GridOriginX + fineCursor % cap.Width * 4;
-                    var z = cap.GridOriginZ + fineCursor / cap.Width * 4;
-                    var value = cap.fine[fineCursor];
-                    if (finishCell is not null) value = finishCell(x, z, value, globalMinimum);
-                    cap.fine[fineCursor] = value;
-                    var coarseIndex = (z - cap.coarseZ) / 32 * cap.coarseWidth + (x - cap.coarseX) / 32;
-                    cap.coarse[coarseIndex] = Math.Min(cap.coarse[coarseIndex], value);
-                    fineCursor++;
-                    Complete = fineCursor == cap.fine.Length;
-                    if (Complete) { columnTop = null; finishCell = null; }
-                }
+                work!.MoveNext();
                 operations++;
             }
+            if (Complete) { work?.Dispose(); work = null; }
             return operations;
+        }
+
+        private IEnumerable<int> Generate(TerrainHeightCap cap, Func<GridColumn, double?> columnTop,
+            Func<int, int, double, double, double>? finishCell)
+        {
+            var globalMinimum = double.PositiveInfinity;
+            var width = cap.Width * TerrainTile.NearSpacingCells;
+            var depth = cap.Depth * TerrainTile.NearSpacingCells;
+            for (var z = 0; z < depth; z++)
+            for (var x = 0; x < width; x++)
+            {
+                if (columnTop(new(cap.GridOriginX + x, cap.GridOriginZ + z)) is { } top)
+                {
+                    var index = z / TerrainTile.NearSpacingCells * cap.Width + x / TerrainTile.NearSpacingCells;
+                    cap.fine[index] = Math.Min(cap.fine[index], top);
+                    globalMinimum = Math.Min(globalMinimum, top);
+                }
+                yield return 1;
+            }
+            // Finish receives every fine cell exactly once, in world row-major order.
+            for (var index = 0; index < cap.fine.Length; index++)
+            {
+                var x = cap.GridOriginX + index % cap.Width * TerrainTile.NearSpacingCells;
+                var z = cap.GridOriginZ + index / cap.Width * TerrainTile.NearSpacingCells;
+                var value = cap.fine[index];
+                if (finishCell is not null) value = finishCell(x, z, value, globalMinimum);
+                cap.fine[index] = value;
+                var coarseIndex = (z - cap.coarseZ) / TerrainTile.FarSpacingCells * cap.coarseWidth + (x - cap.coarseX) / TerrainTile.FarSpacingCells;
+                cap.coarse[coarseIndex] = Math.Min(cap.coarse[coarseIndex], value);
+                if (index == cap.fine.Length - 1) result = cap;
+                yield return 1;
+            }
         }
     }
 }

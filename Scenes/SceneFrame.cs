@@ -331,9 +331,10 @@ internal sealed class SceneFrame : ISceneFrame
         return segments.Any(segment => segment.Index == index)
             ? new Lookup<WorldLocation>.Found(new WorldLocation.Edge(railway.Edge.Id, distance / RailwayCoordinates.CellsPerMeter)) : new Lookup<WorldLocation>.Missing();
     }
-    public double? DisplayTerrainHeight(double x, double z) =>
-        TerrainHeight(x, z) is Lookup<double>.Found found ? found.Value :
-            farTerrain?.Height(new(x + Origin.X, 0, z + Origin.Z)) - Origin.Y;
+    public Lookup<double> DisplayTerrainHeight(double x, double z) =>
+        TerrainHeight(x, z) is Lookup<double>.Found found ? found :
+            farTerrain?.Height(new(x + Origin.X, 0, z + Origin.Z)) is { } height
+                ? new Lookup<double>.Found(height - Origin.Y) : new Lookup<double>.Missing();
 
     public Lookup<double> TerrainHeight(double x, double z)
     {

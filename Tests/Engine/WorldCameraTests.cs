@@ -592,7 +592,7 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
         NodePanBounds = bounds,
         Poses = poses ?? ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty,
         TerrainHeightResult = height ?? new Lookup<double>.Missing(),
-        DisplayTerrainHeightResult = displayHeight,
+        DisplayTerrainHeightResult = displayHeight is { } value ? new Lookup<double>.Found(value) : null,
         PickResult = pick ?? new ScenePick.Miss(),
         Picks = picks ?? ImmutableDictionary<SceneRay, ScenePick>.Empty
     };

@@ -60,17 +60,18 @@ public sealed class FrameDisplayScenarioTests
                 .Add((1, 2), new Lookup<double>.Found(7)),
             TerrainHeightResult = new Lookup<double>.Missing()
         };
-        Assert.AreEqual((double?)7, frame.DisplayTerrainHeight(1, 2));
-        Assert.IsNull(frame.DisplayTerrainHeight(3, 4));
+        Assert.AreEqual(new Lookup<double>.Found(7), frame.DisplayTerrainHeight(1, 2));
+        Assert.IsInstanceOfType<Lookup<double>.Missing>(frame.DisplayTerrainHeight(3, 4));
         FrameDisplayScenario.AssertPreciseDisplayHeight(frame, 1, 2);
         var distant = new FixedSceneFrame
         {
             Update = frame.Update, Heights = frame.Heights,
-            TerrainHeightResult = new Lookup<double>.Missing(), DisplayTerrainHeightResult = 42
+            TerrainHeightResult = new Lookup<double>.Missing(), DisplayTerrainHeightResult = new Lookup<double>.Found(42)
         };
-        Assert.AreEqual((double?)7, distant.DisplayTerrainHeight(1, 2));
-        Assert.AreEqual((double?)42, distant.DisplayTerrainHeight(3, 4));
-        FrameDisplayScenario.AssertPreciseDisplayHeight(frame, 3, 4);
+        Assert.AreEqual(new Lookup<double>.Found(7), distant.DisplayTerrainHeight(1, 2));
+        Assert.AreEqual(new Lookup<double>.Found(42), distant.DisplayTerrainHeight(3, 4));
+        Assert.IsInstanceOfType<Lookup<double>.Missing>(distant.TerrainHeight(3, 4));
+        FrameDisplayScenario.AssertPreciseDisplayHeight(distant, 1, 2);
     }
 
     [TestMethod]

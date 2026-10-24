@@ -1065,7 +1065,7 @@ Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePoint Orig
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneReadiness Readiness { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneUpdate Update { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|double SimulationSeconds { get; }
-Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|double? DisplayTerrainHeight(double x, double z);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<double> DisplayTerrainHeight(double x, double z);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneStreamingCoverage|ImmutableArray<SceneStreamingPartId> FindTerrainParts(double x, double z);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneStreamingObserver|void OnEvent(SceneStreamingEvent value);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial);

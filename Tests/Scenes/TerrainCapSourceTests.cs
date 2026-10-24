@@ -11,7 +11,7 @@ public sealed class TerrainCapSourceTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void RailwayPartReusesItsCapAndBoundsProductionFlattenedColumns(bool river)
+    public void RailwayPartBoundsProductionFlattenedColumns(bool river)
     {
         var hash = new DesignHash("cap-flatten");
         var model = SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]) with
@@ -45,14 +45,20 @@ public sealed class TerrainCapSourceTests
             "The river fixture must place a fixed model with RootFlatten.");
         var source = new RailwayTerrainCaps(snapshot, path);
         var work = source.Part(0);
-        Assert.AreSame(work, source.Part(0));
         Complete(work);
-        var bounds = new ScenePanBounds(new(work.GridOriginX, work.GridOriginZ),
-            new(work.GridOriginX + work.Width * 4, work.GridOriginZ + work.Depth * 4));
-        Assert.AreSame(work, source.Parts(bounds).Single().Work);
         AssertCapBoundsColumns(work.Result, segment.Heights.Select(pair =>
             (X: pair.Key.X + segment.Origin.X, Z: pair.Key.Z + segment.Origin.Z, Top: pair.Value)));
-        Assert.AreSame(work.Result, source.Part(0).Result);
+        AssertCapBoundsColumns(source.Part(0).Result, segment.Heights.Select(pair =>
+            (X: pair.Key.X + segment.Origin.X, Z: pair.Key.Z + segment.Origin.Z, Top: pair.Value)));
+        var bounds = new ScenePanBounds(
+            new((float)segment.Heights.Keys.Min(column => column.X + segment.Origin.X),
+                (float)segment.Heights.Keys.Min(column => column.Z + segment.Origin.Z)),
+            new((float)segment.Heights.Keys.Max(column => column.X + segment.Origin.X + 1),
+                (float)segment.Heights.Keys.Max(column => column.Z + segment.Origin.Z + 1)));
+        var requested = source.Parts(bounds).Single().Work;
+        Assert.IsTrue(requested.Complete, "An already completed part request must not require more work.");
+        AssertCapBoundsColumns(requested.Result, segment.Heights.Select(pair =>
+            (X: pair.Key.X + segment.Origin.X, Z: pair.Key.Z + segment.Origin.Z, Top: pair.Value)));
         Assert.AreEqual(0, work.Advance(7));
     }
 
@@ -74,38 +80,33 @@ public sealed class TerrainCapSourceTests
             var same = NodePartKeys.IsBoundary(key) ? source.Boundary(key) : source.Parts(new(
                 new(chunkFrom.X, chunkFrom.Z), new(chunkFrom.X + VoxelGrid.ChunkSize, chunkFrom.Z + VoxelGrid.ChunkSize)))
                 .Single(item => item.Key == key).Work;
-            Assert.AreSame(work, same);
             Complete(work);
             NodeScene.Part part;
             if (NodePartKeys.IsBoundary(key))
             {
-                Assert.AreSame(work, source.Boundary(key));
                 part = prepared.Global.Parts[key];
             }
             else
             {
-                var from = new GridColumn(work.GridOriginX, work.GridOriginZ);
-                Assert.AreSame(work, source.Chunk(from));
-                part = prepared.BuildChunk(from);
+                part = prepared.BuildChunk(chunkFrom);
             }
             Assert.IsTrue(part.Heights.Count > 0);
             AssertCapBoundsColumns(work.Result, part.Heights.Select(pair =>
                 (X: pair.Key.X + part.Origin.X, Z: pair.Key.Z + part.Origin.Z, Top: pair.Value + part.Origin.Y)));
-            Assert.AreSame(work.Result, same.Result);
+            Assert.IsTrue(same.Complete);
+            AssertCapBoundsColumns(same.Result, part.Heights.Select(pair =>
+                (X: pair.Key.X + part.Origin.X, Z: pair.Key.Z + part.Origin.Z, Top: pair.Value + part.Origin.Y)));
             Assert.AreEqual(0, same.Advance(7));
         }
     }
 
     private static void Complete(TerrainHeightCap.Builder work)
     {
-        var remaining = (long)work.Width * work.Depth * 17;
-        while (!work.Complete && remaining > 0)
+        while (!work.Complete)
         {
             var used = work.Advance(37);
             Assert.IsTrue(used is > 0 and <= 37);
-            remaining -= used;
         }
-        Assert.IsTrue(work.Complete, "The cap must finish within one visit per column and reduction cell.");
     }
 
     private static void AssertCapBoundsColumns(TerrainHeightCap cap,

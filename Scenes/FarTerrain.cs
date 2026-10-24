@@ -45,11 +45,11 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     private HashSet<(int X, int Z)> fineParents = [];
     private HashSet<(int X, int Z)> prefetchParents = [];
     private Saved saved = new();
-    private Func<ScenePanBounds, IEnumerable<(string Key, TerrainHeightCap.Builder Work)>>? parts;
-    private Func<ScenePoint, double>? height;
-    private Func<bool>? initialize;
-    private SceneMaterial material = new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper);
-    private int textureSpan = 1;
+    private sealed record Source(Func<ScenePoint, double> Height,
+        Func<ScenePanBounds, IEnumerable<(string Key, TerrainHeightCap.Builder Work)>> Parts,
+        SceneMaterial Material, int TextureSpan);
+    private Source? source;
+    private Func<Source>? initialize;
     private string owner = "", generation = "";
     private object? bound;
     private ContentGeneration content;
@@ -59,21 +59,12 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     internal bool HasPendingWork { get { lock (gate) return initialize is not null || NextMissing() is not null; } }
     internal bool HasRunnableWork { get { lock (gate) return initialize is not null || NextMissing(fineBuildAllowed) is not null; } }
     internal void SetFineBuildAllowed(bool allowed) { lock (gate) fineBuildAllowed = allowed; }
-    internal bool HasPendingCoarse
-    {
-        get
-        {
-            lock (gate)
-                foreach (var key in wanted)
-                    if (key.Spacing == 32 && !saved.Tiles.ContainsKey(key)) return true;
-            return false;
-        }
-    }
+    internal bool HasPendingCoarse { get { lock (gate) return NextMissing(false) is not null; } }
 
     private TileKey? NextMissing(bool includeFine = true)
     {
         foreach (var key in wanted)
-            if ((includeFine || key.Spacing == 32) && !saved.Tiles.ContainsKey(key)) return key;
+            if ((includeFine || key.Spacing == TerrainTile.FarSpacingCells) && !saved.Tiles.ContainsKey(key)) return key;
         return null;
     }
 
@@ -87,20 +78,16 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                 edge.Tracks, edge.TrackLimit, edge.Terrain, path.Start.Position, path.End.Position,
                 path.Start.Terrain, path.End.Terrain, path.Rules,
                 edge.Breaks.OrderBy(item => item.Id.Value).ThenBy(item => item.Track).Select(item => new object[] { item.Id, item.Track, item.DistanceMeters }).ToArray(),
-                edge.Works.Where(RailwayCoordinates.IsBreakRepair).OrderBy(item => item.Id.Value).Select(item => new object?[] { item.Id, item.Track, item.RepairingBreak }).ToArray(),
+                RailwayScene.RepairIdentity(edge),
                 NodeLayout.ReadInputs(snapshot, path.Start.Id), NodeLayout.ReadInputs(snapshot, path.End.Id), snapshot.Content.Generation });
             bound = path; content = snapshot.Content.Generation;
             if (!Reset("edge:" + edge.Id.Value, key)) return;
+            var capCache = saved.Caps;
             initialize = () =>
             {
-                var appearances = new Dictionary<TerrainTypeId, TerrainAppearanceProjection?>();
-                foreach (var id in new[] { edge.Terrain.TypeId, path.Start.Terrain.TypeId, path.End.Terrain.TypeId })
-                    appearances[id] = (snapshot.Content.FindTerrain(id) as ContentLookup<TerrainAppearanceProjection>.Found)?.Value;
-                var surface = new TerrainSurface.Railway(path, id => appearances[id]);
-                var source = new RailwayTerrainCaps(snapshot, path, SavedCap);
-                height = surface.FarHeight; parts = source.Parts;
-                Appearance(snapshot.Content, appearances[edge.Terrain.TypeId]);
-                return true;
+                var caps = new RailwayTerrainCaps(snapshot, path, key => capCache.GetValueOrDefault(key));
+                var (material, span) = Appearance(snapshot.Content, caps.Terrain);
+                return new(caps.Height, caps.Parts, material, span);
             };
         }
     }
@@ -116,21 +103,12 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                 prepared.Snapshot.Content.Generation });
             bound = prepared; content = prepared.Snapshot.Content.Generation;
             if (!Reset("node:" + prepared.Global.Layout.Node.Value, key)) return;
+            var capCache = saved.Caps;
             initialize = () =>
             {
-                var source = new NodeTerrainCaps(prepared, SavedCap);
-                var node = prepared.Snapshot.Core.World.Nodes.Single(item => item.Id == prepared.Global.Layout.Node);
-                parts = source.Parts;
-                height = point =>
-                {
-                    var column = new GridColumn((int)Math.Floor(point.X), (int)Math.Floor(point.Z));
-                    var size = VoxelGrid.ChunkSize;
-                    var chunk = new GridColumn((int)Math.Floor(point.X / size) * size, (int)Math.Floor(point.Z / size) * size);
-                    var bed = prepared.BedChunks.GetValueOrDefault(chunk)?.GetValueOrDefault(column);
-                    return TerrainSurface.NodeHeight(prepared.Snapshot, node, prepared.Global.Layout, point, bed, prepared.Terrain);
-                };
-                Appearance(prepared.Snapshot.Content, prepared.Terrain);
-                return true;
+                var caps = new NodeTerrainCaps(prepared, key => capCache.GetValueOrDefault(key));
+                var (material, span) = Appearance(prepared.Snapshot.Content, prepared.Terrain);
+                return new(caps.Height, caps.Parts, material, span);
             };
         }
     }
@@ -138,21 +116,20 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     private bool Reset(string nextOwner, string nextGeneration)
     {
         if (owner == nextOwner && generation == nextGeneration) return false;
-        foreach (var job in jobs.Values) job.Parts?.Dispose();
+        foreach (var job in jobs.Values) if (!job.Processing) job.Parts?.Dispose();
         owner = nextOwner; generation = nextGeneration;
         saved = cache.Get(owner, generation);
         jobs.Clear(); wanted.Clear(); visibleParents.Clear(); fineParents.Clear(); prefetchParents.Clear(); objects.Clear();
-        view = new([]); parts = null; height = null;
+        view = new([]); source = null; initialize = null;
         return true;
     }
 
-    private TerrainHeightCap? SavedCap(string part) => saved.Caps.GetValueOrDefault(part);
-    private void Appearance(IContentView contentView, TerrainAppearanceProjection? terrain)
+    private static (SceneMaterial Material, int Span) Appearance(IContentView contentView, TerrainAppearanceProjection? terrain)
     {
-        material = new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper); textureSpan = 1;
         if (terrain is not null && contentView.FindVoxelAppearance(terrain.SurfaceVoxel) is ContentLookup<VoxelAppearanceProjection>.Found found &&
             found.Value.Presentation is VoxelPresentation.Cube cube)
-        { material = new SceneMaterial.Voxel(cube.Top, cube.Material, null); textureSpan = cube.TileSpan; }
+            return (new SceneMaterial.Voxel(cube.Top, cube.Material, null), cube.TileSpan);
+        return (new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper), 1);
     }
 
     internal void Demand(ScenePoint focus, double radius, ScenePanBounds? wholeDomain = null, IReadOnlyList<ScenePoint>? ahead = null)
@@ -167,26 +144,28 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
             else
                 AddSweep(nextVisible, radius);
             var nextFine = new HashSet<(int X, int Z)>();
-            AddParents(nextFine, focus.X - 512, focus.Z - 512, focus.X + 512, focus.Z + 512);
+            AddParents(nextFine, focus.X - TerrainTile.ParentCells / 2, focus.Z - TerrainTile.ParentCells / 2, focus.X + TerrainTile.ParentCells / 2, focus.Z + TerrainTile.ParentCells / 2);
             var prefetch = new HashSet<(int X, int Z)>();
-            if (ahead is not null) AddSweep(prefetch, 512);
+            if (ahead is not null) AddSweep(prefetch, TerrainTile.ParentCells / 2);
             if (visibleParents.SetEquals(nextVisible) && fineParents.SetEquals(nextFine) && prefetchParents.SetEquals(prefetch))
             { Publish(); return; }
             visibleParents = nextVisible; fineParents = nextFine; prefetchParents = prefetch;
             wanted = [];
-            foreach (var parent in visibleParents.OrderBy(p => Distance(p, focus))) wanted.Add(Key(parent.X, parent.Z, 32));
+            foreach (var parent in visibleParents.OrderBy(p => Distance(p, focus))) wanted.Add(Key(parent.X, parent.Z, TerrainTile.FarSpacingCells));
             AddFine(fineParents.OrderBy(p => Distance(p, focus)));
             AddFine(prefetch.Except(fineParents).OrderBy(p => Distance(p, focus)));
             var required = wanted.ToHashSet();
             foreach (var key in jobs.Keys.Where(key => !required.Contains(key)).ToArray())
-            { jobs[key].Parts?.Dispose(); jobs.Remove(key); }
+            { if (!jobs[key].Processing) jobs[key].Parts?.Dispose(); jobs.Remove(key); }
+            foreach (var key in saved.Tiles.Keys.Where(key => !required.Contains(key))) saved.Tiles.TryRemove(key, out _);
+            foreach (var tile in objects.Keys.Where(tile => !required.Contains(Key((int)tile.Origin.X, (int)tile.Origin.Z, tile.SpacingCells))).ToArray()) objects.Remove(tile);
             Publish();
         }
         void AddFine(IEnumerable<(int X, int Z)> parents)
         {
             foreach (var parent in parents)
             for (var z = 0; z < 4; z++) for (var x = 0; x < 4; x++)
-                wanted.Add(Key(parent.X + x * 256, parent.Z + z * 256, 4));
+                wanted.Add(Key(parent.X + x * (TerrainTile.ParentCells / 4), parent.Z + z * (TerrainTile.ParentCells / 4), TerrainTile.NearSpacingCells));
         }
         void AddSweep(HashSet<(int X, int Z)> parents, double extent)
         {
@@ -201,64 +180,96 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         }
     }
 
-    private static double Distance((int X, int Z) p, ScenePoint focus) => Math.Abs(p.X + 512 - focus.X) + Math.Abs(p.Z + 512 - focus.Z);
+    private static double Distance((int X, int Z) p, ScenePoint focus) => Math.Abs(p.X + TerrainTile.ParentCells / 2 - focus.X) + Math.Abs(p.Z + TerrainTile.ParentCells / 2 - focus.Z);
     private static void AddParents(HashSet<(int X, int Z)> result, double x0, double z0, double x1, double z1)
     {
-        for (var z = (int)Math.Floor(z0 / 1024) * 1024; z < z1; z += 1024)
-        for (var x = (int)Math.Floor(x0 / 1024) * 1024; x < x1; x += 1024) result.Add((x, z));
+        for (var z = (int)Math.Floor(z0 / TerrainTile.ParentCells) * TerrainTile.ParentCells; z < z1; z += TerrainTile.ParentCells)
+        for (var x = (int)Math.Floor(x0 / TerrainTile.ParentCells) * TerrainTile.ParentCells; x < x1; x += TerrainTile.ParentCells) result.Add((x, z));
     }
     private static TileKey Key(int x, int z, int spacing) => new(x, z, spacing);
 
     internal bool Advance(int budget, CancellationToken token)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(budget);
-        while (budget > 0)
+        token.ThrowIfCancellationRequested();
+        Func<Source>? prepare;
+        lock (gate) prepare = initialize;
+        if (prepare is not null)
         {
+            var ready = prepare();
+            lock (gate)
+                if (ReferenceEquals(initialize, prepare)) { source = ready; initialize = null; }
+            return false;
+        }
+        Job job;
+        TileKey key;
+        Source input;
+        Saved target;
+        lock (gate)
+        {
+            if (NextMissing(fineBuildAllowed) is not { } next) return true;
+            key = next;
+            if (!jobs.TryGetValue(key, out job!)) jobs[key] = job = new();
+            job.Processing = true;
+            input = source!;
+            target = saved;
+        }
+        try
+        {
+            AdvanceJob(job, key, input, target, budget, token);
             token.ThrowIfCancellationRequested();
             lock (gate)
             {
-                // Initialization runs in the worker slot, just like cap and mesh work.
-                if (initialize is not null) { initialize(); initialize = null; budget--; continue; }
-                var candidate = NextMissing(fineBuildAllowed);
-                if (candidate is not { } key) return true;
-                if (!jobs.TryGetValue(key, out var job))
-                { jobs[key] = new(); budget--; continue; }
-                var unit = Math.Min(128, budget);
-                var remaining = unit;
-                var size = key.Spacing == 32 ? 1024 : 256;
-                while (remaining > 0)
-                {
-                    token.ThrowIfCancellationRequested();
-                    if (job.Parts is null)
-                    {
-                        var margin = TerrainTile.ColumnMarginCells;
-                        job.Parts = parts!(new(new(key.X - margin, key.Z - margin), new(key.X + size + margin, key.Z + size + margin))).GetEnumerator();
-                        remaining--; continue;
-                    }
-                    if (!job.PartsComplete)
-                    {
-                        if (job.Current is null)
-                        {
-                            if (!job.Parts.MoveNext()) { job.PartsComplete = true; job.Parts.Dispose(); }
-                            else { job.Current = job.Parts.Current.Work; job.PartKey = job.Parts.Current.Key; }
-                            remaining--; continue;
-                        }
-                        if (!job.Current.Complete)
-                        { remaining -= job.Current.Advance(remaining, token); continue; }
-                        saved.Caps[job.PartKey!] = job.Current.Result;
-                        job.Caps.Add(job.Current.Result); job.Current = null;
-                        remaining--; continue;
-                    }
-                    if (job.Tile is null)
-                    { job.Tile = TerrainTile.Begin(new(key.X, 0, key.Z), size, key.Spacing, height!, material, textureSpan, job.Caps); remaining--; continue; }
-                    remaining -= job.Tile.Advance(remaining, token);
-                    if (job.Tile.Complete)
-                    { saved.Tiles[key] = job.Tile.Result; jobs.Remove(key); Publish(); break; }
-                }
-                budget -= unit - remaining;
+                token.ThrowIfCancellationRequested();
+                if (ReferenceEquals(saved, target) && jobs.TryGetValue(key, out var current) && ReferenceEquals(current, job) && job.Tile?.Complete == true)
+                { saved.Tiles[key] = job.Tile.Result; jobs.Remove(key); Publish(); }
+            }
+        }
+        finally
+        {
+            lock (gate)
+            {
+                job.Processing = false;
+                if (!jobs.TryGetValue(key, out var current) || !ReferenceEquals(current, job)) job.Parts?.Dispose();
             }
         }
         return !HasRunnableWork;
+    }
+
+    // The scene owns one worker. Main-thread demand and frame reads never wait for a work unit.
+    private static void AdvanceJob(Job job, TileKey key, Source input, Saved target, int budget, CancellationToken token)
+    {
+        var size = key.Spacing == TerrainTile.FarSpacingCells ? TerrainTile.ParentCells : TerrainTile.ParentCells / 4;
+        while (budget > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            if (job.Parts is null)
+            {
+                var margin = TerrainTile.ColumnMarginCells;
+                job.Parts = input.Parts(new(new(key.X - margin, key.Z - margin), new(key.X + size + margin, key.Z + size + margin))).GetEnumerator();
+                budget--; continue;
+            }
+            if (!job.PartsComplete)
+            {
+                if (job.Current is null)
+                {
+                    if (!job.Parts.MoveNext()) { job.PartsComplete = true; job.Parts.Dispose(); }
+                    else { job.Current = job.Parts.Current.Work; job.PartKey = job.Parts.Current.Key; }
+                    budget--; continue;
+                }
+                if (!job.Current.Complete) { budget -= job.Current.Advance(budget, token); continue; }
+                target.Caps[job.PartKey!] = job.Current.Result;
+                job.Caps.Add(job.Current.Result); job.Current = null;
+                budget--; continue;
+            }
+            if (job.Tile is null)
+            {
+                job.Tile = TerrainTile.Begin(new(key.X, 0, key.Z), size, key.Spacing, input.Height, input.Material, input.TextureSpan, job.Caps);
+                budget--; continue;
+            }
+            budget -= job.Tile.Advance(budget, token);
+            if (job.Tile.Complete) return;
+        }
     }
 
     private void Publish()
@@ -269,9 +280,9 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
             var fine = new List<TerrainTile>(16);
             if (fineParents.Contains(parent))
                 for (var z = 0; z < 4; z++) for (var x = 0; x < 4; x++)
-                    if (saved.Tiles.TryGetValue(Key(parent.X + x * 256, parent.Z + z * 256, 4), out var tile)) fine.Add(tile);
+                    if (saved.Tiles.TryGetValue(Key(parent.X + x * (TerrainTile.ParentCells / 4), parent.Z + z * (TerrainTile.ParentCells / 4), TerrainTile.NearSpacingCells), out var tile)) fine.Add(tile);
             if (fine.Count == 16) selected.AddRange(fine);
-            else if (saved.Tiles.TryGetValue(Key(parent.X, parent.Z, 32), out var coarse)) selected.Add(coarse);
+            else if (saved.Tiles.TryGetValue(Key(parent.X, parent.Z, TerrainTile.FarSpacingCells), out var coarse)) selected.Add(coarse);
         }
         var tiles = selected.ToImmutable();
         if (!view.Tiles.SequenceEqual(tiles)) view = new(tiles);
@@ -299,6 +310,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
 
     private sealed class Job
     {
+        internal bool Processing;
         internal IEnumerator<(string Key, TerrainHeightCap.Builder Work)>? Parts;
         internal bool PartsComplete;
         internal TerrainHeightCap.Builder? Current;

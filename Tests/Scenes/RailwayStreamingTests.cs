@@ -123,18 +123,29 @@ public sealed class RailwayStreamingTests
             Assert.AreEqual(1, currentFar.Length);
 
             Volatile.Write(ref moved, true);
-            // The real far unit holds FarTerrain's lock, so Pump can wait in PumpFar
-            // after it has already demanded and scheduled the new L0 range.
+            // Block a real far initialization unit while the new L0 demand takes the remaining slot.
             movingPump = Task.Run(() => scene.Pump(snapshot, newLocation));
             await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await movingPump.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsFalse(content.Release.Task.IsCompleted,
+                "Demand must return while the real far initialization is still blocked.");
+            var farTerrain = (FarTerrain)typeof(RailwayScene).GetField("farTerrain",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(scene)!;
+            await Task.Run(() =>
+            {
+                var view = farTerrain.View;
+                var objects = farTerrain.Objects(default, _ => throw new AssertFailedException(
+                    "Blocked initialization cannot have published a tile."), view);
+                Assert.IsTrue(view.Tiles.IsEmpty);
+                Assert.IsTrue(objects.IsEmpty);
+            }).WaitAsync(TimeSpan.FromSeconds(10));
             Assert.AreEqual(1, Volatile.Read(ref newBuilds));
             content.Release.TrySetResult();
             await Task.WhenAll(currentFar).WaitAsync(TimeSpan.FromSeconds(10));
-            await movingPump.WaitAsync(TimeSpan.FromSeconds(10));
 
-            Assert.AreEqual(0, scene.PendingFarWork.Length,
+            Assert.IsTrue(scene.PendingFarWork.All(task => task.IsCompleted),
                 "Waiting L0 must prevent another far unit from taking the released slot.");
-            Assert.IsTrue(scene.HasPendingFarTerrain,
+            Assert.IsTrue(farTerrain.HasPendingWork,
                 "The worker must yield while real far terrain still needs work.");
             Assert.AreEqual(1, Volatile.Read(ref newBuilds));
             var queuedBefore = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()

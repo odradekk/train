@@ -238,14 +238,12 @@ internal sealed class NodeScene : IAsyncDisposable
     private NodeCorridor? indexedCorridor;
     private Preparation? indexedPreparation;
     private readonly HashSet<GridColumn> terrainChunks = [];
-    private readonly SortedSet<GridColumn> corridorTerrainX = new(Comparer<GridColumn>.Create((a, b) =>
-        a.X != b.X ? a.X.CompareTo(b.X) : a.Z.CompareTo(b.Z)));
-    private readonly SortedSet<GridColumn> corridorTerrainZ = new(Comparer<GridColumn>.Create((a, b) =>
-        a.Z != b.Z ? a.Z.CompareTo(b.Z) : a.X.CompareTo(b.X)));
     private readonly Dictionary<int, ImmutableArray<SceneBounds>> terrainFogRows = [];
     private readonly HashSet<int> dirtyTerrainRows = [];
     private (int Left, int Right, int Back, int Front)? terrainFogWindow;
     private ScenePoint? terrainFogOrigin;
+    private FarTerrainView? terrainFogFarView, railFogFarView;
+    private (int Left, int Right, int Back, int Front) terrainFogRequired;
     private ImmutableArray<SceneFog> cachedTerrainFog = [];
     private readonly Dictionary<string, Part> rails = [];
     private readonly Dictionary<GridColumn, HashSet<string>> builtRailsByChunk = [];
@@ -259,9 +257,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Dictionary<string, CompletedPart> completedParts = [];
     private readonly object workGate = new();
     private readonly FarTerrain farTerrain;
-    private readonly FarTerrainQueue farBuilds;
+    private readonly FarTerrainWorker farBuilds;
     private double terrainViewRadiusCells;
-    private bool farBuildAllowed = true;
     private HashSet<SceneObjectId> candidateFarObjects = [];
     private Queue<(string Key, SceneBounds Bounds, GridColumn? Chunk)> waitingParts = [];
     private readonly Dictionary<string, PartWork> pendingParts = [];
@@ -329,19 +326,12 @@ internal sealed class NodeScene : IAsyncDisposable
         }
     }
     internal bool Failed => failure is not null;
-    internal Task[] PendingFarWork => farBuilds.PendingWork.ToArray();
-    internal bool HasPendingFarTerrain => terrainViewRadiusCells > 0 && (prepared is null || farTerrain.HasPendingWork);
+    internal Task[] PendingFarWork => farBuilds.PendingWork is { IsCompleted: false } work ? [work] : [];
     internal bool HasPendingCoarseTerrain => terrainViewRadiusCells > 0 && (prepared is null || farTerrain.HasPendingCoarse);
     internal void SetTerrainViewRadius(double radius) { if (radius > 0) terrainViewRadiusCells = radius; }
     internal void SetFineTerrainBuildAllowed(bool allowed) => farTerrain.SetFineBuildAllowed(allowed);
-    internal void SetFarBuildAllowed(bool allowed)
-    {
-        lock (workGate)
-        {
-            farBuildAllowed = allowed;
-            if (!allowed) farBuilds.PauseForL0(true);
-        }
-    }
+    internal void SetFarBuildAllowed(bool allowed) => farBuilds.SetEnabled(allowed);
+
     internal bool HasPendingBuilds
     {
         get
@@ -356,7 +346,7 @@ internal sealed class NodeScene : IAsyncDisposable
         lock (workGate)
         {
             buildAllowed = allowed;
-            if (!allowed) farBuilds.PauseForL0(true);
+            if (!allowed) farBuilds.Pause();
         }
     }
 
@@ -374,7 +364,7 @@ internal sealed class NodeScene : IAsyncDisposable
         this.vehicles = vehicles;
         this.displayRate = displayRate;
         farTerrain = new(farCache ?? new());
-        farBuilds = new(128, () =>
+        farBuilds = new(farTerrain.Advance, () =>
         {
             lock (workGate)
                 if (!cancellation.IsCancellationRequested) StartParts();
@@ -501,7 +491,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private void PumpFar()
     {
         if (terrainViewRadiusCells <= 0 || prepared is null || layout is null) return;
-        farBuilds.PauseForL0(true);
+        farBuilds.Pause();
         farTerrain.BindNode(prepared);
         var domain = layout.PanBounds(default);
         var minimum = Vector2.Min(domain.Minimum, new((float)range.Focus.X, (float)range.Focus.Z));
@@ -513,7 +503,6 @@ internal sealed class NodeScene : IAsyncDisposable
                 maximum = Vector2.Max(maximum, new((float)point.X, (float)point.Z));
             }
         farTerrain.Demand(range.Focus, terrainViewRadiusCells, new(minimum, maximum), followedPath?.Priority);
-        if (farTerrain.HasRunnableWork) farBuilds.Enqueue("terrain", farTerrain.Advance);
         StartParts();
         if (farBuilds.Failure is { } error) Fail(new RailwayBuildException(error.Message));
     }
@@ -540,11 +529,6 @@ internal sealed class NodeScene : IAsyncDisposable
         corridorPlatforms = platforms;
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
         corridor = new(currentLayout, dimensions, position, train.LengthMeters * RailwayCoordinates.CellsPerMeter, platforms);
-        corridorTerrainX.Clear();
-        corridorTerrainZ.Clear();
-        foreach (var from in chunks.Keys)
-            if (InCorridor(ChunkKey(from), ChunkBounds(from)))
-            { corridorTerrainX.Add(from); corridorTerrainZ.Add(from); }
     }
 
     private void UpdatePrefetch(WorldSceneTarget? target, FollowedPath? following)
@@ -712,11 +696,11 @@ internal sealed class NodeScene : IAsyncDisposable
             terrainChunks.Add(from);
             unbuiltCorridorChunks.Remove(from);
             if (InCorridor(ChunkKey(from), ChunkBounds(from)))
-            { corridorTerrainX.Add(from); corridorTerrainZ.Add(from); peripheralChunks.Remove(from); }
+            { peripheralChunks.Remove(from); }
             else peripheralChunks.Add(from);
         }
         else
-        { terrainChunks.Remove(from); corridorTerrainX.Remove(from); corridorTerrainZ.Remove(from); peripheralChunks.Remove(from); }
+        { terrainChunks.Remove(from); peripheralChunks.Remove(from); }
         dirtyTerrainRows.Add(from.Z);
         railFogDirty = true;
     }
@@ -1021,7 +1005,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private void StartParts()
     {
         if (cancellation.IsCancellationRequested) return;
-        farBuilds.PauseForL0(true);
+        farBuilds.Pause();
         if (!buildAllowed || failure is not null || pendingParts.Values.Any(work => work.Task.IsFaulted)) return;
         while (waitingParts.Count > 0 && pendingParts.Values.Count(work => !work.Task.IsCompleted) +
             retiring.Count(work => !work.Task.IsCompleted) + farBuilds.RunningCount < RailwayCoordinates.MaxConcurrentBuilds)
@@ -1038,8 +1022,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 TaskContinuationOptions.None, TaskScheduler.Default);
         }
         var occupied = pendingParts.Values.Count(work => !work.Task.IsCompleted) + retiring.Count(work => !work.Task.IsCompleted);
-        var free = Math.Max(0, RailwayCoordinates.MaxConcurrentBuilds - occupied - farBuilds.RunningCount);
-        farBuilds.Pump(Math.Min(free, Math.Max(0, 1 - farBuilds.RunningCount)), waitingParts.Count > 0 || !farBuildAllowed);
+        farBuilds.Pump(occupied, waitingParts.Count == 0 && farTerrain.HasRunnableWork);
     }
     private void Fail(RailwayBuildException error)
     {
@@ -1049,8 +1032,6 @@ internal sealed class NodeScene : IAsyncDisposable
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneFrameRequest request, SceneFrameStamp stamp,
         SceneFrame? displayed, ScenePoint origin, WorldSceneTarget? target = null, SceneWorldSnapshot? previous = null)
     {
-        if (request.Camera is { } cameraSample && cameraSample.Frame.Update.Frame.Session == stamp.Session &&
-            cameraSample.Frame.Update.Frame.Space == stamp.Space) SetTerrainViewRadius(cameraSample.TerrainViewRadiusCells);
         if (admissionFrame is { } offered && displayed?.Update.Frame is { } shown &&
             shown.Session == offered.Session && shown.Request == offered.Request && shown.Space == offered.Space &&
             shown.Revision >= offered.Revision)
@@ -1211,7 +1192,9 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         if (prepared is null) return [];
         bool NeedsFog(RailSegment segment) => !rails.ContainsKey(segment.Key) &&
-            (range.Intersects(segment.Bounds) || NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks));
+            (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) ||
+                NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks) || !farTerrain.View.Covers(segment.Bounds));
+        if (!ReferenceEquals(railFogFarView, farTerrain.View)) { railFogDirty = true; railFogFarView = farTerrain.View; }
         if (railFogDirty || railFogRange != range)
         {
             var count = 0;
@@ -1256,6 +1239,15 @@ internal sealed class NodeScene : IAsyncDisposable
         var right = Math.Max(retained.Right, ahead.Right);
         var back = Math.Min(retained.Back, ahead.Back);
         var front = Math.Max(retained.Front, ahead.Front);
+        var required = (Left: left, Right: right, Back: back, Front: front);
+        var farView = farTerrain.View;
+        left = (int)layout!.Bounds.Minimum.X; right = (int)layout.Bounds.Maximum.X;
+        back = (int)layout.Bounds.Minimum.Y; front = (int)layout.Bounds.Maximum.Y;
+        if (!ReferenceEquals(terrainFogFarView, farView) || terrainFogRequired != required)
+        {
+            for (var z = back; z < front; z += VoxelGrid.ChunkSize) dirtyTerrainRows.Add(z);
+            terrainFogFarView = farView; terrainFogRequired = required;
+        }
         if (prepared is null)
         { Add(left, right, back, front); return; }
         if (terrainFogWindow == (left, right, back, front) && dirtyTerrainRows.Count == 0 && terrainFogOrigin == origin)
@@ -1280,7 +1272,9 @@ internal sealed class NodeScene : IAsyncDisposable
             int? start = null;
             for (var x = left; x < right; x += VoxelGrid.ChunkSize)
             {
-                if (!terrainChunks.Contains(new(x, z))) start ??= x;
+                var inWindow = x >= required.Left && x < required.Right && z >= required.Back && z < required.Front;
+                var hasFar = !inWindow && farView.Height(new(x + VoxelGrid.ChunkSize / 2, 0, z + VoxelGrid.ChunkSize / 2)) is not null;
+                if (!terrainChunks.Contains(new(x, z)) && !hasFar) start ??= x;
                 else if (start is { } begin) { Missing(begin, x); start = null; }
             }
             if (start is { } last) Missing(last, right);
