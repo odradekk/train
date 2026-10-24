@@ -22,7 +22,8 @@ function Invoke-HiddenProcess {
         [string] $FilePath,
         [string[]] $ArgumentList = @(),
         [ValidateRange(0, 2147478)]
-        [int] $TimeoutSeconds = 0
+        [int] $TimeoutSeconds = 0,
+        [string] $WorkingDirectory
     )
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -31,6 +32,7 @@ function Invoke-HiddenProcess {
     $psi.RedirectStandardError = $true
     $psi.CreateNoWindow = $true
     $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.WorkingDirectory = $WorkingDirectory
 
     $args = ConvertTo-HiddenProcessArgumentString -ArgumentList $ArgumentList
     $extension = [System.IO.Path]::GetExtension($FilePath)
