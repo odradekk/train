@@ -385,6 +385,32 @@ public sealed class ConstructionTests
     }
 
     [TestMethod]
+    public void One_allowed_capability_uses_all_surviving_construction_rates()
+    {
+        var content = Content(maximum: SizeClass.Medium);
+        content = content with { Designs = content.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
+        {
+            Parts = [..d.Parts,
+                d.Parts[0] with { Id = new(1), Capabilities = [new PartCapability.Construction(30, PlotSize.Small, SizeClass.Small)] },
+                d.Parts[0] with { Id = new(2), Capabilities = [new PartCapability.Construction(600, PlotSize.Small, SizeClass.Medium)] }]
+        }).ToImmutableArray() };
+        using var original = Session(content);
+        var design = Design(content) with { Design = Design(content).Design with
+            { Design = new(new string('7', 64)), Kind = new DesignKind.Vehicle(SizeClass.Medium, 1) } };
+        var job = Start(original, new CoreCommand.StartOwnedJob(new JobRequest.BuildVehicle(Facility, design, [Local], 0)));
+        using var session = new CoreSession(original.State with { World = original.State.World with
+        {
+            Instances = original.State.World.Instances.Select(i => i.Id != new InstanceId.Building(Facility.Building) ? i : i with
+                { Parts = i.Parts.Select(p => p.Id == new PartId(2) ? p with { Current = 0 } : p).ToImmutableArray() }).ToImmutableArray()
+        } });
+        Step(session);
+        var working = Job(session.Read(), job.Id);
+        Assert.AreEqual(ConstructionState.Working, working.State);
+        Assert.AreEqual(90d, working.ActualWorkPerSecond);
+        Assert.AreEqual(1.5, working.ProgressWork);
+    }
+
+    [TestMethod]
     public void Construction_and_production_on_the_same_building_share_one_labor_budget()
     {
         var content = Production.ProductionFixture.Content(rate: 60, work: 10, laborPerWork: 1);
