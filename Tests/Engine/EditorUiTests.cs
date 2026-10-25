@@ -326,26 +326,39 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
     public async Task Element_list_updated_in_place_matches_a_full_rebuild_and_keeps_selection_rows()
     {
         var fixture = await Ready();
+        using var output = new GodotOutputCapture();
+        OS.AddLogger(output);
         try
         {
             var panel = EditorPanel(fixture); var session = fixture.Factory.Session!;
             var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var input = new UiTestInput(TestScene);
             var revision = 100UL;
             async Task<string[]> Show(IEnumerable<EditElement> elements, ImmutableArray<EditElementId> selection = default)
             {
                 var values = elements.ToImmutableArray();
+                var shrinking = values.Length < list.ItemCount;
+                selection = selection.IsDefault ? [] : selection;
                 session.SetState(state => state with
                 {
                     Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(++revision) } },
-                    Elements = values, Selection = selection.IsDefault ? [] : selection
+                    Elements = values, Selection = selection
                 });
                 await FramesUntil(TestScene, () => list.ItemCount == values.Length && fixture.Editor.State?.Snapshot.Stamp.Revision.Value == revision);
-                await new UiTestInput(TestScene).Frames(2);
+                if (shrinking)
+                    Require(list.GetSelectedItems().Select(index => values[index].Id).ToHashSet().SetEquals(selection),
+                        "删行当帧选中必须仍对应同一组元素 ID，不能空一帧。");
+                await input.Frames(2);
                 return [.. Enumerable.Range(0, list.ItemCount).Select(list.GetItemText)];
             }
             static EditElement Cell(ulong id, bool locked = false) => new(new(id), null, EditElementKind.Cell, new((int)id, 0, 0), null, [], locked);
             var initial = Enumerable.Range(1, 600).Select(id => Cell((ulong)id)).ToList();
             await Show(initial);
+            await EnsureVisible(list);
+            var scroll = list.GetVScrollBar();
+            scroll.Value = list.GetItemRect(300).Position.Y;
+            var keptScroll = scroll.Value;
+            Require(keptScroll > 0, "滚动保持检查必须从列表中部开始。");
             // 相邻的小变化走原地更新：先删 300、插 1000 和 1001、改 301，再删 500 和 501。
             var inserted = initial.Where(item => item.Id.Value != 300).Select(item => item.Id.Value == 301 ? Cell(301, true) : item).ToList();
             inserted.InsertRange(299, [Cell(1000), Cell(1001)]);
@@ -353,7 +366,31 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             var updated = new List<string[]>();
             updated.Add(await Show(inserted, [new(1001)]));
             Require(list.GetSelectedItems() is [var selected] && list.GetItemText(selected).StartsWith("1001 ·"), "选中元素必须对应更新后的同一行。");
-            updated.Add(await Show(removed));
+            Require(Math.Abs(scroll.Value - keptScroll) < 0.01, "小改动后仍有效的滚动位置必须保持不变。");
+
+            scroll.Value = scroll.MaxValue - scroll.Page;
+            await input.Frames(2);
+            var last = list.ItemCount - 1;
+            var point = list.GetItemRect(last).GetCenter()
+                - new Vector2((float)list.GetHScrollBar().Value, (float)scroll.Value);
+            Require(list.GetItemAtPosition(point, true) == last, "删行前必须先命中列表末行。");
+            await input.Click(list.GlobalPosition + point);
+            Require(list.HasFocus() && list.GetSelectedItems() is [var clicked] && clicked == last
+                && fixture.Editor.State!.Selection.SequenceEqual([inserted[last].Id]),
+                "删行前的真实点击必须让末行取得焦点，并把相同元素 ID 提交给编辑状态。");
+            var bottomScroll = scroll.Value;
+            updated.Add(await Show(removed, [inserted[last].Id]));
+            var clampedScroll = Math.Clamp(bottomScroll, scroll.MinValue, Math.Max(scroll.MinValue, scroll.MaxValue - scroll.Page));
+            Require(scroll.Value < bottomScroll && Math.Abs(scroll.Value - clampedScroll) < 0.01,
+                "小改动缩短后滚动位置必须限制在新列表的有效范围内。");
+            await input.PressKey(Key.Up);
+            Require(!list.HasFocus(), "删行清除行焦点后，Up 必须按原生导航移出列表。");
+            list.GrabFocus();
+            await input.PressKey(Key.Down);
+            await input.PressKey(Key.Space);
+            Require(fixture.Editor.State!.Selection.ToHashSet().SetEquals([initial[0].Id, inserted[last].Id]),
+                "删行后重新聚焦，Down 必须定位到有效首行，并由空格切换该行选中。");
+            Require(!output.Contains("out of bounds"), "小改动删行后的键盘操作不能访问越界的列表行。");
             foreach (var (elements, index) in new[] { inserted, removed }.Select((elements, index) => (elements, index)))
             {
                 await Show(Enumerable.Range(2000, 600).Select(id => Cell((ulong)id)));
@@ -361,7 +398,7 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
                 Require(updated[index].AsEnumerable().SequenceEqual(rebuilt), "原地更新后的元素列表必须与整表重建相同。");
             }
         }
-        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+        finally { OS.RemoveLogger(output); fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
     public async Task Element_list_bulk_updates_keep_row_order_selection_scrolling_and_keyboard_navigation()
@@ -385,6 +422,8 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
                     Elements = values, Selection = selection
                 });
                 await FramesUntil(TestScene, () => list.ItemCount == values.Length && fixture.Editor.State?.Snapshot.Stamp.Revision.Value == revision);
+                Require(list.GetSelectedItems().Select(index => values[index].Id).ToHashSet().SetEquals(selection),
+                    "大块更新当帧选中必须对应同一组元素 ID，不能空一帧。");
                 await input.Frames(2);
                 var rows = Enumerable.Range(0, list.ItemCount).Select(list.GetItemText).ToArray();
                 Require(Enumerable.Range(0, values.Length).All(index => rows[index].StartsWith($"{values[index].Id.Value} · ", StringComparison.Ordinal)),
