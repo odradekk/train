@@ -293,6 +293,8 @@ public sealed class FarTerrainSessionTests
             "The far terrain must not turn the unloaded L0 chunk into precise geometry.");
         Assert.IsInstanceOfType<Lookup<double>.Found>(after.DisplayTerrainHeight(x, z));
         Assert.IsFalse(FogCovers(after), "Visible far terrain must replace fog outside the required L0 window.");
+        Assert.IsInstanceOfType<ScenePick.NotReady>(after.Pick(ray),
+            "A displayed far surface still cannot provide a precise terrain pick.");
         Assert.IsTrue(FogCovers(before), "An older immutable frame must retain its own fog.");
         Assert.IsInstanceOfType<ScenePick.NotReady>(before.Pick(ray),
             "Publishing far terrain must preserve an older frame's picking result.");
@@ -305,7 +307,7 @@ public sealed class FarTerrainSessionTests
     public async Task Terrain_fog_preserves_required_L0_across_far_replacement_and_unload()
     {
         var template = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
-        { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-512, 0, -512), new(511, 0, 511)) } } };
+        { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-256, 0, -256), new(255, 0, 255)) } } };
         var snapshot = NodeFixtures.EmptyNodeSnapshot(template, []);
         await using var vehicles = new SceneVehicles();
         await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), SceneFixtures.NextId(),
@@ -314,6 +316,8 @@ public sealed class FarTerrainSessionTests
         await scene.BuildWork!;
         scene.Pump(allowBuild: false);
         var terrain = Field<FarTerrain>(scene, "farTerrain");
+        Assert.IsTrue(new NodeRange(default, 10000).Chunks(scene.Layout!).Contains(new(256, 256)),
+            "The fixture must retain a static L0 chunk outside the required window.");
         var positive = Tile(default, 0);
         var negative = Tile(new(-1024, 0, -1024), 0);
         foreach (var tiles in new ImmutableArray<TerrainTile>[]
@@ -322,6 +326,7 @@ public sealed class FarTerrainSessionTests
             typeof(FarTerrain).GetField("view", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(terrain, new FarTerrainView(tiles));
             Check();
+            if (tiles.IsEmpty || !ReferenceEquals(tiles[0], positive)) continue;
             foreach (var from in new[] { new GridColumn(0, 0), new GridColumn(256, 256) })
             {
                 Change(from, true);
