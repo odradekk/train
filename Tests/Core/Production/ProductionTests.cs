@@ -498,16 +498,17 @@ public sealed class ProductionTests
         };
         var cleared = created.State.World with
         {
-            Settlements = [settlement with
+            Settlements = [other, settlement with
             {
                 Template = settlement.Template with { ProductionPlans = [] },
                 ProductionFacilities = []
-            }, other]
+            }]
         };
         using var session = new CoreSession(created.State with { World = cleared });
         var templates = session.State.Content.SettlementTemplates;
         var accepted = Accept(session, Plan(Process, priority: int.MaxValue));
         var createdState = accepted.Events.Select(e => e.Event).OfType<CoreEvent.ProductionStateChanged>().Single();
+        Assert.AreEqual(Facility, createdState.Facility);
         Assert.AreEqual(ProductionState.Disabled, createdState.Before);
         Assert.AreEqual(ProductionState.Running, createdState.After);
         var plans = session.State.World.Settlements.Single(s => s.Id == Settlement).Template.ProductionPlans;

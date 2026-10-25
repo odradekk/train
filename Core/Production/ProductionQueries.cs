@@ -41,10 +41,16 @@ internal static class ProductionQueries
             throw new NotImplementedException($"FindFacility {key.Capability} 尚未实现。");
         var settlement = world.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == key.Building));
         if (settlement is null) return null;
+        var plot = settlement.Plots.Single(p => p.Building == key.Building);
+        return Evaluate(world, content, settlement, plot, key, knownCapability);
+    }
+
+    private static FacilityEvaluation? Evaluate(WorldState world, CoreContentProjection content,
+        SettlementState settlement, PlotState plot, FacilityKey key, double? knownCapability)
+    {
         var id = new InstanceId.Building(key.Building);
         var instance = world.Instances.Single(i => i.Id == id);
         var design = world.Designs.Single(d => d.Design == instance.Design);
-        var plot = settlement.Plots.Single(p => p.Building == key.Building);
         var plan = settlement.Template.ProductionPlans.SingleOrDefault(p => p.PlotNumber == plot.TemplateNumber
             && p.Capability == key.Capability);
         if (plan is null && !design.Parts.Any(p => p.Capabilities.Any(c => key.Capability == CapabilityKind.Production
@@ -145,6 +151,8 @@ internal static class ProductionQueries
         WorldState after, CoreContentProjection afterContent, SettlementId id)
     {
         var settlement = after.Settlements.Single(s => s.Id == id);
+        // 建筑身份不跨聚落迁移，改前地块只需在同一聚落内查找。
+        var previousSettlement = before.Settlements.FirstOrDefault(s => s.Id == id);
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         // 不可变输入仍是同一份时，边界两侧的能力相同；只在本次比较中复用。
         var sameCapabilities = ReferenceEquals(beforeContent, afterContent) && before.Instances == after.Instances
@@ -152,8 +160,7 @@ internal static class ProductionQueries
             && before.ConstructionJobs == after.ConstructionJobs;
         foreach (var plot in settlement.Plots.Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value))
         {
-            var previousSettlement = before.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == plot.Building));
-            var previousPlot = previousSettlement?.Plots.Single(p => p.Building == plot.Building);
+            var previousPlot = previousSettlement?.Plots.SingleOrDefault(p => p.Building == plot.Building);
             BuildingCapabilities? oldCapabilities = null;
             BuildingCapabilities? currentCapabilities = null;
             ReadOnlySpan<CapabilityKind> kinds = [CapabilityKind.Production, CapabilityKind.Extraction];
@@ -161,16 +168,16 @@ internal static class ProductionQueries
             {
                 // 两边都没有计划时，设施只可能不存在或为 Disabled，不会产生状态变化。
                 if (!settlement.Template.ProductionPlans.Any(p => p.PlotNumber == plot.TemplateNumber && p.Capability == capability)
-                    && previousSettlement?.Template.ProductionPlans.Any(p => p.PlotNumber == previousPlot!.TemplateNumber
-                        && p.Capability == capability) != true) continue;
+                    && (previousPlot is null || !previousSettlement!.Template.ProductionPlans.Any(p => p.PlotNumber == previousPlot.TemplateNumber
+                        && p.Capability == capability))) continue;
                 var key = new FacilityKey(plot.Building!.Value, capability);
                 if (previousPlot is not null)
                     oldCapabilities ??= BuildingCapabilities.Read(before, beforeContent, key.Building);
                 currentCapabilities ??= sameCapabilities && oldCapabilities is { } previousCapabilities
                     ? previousCapabilities : BuildingCapabilities.Read(after, afterContent, key.Building);
-                var old = Evaluate(before, beforeContent, key, capability == CapabilityKind.Extraction
-                    ? oldCapabilities?.Extraction : oldCapabilities?.Production);
-                var current = Evaluate(after, afterContent, key, capability == CapabilityKind.Extraction
+                var old = previousPlot is null ? null : Evaluate(before, beforeContent, previousSettlement!, previousPlot, key,
+                    capability == CapabilityKind.Extraction ? oldCapabilities?.Extraction : oldCapabilities?.Production);
+                var current = Evaluate(after, afterContent, settlement, plot, key, capability == CapabilityKind.Extraction
                     ? currentCapabilities.Value.Extraction : currentCapabilities.Value.Production);
                 if (old is { } previous && current is { } next && previous.State != next.State)
                     events.Add(new CoreEvent.ProductionStateChanged(key, previous.State, next.State, Blockers(key, next.Problem)));
