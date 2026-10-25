@@ -363,6 +363,90 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
+    [Test]
+    public async Task Element_list_bulk_updates_keep_row_order_selection_scrolling_and_keyboard_navigation()
+    {
+        var fixture = await Ready();
+        using var output = new GodotOutputCapture();
+        OS.AddLogger(output);
+        try
+        {
+            var panel = EditorPanel(fixture); var session = fixture.Factory.Session!;
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var input = new UiTestInput(TestScene);
+            var revision = 100UL;
+            async Task<string[]> Show(IEnumerable<EditElement> elements, ImmutableArray<EditElementId> selection = default)
+            {
+                var values = elements.ToImmutableArray();
+                selection = selection.IsDefault ? [] : selection;
+                session.SetState(state => state with
+                {
+                    Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(++revision) } },
+                    Elements = values, Selection = selection
+                });
+                await FramesUntil(TestScene, () => list.ItemCount == values.Length && fixture.Editor.State?.Snapshot.Stamp.Revision.Value == revision);
+                await input.Frames(2);
+                var rows = Enumerable.Range(0, list.ItemCount).Select(list.GetItemText).ToArray();
+                Require(Enumerable.Range(0, values.Length).All(index => rows[index].StartsWith($"{values[index].Id.Value} · ", StringComparison.Ordinal)),
+                    "大块更新后每一行的元素 ID 和顺序必须与编辑状态一致。");
+                Require(list.GetSelectedItems().Select(index => values[index].Id).ToHashSet().SetEquals(selection),
+                    "大块变化前后跨区间的多选必须仍对应同一组元素 ID。");
+                return rows;
+            }
+            static EditElement Cell(ulong id, bool locked = false) => new(new(id), null, EditElementKind.Cell, new((int)id, 0, 0), null, [], locked);
+            var cells = Enumerable.Range(100, 600).Select(id => Cell((ulong)id)).ToArray();
+            var devices = fixture.Editor.State!.Elements.Where(element => element.Kind != EditElementKind.Cell).ToArray();
+            var initial = cells.Concat(devices).ToArray();
+            var expanded = cells.Concat(Enumerable.Range(1000, 5000).Select(id => Cell((ulong)id))).Concat(devices).ToArray();
+            var changed = expanded.Select(element => element.Id.Value >= 1000 ? element with { Locked = true } : element).ToArray();
+            ImmutableArray<EditElementId> selected = [new(101), new(400), new(10)];
+            await Show(initial, selected);
+            await EnsureVisible(list);
+            var scroll = list.GetVScrollBar();
+            scroll.Value = list.GetItemRect(300).Position.Y;
+            var keptScroll = scroll.Value;
+            Require(keptScroll > 0, "滚动保持检查必须从列表中部开始。");
+            var expandedRows = await Show(expanded, selected);
+            Require(Math.Abs(scroll.Value - keptScroll) < 0.01, "大块插入后仍有效的滚动位置必须保持不变。");
+            var changedRows = await Show(changed, selected);
+            Require(changedRows.Skip(cells.Length).Take(5000).All(text => text.EndsWith(" [锁定]", StringComparison.Ordinal)),
+                "同行数的大段文字更新必须显示每一行的新锁定状态。");
+            Require(Math.Abs(scroll.Value - keptScroll) < 0.01, "同行数的大段文字更新不能重置滚动位置。");
+
+            // 在即将缩掉的索引范围内留下真实键盘焦点，覆盖 ItemCount 不会自行修正 current 的引擎行为。
+            scroll.Value = scroll.MaxValue - scroll.Page;
+            await input.Frames(2);
+            var last = list.ItemCount - 1;
+            var point = list.GetItemRect(last).GetCenter()
+                - new Vector2((float)list.GetHScrollBar().Value, (float)scroll.Value);
+            Require(list.GetItemAtPosition(point, true) == last, "键盘焦点检查必须先命中大列表的末行。");
+            await input.Click(list.GlobalPosition + point);
+            Require(list.GetSelectedItems() is [var clicked] && clicked == last && fixture.Editor.State!.Selection.SequenceEqual([changed[last].Id]),
+                "缩短前的真实点击必须选中末行，并把相同元素 ID 提交给编辑状态。");
+            var bottomScroll = scroll.Value;
+            var shrunkRows = await Show(initial, selected);
+            var clampedScroll = Math.Clamp(bottomScroll, scroll.MinValue, Math.Max(scroll.MinValue, scroll.MaxValue - scroll.Page));
+            Require(scroll.Value < bottomScroll && Math.Abs(scroll.Value - clampedScroll) < 0.01,
+                "大块缩短后滚动位置必须限制在新列表的有效范围内。");
+            list.GrabFocus();
+            await input.PressKey(Key.Up);
+            // 重置后的 Up 会按原生导航移走控件焦点，Down 需重新发给列表。
+            list.GrabFocus();
+            await input.PressKey(Key.Down);
+            await input.PressKey(Key.Space);
+            Require(fixture.Editor.State!.Selection.ToHashSet().SetEquals(selected.Append(cells[0].Id)),
+                "大块缩短后上下键必须能定位到有效首行，并由空格切换该行选中。");
+            Require(!output.Contains("out of bounds"), "大块缩短后的键盘操作不能访问越界的列表行。");
+
+            foreach (var (elements, rows) in new[] { (expanded, expandedRows), (changed, changedRows), (initial, shrunkRows) })
+            {
+                await Show([]);
+                var fromEmpty = await Show(elements);
+                Require(rows.SequenceEqual(fromEmpty), "大块更新后的全文必须与从空列表一次填入的结果一致。");
+            }
+        }
+        finally { OS.RemoveLogger(output); fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
     private static DesignEditorPanel EditorPanel(EditorPreview fixture) => Find<DesignEditorPanel>(fixture.App, "DesignEditor");
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));
