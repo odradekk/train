@@ -304,9 +304,8 @@ internal sealed partial class MeasurementRun
     private IEnumerable<ProbeReferenceObject> ReferenceObjects(ISceneFrame frame, NVector center, double radius)
     {
         var core = _app.Host!.GetStatus()!.View;
-        var parked = core.World.Nodes.Where(item => item.Occupant is NodeOccupant.Settlement)
-            .SelectMany(item => ((Lookup<SettlementView>.Found)core.FindSettlement(((NodeOccupant.Settlement)item.Occupant!).Id)).Value.ParkedVehicles)
-            .Select(id => new WorldObjectId.Instance(new InstanceId.Vehicle(id)).ToString()).ToHashSet();
+        bool Parked(WorldObjectId? subject) => subject is WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle }
+            && core.FindInstance(vehicle) is Lookup<InstanceView>.Found { Value.Details: InstanceDetails.Vehicle { Train: null } };
         foreach (var item in _app.WorldScenes!.Display!.Objects.Values)
         {
             var decorations = item.Source.Subject is null ? item.Source.Visuals.OfType<SceneVisual.Geometry>()
@@ -315,7 +314,7 @@ internal sealed partial class MeasurementRun
                 .Select(material => material.Kind.ToString()).Distinct().Order(StringComparer.Ordinal).ToArray() : [];
             if (decorations.Length == 0 && (item.Source.Parent is not null ||
                 item.Source.Subject is not WorldObjectId.Instance { Id: InstanceId.Building } &&
-                !parked.Contains(item.Source.Subject?.ToString() ?? ""))) continue;
+                !Parked(item.Source.Subject))) continue;
             var meshes = ProbeMeshes(item.Root).Where(mesh => mesh.IsVisibleInTree() && mesh.Mesh is not null).ToArray();
             if (meshes.Length == 0) continue;
             var bounds = meshes.Select(mesh => MeshBounds(mesh, frame)).ToArray();

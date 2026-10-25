@@ -246,9 +246,20 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                     break;
             }
             if (read.Position.Sequence != 0) return;
+            var nodeCounts = new Dictionary<NodeId, ImmutableSortedDictionary<string, double>>();
             foreach (var expectation in recipe.Expectations.Where(item => item.At == read.Position.CompletedSteps))
             {
-                var actual = WorldCounts.Read(read, view, expectation.Node is { } node ? new NodeId(node) : null)[expectation.Key];
+                var counts = observations[^1].Counts;
+                if (expectation.Node is { } node)
+                {
+                    var id = new NodeId(node);
+                    if (!nodeCounts.TryGetValue(id, out counts))
+                    {
+                        counts = WorldCounts.Read(read, view, id);
+                        nodeCounts.Add(id, counts);
+                    }
+                }
+                var actual = counts[expectation.Key];
                 if (actual < expectation.Minimum || actual > expectation.Maximum)
                     throw new InvalidDataException($"{expectation.At}:0 的 {expectation.Key}"
                         + (expectation.Node is { } at ? $"（节点 {at}）" : "")
