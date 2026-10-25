@@ -77,8 +77,8 @@ internal static class TerrainSurface
         private readonly double endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
         private readonly ScenePoint startPoint = path.Sample(0).Position;
         private readonly ScenePoint endPoint = path.Sample(path.LengthCells).Position;
-        private readonly Lazy<ScenePoint> startEntry = new(() => path.StartLayout.EntryPoint(path.Edge.Id));
-        private readonly Lazy<ScenePoint> endEntry = new(() => path.EndLayout.EntryPoint(path.Edge.Id));
+        private readonly ScenePoint startEntry = path.StartLayout.EntryPoint(path.Edge.Id);
+        private readonly ScenePoint endEntry = path.EndLayout.EntryPoint(path.Edge.Id);
         private readonly Lazy<ScenePanBounds[]> influenceBands = new(() => Enumerable.Range(0, path.SegmentCount).Select(index =>
         {
             var begin = index * RailwayCoordinates.SegmentLengthCells;
@@ -208,7 +208,7 @@ internal static class TerrainSurface
         private double NodeHeight(NodeMapItem node, ScenePoint endpoint, ScenePoint point)
         {
             var mapOrigin = RailwayCoordinates.NodePoint(node);
-            var entry = (node.Id == path.Start.Id ? startEntry : endEntry).Value;
+            var entry = node.Id == path.Start.Id ? startEntry : endEntry;
             var local = new ScenePoint(entry.X + point.X - endpoint.X, entry.Y + point.Y - endpoint.Y, entry.Z + point.Z - endpoint.Z);
             var raw = Ground(path.Seed, node.Id.Value, node.Terrain, terrain(node.Terrain.TypeId),
                 new(mapOrigin.X + local.X, mapOrigin.Y + local.Y, mapOrigin.Z + local.Z));
