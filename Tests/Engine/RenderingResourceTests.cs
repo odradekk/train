@@ -343,15 +343,15 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture) && GodotObject.IsInstanceValid(mask),
             "释放一个模型实例销毁了另一实例的资源。");
         second.Dispose();
-        resources.Dispose();
         Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceIdValid(meshId),
             "最后模型显示实例必须在主线程释放模型网格。");
         Require(!GodotObject.IsInstanceValid(mask) && !GodotObject.IsInstanceIdValid(maskId),
             "最后模型显示实例必须在主线程释放共享材质。");
         Require(!GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceIdValid(textureId),
             "最后模型显示实例必须在主线程释放内嵌纹理。");
+        resources.Dispose();
         Require(!GodotObject.IsInstanceValid(modelShader) && !GodotObject.IsInstanceIdValid(modelShaderId),
-            "最后模型显示实例必须在主线程释放共享着色器。");
+            "释放场景资源必须在主线程销毁共享着色器。");
     }
 
     [Test]
