@@ -115,16 +115,15 @@ internal sealed class EditGeometry
             if (previous is not null && values.AsSpan().SequenceEqual(previous.Cells.AsSpan())) current = previous;
             else
             {
-                var grid = new VoxelGrid(values);
+                ImmutableArray<GridPosition> changedCells = [];
+                var grid = previous is null ? new VoxelGrid(values) : new(values, previous.Grid, out changedCells);
                 var sameHeight = previous is not null && previous.Grid.Bounds?.Minimum.Y == grid.Bounds?.Minimum.Y &&
                     previous.Grid.Bounds?.Maximum.Y == grid.Bounds?.Maximum.Y;
                 HashSet<GridPosition> changed = [];
                 if (sameHeight)
                 {
-                    foreach (var cell in values)
-                        if (previous!.Grid.Find(cell.At) is not { } old || !SameAppearance(old, cell)) Change(cell.At);
-                    foreach (var cell in previous!.Cells)
-                        if (!grid.Contains(cell.At)) Change(cell.At);
+                    foreach (var at in changedCells)
+                        if (previous!.Grid.Find(at) is not { } old || grid.Find(at) is not { } cell || !SameAppearance(old, cell)) Change(at);
                 }
                 Dictionary<GridPosition, DesignGeometry.MeshGroups> chunks = [];
                 foreach (var chunk in grid.Chunks)

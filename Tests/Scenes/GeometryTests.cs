@@ -96,6 +96,77 @@ public sealed class GeometryTests
     }
 
     [TestMethod]
+    public void IncrementalGridsMatchColdValuesAcrossChunkAndPropertyChangesWithoutMutatingPreviousGrids()
+    {
+        var subject = new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(1));
+        SceneCell Cell(GridPosition at, PaintColor? paint = null, VoxelShape? shape = null,
+            PickSubject? picked = null, ImmutableArray<int> path = default) => new(at,
+                new(VoxelOrientation.PxPy, SceneFixtures.Cube, shape, paint, picked ?? subject,
+                    path.IsDefault ? [1] : path));
+
+        ImmutableArray<SceneCell> initial = [Cell(new(-33, -1, -17)), Cell(new(0, 0, 0)),
+            Cell(new(-32, -1, -16)), Cell(new(31, 0, 15)), Cell(new(1, 0, 16))];
+        (ImmutableArray<SceneCell> Cells, GridPosition[] Changes)[] steps =
+        [
+            // 全部属性重新分配，输入区块顺序也改变；按值仍未改动。
+            ([Cell(new(31, 0, 15)), Cell(new(1, 0, 16)), Cell(new(-33, -1, -17)),
+                Cell(new(-32, -1, -16)), Cell(new(0, 0, 0))], []),
+            // 删除整个负坐标区块，新增区块，并在已有区块内跨越半区边界。
+            ([Cell(new(64, 0, 0)), Cell(new(-32, -1, -16)), Cell(new(0, 0, 0)),
+                Cell(new(31, 0, 15)), Cell(new(1, 0, 15))],
+                [new(-33, -1, -17), new(64, 0, 0), new(1, 0, 16), new(1, 0, 15)]),
+            // 外观相同的 Path 和 Subject 改动也必须报告，并更新拾取结果。
+            ([Cell(new(64, 0, 0)), Cell(new(-32, -1, -16)), Cell(new(0, 0, 0), path: [2, 3]),
+                Cell(new(31, 0, 15), picked: new PickSubject.Terrain(new WorldLocation.Node(new(2)))),
+                Cell(new(1, 0, 15))], [new(0, 0, 0), new(31, 0, 15)]),
+            ([Cell(new(64, 0, 0), paint: new("#ff0000")), Cell(new(-32, -1, -16), shape: new("wedge")),
+                Cell(new(0, 0, 0), path: [2, 3]),
+                Cell(new(31, 0, 15), picked: new PickSubject.Terrain(new WorldLocation.Node(new(2)))),
+                Cell(new(1, 0, 15))], [new(64, 0, 0), new(-32, -1, -16)]),
+            // 同时收缩三个轴的边界。
+            ([Cell(new(0, 0, 0), path: [2, 3]), Cell(new(1, 0, 15))],
+                [new(64, 0, 0), new(-32, -1, -16), new(31, 0, 15)]),
+            ([], [new(0, 0, 0), new(1, 0, 15)]),
+            ([], []),
+            ([Cell(new(-1, -32, -33)), Cell(new(0, -32, -32))], [new(-1, -32, -33), new(0, -32, -32)])
+        ];
+        var probes = initial.Select(cell => cell.At).Concat(steps.SelectMany(step => step.Cells.Select(cell => cell.At)))
+            .Append(new(100, 100, 100)).Distinct().ToArray();
+        var grid = new VoxelGrid(initial);
+        var history = new List<(VoxelGrid Grid, VoxelGrid Cold)> { (grid, new(initial)) };
+        foreach (var step in steps)
+        {
+            grid = new VoxelGrid(step.Cells, grid, out var changes);
+            CollectionAssert.AreEquivalent(step.Changes, changes.ToArray());
+            history.Add((grid, new(step.Cells)));
+            foreach (var (actual, cold) in history) Equal(cold, actual);
+        }
+
+        Assert.AreEqual(new SceneBounds(new(0, 0, 0), new(2, 1, 16)), history[5].Grid.Bounds);
+        Assert.IsNull(history[6].Grid.Bounds);
+        var duplicate = Cell(new(-1, -32, -33));
+        Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([duplicate, duplicate], grid, out _));
+        foreach (var (actual, cold) in history) Equal(cold, actual);
+
+        void Equal(VoxelGrid expected, VoxelGrid actual)
+        {
+            CollectionAssert.AreEqual(expected.Cells.ToArray(), actual.Cells.ToArray());
+            Assert.AreEqual(expected.Bounds, actual.Bounds);
+            foreach (var at in probes)
+            {
+                Assert.AreEqual(expected.Find(at), actual.Find(at));
+                Assert.AreEqual(expected.Contains(at), actual.Contains(at));
+                foreach (var direction in new[] { Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ })
+                {
+                    var center = new Vector3(at.X + .5f, at.Y + .5f, at.Z + .5f);
+                    var ray = new SceneRay(center - direction * 2, direction, 4);
+                    Assert.AreEqual(expected.Pick(ray), actual.Pick(ray));
+                }
+            }
+        }
+    }
+
+    [TestMethod]
     public void SameAppearanceKeepsIndependentPaintSubjectsAndPathsWithinChunk()
     {
         var first = new SceneCell(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null,
