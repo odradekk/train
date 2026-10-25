@@ -235,19 +235,6 @@ internal sealed partial class DesignEditSession : IDesignEditSession
                 var rootFootprint = footprint;
                 if (!path.IsEmpty)
                 {
-                    if (!rootCells.IsEmpty)
-                    {
-                        var minimum = rootCells[0].At;
-                        var maximum = minimum;
-                        foreach (var cell in rootCells)
-                        {
-                            minimum = new(Math.Min(minimum.X, cell.At.X), Math.Min(minimum.Y, cell.At.Y), Math.Min(minimum.Z, cell.At.Z));
-                            maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
-                        }
-                        // 每层都是轴置换或翻转；两角保留原全部占格转局部坐标时的 checked 溢出拒绝。
-                        _ = EditLayout.ToLocal(root, path, minimum);
-                        _ = EditLayout.ToLocal(root, path, maximum);
-                    }
                     rootFootprint = [];
                     foreach (var at in footprint)
                     {
@@ -384,9 +371,10 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     {
         var previousCells = Occupied(root).Cells.ToHashSet();
         var resultOccupied = Occupied(candidate.Result);
+        var addedPositions = resultOccupied.Cells.Where(cell => !previousCells.Contains(cell)).Select(cell => cell.At).ToHashSet();
         var conflicts = candidate.Conflicts.ToBuilder();
         var conflictCells = conflicts.Where(value => value.Cell.HasValue).Select(value => value.Cell!.Value).ToHashSet();
-        foreach (var group in resultOccupied.Cells.GroupBy(cell => cell.At))
+        foreach (var group in resultOccupied.Cells.Where(cell => addedPositions.Contains(cell.At)).GroupBy(cell => cell.At))
             if (group.Count() > 1 && group.Any(cell => !previousCells.Contains(cell)))
             {
                 var at = EditLayout.ToLocal(root, path, group.Key);
@@ -566,7 +554,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
 
     private (ImmutableArray<(GridPosition At, EditElementId Id)> Cells, bool Complete) Occupied(EditObject node)
     {
-        var cells = node.Cells.Select(cell => (cell.At, cell.Id)).ToImmutableArray().ToBuilder();
+        var cells = ImmutableArray.CreateBuilder<(GridPosition At, EditElementId Id)>(node.Cells.Length);
+        foreach (var cell in node.Cells) cells.Add((cell.At, cell.Id));
         var complete = true;
         foreach (var child in node.Children)
         {

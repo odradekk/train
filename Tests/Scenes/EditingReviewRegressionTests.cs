@@ -284,7 +284,7 @@ public sealed class EditingReviewRegressionTests
     [TestMethod]
     [DataRow(int.MinValue, int.MaxValue)]
     [DataRow(int.MaxValue, int.MinValue)]
-    public void EnteredBrushStillRejectsRootOccupancyOutsideLocalIntegerRange(int rootX, int placement)
+    public void EnteredBrushCanDeleteLocalCellWithoutMappingDistantRootCell(int rootX, int placement)
     {
         var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with
         { Specification = new DesignSpecification.Assembly(null) };
@@ -294,11 +294,47 @@ public sealed class EditingReviewRegressionTests
         using var session = EditingFixtures.Open(draft);
         EditingFixtures.Value(session.Enter(session.Read().Elements.Single(element => element.Kind == EditElementKind.Assembly).Id));
         var before = session.Capture();
-        Assert.AreEqual("invalid_operation", EditingFixtures.Code(session.Preview(new EditOperation.Cells(
-            new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Remove()))));
+        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
+            new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Remove()));
+        Assert.IsTrue(preview.CanApply);
+        Assert.AreEqual(1, preview.AffectedCells);
+        var applied = EditingFixtures.Value(session.Apply(preview, true));
+        CollectionAssert.AreEqual(before.Draft.Layout.Cells, applied.Snapshot.Draft.Layout.Cells);
+        Assert.IsTrue(((NestedDesignItem.AssemblyCopy)applied.Snapshot.Draft.Layout.NestedItems.Single()).Design.Layout.Cells.IsEmpty);
+        Assert.IsTrue(applied.Snapshot.Stamp.Revision.Value > before.Stamp.Revision.Value);
+        Assert.IsTrue(applied.CanUndo);
+        Assert.IsTrue(applied.IsDirty);
+    }
+
+    [TestMethod]
+    public void NewOverlapConflictsKeepResultCellOrderAndExistingBlockersWithoutReportingUntouchedOverlap()
+    {
+        var existing = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with
+        { Specification = new DesignSpecification.Assembly(null) };
+        var draft = EditingFixtures.Draft(new(4, 0, 0), new(2, 0, 0), new(8, 0, 0));
+        draft = draft with { Layout = draft.Layout with { NestedItems =
+            [new NestedDesignItem.AssemblyCopy(new(8, 0, 0), VoxelOrientation.PxPy, existing)] } };
+        using var session = EditingFixtures.Value(ScenesFactory.Create().OpenEditor(SceneFixtures.Content(),
+            EditingFixtures.Evaluation(draft) with { IsValid = false }));
+        var before = session.Capture();
+        var blockers = session.Read().Elements.Where(element => element.Kind == EditElementKind.Cell && element.Parent is null)
+            .ToDictionary(element => element.At, element => element.Id);
+        var unchangedOccupancy = EditingFixtures.Preview(session, new EditOperation.Properties(new("Renamed", ""), draft.Specification));
+        Assert.IsTrue(unchangedOccupancy.CanApply);
+        Assert.IsTrue(unchangedOccupancy.Conflicts.IsEmpty);
+
+        var added = EditingFixtures.Draft(new(2, 0, 0), new(4, 0, 0)) with
+        { Specification = new DesignSpecification.Assembly(null) };
+        var preview = EditingFixtures.Preview(session, new EditOperation.PlaceNested(
+            new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, added)));
+        CollectionAssert.AreEqual(new[] { new GridPosition(4, 0, 0), new(2, 0, 0) },
+            preview.Conflicts.Select(conflict => conflict.Cell!.Value).ToArray());
+        CollectionAssert.AreEqual(new EditElementId?[] { blockers[new(4, 0, 0)], blockers[new(2, 0, 0)] },
+            preview.Conflicts.Select(conflict => conflict.Element).ToArray());
+        Assert.IsTrue(preview.Conflicts.All(conflict => conflict.Problem.Code == "occupancy_conflict"));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(preview, true)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         Assert.IsFalse(session.Read().CanUndo);
-        Assert.IsFalse(session.Read().IsDirty);
     }
 
     [TestMethod]
