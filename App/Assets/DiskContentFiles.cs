@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Train.Content.Contracts;
 
 namespace Train.App.Assets;
@@ -69,7 +70,7 @@ internal sealed class DiskContentFiles : IContentFiles
             var count = input.Read(buffer, 0, requested);
             if (count == 0)
                 return new ContentIoResult<ImmutableArray<byte>>.Success(
-                    ImmutableArray.CreateRange(output.ToArray()));
+                    ImmutableCollectionsMarshal.AsImmutableArray(output.ToArray()));
             if (count > remaining)
                 return new ContentIoResult<ImmutableArray<byte>>.Failure(
                     ContentIoFailure.LimitExceeded, "文件超过字节上限。");

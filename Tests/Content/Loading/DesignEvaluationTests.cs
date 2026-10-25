@@ -226,6 +226,21 @@ public sealed class DesignEvaluationTests
     }
 
     [TestMethod]
+    public void Cells_at_the_same_coordinate_keep_source_order_in_the_projection()
+    {
+        using var candidate = DesignFixtures.Content().Load();
+        var draft = DesignFixtures.Vehicle() with
+        {
+            Layout = new([DesignFixtures.Entry(), DesignFixtures.Entry("machine")],
+                [.. Enumerable.Range(0, 32).Select(index => new C.LayoutCell(new(0, 0, 0), index % 2))], [])
+        };
+        var evaluation = DesignFixtures.Evaluate(candidate.View, draft);
+        Assert.IsFalse(evaluation.IsValid);
+        CollectionAssert.AreEqual(Enumerable.Range(0, 32).ToArray(), evaluation.Scene.Voxels
+            .Select(voxel => ((C.DesignElementPath.Cell)voxel.Element).CellIndex).ToArray());
+    }
+
+    [TestMethod]
     public void Presentation_changes_only_design_hash_while_specification_changes_both_hashes()
     {
         using var candidate = DesignFixtures.Content().Load();

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
@@ -304,9 +305,9 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
 
     internal static string Encode(Action<Utf8JsonWriter> write)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream)) write(writer);
-        return Encoding.UTF8.GetString(stream.ToArray());
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer)) write(writer);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     internal static void Inconsistent(string field, string message) => Fail(field, message, "inconsistent_capture");

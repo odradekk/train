@@ -40,7 +40,7 @@ internal static class DesignEvaluator
         CheckSpecification(draft, "");
         var specificationMissing = diagnostics.Count > 0;
         var specificationDiagnosticCount = diagnostics.Count;
-        var cells = DesignTraversal.Cells(draft).ToArray();
+        var cells = DesignTraversal.Cells(draft);
         foreach (var item in cells)
         {
             if (item.Cell.PaletteIndex < 0 || item.Cell.PaletteIndex >= draft.Layout.Palette.Length)
@@ -57,7 +57,8 @@ internal static class DesignEvaluator
                 Invalid(field, "功能复合体不能嵌套。");
             if (!anchors.Add(DesignTraversal.At(item))) Invalid(field + "/at", "同一个宿主里 at 不能重复。");
         }
-        var paletteCells = cells.ToLookup(item => item.Cell.PaletteIndex, item => item.Index);
+        var paletteCells = new int?[draft.Layout.Palette.Length];
+        foreach (var item in cells) paletteCells[item.Cell.PaletteIndex] ??= item.Index;
         var missing = ImmutableArray.CreateBuilder<K.MissingCoreReference>();
         for (var index = 0; index < draft.Layout.Palette.Length; index++)
         {
@@ -70,7 +71,7 @@ internal static class DesignEvaluator
                 diagnostics.Add(new("reference_missing", C.ContentDiagnosticSeverity.Error, "evaluate", null,
                     new(new(entry.Voxel.Value.Split(':')[0]), ""), field, null, "体素定义缺失。"));
             }
-            var cellIndex = paletteCells[index].Select(cell => (int?)cell).FirstOrDefault();
+            var cellIndex = paletteCells[index];
             if (entry.Paint is { } paint && !Regex.IsMatch(paint.Value, "\\A#[0-9a-f]{6}\\z", RegexOptions.CultureInvariant))
                 Invalid($"/layout/palette/{index}/paint", "颜色必须为小写 #rrggbb。", cellIndex);
             if (voxel is not null && !Allowed(entry.Orientation, voxel.Definition.Orientations))
@@ -107,9 +108,9 @@ internal static class DesignEvaluator
             (flatten.From.X > flatten.To.X || flatten.From.Z > flatten.To.Z))
             Invalid("/appearance/flatten", "平整区域起点不能大于终点。");
 
-        var occupied = new HashSet<C.GridPosition>();
-        var sceneVoxels = ImmutableArray.CreateBuilder<C.SceneVoxelProjection>();
-        var elements = ImmutableArray.CreateBuilder<C.DesignElementProjection>();
+        var occupied = new HashSet<C.GridPosition>(cells.Length);
+        var sceneVoxels = ImmutableArray.CreateBuilder<C.SceneVoxelProjection>(cells.Length);
+        var elements = ImmutableArray.CreateBuilder<C.DesignElementProjection>(cells.Length);
         var parts = ImmutableArray.CreateBuilder<K.PartProjection>();
         var locks = ImmutableArray.CreateBuilder<C.DesignEditLock>();
         var bom = new Dictionary<K.GoodId, long>();
@@ -380,8 +381,9 @@ internal static class DesignEvaluator
                 Invalid("/simulation/plot_size", "建筑地块无法容纳施工部件支持的最高车辆档位。");
         }
         var valid = diagnostics.Count == 0;
+        var projectedParts = parts.ToImmutable();
         var projection = kind is null ? null : new K.DesignProjection(
-            design!.Value, composition!.Value, kind, parts.ToImmutable(), structureDurability, structuralCount,
+            design!.Value, composition!.Value, kind, projectedParts, structureDurability, structuralCount,
             mass, new(structuralValue), Goods(structuralGoods), Goods(bom), bom.Values.Sum(), returnUnits.ToImmutable(), valid, missing.ToImmutable());
         if (draft.Specification is C.DesignSpecification.Assembly && missing.Count == 0 && !specificationMissing)
             assemblyGoods[new K.GoodId.Assembly(composition!.Value)] = AssemblyGood(composition!.Value, projection!);
@@ -389,17 +391,17 @@ internal static class DesignEvaluator
             assemblyGoods.Values.OrderBy(g => GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray());
         var scene = new C.DesignSceneProjection(design, bounds, envelope, occupancyComplete, rootRotation,
             (draft.Specification as C.DesignSpecification.SceneModel)?.Flatten,
-            sceneVoxels.ToImmutable(), elements.ToImmutable(), nestedObjects.ToImmutable(), sweeps.ToImmutable(), locks.ToImmutable());
+            sceneVoxels.DrainToImmutable(), elements.DrainToImmutable(), nestedObjects.ToImmutable(), sweeps.ToImmutable(), locks.ToImmutable());
         if (missing.Count > 0 || specificationMissing)
         {
             var reasons = diagnostics.Where(d => d.Code == "reference_missing").ToImmutableArray();
-            var metricsUnknown = elements.Any(e => e.Missing);
+            var metricsUnknown = scene.Elements.Any(e => e.Missing);
             C.ComputedValue<T> Metric<T>(T value) where T : notnull => metricsUnknown
                 ? new C.ComputedValue<T>.Unknown(reasons) : new C.ComputedValue<T>.Known(value);
             return new C.DesignEvaluation.Partial(draft,
                 new(Metric(mass), Metric(new K.Money(structuralValue)),
-                    Metric(structureDurability), Metric(parts.ToImmutable()), Metric(Goods(bom)), occupancyComplete ? new C.ComputedValue<int>.Known((int)vehicleLength) : new C.ComputedValue<int>.Unknown(reasons)),
-                new(mass, new(structuralValue), structureDurability, parts.Where(p => !p.Missing).ToImmutableArray(), Goods(bom)), allowMissing ? core?.Design : null, scene,
+                    Metric(structureDurability), Metric(projectedParts), Metric(Goods(bom)), occupancyComplete ? new C.ComputedValue<int>.Known((int)vehicleLength) : new C.ComputedValue<int>.Unknown(reasons)),
+                new(mass, new(structuralValue), structureDurability, projectedParts.Where(p => !p.Missing).ToImmutableArray(), Goods(bom)), allowMissing ? core?.Design : null, scene,
                 diagnostics.Select(d => d with { Subject = design is { } identity ? new C.ContentReference.Design(identity) : null }).ToImmutableArray());
         }
         return new C.DesignEvaluation.Complete(design!.Value, composition!.Value, draft, core, scene, valid,
@@ -472,7 +474,7 @@ internal static class DesignEvaluator
 
     private static HashSet<C.GridPosition> Connected(HashSet<C.GridPosition> occupied, C.GridPosition first)
     {
-        var connected = new HashSet<C.GridPosition> { first };
+        var connected = new HashSet<C.GridPosition>(occupied.Count) { first };
         var pending = new Queue<C.GridPosition>();
         pending.Enqueue(first);
         (int X, int Y, int Z)[] offsets = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
