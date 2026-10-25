@@ -18,7 +18,7 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
         foreach (var vehicle in train.Vehicles)
         {
             var id = new InstanceId.Vehicle(vehicle);
-            var instance = world.Instances.Single(i => i.Id == id);
+            var instance = world.GetInstance(id);
             var design = world.Designs.Single(d => d.Design == instance.Design);
             var currentDesign = content.Designs.SingleOrDefault(d => d.Design == design.Design);
             length += ((DesignKind.Vehicle)design.Kind).LengthCells * 0.5;
