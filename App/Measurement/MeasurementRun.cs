@@ -54,9 +54,9 @@ internal sealed partial class MeasurementRun : IDisposable
         for (var i = 0; i < arguments.Count; i++)
         {
             if (arguments[i].StartsWith("--measure=", StringComparison.Ordinal)) continue;
-            if (arguments[i] == "--measure-streaming") { values.Add("--measure-streaming", "true"); continue; }
+            if (arguments[i] is "--measure-streaming" or "--measure-node-ready-hold") { values.Add(arguments[i], "true"); continue; }
             if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration" or "--measure-reference" or
-                    "--measure-train" or "--measure-node" or "--measure-route-camera" or "--measure-node-ready-hold") ||
+                    "--measure-train" or "--measure-node" or "--measure-route-camera") ||
                 ++i >= arguments.Count) throw new ArgumentException("测量需要情景、输入存档、输出报告和构建身份路径。");
             values.Add(arguments[i - 1], arguments[i]);
         }
@@ -69,7 +69,9 @@ internal sealed partial class MeasurementRun : IDisposable
             throw new ArgumentException("未知测量情景。");
         _streamingCamera = values.GetValueOrDefault("--measure-route-camera", "default");
         ValidateCameraOptions(_scenario, _streamingCamera, values.ContainsKey("--measure-route-camera"), _streamingRecorder is not null);
-        _nodeReadyHoldSeconds = ParseNodeReadyHold(_scenario, values.GetValueOrDefault("--measure-node-ready-hold"));
+        _nodeReadyHold = values.ContainsKey("--measure-node-ready-hold");
+        if (_nodeReadyHold && _scenario is not ("scene-node-first" or "scene-reference"))
+            throw new ArgumentException("节点 Ready 保持仅支持 scene-node-first 和 scene-reference。");
         if (values.TryGetValue("--measure-duration", out var duration))
         {
             if (!int.TryParse(duration, out _sceneDuration) || _sceneDuration < 0 ||

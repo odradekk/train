@@ -197,7 +197,6 @@ internal sealed partial class MeasurementRun
             ReadIdentity(_train, IsRouteMeasurement ? RouteSpeed :
                 _scenario is "scene-follow-8x" or "scene-soak" ? SimulationSpeed.Eight : SimulationSpeed.One);
             _identity["node"] = _node.Value;
-            _identity["node_ready_hold_seconds_argument"] = _nodeReadyHoldSeconds;
             _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
             _identity["sample_seconds"] = IsRouteMeasurement ? _timing!.ElapsedSeconds :
                 _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) :
@@ -272,8 +271,7 @@ internal sealed partial class MeasurementRun
     private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
     {
         ResetSceneProbe();
-        var nodeReadyHold = target is WorldObjectId.Node heldNode && heldNode.Id == _node ? _nodeReadyHoldSeconds : 0;
-        var observationSeconds = ReadyObservationSeconds(_scenario, target, _node, _nodeReadyHoldSeconds, IsLowOrbit);
+        var observationSeconds = ReadyObservationSeconds(_scenario, target, _node, _nodeReadyHold, IsLowOrbit);
         _scenePhase = name;
         _sceneOperation = name;
         _sceneVisible = _sceneReady = _sceneOperable = 0;
@@ -321,7 +319,7 @@ internal sealed partial class MeasurementRun
             // The observation window ends after the same Ready hold used for memory.
             // Missing interaction remains a null observation, never a successful signal.
             return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + observationSeconds;
-        }, IsLowOrbit || nodeReadyHold > 0 ? 180 : 120);
+        }, observationSeconds == 60 ? 180 : 120);
         var end = Seconds();
         if (_app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } readyFrame)
             RecordReadyGeometry(readyFrame, _sceneLastDraw);
@@ -338,8 +336,8 @@ internal sealed partial class MeasurementRun
             first_visible = _sceneVisible > 0 ? (double?)_sceneVisible : null,
             first_operable = _sceneOperable > 0 ? (double?)_sceneOperable : null,
             ready = _sceneReady, observation_ended = end,
-            ready_hold_seconds_requested = nodeReadyHold,
-            low_orbit = IsLowOrbit ? new { camera = _streamingCamera, period_seconds = 30,
+            ready_hold_seconds_requested = observationSeconds,
+            low_orbit = IsLowOrbit ? new { camera = _streamingCamera, period_seconds = LowOrbitPeriodSeconds,
                 started = _lowOrbitStarted, observed_seconds = end - _lowOrbitStarted,
                 ending = "fixed 60 seconds after Ready; no claim of global terrain completion" } : null,
             click_to_operable_seconds = _sceneOperable > 0 ? (double?)(_sceneOperable - _sceneClick) : null,

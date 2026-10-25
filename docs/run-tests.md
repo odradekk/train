@@ -207,11 +207,11 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 矩阵使用 `examples/starting-trade/save.json` 作为输入，默认目标为列车 1，复用 `scene-route-1x`、`scene-route-8x` 各自的完整线路→节点→线路路线。输入身份保留在每个进程的 `identity.json.input.sha256`，构建身份仍由原有入口校验。每种速度分别使用默认和最远镜头，各运行 3 个新进程；目录例如 `scene-route-8x-farthest-2`。`-Repeat 1 -DurationSeconds 30` 只作预演，完整基线使用默认 `DurationSeconds=0`。显式指定 `RouteCamera` 需要启用 `StreamingDiagnostics`。
 
 
-#742 的低俯仰覆盖测量在同一入口增加 `-RouteCamera default-low-orbit,farthest-low-orbit`。路线情景仍须带 `-StreamingDiagnostics`，原 `default`／`farthest` 行为保持不变。两个新增档位通过现有相机输入请求最低俯仰 0.15，分别请求默认 48 格和最远距离；路线环绕周期为 30 秒除以请求倍率（1×为30秒、2×为15秒、4×为7.5秒、8×为3.75秒），自由镜头周期为30秒；实际角度与距离仍受地形避让影响，以记录为准。仅新增环绕档位生成 `route-orbit.jsonl`，以5Hz记录请求周期、相对偏航/俯仰、连续累计请求环绕角、显示空间和实际相机；核实各空间完整一圈时不能只使用混入列车转向的世界偏航。
+#742 的低俯仰覆盖测量在同一入口增加 `-RouteCamera default-low-orbit,farthest-low-orbit`。路线情景仍须带 `-StreamingDiagnostics`，原 `default`／`farthest` 行为保持不变。两个新增档位通过现有相机输入请求最低俯仰 0.15，分别请求默认 48 格和最远距离；路线环绕周期为 30 秒除以请求倍率（1×为30秒、2×为15秒、4×为7.5秒、8×为3.75秒），自由镜头周期为30秒；实际角度与距离仍受地形避让影响，以记录为准。仅新增环绕档位生成 `route-orbit.jsonl`，以5Hz记录相对环绕偏航/俯仰状态、请求周期与连续累计请求环绕角；实际相机和显示空间读取 streaming-frames.jsonl，通过绘制帧号关联；核实各空间完整一圈时不能只使用混入列车转向的世界偏航。
 
-自由镜头使用 `-Scenario scene-node,scene-edge -RouteCamera default-low-orbit,farthest-low-orbit -Repeat 1 -ReferencePath <scene-reference.json>`，不带 `-StreamingDiagnostics`。每个组合仅执行原情景的首次打开操作，Ready 后持续观察 60 秒，不再重复打开；节点自由镜头最远 96 格，线路最远 240 格，使用 1×。`scene-operations.jsonl` 的 `low-orbit-sample` 每秒最多五次记录实际相机、请求角度、核心步数、速度与覆盖，`open.low_orbit` 保留观察起止。固定观察窗口不证明全域远景已补齐。
+自由镜头使用 `-Scenario scene-node,scene-edge -RouteCamera default-low-orbit,farthest-low-orbit -Repeat 1 -ReferencePath <scene-reference.json>`，不带 `-StreamingDiagnostics`。每个组合仅执行原情景的首次打开操作，Ready 后持续观察 60 秒，不再重复打开；节点自由镜头最远 96 格，线路最远 240 格，使用 1×。`scene-operations.jsonl` 的 `low-orbit-sample` 每秒最多五次记录实际相机、环绕角状态、核心步数、速度与覆盖，`open.low_orbit` 保留观察起止。固定观察窗口不证明全域远景已补齐。
 
-内存对照使用 `-NodeReadyHoldSeconds 60`（应用参数 `--measure-node-ready-hold 60`），仅扩长 `NodeId` 指定节点操作的 Ready 后保持时间；支持 `scene-node`、`scene-node-first`、`scene-memory` 和 `scene-reference`，边与跟随操作保持原时长。省略时行为不变。`scene-node` 的四次节点打开合计增加 220 秒；`scene-node-first` 增加 55 秒；`scene-reference` 的目标节点参考增加 50 秒。报告记录请求保持时间和实际观察起止；基线和新版须使用相同测量入口改动与参数。
+内存对照使用 `-NodeReadyHold`（应用开关 `--measure-node-ready-hold`），仅扩长 `NodeId` 指定节点操作的 Ready 后保持时间至 60 秒；支持 `scene-node-first` 和 `scene-reference`，参考中的其他节点及线路操作保持原时长。省略时行为不变。`scene-node-first` 增加 55 秒；`scene-reference` 的目标节点参考增加 50 秒。每次打开的 `ready_hold_seconds_requested` 记录保持时间，报告保留实际观察起止；基线和新版须使用相同测量入口改动与参数。
 
 应用参数为 `--measure-streaming` 和 `--measure-route-camera default|farthest`。记录开启时窗口与视口仍固定为 1920×1080，使用玩家默认跟随相机：偏航跟随车体，保留默认俯仰与按地形抬高镜头，仅通过现有 `ShakeEnabled` 关闭镜头震动。默认缩放距离保持 48 格；最远档通过现有 `Zoom` 拉到 `ZoomCeiling`，跟随时线路和节点均为 240 格，96 格只适用于节点自由平移。每个绘制帧记录实际相机位置、焦点、距离和角度，包含地形避让造成的变化；距离单位为格（1 格 = 0.5 米）。
 
@@ -253,7 +253,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 覆盖只查询已提交帧 `D = SceneDisplay.DisplayedFrame`，不查询最新但尚未提交的帧。对屏幕均匀分布的 32×18 个点投射射线，经实际显示根的逆变换转入 D 根空间，与稳定场景 `Y=0`（D 局部 `Y=-D.Origin.Y`）求交。没有正向交点、交点在近裁剪面之前或远裁剪面之后，不计入分母。相机裁剪值是视深；入口按每条射线的夹角换算有效距离，不把远裁剪面误作以相机为中心的球面。
 
-有效点优先调用 `D.TerrainHeight`：有值记为有地形；否则检查 D 已提交的构建雾盒，点的 XZ 与基准高度 Y 均落在盒子范围内记为只有雾；否则调用 `D.DisplayTerrainHeight`，Found 记为简化地形；仍无值则记为无地形无雾。雾下的远景不计作简化地形覆盖。雾使用玩家实际看到的盒子，不使用 Scenes 内部弧段规则。线路地形成员关系由 `TerrainHeight` 判断，不使用网格 AABB 并集估计弯道覆盖。这是**视野地面基准面投影覆盖率**，不衡量山坡、水面、隧道及建筑遮挡后的真实地形像素可见性。
+有效点优先调用 `D.TerrainHeight`：有值记为有地形；否则检查 D 已提交的构建雾盒，点的 XZ 与基准高度 Y 均落在盒子范围内记为只有雾；否则调用 `D.DisplayTerrainHeight`，Found 记为远景；仍无值则记为无地形无雾。雾下的远景不计作远景覆盖。雾使用玩家实际看到的盒子，不使用 Scenes 内部弧段规则。线路地形成员关系由 `TerrainHeight` 判断，不使用网格 AABB 并集估计弯道覆盖。这是**视野地面基准面投影覆盖率**，不衡量山坡、水面、隧道及建筑遮挡后的真实地形像素可见性。
 
 线路部件归属按生成器实际体素列判断，查询开销计入 coverage probe。
 

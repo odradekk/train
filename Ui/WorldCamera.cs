@@ -11,7 +11,8 @@ internal partial class WorldCamera : Node3D
     internal const float MaximumDistance = 240f;
     internal const float NodeMaximumDistance = 96f;
     internal const float ZoomStep = 0.15f;
-    private const float OrbitSensitivity = 0.006f;
+    internal const float MinimumDistance = 8f;
+    internal const float OrbitSensitivity = 0.006f;
     private const float MinimumPitch = 0.15f;
     private const float MaximumPitch = 1.35f;
     private const float FollowResponse = 8f;
@@ -144,7 +145,7 @@ internal partial class WorldCamera : Node3D
 
     public void Zoom(float amount)
     {
-        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * ZoomStep), 8f,
+        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * ZoomStep), MinimumDistance,
             NodePanBounds is null ? ZoomCeiling : NodeMaximumDistance);
         PlaceCamera();
     }

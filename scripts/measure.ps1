@@ -15,7 +15,7 @@ param(
     [ValidateSet('default', 'farthest', 'default-low-orbit', 'farthest-low-orbit')][string[]] $RouteCamera = @('default'),
     # 启动器超时上限 2147478 秒，扣除 scene-memory 的 600 秒退出余量。
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
-    [ValidateSet(0, 60)][int] $NodeReadyHoldSeconds = 0,
+    [switch] $NodeReadyHold,
     [string] $ReferencePath,
     # scene-* 情景的目标列车与节点；省略时游戏使用列车 1、节点 2。
     [ValidateRange(1, 9223372036854775807)][long] $TrainId,
@@ -51,8 +51,8 @@ try {
          @($Scenario | Where-Object { $_ -notin @('scene-node', 'scene-edge') }).Count -gt 0)) {
         throw '-RouteCamera 需要 -StreamingDiagnostics；scene-node/scene-edge 的低俯仰环绕除外。'
     }
-    if ($NodeReadyHoldSeconds -gt 0 -and @($Scenario | Where-Object { $_ -notin @('scene-node', 'scene-node-first', 'scene-memory', 'scene-reference') }).Count -gt 0) {
-        throw '-NodeReadyHoldSeconds 只用于节点、内存和参考情景。'
+    if ($NodeReadyHold -and @($Scenario | Where-Object { $_ -notin @('scene-node-first', 'scene-reference') }).Count -gt 0) {
+        throw '-NodeReadyHold 只用于 scene-node-first 和 scene-reference。'
     }
     if ($StreamingDiagnostics -and @($Scenario | Where-Object { $_ -notin @('scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x') }).Count -gt 0) {
         throw '-StreamingDiagnostics 仅支持 scene-route-1x/2x/4x/8x。'
@@ -222,7 +222,6 @@ public sealed class MeasurementDisplayAwake : IDisposable
             $run = @{ scenario = $name; repeat = $iteration; report = $reportPath; external_load = $loadPath; succeeded = $false }
             if ($StreamingDiagnostics) { $run.streaming_diagnostics = $true }
             if ($StreamingDiagnostics -or $lowOrbit) { $run.route_camera = $selection.camera }
-            $run.node_ready_hold_seconds = $NodeReadyHoldSeconds
             $runs.Add($run)
             $userDirectories = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } }
             else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
@@ -286,7 +285,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
                 if ($isScene -or $DurationSeconds -gt 0) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($StreamingDiagnostics) { $arguments += '--measure-streaming' }
                 if ($StreamingDiagnostics -or $lowOrbit) { $arguments += @('--measure-route-camera', $selection.camera) }
-                if ($NodeReadyHoldSeconds -gt 0) { $arguments += @('--measure-node-ready-hold', $NodeReadyHoldSeconds.ToString()) }
+                if ($NodeReadyHold) { $arguments += '--measure-node-ready-hold' }
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 if ($PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('--measure-train', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('--measure-node', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
