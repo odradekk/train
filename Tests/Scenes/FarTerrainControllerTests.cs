@@ -1,5 +1,6 @@
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -204,6 +205,43 @@ public sealed class FarTerrainControllerTests
             var terrain = new FarTerrain(cache);
             terrain.BindNode(NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)));
             terrain.SetFineBuildAllowed(false);
+            return terrain;
+        }
+    }
+
+    [TestMethod]
+    public void Layout_change_keeps_unchanged_fine_tiles_visible_while_the_parent_rebuilds()
+    {
+        var cache = new FarTerrain.Cache();
+        var layout = NodeFixtures.Layout with { Plots = [] };
+        var old = Node(layout);
+        old.Demand(new(128, 0, 128), 1);
+        while (!old.Advance(10000, CancellationToken.None)) { }
+        var unchanged = old.View.Tiles.Where(tile => tile.Origin.X > 0 || tile.Origin.Z > 0).ToArray();
+        Assert.AreEqual(15, unchanged.Length);
+        Assert.IsTrue(unchanged.All(tile => tile.SpacingCells == TerrainTile.NearSpacingCells));
+
+        var next = Node(layout with { SceneModel = layout.SceneModel with { Scene = layout.SceneModel.Scene with
+            { RootFlatten = new(new(0, 0), new(4, 4), 8) } } });
+        next.SetFineBuildAllowed(false);
+        next.Demand(new(128, 0, 128), 1);
+        Assert.IsTrue(next.HasPendingCoarse);
+        CollectionAssert.AreEquivalent(unchanged, next.View.Tiles.ToArray(),
+            "Valid fine tiles must stay visible when their layout-dependent parent is unavailable.");
+
+        while (next.HasPendingCoarse) next.Advance(10000, CancellationToken.None);
+        Assert.AreEqual(TerrainTile.FarSpacingCells, next.View.Tiles.Single().SpacingCells,
+            "An incomplete fine group must not replace a ready coarse parent.");
+        next.SetFineBuildAllowed(true);
+        while (!next.Advance(10000, CancellationToken.None)) { }
+        Assert.AreEqual(16, next.View.Tiles.Length);
+        foreach (var tile in unchanged) Assert.IsTrue(next.View.Tiles.Contains(tile));
+
+        FarTerrain Node(SettlementLayoutProjection value)
+        {
+            var snapshot = NodeFixtures.EmptyNodeSnapshot(value, []);
+            var terrain = new FarTerrain(cache);
+            terrain.BindNode(NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)));
             return terrain;
         }
     }

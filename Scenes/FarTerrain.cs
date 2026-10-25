@@ -340,6 +340,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                     if (saved.Tiles.TryGetValue(Key(parent.X + x * (TerrainTile.ParentCells / 4), parent.Z + z * (TerrainTile.ParentCells / 4), TerrainTile.NearSpacingCells), out var tile)) fine.Add(tile);
             if (fine.Count == 16) selected.AddRange(fine);
             else if (saved.Tiles.TryGetValue(Key(parent.X, parent.Z, TerrainTile.FarSpacingCells), out var coarse)) selected.Add(coarse);
+            else selected.AddRange(fine);
         }
         var tiles = selected.ToImmutable();
         if (!view.Tiles.SequenceEqual(tiles)) view = new(tiles);
