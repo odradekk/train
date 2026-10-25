@@ -43,7 +43,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     public EditSessionId Id { get; } = new(Guid.NewGuid());
     public ContentGeneration Content { get; }
     // 宿主每帧 Read／Present；EditObject 不可变，派生值按同一棵树、同一保存基准和同一锁表复用，大设计不再逐帧遍历。
-    // 几何按修订号复用：拾取对象带修订号，撤销回到同一棵树也要换新修订号。
+    // 拾取对象带修订号；网格生成器只保留上一帧各对象的区块几何。
+    private readonly EditGeometry editGeometry = new();
     private EditObject? derivedRoot;
     private ulong? renderedRevision;
     private ImmutableArray<EditElement> elements, lockedElements;
@@ -454,7 +455,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         var path = EnteredPath;
         if (renderedRevision != revision || renderedView != (entered, options.HighestVisibleY))
         {
-            rendered = EditGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY, ObjectId, ModelId, path);
+            rendered = editGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY,
+                ObjectId, ModelId, path, entered ?? default);
             renderedRevision = revision;
             renderedView = (entered, options.HighestVisibleY);
         }

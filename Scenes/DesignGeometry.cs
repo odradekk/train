@@ -8,7 +8,8 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal sealed record PickGrid(SceneObjectId Object, ScenePose Pose, VoxelGrid Grid);
+internal sealed record PickGrid(SceneObjectId Object, ScenePose Pose, VoxelGrid Grid,
+    Func<GridPosition, PickSubject>? ResolveSubject = null);
 internal sealed record RenderedDesign(ImmutableArray<SceneObject> Objects,
     ImmutableArray<PickGrid> Picking, ImmutableArray<SceneProblem> Diagnostics);
 
@@ -193,9 +194,10 @@ internal static class DesignGeometry
     }
 
     internal static IEnumerable<SceneObject> Models(VoxelGrid grid, SceneObjectId parent, WorldObjectId? subject,
-        Func<SceneCell, SceneObjectId> id, bool wear, ulong wearSeed = 0, SurfaceState? surface = null)
+        Func<SceneCell, SceneObjectId> id, bool wear, ulong wearSeed = 0, SurfaceState? surface = null,
+        IEnumerable<SceneCell>? cells = null)
     {
-        foreach (var cell in grid.Cells)
+        foreach (var cell in cells ?? grid.Cells)
         {
             if (cell.Appearance?.Presentation is not VoxelPresentation.Mesh mesh) continue;
             var placement = SceneGeometry.Placement(cell.At, cell.Orientation);
@@ -226,10 +228,22 @@ internal static class DesignGeometry
     internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear, ulong wearSeed = 0,
         IReadOnlyDictionary<GridPosition, float>? cellDamage = null, SurfaceState? surface = null)
     {
+        var meshes = BuildMeshes(grid, grid.Cells, wear, wearSeed, cellDamage, surface);
+        return meshes.Cubes.AddRange(meshes.Shapes);
+    }
+
+    internal readonly record struct MeshGroups(ImmutableArray<SceneVisual> Cubes, ImmutableArray<SceneVisual> Shapes);
+
+    internal static MeshGroups MeshChunk(VoxelGrid grid, GridPosition chunk) =>
+        BuildMeshes(grid, grid.CellsInChunk(chunk), true, 0, null, null);
+
+    private static MeshGroups BuildMeshes(VoxelGrid grid, IEnumerable<SceneCell> cells, bool wear, ulong wearSeed,
+        IReadOnlyDictionary<GridPosition, float>? cellDamage, SurfaceState? surface)
+    {
         var shapes = new VoxelShapes(grid);
         var groups = new Dictionary<(GridPosition Chunk, SceneMaterial Material),
             (List<FaceQuad> Quads, Dictionary<FacePlane, uint[]> Planes)>();
-        foreach (var cell in grid.Cells)
+        foreach (var cell in cells)
         {
             var amount = cellDamage is not null && cellDamage.TryGetValue(cell.At, out var found) ? found : 0;
             if (!cell.Occludes) { shapes.Add(cell, amount); continue; }
@@ -298,7 +312,7 @@ internal static class DesignGeometry
             }
         }
         surface ??= new(wear, wearSeed, 0, false);
-        var visuals = ImmutableArray.CreateBuilder<SceneVisual>(groups.Count + shapes.GroupCount);
+        var visuals = ImmutableArray.CreateBuilder<SceneVisual>(groups.Count);
         foreach (var (key, group) in groups)
         {
             var vertexCount = 0;
@@ -316,8 +330,7 @@ internal static class DesignGeometry
                 AddQuad(vertices, indices, quad.At, quad.Plane, quad.Width, quad.Height, quad.Edges);
             visuals.Add(new SceneVisual.Geometry(new(key.Material, vertices.DrainToImmutable(), indices.DrainToImmutable()), surface));
         }
-        visuals.AddRange(shapes.Build(surface));
-        return visuals.DrainToImmutable();
+        return new(visuals.DrainToImmutable(), shapes.Build(surface).ToImmutableArray());
 
         void AddQuad(ImmutableArray<SceneVertex>.Builder vertices, ImmutableArray<int>.Builder indices, GridPosition at, FacePlane plane,
             int width, int height, ExposedFaceEdges edges)

@@ -20,6 +20,158 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
+    public void Geometry_groups_reuse_visuals_across_insertions_and_removals_without_changing_the_display_before_commit()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var a = new SceneVisual.Geometry(Peak(41), new(false, 0, 0, false));
+        var b = new SceneVisual.Geometry(Peak(42), a.Surface);
+        var inserted = new SceneVisual.Geometry(Peak(43), a.Surface);
+        var original = Object(1, a.Mesh) with { Visuals = [a, b] };
+        var first = Frame(1, [original]);
+        Commit(display, first);
+        var old = display.Objects[original.Id].Visuals;
+        var oldMeshes = old.Select(visual => visual.Node.GetChild<MeshInstance3D>(0).Mesh).ToArray();
+        var repainted = a with { Surface = new(true, 17, 0.2f, false) };
+        var next = Frame(2, [original with { Visuals = [inserted, repainted, b] }], first.Update.Frame);
+        display.UpdatePoses(next);
+        var hit = new SceneHit(next.Update.Frame, original.Id, new PickSubject.Terrain(new WorldLocation.Node(new(1))),
+            default, GridFace.PositiveY, default, NVector3.UnitY, 1, []);
+        Require(!display.CanSelect(hit), "新分组尚未显示时不能接受该对象的最新命中。");
+        using (var cancelled = Prepare(display, next))
+        {
+            Require(ReferenceEquals(cancelled.Objects[original.Id].Visuals[1], old[0]) &&
+                ReferenceEquals(cancelled.Objects[original.Id].Visuals[2], old[1]), "插入分组必须按网格身份复用后移的视觉。");
+            Require(ReferenceEquals(old[0].Visual, a) && old.All(visual => visual.Node.IsInsideTree()) &&
+                ReferenceEquals(display.DisplayedFrame, first), "完整提交前不能更新旧视觉状态或摘除旧节点。");
+            var added = cancelled.Objects[original.Id].Visuals[0];
+            var addedMesh = added.Node.GetChild<MeshInstance3D>(0).Mesh;
+            cancelled.Dispose();
+            Require(!GodotObject.IsInstanceValid(added.Node) && !GodotObject.IsInstanceValid(addedMesh) &&
+                oldMeshes.All(GodotObject.IsInstanceValid), "取消完整候选只释放新增资源，保留复用网格。");
+        }
+        Commit(display, next);
+        var addedVisual = display.Objects[original.Id].Visuals[0];
+        var addedGeometry = addedVisual.Node.GetChild<MeshInstance3D>(0).Mesh;
+        Require(ReferenceEquals(display.Objects[original.Id].Visuals[1], old[0]) &&
+            ReferenceEquals(old[0].Visual, repainted) && ReferenceEquals(oldMeshes[0], old[0].Node.GetChild<MeshInstance3D>(0).Mesh),
+            "提交必须保留同一 PreparedVisual 和 ArrayMesh，并更新当前表面状态。");
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        display.PackMesh = (_, _) => throw new InvalidOperationException("只重排已有网格不应重新打包。");
+        var removed = Frame(3, [original with { Visuals = [b, repainted] }], next.Update.Frame);
+        display.UpdatePoses(removed);
+        Require(display.CanSelect(hit with { Frame = removed.Update.Frame }), "全部几何已经显示时，分组重排仍可拾取。");
+        Commit(display, removed);
+        Require(ReferenceEquals(display.Objects[original.Id].Visuals[0], old[1]) &&
+            ReferenceEquals(display.Objects[original.Id].Visuals[1], old[0]) && oldMeshes.All(GodotObject.IsInstanceValid),
+            "删除分组和交换顺序不能重建保留的视觉或网格。");
+        Require(!GodotObject.IsInstanceValid(addedVisual.Node) && !GodotObject.IsInstanceValid(addedGeometry),
+            "未匹配的旧视觉必须按身份退役，不能按新索引误释放保留资源。");
+        Require(events.Single(item => item.Stage == SceneDisplayStage.FramePreparationStarted).ResourceObjects is { IsEmpty: true } &&
+            events.All(item => item.Stage != SceneDisplayStage.ResourcesPrepared), "只重排复用视觉不能声明有新资源或发出资源准备事件。");
+    }
+
+    [Test]
+    public void Repeated_meshes_match_visuals_once_and_non_geometry_still_matches_by_index()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var geometry = new SceneVisual.Geometry(Peak(44), new(false, 0, 0, false));
+        var wheelset = new SceneVisual.Wheelset(2, 1, 0.5, 0);
+        var original = Object(1, geometry.Mesh) with { Visuals = [geometry, wheelset, geometry] };
+        var first = Frame(1, [original]);
+        Commit(display, first);
+        var old = display.Objects[original.Id].Visuals;
+        var mesh = old[0].Node.GetChild<MeshInstance3D>(0).Mesh;
+        Require(!ReferenceEquals(old[0], old[2]), "重复网格必须有各自独立的视觉。");
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        var next = Frame(2, [original with { Visuals = [geometry, geometry, wheelset, geometry] }], first.Update.Frame);
+        display.UpdatePoses(next);
+        var hit = new SceneHit(next.Update.Frame, original.Id, new PickSubject.Terrain(new WorldLocation.Node(new(1))),
+            default, GridFace.PositiveY, default, NVector3.UnitY, 1, []);
+        Require(!display.CanSelect(hit), "同一旧视觉不能重复匹配，新增的第三个实例尚未显示。");
+        using (var prepared = Prepare(display, next))
+        {
+            var visuals = prepared.Objects[original.Id].Visuals;
+            Require(ReferenceEquals(visuals[0], old[0]) && ReferenceEquals(visuals[1], old[2]) &&
+                visuals.Distinct<PreparedVisual>(ReferenceEqualityComparer.Instance).Count() == 4,
+                "重复网格按旧顺序一对一匹配，每个目标视觉必须独立。");
+            Require(!ReferenceEquals(visuals[2], old[1]) && GodotObject.IsInstanceValid(old[1].Node),
+                "非几何视觉移到其他索引时不能复用，旧资源必须保留到提交。");
+            Require(new[] { 0, 1, 3 }.All(index => ReferenceEquals(mesh, visuals[index].Node.GetChild<MeshInstance3D>(0).Mesh)),
+                "独立视觉仍应共享同一 ArrayMesh 租约。");
+            prepared.Commit();
+        }
+        Require(!GodotObject.IsInstanceValid(old[1].Node), "提交必须释放索引改变而未匹配的轮对资源。");
+        Require(events.Single(item => item.Stage == SceneDisplayStage.FramePreparationStarted).ResourceObjects is { } required &&
+            required.SequenceEqual(new[] { original.Id }) && events.Count(item => item.Stage == SceneDisplayStage.ResourcesPrepared) == 1,
+            "新增重复实例及移位轮对必须使整个对象在全部资源就绪后仅记录一次资源准备。");
+        var current = display.Objects[original.Id].Visuals;
+        var rotated = wheelset with { RotationRadians = 0.5 };
+        Commit(display, Frame(3, [original with { Visuals = [geometry, geometry, rotated] }], next.Update.Frame));
+        Require(ReferenceEquals(display.Objects[original.Id].Visuals[2], current[2]) &&
+            ReferenceEquals(display.Objects[original.Id].Visuals[2].Visual, rotated) &&
+            !GodotObject.IsInstanceValid(current[3].Node) && GodotObject.IsInstanceValid(mesh),
+            "非几何同索引仍按 CanUpdate 复用；删除重复实例不能释放其余使用者的网格。");
+    }
+
+    [Test]
+    public void Cancelling_partially_prepared_reordered_geometry_releases_only_new_resources_and_rejects_late_packing()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var a = new SceneVisual.Geometry(Peak(45), new(false, 0, 0, false));
+        var b = new SceneVisual.Geometry(Peak(46), a.Surface);
+        var original = Object(1, a.Mesh) with { Visuals = [a, b] };
+        var first = Frame(1, [original]);
+        Commit(display, first);
+        var old = display.Objects[original.Id].Visuals;
+        var oldMeshes = old.Select(visual => visual.Node.GetChild<MeshInstance3D>(0).Mesh).ToArray();
+        var added = new SceneVisual.Geometry(Peak(47), a.Surface);
+        var blocked = new SceneVisual.Geometry(Peak(48), a.Surface);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        display.PackMesh = (mesh, _) =>
+        {
+            if (ReferenceEquals(mesh, blocked.Mesh))
+            {
+                entered.Set();
+                Require(release.Wait(TimeSpan.FromSeconds(30)), "未释放被取消的后续打包。");
+            }
+            return PackedSceneMesh.Create(mesh, CancellationToken.None);
+        };
+        var pending = Frame(2, [original with { Visuals = [b, added, blocked] }], first.Update.Frame);
+        var before = OrphanIds();
+        Require(display.Prepare(pending, TimeSpan.Zero) is null, "零预算只启动打包，不提前提交。");
+        var packing = display.PreparationPacking;
+        try
+        {
+            Require(entered.Wait(TimeSpan.FromSeconds(30)), "后续网格必须在门控处等待。");
+            Require(display.Prepare(pending) is null, "首个新增资源上传后必须等待后续网格。");
+            var addedNode = NewOrphanRoots(before).Single(node => node.GetChildCount() == 1 && node.GetChild(0) is MeshInstance3D);
+            var addedMesh = addedNode.GetChild<MeshInstance3D>(0).Mesh;
+            Require(old.All(visual => visual.Node.IsInsideTree()) && oldMeshes.All(GodotObject.IsInstanceValid) &&
+                ReferenceEquals(display.DisplayedFrame, first), "分步准备不能更改或释放旧显示组。");
+            display.CancelPreparation();
+            Require(!GodotObject.IsInstanceValid(addedNode) && !GodotObject.IsInstanceValid(addedMesh) &&
+                oldMeshes.All(GodotObject.IsInstanceValid), "取消必须释放已上传的新资源，保留重排引用和待替换的旧资源。");
+        }
+        finally { release.Set(); }
+        packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        display.PackMesh = PackedSceneMesh.Create;
+        var replacement = new SceneVisual.Geometry(Peak(49), a.Surface);
+        Commit(display, Frame(3, [original with { Visuals = [b, replacement] }], first.Update.Frame));
+        Require(ReferenceEquals(display.Objects[original.Id].Visuals[0], old[1]) &&
+            !GodotObject.IsInstanceValid(old[0].Node) && !GodotObject.IsInstanceValid(oldMeshes[0]) &&
+            GodotObject.IsInstanceValid(oldMeshes[1]), "取消后的迟到结果不能接入；新提交只退役未匹配的旧网格。");
+    }
+
+    [Test]
     public async Task Promoted_subset_retains_prebuilt_visuals_for_later_batches_until_the_space_changes()
     {
         await new UiTestInput(TestScene).Frames(2);
