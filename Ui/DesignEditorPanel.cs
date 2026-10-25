@@ -29,6 +29,8 @@ internal partial class DesignEditorPanel : Control
     private readonly record struct ElementRow(EditElementId Id, EditElementId? Parent, EditElementKind Kind, GridPosition At, bool Locked);
     private ElementRow[] _elementRows = [];
     private string[] _elementTexts = [];
+    private ImmutableArray<EditElementId> _selectionSource;
+    private HashSet<EditElementId> _selection = [];
     private SpinBox _x = null!, _y = null!, _z = null!, _endX = null!, _endY = null!, _endZ = null!, _width = null!, _plane = null!, _cut = null!;
     private IEditPreview? _preview;
     internal event Action? LibraryRequested;
@@ -329,7 +331,12 @@ internal partial class DesignEditorPanel : Control
             ShowElements([.. state.Elements.Select(item => new ElementRow(item.Id, item.Parent, item.Kind, item.At, item.Locked))]);
             if (ElementsUpdated is not null) ElementsUpdated(state.Snapshot.Stamp, Stopwatch.GetElapsedTime(listStarted));
         }
-        var selection = state.Selection.ToHashSet();
+        if (_selectionSource != state.Selection)
+        {
+            _selectionSource = state.Selection;
+            _selection = state.Selection.ToHashSet();
+        }
+        var selection = _selection;
         var selected = _elements.GetSelectedItems();
         if (selected.Length != selection.Count || selected.Any(index => !selection.Contains(_elementRows[index].Id)))
         {
