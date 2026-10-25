@@ -16,18 +16,24 @@ internal static class ProductionOperations
     {
         var settlement = world.Settlements.Single(s => s.Id == id);
         if (settlement.Template.ProductionPlans.IsEmpty) return ([], []);
-        var plans = settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
-            .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
-            .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value)
-            .ThenBy(p => p.Plan.Capability).ToArray();
-        if (plans.Length == 0) return ([], []);
+        var plans = new List<(TemplateProductionPlan Plan, BuildingId Building, int Index)>(settlement.Template.ProductionPlans.Length);
+        for (var index = 0; index < settlement.Template.ProductionPlans.Length; index++)
+        {
+            var plan = settlement.Template.ProductionPlans[index];
+            if (plan.Capability is not (CapabilityKind.Production or CapabilityKind.Extraction)) continue;
+            if (settlement.Plots.Single(plot => plot.TemplateNumber == plan.PlotNumber).Building is { } building)
+                plans.Add((plan, building, index));
+        }
+        if (plans.Count == 0) return ([], []);
+        plans.Sort(static (a, b) => (a.Plan.Priority, a.Building.Value, a.Plan.Capability, a.Index)
+            .CompareTo((b.Plan.Priority, b.Building.Value, b.Plan.Capability, b.Index)));
         var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Facility);
         var capabilities = new Dictionary<BuildingId, BuildingCapabilities>();
-        var prepared = ImmutableArray.CreateBuilder<PreparedFacility>();
+        var prepared = ImmutableArray.CreateBuilder<PreparedFacility>(plans.Count);
         var requests = ImmutableArray.CreateBuilder<FacilityRequest>();
-        foreach (var (plan, building) in plans)
+        foreach (var (plan, building, _) in plans)
         {
-            var key = new FacilityKey(building!.Value, plan.Capability);
+            var key = new FacilityKey(building, plan.Capability);
             var runtime = facilities[key];
             var process = ProductionQueries.Process(content, plan.Process);
             if (!capabilities.TryGetValue(key.Building, out var buildingCapabilities))
@@ -50,7 +56,7 @@ internal static class ProductionOperations
                     (process.Details as ProcessDetails.Extraction)?.Extracts));
         }
 
-        return (prepared.ToImmutable(), requests.ToImmutable());
+        return (prepared.MoveToImmutable(), requests.ToImmutable());
     }
 
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Complete(
