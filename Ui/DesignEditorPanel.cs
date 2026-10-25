@@ -315,30 +315,29 @@ internal partial class DesignEditorPanel : Control
         _status.Text = string.Join(" · ", segments.Where(segment => !string.IsNullOrWhiteSpace(segment)));
         if (_service.State is not { } state) return;
         if (_paletteSession != state.Snapshot.Stamp.Session) { _paletteSession = state.Snapshot.Stamp.Session; RefreshPalette(); }
+        var changed = _shown != state.Snapshot.Stamp || _shownEntered != state.EnteredObject;
+        if (changed)
+        {
+            _shown = state.Snapshot.Stamp;
+            _shownEntered = state.EnteredObject;
+            _preview = null;
+            _previewText.Text = "";
+            var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
+            _name.Text = current.Display.Name; _description.Text = current.Display.Description;
+            var listStarted = ElementsUpdated is not null ? Stopwatch.GetTimestamp() : 0;
+            ShowElements([.. state.Elements.Select(item => (item.Id, Text:
+                $"{(item.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{item.Id.Value} · {ElementKindText(item.Kind)} {PositionText(item.At)}{(item.Locked ? " [锁定]" : "")}"))]);
+            if (ElementsUpdated is not null) ElementsUpdated(state.Snapshot.Stamp, Stopwatch.GetElapsedTime(listStarted));
+        }
         for (var index = 0; index < _elementIds.Count; index++)
         {
             if (state.Selection.Contains(_elementIds[index])) _elements.Select(index, false);
             else _elements.Deselect(index);
         }
-        if (_shown == state.Snapshot.Stamp && _shownEntered == state.EnteredObject)
-        {
-            if (!ReferenceEquals(_shownEvaluation, state.CurrentEvaluation) ||
-                _shownFrameDiagnostics != _service.FrameDiagnostics) ShowEvaluation(state);
-            return;
-        }
-        _shown = state.Snapshot.Stamp;
-        _shownEntered = state.EnteredObject;
-        _preview = null;
-        _previewText.Text = "";
-        var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
-        _name.Text = current.Display.Name; _description.Text = current.Display.Description;
-        var listStarted = ElementsUpdated is not null ? Stopwatch.GetTimestamp() : 0;
-        ShowElements([.. state.Elements.Select(item => (item.Id, Text:
-            $"{(item.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{item.Id.Value} · {ElementKindText(item.Kind)} {PositionText(item.At)}{(item.Locked ? " [锁定]" : "")}"))]);
-        if (ElementsUpdated is not null) ElementsUpdated(state.Snapshot.Stamp, Stopwatch.GetElapsedTime(listStarted));
-        ShowEvaluation(state);
+        if (changed || !ReferenceEquals(_shownEvaluation, state.CurrentEvaluation) ||
+            _shownFrameDiagnostics != _service.FrameDiagnostics) ShowEvaluation(state);
     }
-    // Clear 会丢弃未变行的文字排版缓存；批量缩短 ItemCount 前还须清掉可能越界的键盘焦点。
+    // Clear 会丢弃未变行的文字排版缓存；缩短列表前须清掉引擎不会平移的键盘焦点。
     private void ShowElements((EditElementId Id, string Text)[] rows)
     {
         var change = RowChange.Between(_elementRows, rows);
@@ -353,6 +352,7 @@ internal partial class DesignEditorPanel : Control
         {
             var replaced = Math.Min(change.Removed, change.Inserted);
             for (var index = change.Start; index < change.Start + replaced; index++) _elements.SetItemText(index, rows[index].Text);
+            if (change.Removed > replaced) _elements.DeselectAll();
             for (var index = change.Start + change.Removed - 1; index >= change.Start + replaced; index--) _elements.RemoveItem(index);
             for (var index = change.Start + replaced; index < change.Start + change.Inserted; index++)
             {
