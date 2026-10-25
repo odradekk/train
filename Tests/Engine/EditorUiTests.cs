@@ -430,6 +430,8 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
                 "大块缩短后滚动位置必须限制在新列表的有效范围内。");
             list.GrabFocus();
             await input.PressKey(Key.Up);
+            // 重置后的 Up 会按原生导航移走控件焦点，Down 需重新发给列表。
+            list.GrabFocus();
             await input.PressKey(Key.Down);
             await input.PressKey(Key.Space);
             Require(fixture.Editor.State!.Selection.ToHashSet().SetEquals(selected.Append(cells[0].Id)),
