@@ -212,6 +212,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         var affected = 0;
         int? covered = null;
         var skipped = 0;
+        var occupancyComplete = false;
         var elements = Elements;
         var lockProblems = LockProblems(elements);
         switch (operation)
@@ -232,7 +233,9 @@ internal sealed partial class DesignEditSession : IDesignEditSession
                     if (!invalid.IsEmpty) return Failure<IEditPreview>(invalid);
                 }
                 var own = current.Cells.Where(cell => footprint.Contains(cell.At)).ToLookup(cell => cell.At);
-                var rootCells = Occupied(root).Cells;
+                var occupied = Occupied(root);
+                var rootCells = occupied.Cells;
+                occupancyComplete = occupied.Complete;
                 var rootFootprint = footprint;
                 if (!path.IsEmpty)
                 {
@@ -352,9 +355,15 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             }
             default: throw new ArgumentException("Invalid edit operation.", nameof(operation));
         }
-        return FinishPreview(new(Stamp, EditLayout.Update(root, path, _ => next), covered ?? highlight.Count, affected, skipped,
+        var candidate = new PreviewValue(Stamp, EditLayout.Update(root, path, _ => next), covered ?? highlight.Count, affected, skipped,
             operation is EditOperation.Cells && affected > VoxelRegionLimits.ConfirmationThreshold,
-            conflicts.ToImmutable(), Ordered(highlight), lockChecks.ToImmutable()), path);
+            conflicts.ToImmutable(), Ordered(highlight), lockChecks.ToImmutable());
+        if (operation is EditOperation.Cells { Action: not CellEdit.Add })
+        {
+            preview = candidate with { OccupancyComplete = occupancyComplete };
+            return Success<IEditPreview>(preview);
+        }
+        return FinishPreview(candidate, path);
 
         SceneProblem? CheckLock(EditElementId id, LockedDesignOperation action)
         {
