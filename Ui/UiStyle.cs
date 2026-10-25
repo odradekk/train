@@ -22,23 +22,25 @@ internal static class UiStyle
         _ => Error
     };
 
-    private static readonly Texture2D RunningSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-running.png");
-    private static readonly Texture2D ServicingSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-servicing.png");
-    private static readonly Texture2D WaitingSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-waiting.png");
-    private static readonly Texture2D WarningSymbol = GD.Load<Texture2D>("res://Ui/Symbols/warning.png");
-    private static readonly Texture2D CombatSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-combat.png");
-    private static readonly Texture2D RetreatingSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-retreating.png");
+    private static readonly Dictionary<TrainActivity, Texture2D> Symbols = [];
 
-    internal static Texture2D TrainSymbol(TrainActivity activity) => activity switch
+    internal static Texture2D TrainSymbol(TrainActivity activity)
     {
-        TrainActivity.Running => RunningSymbol,
-        TrainActivity.Servicing => ServicingSymbol,
-        TrainActivity.Waiting or TrainActivity.Stopped => WaitingSymbol,
-        TrainActivity.NoRoute => WarningSymbol,
-        TrainActivity.Combat => CombatSymbol,
-        TrainActivity.Retreating => RetreatingSymbol,
-        _ => WarningSymbol
-    };
+        if (activity == TrainActivity.Stopped) activity = TrainActivity.Waiting;
+        if (Symbols.TryGetValue(activity, out var symbol)) return symbol;
+        var path = activity switch
+        {
+            TrainActivity.Running => "res://Ui/Symbols/train-running.png",
+            TrainActivity.Servicing => "res://Ui/Symbols/train-servicing.png",
+            TrainActivity.Waiting => "res://Ui/Symbols/train-waiting.png",
+            TrainActivity.NoRoute => "res://Ui/Symbols/warning.png",
+            TrainActivity.Combat => "res://Ui/Symbols/train-combat.png",
+            TrainActivity.Retreating => "res://Ui/Symbols/train-retreating.png",
+            _ => "res://Ui/Symbols/warning.png"
+        };
+        Symbols[activity] = symbol = GD.Load<Texture2D>(path);
+        return symbol;
+    }
 
     internal static Color RelationColor(SettlementRelation relation) => relation switch
     {
