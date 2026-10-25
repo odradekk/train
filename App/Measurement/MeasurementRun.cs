@@ -388,6 +388,7 @@ internal sealed partial class MeasurementRun : IDisposable
     public void Dispose()
     {
         _disposed = true;
+        StopEditorMeasurement();
         RenderingServer.FramePostDraw -= OnDraw;
         _process.Dispose();
     }

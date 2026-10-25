@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
@@ -16,6 +17,7 @@ internal sealed class EditorSceneController : IDisposable
     private IDesignEditSession? _session;
     private EditStamp? _stamp;
     private EditStamp? _displayStamp;
+    private EditStamp? _measuredPresentStamp;
     private EditElementId? _entered;
     private System.Collections.Immutable.ImmutableArray<EditElementId> _selection = [];
     private DesignEvaluation? _evaluation;
@@ -30,6 +32,9 @@ internal sealed class EditorSceneController : IDisposable
     internal EditStamp? DisplayedStamp => _displayStamp;
     internal EditViewOptions Options { get; set; } = new(new(GridAxis.Y, 0), null, SceneDebugLayer.None);
     internal event Action<ScenePick>? Picked;
+    internal event Action<SceneDisplay>? DisplayCreated;
+    internal event Action<EditStamp, TimeSpan>? FirstPresented;
+    internal event Action<EditStamp>? RevisionCommitted;
     internal EditorSceneController(EditorService service)
     {
         _service = service;
@@ -65,6 +70,7 @@ internal sealed class EditorSceneController : IDisposable
             Clear();
             _session = session;
             _display = new(_cache, content);
+            DisplayCreated?.Invoke(_display);
             View.AddChild(_display.Root);
         }
         View.SetActive(true);
@@ -92,7 +98,14 @@ internal sealed class EditorSceneController : IDisposable
                 ShowPreview(null);
                 _stamp = stamp;
             }
+            var measurePresent = FirstPresented is not null && stamp is not null && stamp != _measuredPresentStamp;
+            var presentStarted = measurePresent ? Stopwatch.GetTimestamp() : 0;
             var result = session.Present(Options, _retrying ? null : _display!.DisplayedFrame);
+            if (measurePresent)
+            {
+                _measuredPresentStamp = stamp;
+                FirstPresented?.Invoke(stamp!, Stopwatch.GetElapsedTime(presentStarted));
+            }
             if (result is SceneResult<ISceneFrame>.Success success)
             {
                 if (success.Value.Readiness == SceneReadiness.Failed)
@@ -104,7 +117,9 @@ internal sealed class EditorSceneController : IDisposable
                 if (prepared is not null)
                 {
                     prepared.Commit();
+                    var newRevision = _displayStamp != _stamp;
                     _displayStamp = _stamp;
+                    if (newRevision && _displayStamp is { } committed) RevisionCommitted?.Invoke(committed);
                     View.ShowFrame(prepared.Frame, null);
                     FrameOpening(prepared.Frame);
                     _overlay.DrawPlane(Options.WorkPlane, prepared.Frame.Origin, EnteredTransform());
@@ -256,6 +271,7 @@ internal sealed class EditorSceneController : IDisposable
         _session = null;
         _stamp = null;
         _displayStamp = null;
+        _measuredPresentStamp = null;
         _evaluation = null;
         _retrying = false;
         _overlay.Visible = false;
