@@ -288,10 +288,7 @@ public sealed class SettlementLayoutTests
 
     private static (SettlementLayoutProjection Template, Vector3[] GroundCells) BuiltIn(string name)
     {
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Train.sln"))) root = root.Parent;
-        Assert.IsNotNull(root);
-        var resources = Path.Combine(root.FullName, "builtin", "core", "resources");
+        var resources = Path.Combine(AppContext.BaseDirectory, "builtin", "core", "resources");
         using var templateJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "settlement-templates", name + ".settlement-template.json")));
         var source = templateJson.RootElement;
         using var groundJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "blueprints", source.GetProperty("scene_model").GetString() + ".blueprint.json")));
