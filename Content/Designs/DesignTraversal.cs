@@ -7,9 +7,19 @@ namespace Train.Content.Designs;
 
 internal static class DesignTraversal
 {
-    internal static IEnumerable<(C.LayoutCell Cell, int Index)> Cells(C.DesignDraft draft) =>
-        draft.Layout.Cells.Select((cell, index) => (Cell: cell, Index: index))
-            .OrderBy(item => item.Cell.At.X).ThenBy(item => item.Cell.At.Y).ThenBy(item => item.Cell.At.Z);
+    internal static (C.LayoutCell Cell, int Index)[] Cells(C.DesignDraft draft)
+    {
+        var cells = new (C.LayoutCell Cell, int Index)[draft.Layout.Cells.Length];
+        for (var index = 0; index < cells.Length; index++) cells[index] = (draft.Layout.Cells[index], index);
+        Array.Sort(cells, static (left, right) =>
+        {
+            var order = left.Cell.At.X.CompareTo(right.Cell.At.X);
+            if (order == 0) order = left.Cell.At.Y.CompareTo(right.Cell.At.Y);
+            if (order == 0) order = left.Cell.At.Z.CompareTo(right.Cell.At.Z);
+            return order == 0 ? left.Index.CompareTo(right.Index) : order;
+        });
+        return cells;
+    }
 
     internal static C.GridPosition At(C.NestedDesignItem item) => item switch
     {
