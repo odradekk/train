@@ -30,7 +30,7 @@ internal partial class DesignEditorPanel
             Add(_equipment, "ReplaceEquipment", $"替换为 {summary.Display.Name}", () =>
             {
                 if (_elements.GetSelectedItems().Length == 0) { _service.Report("请先选择设备。"); return; }
-                Preview(new EditOperation.ReplaceNested(_elementIds[_elements.GetSelectedItems()[0]], Item()));
+                Preview(new EditOperation.ReplaceNested(_elementRows[_elements.GetSelectedItems()[0]].Id, Item()));
             });
         }
     }
