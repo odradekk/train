@@ -44,7 +44,6 @@ public sealed class FarTerrainControllerTests
         var coarse = terrain.View.Tiles.Single();
         Assert.AreEqual(32, coarse.SpacingCells);
         Assert.IsFalse(terrain.HasPendingCoarse);
-        Assert.IsTrue(terrain.HasPendingWork);
         Assert.IsFalse(terrain.HasRunnableWork);
 
         terrain.SetFineBuildAllowed(true);
@@ -53,7 +52,6 @@ public sealed class FarTerrainControllerTests
         terrain.SetFineBuildAllowed(false);
         Assert.IsTrue(terrain.Advance(1_000_000, CancellationToken.None));
         Assert.AreSame(coarse, terrain.View.Tiles.Single());
-        Assert.IsTrue(terrain.HasPendingWork);
         Assert.IsFalse(terrain.HasRunnableWork);
 
         terrain.SetFineBuildAllowed(true);
@@ -66,7 +64,6 @@ public sealed class FarTerrainControllerTests
         Assert.IsTrue(finished);
         Assert.AreEqual(16, terrain.View.Tiles.Length);
         Assert.IsTrue(terrain.View.Tiles.All(tile => tile.SpacingCells == 4));
-        Assert.IsFalse(terrain.HasPendingWork);
         Assert.IsFalse(terrain.HasRunnableWork);
     }
 
@@ -165,6 +162,69 @@ public sealed class FarTerrainControllerTests
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(terrain)!;
             Assert.IsTrue(objects.Count <= 16, "Evicted tile objects must not keep their meshes alive.");
         }
+    }
+
+    [TestMethod]
+    public void Layout_change_reuses_only_tiles_that_do_not_read_layout_inputs()
+    {
+        var cache = new FarTerrain.Cache();
+        var layout = NodeFixtures.Layout with { Plots = [] };
+        var before = NodeFixtures.EmptyNodeSnapshot(layout, []);
+        var after = NodeFixtures.EmptyNodeSnapshot(layout with
+        {
+            SceneModel = layout.SceneModel with { Scene = layout.SceneModel.Scene with
+                { RootFlatten = new(new(0, 0), new(4, 4), 8) } }
+        }, []);
+        var old = Node(before);
+        var outside = FirstCoarse(old);
+        var changed = Node(after);
+        changed.Demand(Focus, 1);
+        Assert.AreSame(outside, changed.View.Tiles.Single(), "Unchanged outside tiles must be available immediately.");
+        old.Demand(new(128, 0, 128), 1);
+        while (!old.Advance(10000, CancellationToken.None)) { }
+        var inside = old.View.Tiles.Single();
+
+        changed.Demand(new(128, 0, 128), 1);
+        Assert.IsTrue(changed.View.Tiles.IsEmpty, "Layout-dependent terrain must rebuild.");
+        while (!changed.Advance(10000, CancellationToken.None)) { }
+        Assert.AreNotSame(inside, changed.View.Tiles.Single());
+
+        // This tile completes after the replacement was bound. Handover must also reuse it.
+        old.Demand(Focus, 1);
+        while (!old.Advance(10000, CancellationToken.None)) { }
+        Assert.AreNotSame(outside, old.View.Tiles.Single(), "This tile must have completed after the replacement bound its cache.");
+        outside = old.View.Tiles.Single();
+        changed.Demand(Focus, 1);
+        changed.ReuseTiles(old);
+        Assert.AreSame(outside, changed.View.Tiles.Single());
+        Assert.IsFalse(changed.HasPendingCoarse);
+
+        FarTerrain Node(SceneWorldSnapshot snapshot)
+        {
+            var terrain = new FarTerrain(cache);
+            terrain.BindNode(NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)));
+            terrain.SetFineBuildAllowed(false);
+            return terrain;
+        }
+    }
+
+    [TestMethod]
+    public void Rebinding_between_initialization_and_tile_admission_retries_without_worker_failure()
+    {
+        var terrain = Bound(new());
+        terrain.Demand(Focus, 1);
+        terrain.Advance(128, CancellationToken.None);
+        var changed = RailwayFixtures.Snapshot(relief: 2);
+        terrain.BindRailway(changed, new RailwayPath(changed, RailwayFixtures.Edge));
+        terrain.Demand(Focus, 1);
+
+        // Reproduce the tile-admission phase after its earlier initialization read was invalidated.
+        var admit = typeof(FarTerrain).GetMethod("AdvanceTile",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var completed = (bool)admit.Invoke(terrain, [128, CancellationToken.None])!;
+        Assert.IsFalse(completed);
+        Assert.IsTrue(terrain.View.Tiles.IsEmpty);
+        Assert.IsNotNull(FirstCoarse(terrain));
     }
 
     private static FarTerrain Bound(FarTerrain.Cache cache, double relief = 0)

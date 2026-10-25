@@ -75,7 +75,7 @@ public sealed class FarTerrainSessionTests
     }
 
     [TestMethod]
-    public async Task Founded_successor_keeps_old_far_terrain_until_its_coarse_terrain_is_ready()
+    public async Task Founded_successor_activates_when_near_prepared_and_reuses_displayed_outside_tiles()
     {
         var founded = NodeFixtures.EmptyNodeSnapshot(NodeFixtures.Layout with { Plots = [] }, []);
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
@@ -100,19 +100,19 @@ public sealed class FarTerrainSessionTests
             var oldNode = Field<NodeScene>(session, "node");
             oldNode.SetFarBuildAllowed(false);
             oldNode.SetFineTerrainBuildAllowed(false);
-            oldNode.SetTerrainViewRadius(1);
+            oldNode.SetTerrainViewRadius(2048);
             oldNode.Pump(empty);
             var oldTerrain = Field<FarTerrain>(oldNode, "farTerrain");
             while (oldTerrain.HasPendingCoarse) oldTerrain.Advance(128, CancellationToken.None);
-            displayed = Present(session, displayed, radius: 1);
+            displayed = Present(session, displayed, radius: 2048);
             Assert.IsFalse(oldTerrain.View.Tiles.IsEmpty);
-            var tile = oldTerrain.View.Tiles[0];
+            var tile = oldTerrain.View.Tiles.First(item => Math.Abs(item.Origin.X) >= 2048);
             var point = new Vector3((float)(tile.Origin.X + 512 - displayed.Origin.X), 0,
                 (float)(tile.Origin.Z + 512 - displayed.Origin.Z));
             Assert.IsInstanceOfType<Lookup<double>.Found>(displayed.DisplayTerrainHeight(point.X, point.Z));
 
             session.Observe(founded, []);
-            displayed = Present(session, displayed, radius: 1);
+            displayed = Present(session, displayed, radius: 2048);
             await started.Task;
             var successor = Field<NodeScene>(session, "successor");
             var terrain = Field<FarTerrain>(successor, "farTerrain");
@@ -121,20 +121,16 @@ public sealed class FarTerrainSessionTests
             {
                 release.Set();
                 successor.BuildWork!.GetAwaiter().GetResult();
-                var waiting = Present(session, displayed, radius: 1);
+                var waiting = Present(session, displayed, radius: 2048);
                 Assert.IsTrue(successor.NearPrepared, "L0 must already allow handover in this fixture.");
                 Assert.IsTrue(successor.HasPendingCoarseTerrain);
-                Assert.AreSame(displayed.Node, waiting.Node, "L0 readiness alone must not activate the successor.");
+                Assert.AreSame(successor.Layout, waiting.Node, "NearPrepared must activate the successor without waiting for L2.");
+                Assert.IsTrue(terrain.View.Tiles.Contains(tile), "An unchanged displayed tile must survive handover by reference.");
                 Assert.IsInstanceOfType<Lookup<double>.Found>(waiting.DisplayTerrainHeight(point.X, point.Z));
                 displayed = waiting;
             }
-            for (var attempt = 0; attempt < 100 && ReferenceEquals(displayed.Node, oldNode.Layout); attempt++)
-            {
-                await SceneFixtures.AwaitPendingWork(successor.PendingFarWork);
-                displayed = Present(session, displayed, radius: 1);
-            }
             Assert.AreNotSame(oldNode.Layout, displayed.Node);
-            Assert.IsFalse(successor.HasPendingCoarseTerrain);
+            Assert.IsTrue(successor.HasPendingCoarseTerrain);
             Assert.IsInstanceOfType<Lookup<double>.Found>(displayed.DisplayTerrainHeight(point.X, point.Z));
         }
         finally { release.Set(); }

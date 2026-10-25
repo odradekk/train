@@ -331,6 +331,7 @@ internal sealed class NodeScene : IAsyncDisposable
     internal void SetTerrainViewRadius(double radius) { if (radius > 0) terrainViewRadiusCells = radius; }
     internal void SetFineTerrainBuildAllowed(bool allowed) => farTerrain.SetFineBuildAllowed(allowed);
     internal void SetFarBuildAllowed(bool allowed) => farBuilds.SetEnabled(allowed);
+    internal void ReuseFarTerrain(NodeScene previous) => farTerrain.ReuseTiles(previous.farTerrain);
 
     internal bool HasPendingBuilds
     {
@@ -783,9 +784,11 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         if (indexedCorridor != corridor || indexedPreparation != prepared)
         {
+            foreach (var from in unbuiltCorridorChunks) dirtyTerrainRows.Add(from.Z);
             unbuiltCorridorChunks.Clear();
             if (prepared!.HasChunks && corridor is not null)
                 unbuiltCorridorChunks.UnionWith(corridor.Chunks.Where(from => !chunks.ContainsKey(from) || rebuilding.Contains(ChunkKey(from))));
+            foreach (var from in unbuiltCorridorChunks) dirtyTerrainRows.Add(from.Z);
             corridorRails.Clear();
             foreach (var segment in prepared!.Rails.Values)
                 if (corridor?.Intersects(segment.Bounds) == true) corridorRails.Add(segment.Key);
@@ -1272,7 +1275,8 @@ internal sealed class NodeScene : IAsyncDisposable
             int? start = null;
             for (var x = left; x < right; x += VoxelGrid.ChunkSize)
             {
-                var inWindow = x >= required.Left && x < required.Right && z >= required.Back && z < required.Front;
+                var inWindow = x >= required.Left && x < required.Right && z >= required.Back && z < required.Front ||
+                    unbuiltCorridorChunks.Contains(new(x, z));
                 var hasFar = !inWindow && farView.Height(new(x + VoxelGrid.ChunkSize / 2, 0, z + VoxelGrid.ChunkSize / 2)) is not null;
                 if (!terrainChunks.Contains(new(x, z)) && !hasFar) start ??= x;
                 else if (start is { } begin) { Missing(begin, x); start = null; }

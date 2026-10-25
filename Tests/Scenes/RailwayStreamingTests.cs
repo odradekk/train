@@ -27,6 +27,81 @@ public sealed class RailwayStreamingTests
     }
 
     [TestMethod]
+    public async Task Outside_window_fog_follows_the_curve_and_excludes_built_columns()
+    {
+        var snapshot = RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 100, relief: 0);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, Scope(new()));
+        scene.SetTerrainViewRadius(2048);
+        scene.SetFarBuildAllowed(false);
+        var target = new WorldSceneTarget.Location(RailwayFixtures.Location);
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var stamp = new SceneFrameStamp(new(Guid.Empty), new(1), new(1), 1);
+        var frame = await RailwayFixtures.Settled(scene, snapshot, target, request, stamp);
+        var path = scene.Path!;
+        var fog = frame.Update.Environment.FoggedRegions;
+        Assert.IsFalse(fog.IsEmpty, "Unbuilt segments outside the loaded window must still be fogged.");
+        var band = ConstructionFog.Band(arc => path.Sample(arc), 0, path.LengthCells,
+            RailwayCoordinates.FogHalfWidth(path.Edge.Tracks), -128, 128);
+        var worldFog = fog.Select(box => new SceneBounds(
+            box.Minimum + RailwayCoordinates.Relative(frame.Origin, default),
+            box.Maximum + RailwayCoordinates.Relative(frame.Origin, default)));
+        Assert.IsTrue(ConstructionFog.Clip(worldFog, band).IsEmpty,
+            "A curved line's construction fog must not fill the empty ground inside a long segment AABB.");
+        var loaded = path.Sample(64).Position;
+        Assert.IsFalse(fog.Any(box => loaded.X - frame.Origin.X > box.Minimum.X && loaded.X - frame.Origin.X < box.Maximum.X &&
+            loaded.Z - frame.Origin.Z > box.Minimum.Z && loaded.Z - frame.Origin.Z < box.Maximum.Z),
+            "Fog for distant curved segments must not cover the attached window.");
+    }
+
+    [TestMethod]
+    public async Task Far_terrain_removes_outside_window_fog_but_keeps_required_missing_segments_fogged()
+    {
+        var snapshot = RailwayFixtures.Snapshot(lengthMeters: 400, directMeters: 400, relief: 0);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, Scope(new()), build: (input, railway, index, token) =>
+        {
+            release.Wait(token);
+            return RailwayFixtures.EmptySegment(input, railway, index, token);
+        });
+        scene.SetTerrainViewRadius(1024);
+        scene.SetFineTerrainBuildAllowed(false);
+        scene.SetFarBuildAllowed(false);
+        try
+        {
+            var target = new WorldSceneTarget.Location(RailwayFixtures.Location);
+            var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+            var stamp = new SceneFrameStamp(new(Guid.Empty), new(1), new(1), 1);
+            var before = scene.Present(snapshot, null, target, request, stamp, null);
+            var distant = path.Sample(path.LengthCells - 32).Position;
+            Assert.IsTrue(FogCovers(before, distant), "The required distant strip must be fogged before far terrain is displayed.");
+            Assert.IsInstanceOfType<Lookup<double>.Missing>(before.DisplayTerrainHeight(distant.X - before.Origin.X, distant.Z - before.Origin.Z),
+                "The initial frame must have demand but no displayed L0 or far terrain at the distant point.");
+            var far = (FarTerrain)typeof(RailwayScene).GetField("farTerrain",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(scene)!;
+            while (far.HasPendingCoarse) far.Advance(65536, CancellationToken.None);
+            var after = scene.Present(snapshot, null, target, request, stamp with { Revision = 2 }, null);
+            Assert.IsInstanceOfType<Lookup<double>.Found>(after.DisplayTerrainHeight(distant.X - after.Origin.X, distant.Z - after.Origin.Z),
+                "The distant point must have displayed far terrain, not merely no fog.");
+            Assert.IsFalse(FogCovers(after, distant), "Outside-window fog must disappear once far terrain is displayed.");
+            var required = path.Sample(32).Position;
+            Assert.IsTrue(FogCovers(after, required), "Far terrain must not remove fog from required missing L0.");
+            Assert.IsInstanceOfType<ScenePick.NotReady>(after.Pick(Ray(required, after)));
+        }
+        finally { release.Set(); }
+        static bool FogCovers(SceneFrame frame, ScenePoint point)
+        {
+            var local = RailwayCoordinates.Relative(point, frame.Origin);
+            return frame.Update.Environment.FoggedRegions.Any(box => local.X >= box.Minimum.X && local.X < box.Maximum.X &&
+                local.Y >= box.Minimum.Y && local.Y < box.Maximum.Y && local.Z >= box.Minimum.Z && local.Z < box.Maximum.Z);
+        }
+        static SceneRay Ray(ScenePoint point, SceneFrame frame) => new(
+            RailwayCoordinates.Relative(point with { Y = 100 }, frame.Origin), -System.Numerics.Vector3.UnitY, 200);
+    }
+
+    [TestMethod]
     public async Task Follow_far_terrain_covers_only_the_bounded_prefetch_interval_on_a_long_curve()
     {
         const double focal = (4000 - 8) * RailwayCoordinates.CellsPerMeter;
@@ -145,7 +220,7 @@ public sealed class RailwayStreamingTests
 
             Assert.IsTrue(scene.PendingFarWork.All(task => task.IsCompleted),
                 "Waiting L0 must prevent another far unit from taking the released slot.");
-            Assert.IsTrue(farTerrain.HasPendingWork,
+            Assert.IsTrue(farTerrain.View.Tiles.IsEmpty,
                 "The worker must yield while real far terrain still needs work.");
             Assert.AreEqual(1, Volatile.Read(ref newBuilds));
             var queuedBefore = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()

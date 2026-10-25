@@ -45,7 +45,9 @@ public sealed class TerrainCapSourceTests
             "The river fixture must place a fixed model with RootFlatten.");
         var source = new RailwayTerrainCaps(snapshot, path);
         var work = source.Part(0);
-        Complete(work);
+        var area = path.Bounds(0, Math.Min(path.LengthCells, RailwayCoordinates.SegmentLengthCells), default,
+            RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks) + RailwayCoordinates.CellFootprintMargin);
+        Complete(work, new(new(area.Minimum.X, area.Minimum.Z), new(area.Maximum.X, area.Maximum.Z)));
         AssertCapBoundsColumns(work.Result, segment.Heights.Select(pair =>
             (X: pair.Key.X + segment.Origin.X, Z: pair.Key.Z + segment.Origin.Z, Top: pair.Value)));
         AssertCapBoundsColumns(source.Part(0).Result, segment.Heights.Select(pair =>
@@ -80,7 +82,6 @@ public sealed class TerrainCapSourceTests
             var same = NodePartKeys.IsBoundary(key) ? source.Boundary(key) : source.Parts(new(
                 new(chunkFrom.X, chunkFrom.Z), new(chunkFrom.X + VoxelGrid.ChunkSize, chunkFrom.Z + VoxelGrid.ChunkSize)))
                 .Single(item => item.Key == key).Work;
-            Complete(work);
             NodeScene.Part part;
             if (NodePartKeys.IsBoundary(key))
             {
@@ -91,6 +92,15 @@ public sealed class TerrainCapSourceTests
                 part = prepared.BuildChunk(chunkFrom);
             }
             Assert.IsTrue(part.Heights.Count > 0);
+            var area = NodePartKeys.IsBoundary(key)
+                ? new ScenePanBounds(
+                    new((float)part.Heights.Keys.Min(column => column.X + part.Origin.X),
+                        (float)part.Heights.Keys.Min(column => column.Z + part.Origin.Z)),
+                    new((float)part.Heights.Keys.Max(column => column.X + part.Origin.X + 1),
+                        (float)part.Heights.Keys.Max(column => column.Z + part.Origin.Z + 1)))
+                : new ScenePanBounds(new(chunkFrom.X, chunkFrom.Z),
+                    new(chunkFrom.X + VoxelGrid.ChunkSize, chunkFrom.Z + VoxelGrid.ChunkSize));
+            Complete(work, area);
             AssertCapBoundsColumns(work.Result, part.Heights.Select(pair =>
                 (X: pair.Key.X + part.Origin.X, Z: pair.Key.Z + part.Origin.Z, Top: pair.Value + part.Origin.Y)));
             Assert.IsTrue(same.Complete);
@@ -100,13 +110,19 @@ public sealed class TerrainCapSourceTests
         }
     }
 
-    private static void Complete(TerrainHeightCap.Builder work)
+    private static void Complete(TerrainHeightCap.Builder work, ScenePanBounds bounds)
     {
-        while (!work.Complete)
+        var spacing = TerrainTile.NearSpacingCells;
+        var width = (long)(Math.Ceiling(bounds.Maximum.X / spacing) - Math.Floor(bounds.Minimum.X / spacing));
+        var depth = (long)(Math.Ceiling(bounds.Maximum.Y / spacing) - Math.Floor(bounds.Minimum.Y / spacing));
+        var remaining = Math.Max(1, width) * Math.Max(1, depth) * (spacing * spacing + 1);
+        while (!work.Complete && remaining > 0)
         {
-            var used = work.Advance(37);
+            var used = work.Advance((int)Math.Min(37, remaining));
             Assert.IsTrue(used is > 0 and <= 37);
+            remaining -= used;
         }
+        Assert.IsTrue(work.Complete, "The cap must finish within one visit per column and reduction cell.");
     }
 
     private static void AssertCapBoundsColumns(TerrainHeightCap cap,

@@ -10,6 +10,7 @@ internal sealed class NodeTerrainCaps
     private readonly NodeScene.Preparation prepared;
     private readonly NodeMapItem node;
     private readonly (string Key, ScenePanBounds Bounds)[] boundaries;
+    private readonly ScenePanBounds[] layoutRegions;
     private readonly Dictionary<string, TerrainHeightCap.Builder> parts = [];
     private readonly Func<string, TerrainHeightCap?>? completed;
 
@@ -32,10 +33,38 @@ internal sealed class NodeTerrainCaps
                 new((float)(minX + part.Origin.X), (float)(minZ + part.Origin.Z)),
                 new((float)(maxX + part.Origin.X + 1), (float)(maxZ + part.Origin.Z + 1))));
         }).ToArray();
+        var regions = new List<ScenePanBounds> { prepared.Global.Layout.Bounds };
+        regions.AddRange(boundaries.Select(item => item.Bounds));
+        if (prepared.Global.Layout.Template is { } template) AddFlatten(NodeSettlement.Bounds(template));
+        if (prepared.Global.Layout.Lair is { } lair && NodeLair.Region(lair) is { } lairBounds) AddFlatten(lairBounds);
+        layoutRegions = regions.ToArray();
+
+        void AddFlatten(ScenePanBounds bounds)
+        {
+            var blend = new Vector2(NodeSettlement.FlattenBlend);
+            regions.Add(new(bounds.Minimum - blend, bounds.Maximum + blend));
+        }
+    }
+
+    internal bool UsesLayout(ScenePanBounds bounds) => UsesLayout(
+        bounds.Minimum.X, bounds.Minimum.Y, bounds.Maximum.X, bounds.Maximum.Y);
+
+    private bool UsesLayout(double minX, double minZ, double maxX, double maxZ)
+    {
+        foreach (var region in layoutRegions)
+            if (region.Minimum.X <= maxX && region.Maximum.X >= minX &&
+                region.Minimum.Y <= maxZ && region.Maximum.Y >= minZ) return true;
+        return false;
     }
 
     internal double Height(ScenePoint point)
     {
+        if (!UsesLayout(point.X, point.Z, point.X, point.Z))
+        {
+            var origin = RailwayCoordinates.NodePoint(node);
+            return TerrainSurface.Ground(prepared.Snapshot.Core.World.WorldSeed, node.Id.Value, node.Terrain,
+                prepared.Terrain, new(origin.X + point.X, origin.Y + point.Y, origin.Z + point.Z));
+        }
         var column = new GridColumn((int)Math.Floor(point.X), (int)Math.Floor(point.Z));
         var size = VoxelGrid.ChunkSize;
         var chunk = new GridColumn((int)Math.Floor(point.X / size) * size, (int)Math.Floor(point.Z / size) * size);

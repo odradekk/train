@@ -379,8 +379,9 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             successor.SetFarBuildAllowed(!node.HasPendingBuilds);
             successor.Pump(snapshot, node.StreamingFocus, allowBuild: node.HasPendingBuilds != true, following: node.StreamingFollow,
                 followedTrain: followed);
-            if (!successor.Failed && successor.NearPrepared && !successor.HasPendingCoarseTerrain)
+            if (!successor.Failed && successor.NearPrepared)
             {
+                successor.ReuseFarTerrain(node);
                 successor.MarkNearReady();
                 var previous = node;
                 node = successor;

@@ -205,8 +205,9 @@ internal sealed class RailwayScene : IAsyncDisposable
             var ahead = Math.Clamp(focal + direction * PrefetchSegments(followed?.SpeedMetersPerSecond ?? 0,
                 displayRate.Value) * RailwayCoordinates.SegmentLengthCells, 0, path!.LengthCells);
             var sweep = followed is null ? null : path.Bounds(Math.Min(focal, ahead), Math.Max(focal, ahead), default, 0);
-            farTerrain.Demand(terrainFocus ?? path.Sample(focal).Position, terrainViewRadiusCells,
-                ahead: sweep is null ? null : [new(sweep.Minimum.X, 0, sweep.Minimum.Z), new(sweep.Maximum.X, 0, sweep.Maximum.Z)]);
+            var focus = terrainFocus ?? path.Sample(focal).Position;
+            if (farTerrain.Demand(focus, terrainViewRadiusCells,
+                ahead: sweep is null ? null : [new(sweep.Minimum.X, 0, sweep.Minimum.Z), new(sweep.Maximum.X, 0, sweep.Maximum.Z)])) fogDirty = true;
         }
         var waitingL0 = Enumerable.Range(minimum, maximum - minimum + 1).Any(index =>
             (!segments.ContainsKey(index) || staleSegments.Contains(index)) && !pendingSegments.ContainsKey(index));
@@ -357,8 +358,15 @@ internal sealed class RailwayScene : IAsyncDisposable
                 end = Math.Min(path!.LengthCells, (index + 1) * RailwayCoordinates.SegmentLengthCells);
             }
             if (end < finish) AddFog(end, finish);
-            AddFog(0, fogRange.Minimum * RailwayCoordinates.SegmentLengthCells, allowFar: true);
-            AddFog(finish, path.LengthCells, allowFar: true);
+            for (var index = 0; index < path.SegmentCount; index++)
+            {
+                if (index >= fogRange.Minimum && index <= fogRange.Maximum || segments.ContainsKey(index)) continue;
+                var begin = index * RailwayCoordinates.SegmentLengthCells;
+                var endOfSegment = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
+                var area = path.Bounds(begin, endOfSegment, default, RailwayCoordinates.FogHalfWidth(path.Edge.Tracks));
+                if (!farTerrain.IntersectsDemand(area)) continue;
+                AddFog(begin, endOfSegment, allowFar: true);
+            }
             segmentFog = fog.ToImmutable();
             fogDirty = false;
             fogOrigin = null;
@@ -369,7 +377,9 @@ internal sealed class RailwayScene : IAsyncDisposable
                 var width = RailwayCoordinates.FogHalfWidth(path!.Edge.Tracks);
                 var area = path.Bounds(begin, finish, default, width);
                 var cutters = allowFar ? footprint.Concat(farView.Coverage(area)) : footprint;
-                foreach (var bounds in ConstructionFog.Clip([area], cutters))
+                foreach (var bounds in ConstructionFog.Clip(allowFar
+                    ? ConstructionFog.Band(arc => path.Sample(arc), begin, finish, width, area.Minimum.Y, area.Maximum.Y)
+                    : [area], cutters))
                     fog.Add(new(bounds, new(begin, finish, width)));
             }
         }
