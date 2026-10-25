@@ -20,6 +20,7 @@ internal partial class WorldSceneView : Node3D
     internal InspectionLighting Lighting { get; private set; }
     internal event Action<Vector2>? PickRequested;
     internal event Action? ReturnRequested;
+    private static readonly Shader SkyShader = GD.Load<Shader>("res://Rendering/sky.gdshader");
     private readonly Godot.Environment _environment;
     private readonly WorldEnvironment _worldEnvironment;
     private readonly Sky _sky;
@@ -36,7 +37,7 @@ internal partial class WorldSceneView : Node3D
     {
         Name = "WorldSceneView";
         AddChild(CameraRig);
-        _skyMaterial = new() { Shader = GD.Load<Shader>("res://Rendering/sky.gdshader") };
+        _skyMaterial = new() { Shader = SkyShader };
         _sky = new() { SkyMaterial = _skyMaterial };
         _environment = new()
         {

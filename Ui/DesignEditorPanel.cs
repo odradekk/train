@@ -338,14 +338,16 @@ internal partial class DesignEditorPanel : Control
         if (ElementsUpdated is not null) ElementsUpdated(state.Snapshot.Stamp, Stopwatch.GetElapsedTime(listStarted));
         ShowEvaluation(state);
     }
-    // 泰坦约 2.8 万行；整表重建时引擎要重新排版全部行，一帧约 1.7 秒。只改变化的区间，变化太大才整表重建。
+    // Clear 会丢弃未变行的文字排版缓存；批量缩短 ItemCount 前还须清掉可能越界的键盘焦点。
     private void ShowElements((EditElementId Id, string Text)[] rows)
     {
         var change = RowChange.Between(_elementRows, rows);
         if (change.Removed + change.Inserted > 256)
         {
-            _elements.Clear();
-            foreach (var row in rows) _elements.AddItem(row.Text);
+            _elements.DeselectAll();
+            _elements.ItemCount = rows.Length;
+            var end = _elementRows.Count == rows.Length ? change.Start + change.Inserted : rows.Length;
+            for (var index = change.Start; index < end; index++) _elements.SetItemText(index, rows[index].Text);
         }
         else
         {
