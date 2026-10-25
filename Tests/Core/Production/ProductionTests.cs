@@ -498,11 +498,11 @@ public sealed class ProductionTests
         };
         var cleared = created.State.World with
         {
-            Settlements = [other, settlement with
+            Settlements = [settlement with
             {
                 Template = settlement.Template with { ProductionPlans = [] },
                 ProductionFacilities = []
-            }]
+            }, other]
         };
         using var session = new CoreSession(created.State with { World = cleared });
         var templates = session.State.Content.SettlementTemplates;
