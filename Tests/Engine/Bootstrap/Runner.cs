@@ -11,6 +11,9 @@ public partial class Runner : Node
     {
         try
         {
+            // 根窗口的 TreeExiting 晚于所有子节点的 _ExitTree，在 CSharpLanguage::finalize 前排空终结器以避免竞争。
+            // 等待后不再触发 GC，让随后失去引用的包装对象仍能由 Godot 的弱引用跟踪器释放。
+            GetTree().Root.TreeExiting += static () => { GC.Collect(); GC.WaitForPendingFinalizers(); };
             // _Ready 期间根节点仍在挂接子节点；测试加载 App 必须从下一帧开始。
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             var path = System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_TEST_ASSEMBLY")!;
