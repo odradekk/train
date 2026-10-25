@@ -68,7 +68,8 @@ internal static class ProductionFixture
         CoreContentProjection content, SettlementId id, double availableLabor, ulong step)
     {
         var prepared = ProductionOperations.Prepare(world, content, id);
-        var resolution = SettlementResources.Resolve(world, content, id, availableLabor, [], prepared.Requests, _ => []);
+        var resolution = SettlementResources.Resolve(world, content, id, availableLabor, [], prepared.Requests, _ => [],
+            SettlementResources.Fuels(world, content).ToImmutableArray());
         return ProductionOperations.Complete(content, id, prepared.Facilities, prepared.Requests, resolution, step);
     }
 
