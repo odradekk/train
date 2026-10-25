@@ -94,7 +94,7 @@ internal sealed class MarketStockTargets
         Add(PopulationStockTargets.Calculate(_population, _settlement.Population,
             Rule.BasicReserveHours, Rule.ImprovementReserveHours, stapleStock, preparedStock,
             _settlement.PopulationState.ConsumptionRemaining, PopulationNeedClass.Improvement, budget));
-        return targets.OrderBy(t => WorldReferences.GoodKey(t.Key), StringComparer.Ordinal)
+        return targets.OrderBy(t => t.Key, WorldReferences.GoodComparer)
             .Select(t => new GoodsQuantity(t.Key, t.Value)).ToImmutableArray();
 
         void Add(ImmutableArray<GoodsQuantity> goods)

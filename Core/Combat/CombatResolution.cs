@@ -579,7 +579,7 @@ internal static class CombatResolution
         var quantities = current.ToDictionary(good => good.Good, good => good.Quantity);
         foreach (var good in added)
             quantities[good.Good] = checked(quantities.GetValueOrDefault(good.Good) + good.Quantity);
-        return quantities.OrderBy(pair => WorldReferences.GoodKey(pair.Key), StringComparer.Ordinal)
+        return quantities.OrderBy(pair => pair.Key, WorldReferences.GoodComparer)
             .Select(pair => new GoodsQuantity(pair.Key, pair.Value)).ToImmutableArray();
     }
 

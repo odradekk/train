@@ -100,11 +100,11 @@ internal static class WorldResources
             nodes ??= committed.Nodes.ToBuilder();
             var node = nodes[nodeIndex];
             nodes[nodeIndex] = node with { Resources = node.Resources.Add(new(good, quantity, new ResourceRenewal.NonRenewable()))
-                .OrderBy(r => WorldReferences.GoodKey(r.Good), StringComparer.Ordinal).ToImmutableArray() };
+                .OrderBy(r => r.Good, WorldReferences.GoodComparer).ToImmutableArray() };
             (regenerated ??= []).Add(new CoreEvent.ResourceRegenerated(node.Id, good, quantity));
         }
         var recoveryStates = recovery is null ? committed.ResourceRecovery : recovery.OrderBy(r => r.Node.Value)
-            .ThenBy(r => WorldReferences.GoodKey(r.Good), StringComparer.Ordinal).ToImmutableArray();
+            .ThenBy(r => r.Good, WorldReferences.GoodComparer).ToImmutableArray();
         if (recovery is not null && recoveryStates.SequenceEqual(committed.ResourceRecovery)) recoveryStates = committed.ResourceRecovery;
         var world = nodes is null && regenerations is null && recoveryStates == committed.ResourceRecovery ? committed : committed with
         {
@@ -115,9 +115,9 @@ internal static class WorldResources
         };
         if (exhausted is null && recovered is null && regenerated is null) return (world, []);
         return (world, (exhausted ?? []).OrderBy(e => e.Node.Value)
-            .ThenBy(e => WorldReferences.GoodKey(e.Good), StringComparer.Ordinal).Cast<CoreEvent>()
-            .Concat((recovered ?? []).OrderBy(e => e.Node.Value).ThenBy(e => WorldReferences.GoodKey(e.Good), StringComparer.Ordinal))
-            .Concat((regenerated ?? []).OrderBy(e => WorldReferences.GoodKey(e.Good), StringComparer.Ordinal)).ToImmutableArray());
+            .ThenBy(e => e.Good, WorldReferences.GoodComparer).Cast<CoreEvent>()
+            .Concat((recovered ?? []).OrderBy(e => e.Node.Value).ThenBy(e => e.Good, WorldReferences.GoodComparer))
+            .Concat((regenerated ?? []).OrderBy(e => e.Good, WorldReferences.GoodComparer)).ToImmutableArray());
     }
 
     private static Int128 Total(IEnumerable<NodeMapItem> nodes, GoodId good) => nodes.SelectMany(n => n.Resources)

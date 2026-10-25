@@ -137,7 +137,7 @@ internal static class ConstructionOperations
                 world = world with { Inventories = world.Inventories.Select(i => i.Id != destination ? i : i with
                 {
                     Goods = i.Goods.Concat(returned).GroupBy(g => g.Good)
-                        .OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                        .OrderBy(g => g.Key, WorldReferences.GoodComparer)
                         .Select(g => new GoodsQuantity(g.Key, checked(g.Sum(x => x.Quantity)))).ToImmutableArray()
                 }).ToImmutableArray() };
             }

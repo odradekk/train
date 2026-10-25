@@ -199,7 +199,9 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 var population = PopulationOperations.Begin(world, before.Content, settlement.Id, before.Position.CompletedSteps, inputs);
                 var consumption = population.Consumption;
                 var construction = ConstructionOperations.Requests(world, before.Content, settlement.Id);
-                var requests = ProductionOperations.Requests(world, before.Content, settlement.Id).AddRange(construction);
+                var preparedProduction = ProductionOperations.Prepare(world, before.Content, settlement.Id);
+                var requests = preparedProduction.Requests.AddRange(construction);
+                // 资源仲裁只改库存、资源和剩余燃料，设施的计划、工艺与能力保持不变。
                 SettlementResolution? resolution = null;
                 if (consumption is not null || !requests.IsEmpty)
                 {
@@ -209,8 +211,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 }
                 if (!settlement.ProductionFacilities.IsEmpty)
                 {
-                    var production = ProductionOperations.Complete(world, before.Content, settlement.Id,
-                        requests, resolution ?? new(world, [], [], [], []), before.Position.CompletedSteps);
+                    var production = ProductionOperations.Complete(before.Content, settlement.Id,
+                        preparedProduction.Facilities, requests, resolution ?? new(world, [], [], [], []), before.Position.CompletedSteps);
                     world = production.World;
                     events = events.AddRange(production.Events);
                 }
