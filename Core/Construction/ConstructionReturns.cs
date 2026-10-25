@@ -50,7 +50,7 @@ internal static class ConstructionReturns
                 * Math.Min(instance.StructureDurability, design.MaxStructureDurability) / design.MaxStructureDurability));
             if (quantity > 0) returned[good] = checked(returned.GetValueOrDefault(good) + quantity);
         }
-        return (returned.OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+        return (returned.OrderBy(g => g.Key, WorldReferences.GoodComparer)
             .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray(), damaged.Count);
     }
 }

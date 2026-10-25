@@ -199,7 +199,7 @@ internal sealed class PopulationConsumption
     }
 
     internal ImmutableArray<PopulationConsumptionRemainder> Remaining() => _remaining.Where(r => r.Value > 0)
-        .OrderBy(r => WorldReferences.GoodKey(r.Key), StringComparer.Ordinal).Select(r => new PopulationConsumptionRemainder(r.Key, r.Value)).ToImmutableArray();
+        .OrderBy(r => r.Key, WorldReferences.GoodComparer).Select(r => new PopulationConsumptionRemainder(r.Key, r.Value)).ToImmutableArray();
 
     private GoodsQuantity Request(GoodId good, double units)
     {

@@ -95,12 +95,12 @@ internal static class SettlementResources
         var resolved = world with
         {
             Nodes = !resourcesChanged ? world.Nodes : world.Nodes.Select(n => n.Id == node.Id
-                ? n with { Resources = resources.Values.OrderBy(r => WorldReferences.GoodKey(r.Good), StringComparer.Ordinal).ToImmutableArray() }
+                ? n with { Resources = resources.Values.OrderBy(r => r.Good, WorldReferences.GoodComparer).ToImmutableArray() }
                 : n).ToImmutableArray(),
             Settlements = world.Settlements.Select(s => s.Id == id ? s with { FuelEnergyRemaining = fuelRemaining } : s).ToImmutableArray(),
             Inventories = world.Inventories.Select(i => i.Id == inventory.Id ? i with
             {
-                Goods = quantities.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                Goods = quantities.Where(g => g.Value > 0).OrderBy(g => g.Key, WorldReferences.GoodComparer)
                     .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray()
             } : i).ToImmutableArray()
         };
