@@ -144,6 +144,18 @@ internal static class EditLayout
         return cell;
     }
 
+    internal static GridPosition ToRoot(EditObject root, ImmutableArray<int> path, GridPosition cell)
+    {
+        return MapAt(root, 0);
+
+        GridPosition MapAt(EditObject node, int depth)
+        {
+            if (depth == path.Length) return cell;
+            var child = node.Children[path[depth]];
+            return Map(MapAt(child.Copy!, depth + 1), child.Item);
+        }
+    }
+
     internal static DesignDraft Normalize(DesignDraft draft) => draft with
     {
         Display = new(draft.Display.Name.Trim(), draft.Display.Description.Trim()),

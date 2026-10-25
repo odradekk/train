@@ -222,6 +222,86 @@ public sealed class EditingReviewRegressionTests
     }
 
     [TestMethod]
+    public void EnteredBrushFindsHostConflictThroughMultipleAsymmetricRotations()
+    {
+        var inner = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with
+        { Specification = new DesignSpecification.Assembly(null) };
+        var outer = EditingFixtures.Draft() with
+        {
+            Specification = new DesignSpecification.Assembly(null),
+            Layout = new([], [], [new NestedDesignItem.AssemblyCopy(new(-4, 5, 2), VoxelOrientation.NxPz, inner)])
+        };
+        var draft = EditingFixtures.Draft(new GridPosition(18, -2, 1)) with
+        {
+            Layout = new([EditingFixtures.Cube], [new(new(18, -2, 1), 0)],
+                [new NestedDesignItem.AssemblyCopy(new(10, -3, 7), VoxelOrientation.PzPx, outer)])
+        };
+        using var session = EditingFixtures.Open(draft);
+        var initial = session.Read();
+        var blocker = initial.Elements.Single(element => element.Kind == EditElementKind.Cell && element.Parent is null).Id;
+        var entered = initial.Elements.Single(element => element.Kind == EditElementKind.Assembly && element.Parent is not null).Id;
+        EditingFixtures.Value(session.Enter(entered));
+        var before = session.Capture();
+        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
+            new EditFootprint.Stroke([new(2, -1, 3), new(3, -1, 3)], 1), new CellEdit.Add(EditingFixtures.Cube)));
+        var conflict = preview.Conflicts.Single();
+        Assert.AreEqual(new GridPosition(2, -1, 3), conflict.Cell);
+        Assert.AreEqual(blocker, conflict.Element);
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(preview, true)));
+        Assert.AreEqual(before.Stamp, session.Capture().Stamp);
+
+        var applied = EditingFixtures.Apply(session, EditingFixtures.Add(new(3, -1, 3)));
+        Assert.IsTrue(applied.Elements.Any(element => element.Parent == entered && element.At == new GridPosition(3, -1, 3)));
+        CollectionAssert.AreEqual(before.Draft.Layout.Cells, applied.Snapshot.Draft.Layout.Cells);
+    }
+
+    [TestMethod]
+    [DataRow(int.MaxValue, 1)]
+    [DataRow(int.MinValue, -1)]
+    public void EnteredBrushOutsideRootIntegerRangeCanRemoveEmptySpaceButCannotAdd(int placement, int localX)
+    {
+        var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with
+        { Specification = new DesignSpecification.Assembly(null) };
+        var draft = EditingFixtures.Draft() with { Layout = new([], [],
+            [new NestedDesignItem.AssemblyCopy(new(placement, 0, 0), VoxelOrientation.PxPy, child)]) };
+        using var session = EditingFixtures.Open(draft);
+        EditingFixtures.Value(session.Enter(session.Read().Elements.Single(element => element.Kind == EditElementKind.Assembly).Id));
+        var before = session.Capture();
+        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
+            new EditFootprint.Cell(new(localX, 0, 0)), new CellEdit.Remove()));
+        Assert.IsTrue(preview.CanApply);
+        Assert.AreEqual(0, preview.AffectedCells);
+        Assert.AreEqual(1, preview.SkippedCells);
+        var unchanged = EditingFixtures.Value(session.Apply(preview, true));
+        Assert.AreEqual(before.Stamp, unchanged.Snapshot.Stamp);
+        Assert.IsFalse(unchanged.CanUndo);
+        Assert.IsFalse(unchanged.IsDirty);
+        Assert.AreEqual("invalid_operation", EditingFixtures.Code(session.Preview(EditingFixtures.Add(new(localX, 0, 0)))));
+        Assert.AreEqual(before.Stamp, session.Capture().Stamp);
+        Assert.IsFalse(session.Read().CanUndo);
+    }
+
+    [TestMethod]
+    [DataRow(int.MinValue, int.MaxValue)]
+    [DataRow(int.MaxValue, int.MinValue)]
+    public void EnteredBrushStillRejectsRootOccupancyOutsideLocalIntegerRange(int rootX, int placement)
+    {
+        var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with
+        { Specification = new DesignSpecification.Assembly(null) };
+        var draft = EditingFixtures.Draft(new GridPosition(rootX, 0, 0)) with
+        { Layout = new([EditingFixtures.Cube], [new(new(rootX, 0, 0), 0)],
+            [new NestedDesignItem.AssemblyCopy(new(placement, 0, 0), VoxelOrientation.PxPy, child)]) };
+        using var session = EditingFixtures.Open(draft);
+        EditingFixtures.Value(session.Enter(session.Read().Elements.Single(element => element.Kind == EditElementKind.Assembly).Id));
+        var before = session.Capture();
+        Assert.AreEqual("invalid_operation", EditingFixtures.Code(session.Preview(new EditOperation.Cells(
+            new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Remove()))));
+        Assert.AreEqual(before.Stamp, session.Capture().Stamp);
+        Assert.IsFalse(session.Read().CanUndo);
+        Assert.IsFalse(session.Read().IsDirty);
+    }
+
+    [TestMethod]
     public void AddConflictIdentifiesNestedBlockerEvenWhenOwnCellAlsoOccupiesTarget()
     {
         var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with { Specification = new DesignSpecification.Assembly(null) };

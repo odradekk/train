@@ -104,7 +104,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             dirtySaved = saved;
         }
         if (lockedElements.IsDefault)
-            lockedElements = elements.Select(element => element with { Locked = locks.ContainsKey(element.Id) }).ToImmutableArray();
+            lockedElements = locks.Count == 0 ? elements
+                : elements.Select(element => element with { Locked = locks.ContainsKey(element.Id) }).ToImmutableArray();
         return new(snapshot, dirty, undo.Count > 0, redo.Count > 0, entered, selection, lockedElements,
             evaluation, evaluation is null ? [] : EditContent.Diagnostics(evaluation));
     }
@@ -210,7 +211,6 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         var affected = 0;
         int? covered = null;
         var skipped = 0;
-        var occupied = Occupied(current);
         var elements = Elements;
         var lockProblems = LockProblems(elements);
         switch (operation)
@@ -230,8 +230,34 @@ internal sealed partial class DesignEditSession : IDesignEditSession
                     var invalid = ValidateValue(value);
                     if (!invalid.IsEmpty) return Failure<IEditPreview>(invalid);
                 }
-                var own = current.Cells.ToLookup(cell => cell.At);
-                var all = Occupied(root).Cells.Select(cell => (At: EditLayout.ToLocal(root, path, cell.At), cell.Id)).ToLookup(cell => cell.At);
+                var own = current.Cells.Where(cell => footprint.Contains(cell.At)).ToLookup(cell => cell.At);
+                var rootCells = Occupied(root).Cells;
+                var rootFootprint = footprint;
+                if (!path.IsEmpty)
+                {
+                    if (!rootCells.IsEmpty)
+                    {
+                        var minimum = rootCells[0].At;
+                        var maximum = minimum;
+                        foreach (var cell in rootCells)
+                        {
+                            minimum = new(Math.Min(minimum.X, cell.At.X), Math.Min(minimum.Y, cell.At.Y), Math.Min(minimum.Z, cell.At.Z));
+                            maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
+                        }
+                        // 每层都是轴置换或翻转；两角保留原全部占格转局部坐标时的 checked 溢出拒绝。
+                        _ = EditLayout.ToLocal(root, path, minimum);
+                        _ = EditLayout.ToLocal(root, path, maximum);
+                    }
+                    rootFootprint = [];
+                    foreach (var at in footprint)
+                    {
+                        try { rootFootprint.Add(EditLayout.ToRoot(root, path, at)); }
+                        // 根坐标不可表示的位置没有已有占格；实际新增仍由 FinishPreview 检查溢出。
+                        catch (OverflowException) { }
+                    }
+                }
+                var all = rootCells.Where(cell => rootFootprint.Contains(cell.At))
+                    .Select(cell => (At: EditLayout.ToLocal(root, path, cell.At), cell.Id)).ToLookup(cell => cell.At);
                 var changed = current.Cells.ToDictionary(cell => cell.Id);
                 var palette = new EditPalette(current.Palette);
                 foreach (var at in footprint)
@@ -281,6 +307,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             }
             case EditOperation.RemoveSelection:
             {
+                var occupied = Occupied(current);
                 var ids = selection.ToHashSet();
                 foreach (var id in ids)
                     if (CheckLock(id, LockedDesignOperation.Remove) is { } problem) conflicts.Add(new(null, id, problem));
@@ -388,7 +415,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (preview.RequiresConfirmation && !confirmed) return Fail<EditState>("confirmation_required", "Confirm the brush operation first.");
         var next = preview.Result;
         preview = null;
-        if (!EditLayout.Same(root.Export(), next.Export()))
+        Derive();
+        if (!EditLayout.Same(exported!, next.Export()))
         {
             undo.Push(root);
             redo.Clear();
@@ -414,6 +442,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         revision++;
         evaluation = null;
         preview = null;
+        if (selection.IsEmpty && entered is null) return;
         var ids = Elements.Select(element => element.Id).ToHashSet();
         selection = selection.Where(ids.Contains).ToImmutableArray();
         if (entered is { } id && !ids.Contains(id)) { entered = null; space++; }

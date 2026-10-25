@@ -486,6 +486,104 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { OS.RemoveLogger(output); fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
+    [Test]
+    public async Task Element_list_text_tracks_display_fields_across_levels_and_sessions()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var session = fixture.Factory.Session!;
+            var original = fixture.Editor.State!.Elements[0];
+            var variants = new (EditElement Element, string Text)[]
+            {
+                (original with { Id = new(2) }, "2 · 体素 (0, 0, 0)"),
+                (original with { Parent = new(10) }, "↳ 10 / 1 · 体素 (0, 0, 0)"),
+                (original with { Kind = EditElementKind.SceneModel }, "1 · 场景模型 (0, 0, 0)"),
+                (original with { At = new(-7, 2, 3) }, "1 · 体素 (-7, 2, 3)"),
+                (original with { Locked = true }, "1 · 体素 (0, 0, 0) [锁定]")
+            };
+            foreach (var (element, text) in variants)
+            {
+                session.SetState(state => state with
+                {
+                    Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(state.Snapshot.Stamp.Revision.Value + 1) } },
+                    Elements = state.Elements.SetItem(0, original)
+                });
+                await FramesUntil(TestScene, () => list.ItemCount > 0 && list.GetItemText(0) == "1 · 体素 (0, 0, 0)");
+                session.SetState(state => state with
+                {
+                    Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(state.Snapshot.Stamp.Revision.Value + 1) } },
+                    Elements = state.Elements.SetItem(0, element)
+                });
+                await FramesUntil(TestScene, () => list.ItemCount > 0 && list.GetItemText(0) == text);
+            }
+            session.SetState(state => state with
+            {
+                EnteredObject = new(10),
+                Elements = state.Elements.SetItem(0, original with { At = new(4, 5, 6) })
+            });
+            await FramesUntil(TestScene, () => fixture.Editor.State!.EnteredObject == new EditElementId(10)
+                && list.GetItemText(0) == "1 · 体素 (4, 5, 6)");
+            fixture.Editor.RequestClose(() => { });
+            if (fixture.Editor.Leaving) fixture.Editor.ResolveClose(LeaveChoice.Discard);
+            await FramesUntil(TestScene, () => !fixture.Editor.IsOpen);
+            fixture.Factory.ConfigureSession = next => next.SetState(state => state with
+            {
+                Elements = [original with { At = new(7, 8, 9) }]
+            });
+            fixture.Editor.Open(EditorPreviewSession.Draft, new DraftTarget.LocalBlueprint(null));
+            await FramesUntil(TestScene, () => fixture.Factory.Session != session && list.ItemCount == 1
+                && list.GetItemText(0) == "1 · 体素 (7, 8, 9)");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Element_list_selection_matches_state_after_external_changes_and_accepted_or_rejected_clicks()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var session = fixture.Factory.Session!;
+            var input = new UiTestInput(TestScene);
+            bool Selected(params ulong[] ids) => list.GetSelectedItems()
+                .Select(index => fixture.Editor.State!.Elements[index].Id.Value).ToHashSet().SetEquals(ids);
+            session.SetState(state => state with { Selection = [new(1), new(20)] });
+            await FramesUntil(TestScene, () => list.ItemCount == 4 && Selected(1, 20));
+            await EnsureVisible(list);
+            async Task Click(int index, bool control = false)
+            {
+                var point = list.GetItemRect(index).GetCenter()
+                    - new Vector2((float)list.GetHScrollBar().Value, (float)list.GetVScrollBar().Value);
+                Require(list.GetItemAtPosition(point, true) == index, "真实点击必须先命中目标行。");
+                await input.Click(list.GlobalPosition + point, control);
+            }
+            await Click(1);
+            Require(fixture.Editor.State!.Selection.SequenceEqual([new EditElementId(10)]) && Selected(10),
+                "列表点击成功后，原生选中与状态必须同时指向被点击的元素。");
+            await Click(3, true);
+            Require(fixture.Editor.State!.Selection.ToHashSet().SetEquals([new(10), new(30)]) && Selected(10, 30),
+                "Ctrl点击成功后，原生多选必须与状态一致。");
+            var attempts = 0;
+            var accepted = fixture.Editor.State.Selection;
+            session.SelectCall = _ =>
+            {
+                attempts++;
+                return new SceneResult<EditState>.Failure([new("target_missing", SceneStage.Edit, null, null, null, null, "选取目标已过期。")]);
+            };
+            await Click(0);
+            Require(attempts > 0 && fixture.Editor.State.Selection.SequenceEqual(accepted) && Selected(10, 30),
+                "列表选择被拒绝后，下一次同步必须恢复状态选择，即使状态选择本身没有变化。");
+            await input.Frames(2);
+            Require(Selected(10, 30), "被拒绝的选择不能在后续帧重新出现。");
+            session.SetState(state => state with { Selection = [new(20)] });
+            await FramesUntil(TestScene, () => Selected(20));
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
     private static DesignEditorPanel EditorPanel(EditorPreview fixture) => Find<DesignEditorPanel>(fixture.App, "DesignEditor");
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));
