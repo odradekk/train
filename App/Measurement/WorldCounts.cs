@@ -18,6 +18,8 @@ internal static class WorldCounts
 
     internal static ImmutableSortedDictionary<string, double> Read(ICoreReadView view, IContentView content, NodeId? node = null)
     {
+        var instances = new Dictionary<InstanceId, InstanceView>();
+        var weaponsByDesign = new Dictionary<DesignHash, HashSet<PartId>>();
         bool Here(WorldLocation location) => node is null || location is WorldLocation.Node at && at.Id == node;
         var trains = view.World.Trains.Where(train => node is null || train.Position is TrainPosition.Node at && at.Id == node)
             .Select(train => Found(view.FindTrain(train.Id))).ToArray();
@@ -63,7 +65,7 @@ internal static class WorldCounts
             ["titan_builds_working"] = working.Count(job => job.Target is ConstructionTarget.NewVehicle vehicle
                 && Size(vehicle.Design) == SizeClass.Titan),
             ["titan_trains_in_plan"] = inPlan.Count(train => train.Vehicles.Any(vehicle =>
-                Found(view.FindInstance(new InstanceId.Vehicle(vehicle))).Details is InstanceDetails.Vehicle { Size: SizeClass.Titan })),
+                Instance(new InstanceId.Vehicle(vehicle)).Details is InstanceDetails.Vehicle { Size: SizeClass.Titan })),
             ["trains_in_plan"] = inPlan.Length,
             ["trains_queued"] = trains.Count(train => train.Blockers.Any(blocker => blocker.Code == "platform_wait")),
             ["trains_running"] = trains.Count(train => train.Activity == TrainActivity.Running),
@@ -72,13 +74,26 @@ internal static class WorldCounts
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
 
         bool ArmedPlayerUnit(CombatUnitId unit) => unit is CombatUnitId.Instance { Id: var id }
-            && Found(view.FindInstance(id)).Ownership == SettlementRelation.PlayerOwned && Armed(id);
+            && Instance(id).Ownership == SettlementRelation.PlayerOwned && Armed(id);
         bool Armed(InstanceId id)
         {
-            var instance = Found(view.FindInstance(id));
-            var weapons = Design(instance.Design).Parts.Where(part => part.Capabilities.Any(capability => capability is PartCapability.Weapon))
-                .Select(part => part.Id).ToHashSet();
+            var instance = Instance(id);
+            if (!weaponsByDesign.TryGetValue(instance.Design, out var weapons))
+            {
+                weapons = Design(instance.Design).Parts.Where(part => part.Capabilities.Any(capability => capability is PartCapability.Weapon))
+                    .Select(part => part.Id).ToHashSet();
+                weaponsByDesign.Add(instance.Design, weapons);
+            }
             return instance.Parts.Any(part => weapons.Contains(part.Part) && !part.Destroyed && !part.DefinitionMissing);
+        }
+        InstanceView Instance(InstanceId id)
+        {
+            if (!instances.TryGetValue(id, out var instance))
+            {
+                instance = Found(view.FindInstance(id));
+                instances.Add(id, instance);
+            }
+            return instance;
         }
         SizeClass? Size(DesignHash design) => Design(design).Kind is DesignKind.Vehicle vehicle ? vehicle.Size : null;
         DesignProjection Design(DesignHash design) => content.FindDesign(design) is ContentLookup<DesignEvaluation>.Found
