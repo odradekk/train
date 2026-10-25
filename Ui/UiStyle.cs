@@ -22,21 +22,23 @@ internal static class UiStyle
         _ => Error
     };
 
-    internal static Texture2D TrainSymbol(TrainActivity activity)
+    private static readonly Texture2D RunningSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-running.png");
+    private static readonly Texture2D ServicingSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-servicing.png");
+    private static readonly Texture2D WaitingSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-waiting.png");
+    private static readonly Texture2D WarningSymbol = GD.Load<Texture2D>("res://Ui/Symbols/warning.png");
+    private static readonly Texture2D CombatSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-combat.png");
+    private static readonly Texture2D RetreatingSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-retreating.png");
+
+    internal static Texture2D TrainSymbol(TrainActivity activity) => activity switch
     {
-        if (activity == TrainActivity.Stopped) activity = TrainActivity.Waiting;
-        var path = activity switch
-        {
-            TrainActivity.Running => "res://Ui/Symbols/train-running.png",
-            TrainActivity.Servicing => "res://Ui/Symbols/train-servicing.png",
-            TrainActivity.Waiting => "res://Ui/Symbols/train-waiting.png",
-            TrainActivity.NoRoute => "res://Ui/Symbols/warning.png",
-            TrainActivity.Combat => "res://Ui/Symbols/train-combat.png",
-            TrainActivity.Retreating => "res://Ui/Symbols/train-retreating.png",
-            _ => "res://Ui/Symbols/warning.png"
-        };
-        return GD.Load<Texture2D>(path);
-    }
+        TrainActivity.Running => RunningSymbol,
+        TrainActivity.Servicing => ServicingSymbol,
+        TrainActivity.Waiting or TrainActivity.Stopped => WaitingSymbol,
+        TrainActivity.NoRoute => WarningSymbol,
+        TrainActivity.Combat => CombatSymbol,
+        TrainActivity.Retreating => RetreatingSymbol,
+        _ => WarningSymbol
+    };
 
     internal static Color RelationColor(SettlementRelation relation) => relation switch
     {
@@ -46,15 +48,16 @@ internal static class UiStyle
     };
 
     private static FontVariation? _regularNumbers, _boldNumbers;
+    private static readonly Dictionary<string, Font> BaseFonts = [];
     internal static FontVariation NumericFont(bool bold = false) => bold
         ? _boldNumbers ??= CreateNumericFont("res://Ui/Fonts/NotoSansSC-Bold.otf")
         : _regularNumbers ??= CreateNumericFont("res://Ui/Fonts/NotoSansSC-Regular.otf");
 
-    private static FontVariation CreateNumericFont(string path) => new()
+    private static FontVariation CreateNumericFont(string path)
     {
-        BaseFont = GD.Load<Font>(path),
-        OpentypeFeatures = new() { ["tnum"] = 1 }
-    };
+        if (!BaseFonts.TryGetValue(path, out var font)) BaseFonts[path] = font = GD.Load<Font>(path);
+        return new() { BaseFont = font, OpentypeFeatures = new() { ["tnum"] = 1 } };
+    }
 
     internal static Button Button(string name, string text, Action clicked, bool primary = false)
     {

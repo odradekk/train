@@ -26,9 +26,33 @@ internal sealed class GodotAssetDecoder : IDisposable
             var error = _document.AppendFromBuffer(input.Bytes.AsSpan(), "", _state,
                 input.HasExternalImages ? DiscardMaterials : 0);
             if (error != Error.Ok) throw DecodeFailure($"GLB 解码失败：{error}。");
-            using (var nodes = (Godot.Collections.Array)_state.GetNodes()) _nodes = nodes.Select(value => value.As<GltfNode>()).ToArray();
-            using (var meshes = (Godot.Collections.Array)_state.GetMeshes()) _meshes = meshes.Select(value => value.As<GltfMesh>()).ToArray();
-            using (var images = (Godot.Collections.Array)_state.GetImages()) _images = images.Select(value => value.As<Texture2D>()).ToArray();
+            using (var nodes = (Godot.Collections.Array)_state.GetNodes())
+            {
+                _nodes = new GltfNode[nodes.Count];
+                for (var index = 0; index < _nodes.Length; index++)
+                {
+                    using var value = nodes[index];
+                    _nodes[index] = value.As<GltfNode>();
+                }
+            }
+            using (var meshes = (Godot.Collections.Array)_state.GetMeshes())
+            {
+                _meshes = new GltfMesh[meshes.Count];
+                for (var index = 0; index < _meshes.Length; index++)
+                {
+                    using var value = meshes[index];
+                    _meshes[index] = value.As<GltfMesh>();
+                }
+            }
+            using (var images = (Godot.Collections.Array)_state.GetImages())
+            {
+                _images = new Texture2D[images.Count];
+                for (var index = 0; index < _images.Length; index++)
+                {
+                    using var value = images[index];
+                    _images[index] = value.As<Texture2D>();
+                }
+            }
             if (!input.HasExternalImages)
             {
                 var count = input.Json.RootElement.TryGetProperty("images", out var declared) ? declared.GetArrayLength() : 0;
@@ -116,7 +140,8 @@ internal sealed class GodotAssetDecoder : IDisposable
             !material.TryGetProperty("pbrMetallicRoughness", out var pbr) ||
             !pbr.TryGetProperty("baseColorTexture", out var texture)) return null;
         using var textures = (Godot.Collections.Array)_state.GetTextures();
-        var reference = textures[texture.GetProperty("index").GetInt32()].As<GltfTexture>();
+        using var textureValue = textures[texture.GetProperty("index").GetInt32()];
+        var reference = textureValue.As<GltfTexture>();
         _textureReferences.Add(reference);
         var result = _images[reference.SrcImage];
         if (!_transferredImages.Contains(result))
