@@ -77,7 +77,14 @@ public sealed class FarTerrainSessionTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task Founded_successor_activates_when_near_prepared_and_reuses_displayed_outside_tiles(bool fine)
+    public Task Founded_successor_activates_when_near_prepared_and_reuses_displayed_outside_tiles(bool fine) =>
+        FoundedHandover(fine, late: false);
+
+    [TestMethod]
+    public Task Founded_successor_inherits_old_tiles_completed_after_it_opened() =>
+        FoundedHandover(fine: false, late: true);
+
+    private static async Task FoundedHandover(bool fine, bool late)
     {
         var founded = NodeFixtures.EmptyNodeSnapshot(NodeFixtures.Layout with { Plots = [] }, []);
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
@@ -103,20 +110,34 @@ public sealed class FarTerrainSessionTests
             oldNode.SetFarBuildAllowed(false);
             await SceneFixtures.AwaitPendingWork(oldNode.PendingFarWork);
             oldNode.SetFineTerrainBuildAllowed(false);
-            oldNode.SetTerrainViewRadius(1);
-            oldNode.Pump(empty);
             var oldTerrain = Field<FarTerrain>(oldNode, "farTerrain");
-            oldTerrain.Demand(new(512, 0, 512), 1);
-            oldTerrain.SetFineBuildAllowed(fine);
-            while (oldTerrain.HasRunnableWork) oldTerrain.Advance(65536, CancellationToken.None);
-            displayed = Present(session, displayed, radius: 1);
-            var oldView = oldTerrain.View;
-            Assert.IsFalse(oldView.Tiles.IsEmpty);
-            Assert.AreEqual(fine, oldView.Tiles.Any(tile => tile.SpacingCells == TerrainTile.NearSpacingCells));
-
-            session.Observe(founded, []);
-            displayed = Present(session, displayed, radius: 1);
+            FarTerrainView oldView;
+            if (!late)
+            {
+                oldNode.SetTerrainViewRadius(1);
+                oldNode.Pump(empty);
+                oldTerrain.Demand(new(512, 0, 512), 1);
+                oldTerrain.SetFineBuildAllowed(fine);
+                while (oldTerrain.HasRunnableWork) oldTerrain.Advance(65536, CancellationToken.None);
+            }
+            else
+            {
+                Assert.IsTrue(oldTerrain.View.Tiles.IsEmpty, "No old tile may exist before the successor opens.");
+                Assert.IsInstanceOfType<Lookup<double>.Missing>(displayed.DisplayTerrainHeight(
+                    256 - displayed.Origin.X, 256 - displayed.Origin.Z));
+            }
+            // Neither worker can admit a tile while Observe opens the blocked successor.
+            lock (Field<object>(oldNode, "workGate"))
+            lock (Field<object>(oldTerrain, "gate"))
+            {
+                displayed = Present(session, displayed, radius: 1);
+                oldNode.SetFarBuildAllowed(false);
+                session.Observe(founded, []);
+                displayed = Present(session, displayed, radius: 1);
+                oldNode.SetFarBuildAllowed(false);
+            }
             await started.Task;
+            await SceneFixtures.AwaitPendingWork(oldNode.PendingFarWork);
             var successor = Field<NodeScene>(session, "successor");
             var terrain = Field<FarTerrain>(successor, "farTerrain");
             lock (Field<object>(successor, "workGate"))
@@ -124,6 +145,27 @@ public sealed class FarTerrainSessionTests
             {
                 release.Set();
                 successor.BuildWork!.GetAwaiter().GetResult();
+                if (late)
+                {
+                    successor.SetTerrainViewRadius(1);
+                    successor.SetFarBuildAllowed(false);
+                    successor.Pump(founded);
+                    Assert.IsTrue(successor.NearPrepared);
+                    Assert.IsTrue(terrain.HasPendingCoarse);
+                    Assert.IsTrue(terrain.View.Tiles.IsEmpty,
+                        "Successor binding must happen before the old scene completes its tile.");
+                    Assert.IsTrue(oldTerrain.View.Tiles.IsEmpty);
+                    oldTerrain.Demand(new(512, 0, 512), 1);
+                    oldTerrain.SetFineBuildAllowed(false);
+                    while (oldTerrain.HasRunnableWork) oldTerrain.Advance(65536, CancellationToken.None);
+                    Assert.IsFalse(oldTerrain.HasPendingCoarse);
+                    Assert.IsTrue(terrain.View.Tiles.IsEmpty,
+                        "The already-bound successor must not acquire late tiles through cache initialization.");
+                }
+                oldView = oldTerrain.View;
+                Assert.IsFalse(oldView.Tiles.IsEmpty);
+                Assert.AreEqual(fine, oldView.Tiles.Any(tile => tile.SpacingCells == TerrainTile.NearSpacingCells));
+
                 var waiting = Present(session, displayed, radius: 1);
                 Assert.IsTrue(successor.NearPrepared, "L0 must already allow handover in this fixture.");
                 Assert.IsTrue(successor.HasPendingCoarseTerrain);
@@ -133,9 +175,25 @@ public sealed class FarTerrainSessionTests
                 Assert.IsTrue(points.Any(point => Math.Abs(point.X) < TerrainTile.ParentCells &&
                     Math.Abs(point.Z) < TerrainTile.ParentCells),
                     "Witnesses must include old parents intersecting the new node layout.");
-                AssertDisplayed(displayed, points);
+                if (!late) AssertDisplayed(displayed, points);
+                foreach (var tile in oldView.Tiles)
+                    Assert.IsTrue(terrain.View.Tiles.Contains(tile),
+                        "Handover must inherit the same old tile, including tiles completed after successor binding.");
                 AssertDisplayed(waiting, points);
                 displayed = waiting;
+                // The preparation gate was released only while both publication gates were held,
+                // so the successor worker has never admitted a job and cannot race this loop.
+                for (var step = 0; step < 20000 && terrain.HasPendingCoarse; step++)
+                {
+                    terrain.Advance(128, CancellationToken.None);
+                    displayed = Present(session, displayed, radius: 1);
+                    AssertDisplayed(displayed, points);
+                }
+                Assert.IsFalse(terrain.HasPendingCoarse, "Replacement L2 terrain must finish within the bounded fixture.");
+                Assert.IsFalse(terrain.View.Tiles.Any(oldView.Tiles.Contains),
+                    "The changed parent must eventually replace the inherited tiles.");
+                displayed = Present(session, displayed, radius: 1);
+                AssertDisplayed(displayed, points);
             }
             Assert.AreNotSame(oldNode.Layout, displayed.Node);
         }

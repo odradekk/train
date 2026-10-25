@@ -302,6 +302,35 @@ public sealed class FarTerrainControllerTests
     }
 
     [TestMethod]
+    public void Railway_break_rebinding_keeps_complete_fine_terrain_while_its_keys_are_resolved()
+    {
+        var snapshot = RailwayFixtures.Snapshot(64, 64, relief: 0);
+        var terrain = new FarTerrain(new());
+        var focus = new ScenePoint(512, 0, 512);
+        terrain.BindRailway(snapshot, new(snapshot, RailwayFixtures.Edge));
+        terrain.Demand(focus, 1);
+        for (var step = 0; step < 20000 && terrain.HasRunnableWork; step++)
+            terrain.Advance(65536, CancellationToken.None);
+        Assert.IsFalse(terrain.HasRunnableWork);
+        var fine = terrain.View.Tiles.ToArray();
+        Assert.AreEqual(16, fine.Length);
+        Assert.IsTrue(fine.All(tile => tile.SpacingCells == TerrainTile.NearSpacingCells));
+
+        var broken = RailwayFixtures.ReplaceCore(snapshot, edge: snapshot.Core.World.Edges[0] with
+            { Breaks = [new(new(1), 1, 32)] });
+        terrain.BindRailway(broken, new(broken, RailwayFixtures.Edge));
+        terrain.Demand(focus, 1);
+        CollectionAssert.AreEquivalent(fine, terrain.View.Tiles.ToArray());
+        for (var step = 0; step < 20000 && terrain.HasRunnableWork; step++)
+        {
+            terrain.Advance(128, CancellationToken.None);
+            CollectionAssert.AreEquivalent(fine, terrain.View.Tiles.ToArray(),
+                "Resolving unchanged input keys must not demote the displayed 2 m terrain to 16 m.");
+        }
+        Assert.IsFalse(terrain.HasRunnableWork);
+    }
+
+    [TestMethod]
     public void Rebinding_between_initialization_and_tile_admission_retries_without_worker_failure()
     {
         var terrain = Bound(new());

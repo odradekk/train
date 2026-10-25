@@ -112,6 +112,98 @@ public sealed class FarTerrainInputsTests
     private static RailwayWorkView Repair(ulong id) =>
         new(new(id), RailwayWorkKind.RepairBreak, 1, new(1), new(1), [], .25, []);
 
+    [TestMethod]
+    public void Moving_repair_between_tracks_changes_pose_inputs_and_lowers_the_new_repair_site()
+    {
+        var before = RepairMoveScene(twoTracks: true);
+        var after = MoveRepair(before);
+        var material = new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper);
+        var bounds = new ScenePanBounds(new(-36, -36), new(1060, 1060));
+        var oldPath = new RailwayPath(before, RailwayFixtures.Edge);
+        var newPath = new RailwayPath(after, RailwayFixtures.Edge);
+        var oldPlacement = RailwayTerrain.HeightFlattens(before, oldPath, 0).Single();
+        var newPlacement = RailwayTerrain.HeightFlattens(after, newPath, 0).Single();
+        Assert.AreNotEqual(oldPlacement.Pose.Position, newPlacement.Pose.Position);
+        Assert.AreNotEqual(oldPlacement.Pose.Rotation, newPlacement.Pose.Rotation,
+            "The asymmetric repair footprint must also turn outward on the opposite track.");
+        Assert.AreNotEqual(new RailwayTerrainCaps(before, oldPath).CreateInputs(material, 1)(bounds),
+            new RailwayTerrainCaps(after, newPath).CreateInputs(material, 1)(bounds),
+            "Equal flatten counts with different placement positions and rotations must not reuse a tile key.");
+        AssertRepairMoveRebuildsTerrain(before, after);
+    }
+
+    [TestMethod]
+    public void Moving_one_repair_job_between_breaks_rebinds_and_lowers_the_new_repair_site()
+    {
+        var before = RepairMoveScene(twoTracks: false);
+        var after = MoveRepair(before);
+        Assert.AreEqual(before.Core.World.Edges[0].Works.Length, after.Core.World.Edges[0].Works.Length);
+        Assert.AreEqual(before.Core.World.Edges[0].Works[0].Id, after.Core.World.Edges[0].Works[0].Id);
+        var oldPath = new RailwayPath(before, RailwayFixtures.Edge);
+        var newPath = new RailwayPath(after, RailwayFixtures.Edge);
+        var oldPlacement = RailwayTerrain.HeightFlattens(before, oldPath, 0).Single();
+        var newPlacement = RailwayTerrain.HeightFlattens(after, newPath, 0).Single();
+        Assert.AreEqual(oldPlacement.Pose.Rotation, newPlacement.Pose.Rotation,
+            "This fixture isolates translation, so Quaternion.IsIdentity cannot distinguish the placements.");
+        Assert.AreNotEqual(oldPlacement.Pose.Position, newPlacement.Pose.Position);
+        var material = new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper);
+        var bounds = new ScenePanBounds(new(-36, -36), new(1060, 1060));
+        Assert.AreNotEqual(new RailwayTerrainCaps(before, oldPath).CreateInputs(material, 1)(bounds),
+            new RailwayTerrainCaps(after, newPath).CreateInputs(material, 1)(bounds),
+            "Same-track repair translation must change the tile key independently of BindRailway generation.");
+        AssertRepairMoveRebuildsTerrain(before, after);
+    }
+
+    private static SceneWorldSnapshot RepairMoveScene(bool twoTracks)
+    {
+        var hash = new DesignHash("test:asymmetric-repair-flatten");
+        var model = SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]) with
+            { Design = hash, RootFlatten = new(new(0, -3), new(24, 3), -20) }) with { Design = hash };
+        var tracks = twoTracks ? 2 : 1;
+        var snapshot = RailwayFixtures.Snapshot(64, 64, relief: 0, tracks: tracks,
+            content: RailwayFixtures.Content(design: model, terrain: RailwayFixtures.TerrainAppearance with
+                { RailwayModels = [new(tracks, hash, hash, hash)] }));
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[0] with { Position = new(200, 200) });
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[1] with { Position = new(200, 264) });
+        return RailwayFixtures.ReplaceCore(snapshot, edge: snapshot.Core.World.Edges[0] with
+        {
+            Breaks = [new(new(1), 1, 20), new(new(2), twoTracks ? 2 : 1, twoTracks ? 20 : 50)],
+            Works = [Repair(1)]
+        });
+    }
+
+    private static SceneWorldSnapshot MoveRepair(SceneWorldSnapshot before)
+    {
+        var edge = before.Core.World.Edges[0];
+        var gap = edge.Breaks[1];
+        return RailwayFixtures.ReplaceCore(before, edge: edge with
+            { Works = [edge.Works[0] with { Track = gap.Track, RepairingBreak = gap.Id }] });
+    }
+
+    private static void AssertRepairMoveRebuildsTerrain(SceneWorldSnapshot before, SceneWorldSnapshot after)
+    {
+        var terrain = new FarTerrain(new());
+        var point = new ScenePoint(400, 0, 464);
+        var original = Tile(terrain, before, point);
+        var rebuilt = Tile(terrain, after, point);
+        Assert.AreNotSame(original, rebuilt,
+            "A job moved to another existing break must actually prepare and publish a replacement tile.");
+        var oldL0 = RailwayTerrain.Build(before, new(before, RailwayFixtures.Edge), 0, CancellationToken.None);
+        var newL0 = RailwayTerrain.Build(after, new(after, RailwayFixtures.Edge), 0, CancellationToken.None);
+        Assert.AreEqual(oldL0.Origin, newL0.Origin);
+        var lowered = newL0.Heights.Where(pair => oldL0.Heights.TryGetValue(pair.Key, out var oldHeight) && pair.Value < oldHeight).ToArray();
+        Assert.IsTrue(lowered.Length > 0, "The real L0 generator must lower columns at the new repair site.");
+        Assert.IsTrue(lowered.Any(pair =>
+        {
+            var x = newL0.Origin.X + pair.Key.X + .5;
+            var z = newL0.Origin.Z + pair.Key.Z + .5;
+            var oldFar = original.Height(x - original.Origin.X, z - original.Origin.Z);
+            var newFar = rebuilt.Height(x - rebuilt.Origin.X, z - rebuilt.Origin.Z);
+            return oldFar is { } oldValue && newFar is { } newValue &&
+                newValue < oldValue && newValue < pair.Value;
+        }), "At a genuinely lowered L0 column, the replacement far surface must lower and stay below the new L0 top.");
+    }
+
     private static TerrainTile Tile(FarTerrain terrain, SceneWorldSnapshot snapshot, ScenePoint point)
     {
         terrain.BindRailway(snapshot, new(snapshot, RailwayFixtures.Edge));

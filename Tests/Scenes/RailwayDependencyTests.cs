@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -9,6 +10,16 @@ namespace Train.Scenes.Tests;
 [TestClass]
 public sealed class RailwayDependencyTests
 {
+    [TestMethod]
+    public void Dependency_values_distinguish_two_nonidentity_pose_rotations()
+    {
+        var first = new ScenePose(Vector3.Zero, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2));
+        var second = first with { Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI) };
+        Assert.IsFalse(first.Rotation.IsIdentity || second.Rotation.IsIdentity);
+        Assert.AreNotEqual(RailwayDependencies.Values(first), RailwayDependencies.Values(second),
+            "The IsIdentity property alone does not identify the rotation of a flatten footprint.");
+    }
+
     [TestMethod]
     public void CollisionVariantsWithNoPropertiesDoNotReuseDependencies()
     {

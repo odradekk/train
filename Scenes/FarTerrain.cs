@@ -15,6 +15,9 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     {
         internal int Size => Spacing == TerrainTile.FarSpacingCells ? TerrainTile.ParentCells : TerrainTile.ParentCells / 4;
         internal (int X, int Z, int Spacing) Coordinate => (X, Z, Spacing);
+        internal ScenePanBounds ReadBounds => new(
+            new(X - TerrainTile.ColumnMarginCells, Z - TerrainTile.ColumnMarginCells),
+            new(X + Size + TerrainTile.ColumnMarginCells, Z + Size + TerrainTile.ColumnMarginCells));
     }
     internal sealed class Saved
     {
@@ -213,9 +216,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         if (saved.Keys.TryGetValue((x, z, spacing), out var found)) return found;
         var key = new TileKey(x, z, spacing, "");
         if (tileInputs is null) return key;
-        var margin = TerrainTile.ColumnMarginCells;
-        return saved.Keys[(x, z, spacing)] = key with
-        { Inputs = tileInputs!(new(new(x - margin, z - margin), new(x + key.Size + margin, z + key.Size + margin))) };
+        return saved.Keys[(x, z, spacing)] = key with { Inputs = tileInputs!(key.ReadBounds) };
     }
 
     internal bool IntersectsDemand(SceneBounds bounds)
@@ -251,8 +252,19 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         Func<Source>? prepare;
         Source? input;
         Saved target;
-        TileKey? missing;
-        lock (gate) { prepare = initialize; input = source; target = saved; missing = NextMissing(fineBuildAllowed); }
+        TileKey[] unresolved = [];
+        lock (gate)
+        {
+            prepare = initialize; input = source; target = saved;
+            if (NextMissing(fineBuildAllowed) is { Inputs.Length: 0 } next)
+            {
+                var x = (int)Math.Floor(next.X / (double)TerrainTile.ParentCells) * TerrainTile.ParentCells;
+                var z = (int)Math.Floor(next.Z / (double)TerrainTile.ParentCells) * TerrainTile.ParentCells;
+                unresolved = wanted.Where(key => key.Inputs.Length == 0 &&
+                    key.X >= x && key.X < x + TerrainTile.ParentCells &&
+                    key.Z >= z && key.Z < z + TerrainTile.ParentCells).ToArray();
+            }
+        }
         if (prepare is not null)
         {
             var ready = prepare();
@@ -260,19 +272,23 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                 if (ReferenceEquals(initialize, prepare)) { source = ready; initialize = null; }
             return false;
         }
-        if (input is not null && missing is { Inputs.Length: 0 } unresolved)
+        if (input is not null && unresolved.Length > 0)
         {
             // Content/model projections belong to far work; Demand and frame reads must not wait for them.
-            var margin = TerrainTile.ColumnMarginCells;
-            var key = unresolved with { Inputs = input.Inputs(new(new(unresolved.X - margin, unresolved.Z - margin),
-                new(unresolved.X + unresolved.Size + margin, unresolved.Z + unresolved.Size + margin))) };
+            // Resolve a whole parent together so cached L1 never briefly falls back to its already-resolved L2.
+            var keys = unresolved.Select(key => key with { Inputs = input.Inputs(key.ReadBounds) }).ToArray();
             token.ThrowIfCancellationRequested();
             lock (gate)
-                if (ReferenceEquals(saved, target) && ReferenceEquals(source, input) && wanted.IndexOf(unresolved) is var index && index >= 0)
+                if (ReferenceEquals(saved, target) && ReferenceEquals(source, input))
                 {
-                    saved.Keys[key.Coordinate] = key;
-                    wanted[index] = key;
-                    foreach (var old in saved.Tiles.Keys.Where(old => old.Coordinate == key.Coordinate && old != key))
+                    foreach (var key in keys)
+                        if (wanted.IndexOf(key with { Inputs = "" }) is var index && index >= 0)
+                        {
+                            saved.Keys[key.Coordinate] = key;
+                            wanted[index] = key;
+                        }
+                    foreach (var old in saved.Tiles.Keys.Where(old =>
+                        saved.Keys.TryGetValue(old.Coordinate, out var current) && old != current))
                         saved.Tiles.TryRemove(old, out _);
                     Publish();
                 }
@@ -330,8 +346,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
             token.ThrowIfCancellationRequested();
             if (job.Parts is null)
             {
-                var margin = TerrainTile.ColumnMarginCells;
-                job.Parts = input.Parts(new(new(key.X - margin, key.Z - margin), new(key.X + size + margin, key.Z + size + margin))).GetEnumerator();
+                job.Parts = input.Parts(key.ReadBounds).GetEnumerator();
                 budget--; continue;
             }
             if (!job.PartsComplete)
