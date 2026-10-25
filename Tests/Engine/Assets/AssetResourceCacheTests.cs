@@ -190,10 +190,12 @@ public class AssetResourceCacheTests(Node testScene) : TestClass(testScene)
         using var first = cache.AcquireModel(asset);
         using var second = cache.AcquireModel(asset);
         var model = first.Value;
+        var meshId = model.Mesh.GetInstanceId();
         Require(model.Mesh.GetInstanceId() == second.Value.Mesh.GetInstanceId(), "同修订模型没有共享网格。");
         var texture = model.Surfaces[1].BaseColorTexture;
         Require(texture is not null && GodotObject.IsInstanceValid(texture), "内嵌基础色贴图未保留。");
-        Require(model.Surfaces[2].BaseColorTexture?.GetInstanceId() == texture!.GetInstanceId(),
+        var textureId = texture!.GetInstanceId();
+        Require(model.Surfaces[2].BaseColorTexture?.GetInstanceId() == texture.GetInstanceId(),
             "两个表面的同一张基础色贴图必须保留并共享。");
         Require(model.Surfaces[1].BaseColorFactor.IsEqualApprox(new Color(0.25f, 0.5f, 0.75f, 1)), "基础色系数未保留。");
         Require(model.Surfaces[0].BaseColorFactor.IsEqualApprox(Colors.White), "无材质表面的缺省基础色系数错误。");
@@ -202,8 +204,9 @@ public class AssetResourceCacheTests(Node testScene) : TestClass(testScene)
             "第一个模型租约释放导致共享网格或贴图失效。");
         second.Dispose();
         second.Dispose();
-        Require(!GodotObject.IsInstanceValid(model.Mesh) && !GodotObject.IsInstanceValid(texture),
-            "最后模型租约未释放网格和内嵌贴图。");
+        Require(!GodotObject.IsInstanceValid(model.Mesh) && !GodotObject.IsInstanceValid(texture) &&
+            !GodotObject.IsInstanceIdValid(meshId) && !GodotObject.IsInstanceIdValid(textureId),
+            "最后模型租约必须在主线程释放网格和内嵌贴图。");
     }
 
     [Test]

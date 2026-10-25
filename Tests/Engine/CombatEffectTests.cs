@@ -242,13 +242,19 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var facility = root.GetNode<MeshInstance3D>("FacilitySmoke");
         var light = root.GetNode<OmniLight3D>("SceneLight");
         var mesh = smoke.Mesh;
+        var meshId = mesh.GetInstanceId();
         var material = smoke.MaterialOverride;
-        var mask = ((ShaderMaterial)material).GetShaderParameter("particle_mask").AsGodotObject() as Texture2D;
+        var materialId = material.GetInstanceId();
+        Texture2D? mask;
+        using (var parameter = ((ShaderMaterial)material).GetShaderParameter("particle_mask"))
+            mask = parameter.AsGodotObject() as Texture2D;
         Require(mask is not null && mask.GetWidth() == 128 && mask.GetHeight() == 128,
             "特效必须加载正式的四通道遮罩。");
-        Require(mask!.GetInstanceId() == ((ShaderMaterial)fire.MaterialOverride).GetShaderParameter("particle_mask").AsGodotObject().GetInstanceId() &&
-            smoke.MaterialOverride == facility.MaterialOverride,
-            "烟、设施烟和火必须复用正式遮罩，同种外观复用材质。");
+        var maskId = mask!.GetInstanceId();
+        using (var fireMask = ((ShaderMaterial)fire.MaterialOverride).GetShaderParameter("particle_mask"))
+            Require(maskId == fireMask.AsGodotObject().GetInstanceId() &&
+                smoke.MaterialOverride == facility.MaterialOverride,
+                "烟、设施烟和火必须复用正式遮罩，同种外观复用材质。");
         var fragment = Nodes(display, "Fragment")[0];
         Commit(display, Frame(2, [], [], basis: first.Update.Frame, removed: [new(1)]));
         Require(!GodotObject.IsInstanceValid(smoke) && !GodotObject.IsInstanceValid(fire) &&
@@ -258,8 +264,13 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
             GodotObject.IsInstanceValid(material), "已播放的碎片和共享资源必须留下。");
         display.Dispose();
         display.Dispose();
-        Require(!GodotObject.IsInstanceValid(fragment) && !GodotObject.IsInstanceValid(mesh) &&
-            !GodotObject.IsInstanceValid(material) && !GodotObject.IsInstanceValid(mask), "释放显示后节点和共享资源都必须失效。");
+        Require(!GodotObject.IsInstanceValid(fragment), "释放显示后碎片节点必须失效。");
+        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceIdValid(meshId),
+            "释放显示后 look 网格必须在主线程销毁。");
+        Require(!GodotObject.IsInstanceValid(material) && !GodotObject.IsInstanceIdValid(materialId),
+            "释放显示后 look 材质必须在主线程销毁。");
+        Require(!GodotObject.IsInstanceValid(mask) && !GodotObject.IsInstanceIdValid(maskId),
+            "释放显示后粒子遮罩必须在主线程销毁。");
     }
 
     [Test]
@@ -488,7 +499,8 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
             if (material is ShaderMaterial { Shader: { } shader } shaderMaterial)
             {
                 resources.Add(shader);
-                if (shaderMaterial.GetShaderParameter("particle_mask").AsGodotObject() is Texture2D texture) resources.Add(texture);
+                using var particleMask = shaderMaterial.GetShaderParameter("particle_mask");
+                if (particleMask.AsGodotObject() is Texture2D texture) resources.Add(texture);
             }
         }
         foreach (var node in display.Root.FindChildren("*", "", true, false).OfType<Node>()) Track(node);
