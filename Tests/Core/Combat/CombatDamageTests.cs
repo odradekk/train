@@ -30,6 +30,97 @@ public sealed class CombatDamageTests
     }
 
     [TestMethod]
+    public void Later_weapons_fire_while_the_first_is_cooling_and_due_weapons_share_the_target()
+    {
+        var fast = new DesignHash(string.Concat(Enumerable.Repeat("C2", 32)));
+        var content = StructureTarget(1000);
+        var original = content.Designs.Single(design => design.Design == CombatFixture.ArmedVehicle);
+        content = content with
+        {
+            Designs = content.Designs.Select(design => design.Design != original.Design ? design : design with
+            {
+                Parts = design.Parts.Select(part => part with
+                {
+                    Capabilities = part.Capabilities.Select(capability => capability is PartCapability.Weapon weapon
+                        ? weapon with { Damage = 1, IntervalSeconds = 2 } : capability).ToImmutableArray()
+                }).ToImmutableArray()
+            }).Append(original with { Design = fast }).ToImmutableArray()
+        };
+        using var session = CombatFixture.SessionWithContent(content, designs: [original.Design, fast]);
+        var hostile = CombatFixture.HostileNode(session);
+        var target = HostileBuilding(session, hostile);
+        CombatFixture.Send(session, hostile, new TrainId(1));
+        var joined = CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        var fastVehicle = ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value.Vehicles[1];
+        Assert.AreEqual(2, VehicleHits(joined).Length);
+
+        var halfInterval = session.Advance(60);
+        Assert.IsNull(halfInterval.Fault);
+        var fastHit = VehicleHits(halfInterval.Events.Select(envelope => envelope.Event)).Single();
+        Assert.AreEqual(new InstanceId.Vehicle(fastVehicle), ((AttackSource.Weapon)fastHit.Source).Instance.Instance);
+        Assert.AreEqual(target, Presentation(fastHit.Target).Instance);
+
+        var fullInterval = session.Advance(60);
+        Assert.IsNull(fullInterval.Fault);
+        var together = VehicleHits(fullInterval.Events.Select(envelope => envelope.Event));
+        Assert.AreEqual(2, together.Length);
+        Assert.IsTrue(together.All(hit => Presentation(hit.Target).Instance == target));
+
+        static CombatHit[] VehicleHits(IEnumerable<CoreEvent> events) => events.OfType<CoreEvent.CombatHits>()
+            .SelectMany(batch => batch.Hits).Where(hit => hit.Source is AttackSource.Weapon
+                { Instance.Instance: InstanceId.Vehicle }).ToArray();
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Unrepresentable_weapon_intervals_fault_only_when_a_target_exists(bool hittableTarget)
+    {
+        var content = CombatFixture.Content() with
+        {
+            Designs = CombatFixture.Content().Designs.Select(design =>
+                design.Design == CombatFixture.ArmedVehicle && !hittableTarget ? design with
+                {
+                    StructureHitWeight = 0,
+                    Parts = design.Parts.Select(part => part with { HitWeight = 0 }).ToImmutableArray()
+                } : design.Design != CombatFixture.ArmedBuilding ? design : design with
+                {
+                    Parts = design.Parts.Select(part => part with
+                    {
+                        Capabilities = part.Capabilities.Select(capability => capability is PartCapability.Weapon weapon
+                            ? weapon with { IntervalSeconds = double.MaxValue } : capability).ToImmutableArray()
+                    }).ToImmutableArray()
+                }).ToImmutableArray()
+        };
+        using var session = CombatFixture.SessionWithContent(content);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(new(1),
+            new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, EncounterAction.Engage, 0)), CommandSource.AutomationTest));
+        CombatFixture.Send(session, CombatFixture.HostileNode(session), new(1));
+        AdvanceResult? result = null;
+        for (var step = 0; step < 10000; step++)
+        {
+            result = session.Advance(1);
+            if (result.Fault is not null || session.Read().World.Combats.Any()) break;
+        }
+        Assert.IsNotNull(result);
+        if (hittableTarget)
+        {
+            Assert.IsNotNull(result.Fault);
+            StringAssert.Contains(result.Diagnostic!.Message, "武器间隔超出可表示范围");
+        }
+        else
+        {
+            Assert.IsNull(result.Fault);
+            Assert.IsTrue(session.Read().World.Combats.Any());
+            var quiet = session.Advance(60);
+            Assert.IsNull(quiet.Fault);
+            Assert.IsFalse(quiet.Events.Select(envelope => envelope.Event).OfType<CoreEvent.CombatHits>()
+                .SelectMany(batch => batch.Hits).Any(hit => hit.Source is AttackSource.Weapon
+                    { Instance.Instance: InstanceId.Building }));
+        }
+    }
+
+    [TestMethod]
     public void Part_damage_overflows_exactly_and_destroyed_parts_route_all_damage_to_structure()
     {
         var content = CombatFixture.Content(damage: 10) with
