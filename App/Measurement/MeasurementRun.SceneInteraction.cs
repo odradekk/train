@@ -230,26 +230,35 @@ internal sealed partial class MeasurementRun
 
     private ProbeReferenceView CaptureSceneReference(ISceneFrame frame, NVector center, int? node, WorldLocation.Edge? edge)
     {
-        var terrain = new List<int[]>();
+        int[][] terrain = [];
         var origin = ProbeOrigin(frame);
         if (edge is not null)
         {
             var meshes = _app.WorldScenes!.Display!.Objects.Values.Where(item => item.Source.Subject is null)
                 .SelectMany(item => ProbeMeshes(item.Root)).Where(item => item.Mesh is not null).ToArray();
-            if (meshes.Length > 0)
-            {
-                var bounds = meshes.Select(mesh => MeshBounds(mesh, frame)).ToArray();
-                var min = bounds.Select(item => item.Minimum).Aggregate(NVector.Min);
-                var max = bounds.Select(item => item.Maximum).Aggregate(NVector.Max);
-                for (var z = (int)Math.Floor(min.Z); z < max.Z; z++)
-                for (var x = (int)Math.Floor(min.X); x < max.X; x++)
-                    if (frame.TerrainHeight(x + .5 - origin.X, z + .5 - origin.Z) is Lookup<double>.Found)
-                        terrain.Add([x, z]);
-            }
+            terrain = CaptureReferenceTerrain(center + origin, meshes.Select(mesh => MeshBounds(mesh, frame)),
+                (x, z) => frame.TerrainHeight(x - origin.X, z - origin.Z) is Lookup<double>.Found);
         }
         return new(_sceneTarget!.ToString()!, node, edge is null ? null : (int)edge.Id.Value, edge?.DistanceMeters,
             [center.X + origin.X, center.Y + origin.Y, center.Z + origin.Z],
-            [.. ReferenceObjects(frame, center, ReferenceCaptureRadiusCells)], [.. terrain]);
+            [.. ReferenceObjects(frame, center, ReferenceCaptureRadiusCells)], terrain);
+    }
+
+    internal static int[][] CaptureReferenceTerrain(NVector center, IEnumerable<SceneBounds> meshes,
+        Func<double, double, bool> hasTerrain)
+    {
+        var bounds = meshes.ToArray();
+        if (bounds.Length == 0) return [];
+        // A matched focus and its probe ring fit inside the existing reference capture radius.
+        var min = NVector.Max(bounds.Select(item => item.Minimum).Aggregate(NVector.Min),
+            center - new NVector(ReferenceCaptureRadiusCells));
+        var max = NVector.Min(bounds.Select(item => item.Maximum).Aggregate(NVector.Max),
+            center + new NVector(ReferenceCaptureRadiusCells));
+        var terrain = new List<int[]>();
+        for (var z = (int)Math.Floor(min.Z); z < max.Z; z++)
+        for (var x = (int)Math.Floor(min.X); x < max.X; x++)
+            if (hasTerrain(x + .5, z + .5)) terrain.Add([x, z]);
+        return [.. terrain];
     }
 
     private ProbeReferenceView? FindSceneReference(NVector absolute, WorldLocation? location) =>

@@ -9,6 +9,30 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementGeometryTests
 {
     [TestMethod]
+    public void ReferenceTerrainKeepsEveryMatchedProbeRingWithoutScanningFarTerrain()
+    {
+        var reference = new Vector3(-300, 0, 700);
+        var calls = 0;
+        var terrain = MeasurementRun.CaptureReferenceTerrain(reference,
+            [new(reference - new Vector3(10000), reference + new Vector3(10000))],
+            (x, z) =>
+            {
+                Assert.IsTrue(Math.Abs(x - reference.X) < 128 && Math.Abs(z - reference.Z) < 128,
+                    "Only the reference match radius plus the probe radius can affect this reference.");
+                calls++;
+                return Math.Abs(z - reference.Z) < 8;
+            }).Select(cell => (cell[0], cell[1])).ToHashSet();
+        Assert.IsTrue(calls > 0);
+        foreach (var offset in new[] { -64, 0, 64 })
+        {
+            var focus = reference + new Vector3(offset, 0, 0);
+            var ring = MeasurementRun.ProbeBandRing(focus, 64, terrain);
+            Assert.AreEqual(8, ring.Length);
+            Assert.IsTrue(ring.All(point => Math.Abs(Vector3.Distance(focus, point) - 64) < .001));
+        }
+    }
+
+    [TestMethod]
     public void FogExcludesMaximumBoundaryAndItsTangencyWithTheNearArea()
     {
         var fog = new SceneBounds(new(-288, -128, 440), new(-256, 128, 472));
