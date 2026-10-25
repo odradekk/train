@@ -149,24 +149,39 @@ internal sealed class VoxelGrid
         for (var i = 1; i < properties.Count; i++) ids.Add(properties[i]!, i);
         var minimum = new GridPosition(int.MaxValue, int.MaxValue, int.MaxValue);
         var maximum = new GridPosition(int.MinValue, int.MinValue, int.MinValue);
-        Dictionary<GridPosition, List<int>> groups = [];
+        Dictionary<GridPosition, (int Start, int Count)> groups = [];
         for (var i = 0; i < cells.Length; i++)
         {
             var cell = cells[i];
             var key = Chunk(cell.At);
-            if (!groups.TryGetValue(key, out var indices)) groups.Add(key, indices = []);
-            indices.Add(i);
+            groups.TryGetValue(key, out var group);
+            groups[key] = (0, group.Count + 1);
             minimum = new(Math.Min(minimum.X, cell.At.X), Math.Min(minimum.Y, cell.At.Y), Math.Min(minimum.Z, cell.At.Z));
             maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
+        }
+        var start = 0;
+        foreach (var key in groups.Keys.ToArray())
+        {
+            var count = groups[key].Count;
+            groups[key] = (start, 0);
+            start += count;
+        }
+        var indices = new int[cells.Length];
+        for (var i = 0; i < cells.Length; i++)
+        {
+            var key = Chunk(cells[i].At);
+            var group = groups[key];
+            indices[group.Start + group.Count] = i;
+            groups[key] = (group.Start, group.Count + 1);
         }
         var buffer = cells.IsEmpty ? Array.Empty<int>() : new int[HalfSize * 2];
         var changed = ImmutableArray.CreateBuilder<GridPosition>();
         CellProperties? previousProperties = null;
         var previousId = 0;
-        foreach (var (key, indices) in groups)
+        foreach (var (key, group) in groups)
         {
             Array.Clear(buffer);
-            foreach (var cellIndex in indices)
+            foreach (var cellIndex in indices.AsSpan(group.Start, group.Count))
             {
                 var cell = cells[cellIndex];
                 var index = Index(cell.At);
