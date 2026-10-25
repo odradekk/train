@@ -50,16 +50,15 @@ internal static class UiStyle
     };
 
     private static FontVariation? _regularNumbers, _boldNumbers;
-    private static readonly Dictionary<string, Font> BaseFonts = [];
     internal static FontVariation NumericFont(bool bold = false) => bold
         ? _boldNumbers ??= CreateNumericFont("res://Ui/Fonts/NotoSansSC-Bold.otf")
         : _regularNumbers ??= CreateNumericFont("res://Ui/Fonts/NotoSansSC-Regular.otf");
 
-    private static FontVariation CreateNumericFont(string path)
+    private static FontVariation CreateNumericFont(string path) => new()
     {
-        if (!BaseFonts.TryGetValue(path, out var font)) BaseFonts[path] = font = GD.Load<Font>(path);
-        return new() { BaseFont = font, OpentypeFeatures = new() { ["tnum"] = 1 } };
-    }
+        BaseFont = GD.Load<Font>(path),
+        OpentypeFeatures = new() { ["tnum"] = 1 }
+    };
 
     internal static Button Button(string name, string text, Action clicked, bool primary = false)
     {
