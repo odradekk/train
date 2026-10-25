@@ -1,6 +1,7 @@
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
+using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -125,7 +126,7 @@ public sealed class FarTerrainControllerTests
     }
 
     [TestMethod]
-    public void Cache_reuses_generated_tiles_for_equal_inputs_and_discards_them_when_terrain_changes()
+    public void Cache_reuses_equal_inputs_and_keeps_changed_terrain_until_its_replacement_is_visible()
     {
         var cache = new FarTerrain.Cache();
         var first = Bound(cache);
@@ -137,9 +138,14 @@ public sealed class FarTerrainControllerTests
 
         var changedInputs = Bound(cache, relief: 2);
         changedInputs.Demand(Focus, 1);
-        Assert.AreEqual(0, changedInputs.View.Tiles.Length);
+        Assert.AreSame(tile, changedInputs.View.Tiles.Single());
         Assert.IsTrue(changedInputs.HasPendingCoarse);
-        Assert.AreNotSame(tile, FirstCoarse(changedInputs));
+        while (changedInputs.HasPendingCoarse)
+        {
+            Assert.IsNotNull(changedInputs.View.Height(Focus));
+            changedInputs.Advance(128, CancellationToken.None);
+        }
+        Assert.AreNotSame(tile, changedInputs.View.Tiles.Single());
     }
 
     [TestMethod]
@@ -186,7 +192,8 @@ public sealed class FarTerrainControllerTests
         var inside = old.View.Tiles.Single();
 
         changed.Demand(new(128, 0, 128), 1);
-        Assert.IsTrue(changed.View.Tiles.IsEmpty, "Layout-dependent terrain must rebuild.");
+        changed.ReuseTiles(old);
+        Assert.AreSame(inside, changed.View.Tiles.Single(), "Changed terrain stays visible until its replacement appears.");
         while (!changed.Advance(10000, CancellationToken.None)) { }
         Assert.AreNotSame(inside, changed.View.Tiles.Single());
 
@@ -226,8 +233,8 @@ public sealed class FarTerrainControllerTests
         next.SetFineBuildAllowed(false);
         next.Demand(new(128, 0, 128), 1);
         Assert.IsTrue(next.HasPendingCoarse);
-        CollectionAssert.AreEquivalent(unchanged, next.View.Tiles.ToArray(),
-            "Valid fine tiles must stay visible when their layout-dependent parent is unavailable.");
+        CollectionAssert.AreEquivalent(old.View.Tiles.ToArray(), next.View.Tiles.ToArray(),
+            "The complete displayed fine group must stay visible until a replacement covers it.");
 
         while (next.HasPendingCoarse) next.Advance(10000, CancellationToken.None);
         Assert.AreEqual(TerrainTile.FarSpacingCells, next.View.Tiles.Single().SpacingCells,
@@ -247,6 +254,54 @@ public sealed class FarTerrainControllerTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Rebinding_a_node_keeps_its_displayed_parent_covered_until_the_new_height_is_ready(bool fine)
+    {
+        var layout = NodeFixtures.Layout with { Plots = [] };
+        var terrain = new FarTerrain(new());
+        Bind(layout);
+        terrain.SetFineBuildAllowed(fine);
+        var focus = new ScenePoint(128, 0, 128);
+        terrain.Demand(focus, 1);
+        while (terrain.HasRunnableWork) terrain.Advance(4096, CancellationToken.None);
+        var old = terrain.View;
+        var points = Enumerable.Range(0, 4).SelectMany(z => Enumerable.Range(0, 4)
+            .Select(x => new ScenePoint(128 + x * 256, 0, 128 + z * 256))).ToArray();
+        var oldMinimum = old.Tiles.Min(tile => tile.Mesh.Vertices.Min(vertex => vertex.Position.Y));
+        var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
+
+        // Rebind twice before either generation can publish, as successive live changes may arrive together.
+        Bind(Flatten(-10));
+        terrain.Demand(focus, 1);
+        Bind(Flatten(-20));
+        terrain.Demand(focus, 1);
+        Assert.IsTrue(terrain.HasPendingCoarse, "Old displayed tiles must not satisfy fresh L2 priority.");
+        CollectionAssert.AreEquivalent(old.Tiles.ToArray(), terrain.View.Tiles.ToArray());
+        for (var step = 0; step < 20000 && terrain.HasRunnableWork; step++)
+        {
+            var frame = new SceneFrame(stamp, default, 0, SceneReadiness.Partial, [], [], [], [], farTerrain: terrain.View);
+            foreach (var point in points)
+                Assert.IsInstanceOfType<Lookup<double>.Found>(frame.DisplayTerrainHeight(point.X, point.Z), "Rebinding must not open a hole.");
+            Assert.IsTrue(terrain.View.Tiles.Length is 1 or 16, "A parent cannot mix coarse and partial fine coverage.");
+            terrain.Advance(128, CancellationToken.None);
+        }
+        Assert.IsFalse(terrain.HasRunnableWork);
+        foreach (var point in points) Assert.IsNotNull(terrain.View.Height(point));
+        Assert.IsTrue(terrain.View.Tiles.Min(tile => tile.Mesh.Vertices.Min(vertex => vertex.Position.Y)) < oldMinimum,
+            "The replacement must contain the changed height, rather than keep the old surface forever.");
+
+        SettlementLayoutProjection Flatten(int height) => layout with
+        { SceneModel = layout.SceneModel with { Scene = layout.SceneModel.Scene with
+            { RootFlatten = new(new(0, 0), new(4, 4), height) } } };
+        void Bind(SettlementLayoutProjection value)
+        {
+            var snapshot = NodeFixtures.EmptyNodeSnapshot(value, []);
+            terrain.BindNode(NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)));
+        }
+    }
+
+    [TestMethod]
     public void Rebinding_between_initialization_and_tile_admission_retries_without_worker_failure()
     {
         var terrain = Bound(new());
@@ -257,9 +312,7 @@ public sealed class FarTerrainControllerTests
         terrain.Demand(Focus, 1);
 
         // Reproduce the tile-admission phase after its earlier initialization read was invalidated.
-        var admit = typeof(FarTerrain).GetMethod("AdvanceTile",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        var completed = (bool)admit.Invoke(terrain, [128, CancellationToken.None])!;
+        var completed = terrain.AdvanceTile(128, CancellationToken.None);
         Assert.IsFalse(completed);
         Assert.IsTrue(terrain.View.Tiles.IsEmpty);
         Assert.IsNotNull(FirstCoarse(terrain));

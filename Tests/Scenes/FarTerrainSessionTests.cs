@@ -75,7 +75,9 @@ public sealed class FarTerrainSessionTests
     }
 
     [TestMethod]
-    public async Task Founded_successor_activates_when_near_prepared_and_reuses_displayed_outside_tiles()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Founded_successor_activates_when_near_prepared_and_reuses_displayed_outside_tiles(bool fine)
     {
         var founded = NodeFixtures.EmptyNodeSnapshot(NodeFixtures.Layout with { Plots = [] }, []);
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
@@ -99,20 +101,21 @@ public sealed class FarTerrainSessionTests
             var displayed = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
             var oldNode = Field<NodeScene>(session, "node");
             oldNode.SetFarBuildAllowed(false);
+            await SceneFixtures.AwaitPendingWork(oldNode.PendingFarWork);
             oldNode.SetFineTerrainBuildAllowed(false);
-            oldNode.SetTerrainViewRadius(2048);
+            oldNode.SetTerrainViewRadius(1);
             oldNode.Pump(empty);
             var oldTerrain = Field<FarTerrain>(oldNode, "farTerrain");
-            while (oldTerrain.HasPendingCoarse) oldTerrain.Advance(128, CancellationToken.None);
-            displayed = Present(session, displayed, radius: 2048);
-            Assert.IsFalse(oldTerrain.View.Tiles.IsEmpty);
-            var tile = oldTerrain.View.Tiles.First(item => Math.Abs(item.Origin.X) >= 2048);
-            var point = new Vector3((float)(tile.Origin.X + 512 - displayed.Origin.X), 0,
-                (float)(tile.Origin.Z + 512 - displayed.Origin.Z));
-            Assert.IsInstanceOfType<Lookup<double>.Found>(displayed.DisplayTerrainHeight(point.X, point.Z));
+            oldTerrain.Demand(new(512, 0, 512), 1);
+            oldTerrain.SetFineBuildAllowed(fine);
+            while (oldTerrain.HasRunnableWork) oldTerrain.Advance(65536, CancellationToken.None);
+            displayed = Present(session, displayed, radius: 1);
+            var oldView = oldTerrain.View;
+            Assert.IsFalse(oldView.Tiles.IsEmpty);
+            Assert.AreEqual(fine, oldView.Tiles.Any(tile => tile.SpacingCells == TerrainTile.NearSpacingCells));
 
             session.Observe(founded, []);
-            displayed = Present(session, displayed, radius: 2048);
+            displayed = Present(session, displayed, radius: 1);
             await started.Task;
             var successor = Field<NodeScene>(session, "successor");
             var terrain = Field<FarTerrain>(successor, "farTerrain");
@@ -121,19 +124,68 @@ public sealed class FarTerrainSessionTests
             {
                 release.Set();
                 successor.BuildWork!.GetAwaiter().GetResult();
-                var waiting = Present(session, displayed, radius: 2048);
+                var waiting = Present(session, displayed, radius: 1);
                 Assert.IsTrue(successor.NearPrepared, "L0 must already allow handover in this fixture.");
                 Assert.IsTrue(successor.HasPendingCoarseTerrain);
                 Assert.AreSame(successor.Layout, waiting.Node, "NearPrepared must activate the successor without waiting for L2.");
-                Assert.IsTrue(terrain.View.Tiles.Contains(tile), "An unchanged displayed tile must survive handover by reference.");
-                Assert.IsInstanceOfType<Lookup<double>.Found>(waiting.DisplayTerrainHeight(point.X, point.Z));
+                var bounds = successor.Layout!.Bounds;
+                var points = OutsideWitnesses(oldView, bounds);
+                Assert.IsTrue(points.Any(point => Math.Abs(point.X) < TerrainTile.ParentCells &&
+                    Math.Abs(point.Z) < TerrainTile.ParentCells),
+                    "Witnesses must include old parents intersecting the new node layout.");
+                AssertDisplayed(displayed, points);
+                AssertDisplayed(waiting, points);
                 displayed = waiting;
             }
             Assert.AreNotSame(oldNode.Layout, displayed.Node);
-            Assert.IsTrue(successor.HasPendingCoarseTerrain);
-            Assert.IsInstanceOfType<Lookup<double>.Found>(displayed.DisplayTerrainHeight(point.X, point.Z));
         }
         finally { release.Set(); }
+    }
+
+    [TestMethod]
+    public async Task Railway_rebinding_keeps_displayed_terrain_through_break_and_repair_frames()
+    {
+        var snapshot = RailwayFixtures.Snapshot(64, 64, relief: 0);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new RailwayScene(snapshot, RailwayFixtures.Edge, new(), SceneFixtures.NextId(),
+            vehicles, new(), _ => null, RailwayFixtures.EmptySegment);
+        scene.SetFarBuildAllowed(false);
+        scene.SetFineTerrainBuildAllowed(false);
+        scene.SetTerrainViewRadius(1024);
+        var target = new WorldSceneTarget.Location(RailwayFixtures.Location);
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
+        var displayed = await RailwayFixtures.Settled(scene, snapshot, target, request, stamp);
+        var terrain = Field<FarTerrain>(scene, "farTerrain");
+        while (terrain.HasRunnableWork) terrain.Advance(65536, CancellationToken.None);
+        displayed = scene.Present(snapshot, null, target, request, stamp, displayed);
+        var tiles = terrain.View.Tiles.ToArray();
+        var points = tiles.Select(tile => new ScenePoint(tile.Origin.X + tile.SizeCells / 2,
+            0, tile.Origin.Z + tile.SizeCells / 2)).ToArray();
+        Assert.IsTrue(points.Length > 0);
+        AssertDisplayed(displayed, points);
+        var broken = RailwayFixtures.ReplaceCore(snapshot, edge: snapshot.Core.World.Edges[0] with
+            { Breaks = [new(new(1), 1, 32)] });
+        var repairing = RailwayFixtures.ReplaceCore(broken, edge: broken.Core.World.Edges[0] with
+            { Works = [new(new(1), RailwayWorkKind.RepairBreak, 1, new(1), new(1), [], .25, [])] });
+        var repaired = RailwayFixtures.ReplaceCore(repairing, edge: repairing.Core.World.Edges[0] with
+            { Breaks = [], Works = [] });
+        foreach (var changed in new[] { broken, repairing, repaired })
+        {
+            stamp = stamp with { Revision = stamp.Revision + 1 };
+            displayed = scene.Present(changed, snapshot, target, request, stamp, displayed);
+            AssertDisplayed(displayed, points);
+            foreach (var tile in tiles)
+                Assert.IsTrue(terrain.View.Tiles.Contains(tile), "A break or repair without flatten must preserve the terrain tile.");
+            for (var step = 0; step < 20000 && terrain.HasRunnableWork; step++)
+            {
+                terrain.Advance(65536, CancellationToken.None);
+                displayed = scene.Present(changed, snapshot, target, request, stamp, displayed);
+                AssertDisplayed(displayed, points);
+            }
+            Assert.IsFalse(terrain.HasRunnableWork);
+            snapshot = changed;
+        }
     }
 
     [TestMethod]
@@ -178,6 +230,19 @@ public sealed class FarTerrainSessionTests
 
         static bool FogCovers(SceneFrame frame) => frame.Update.Environment.FoggedRegions.Any(box =>
             x >= box.Minimum.X && x <= box.Maximum.X && z >= box.Minimum.Z && z <= box.Maximum.Z);
+    }
+
+    private static ScenePoint[] OutsideWitnesses(FarTerrainView view, ScenePanBounds bounds) => view.Tiles
+        .SelectMany(tile => new[] { .25, .75 }.SelectMany(x => new[] { .25, .75 }.Select(z =>
+            new ScenePoint(tile.Origin.X + tile.SizeCells * x, 0, tile.Origin.Z + tile.SizeCells * z))))
+        .Where(point => point.X < bounds.Minimum.X || point.X > bounds.Maximum.X ||
+            point.Z < bounds.Minimum.Y || point.Z > bounds.Maximum.Y).ToArray();
+
+    private static void AssertDisplayed(SceneFrame frame, IEnumerable<ScenePoint> points)
+    {
+        foreach (var point in points)
+            Assert.IsInstanceOfType<Lookup<double>.Found>(frame.DisplayTerrainHeight(
+                point.X - frame.Origin.X, point.Z - frame.Origin.Z), $"Displayed terrain disappeared at {point}.");
     }
 
     private static T Field<T>(object value, string name) =>

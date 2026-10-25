@@ -364,7 +364,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 var begin = index * RailwayCoordinates.SegmentLengthCells;
                 var endOfSegment = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
                 var area = path.Bounds(begin, endOfSegment, default, RailwayCoordinates.FogHalfWidth(path.Edge.Tracks));
-                if (!farTerrain.IntersectsDemand(area)) continue;
+                if (terrainViewRadiusCells > 0 && !farTerrain.IntersectsDemand(area)) continue;
                 AddFog(begin, endOfSegment, allowFar: true);
             }
             segmentFog = fog.ToImmutable();
@@ -377,9 +377,9 @@ internal sealed class RailwayScene : IAsyncDisposable
                 var width = RailwayCoordinates.FogHalfWidth(path!.Edge.Tracks);
                 var area = path.Bounds(begin, finish, default, width);
                 var cutters = allowFar ? footprint.Concat(farView.Coverage(area)) : footprint;
-                foreach (var bounds in ConstructionFog.Clip(allowFar
-                    ? ConstructionFog.Band(arc => path.Sample(arc), begin, finish, width, area.Minimum.Y, area.Maximum.Y)
-                    : [area], cutters))
+                foreach (var bounds in ConstructionFog.Clip([area], cutters.Where(box =>
+                    box.Minimum.X < area.Maximum.X && box.Maximum.X > area.Minimum.X &&
+                    box.Minimum.Z < area.Maximum.Z && box.Maximum.Z > area.Minimum.Z)))
                     fog.Add(new(bounds, new(begin, finish, width)));
             }
         }

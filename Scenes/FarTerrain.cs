@@ -11,11 +11,17 @@ namespace Train.Scenes;
 
 internal sealed class FarTerrain(FarTerrain.Cache cache)
 {
-    internal readonly record struct TileKey(int X, int Z, int Spacing, string Inputs);
+    internal readonly record struct TileKey(int X, int Z, int Spacing, string Inputs)
+    {
+        internal int Size => Spacing == TerrainTile.FarSpacingCells ? TerrainTile.ParentCells : TerrainTile.ParentCells / 4;
+        internal (int X, int Z, int Spacing) Coordinate => (X, Z, Spacing);
+    }
     internal sealed class Saved
     {
         internal ConcurrentDictionary<string, TerrainHeightCap> Caps { get; } = new(StringComparer.Ordinal);
         internal ConcurrentDictionary<TileKey, TerrainTile> Tiles { get; } = new();
+        internal ConcurrentDictionary<(int X, int Z, int Spacing), TileKey> Keys { get; } = new();
+        internal volatile FarTerrainView View = new([]);
     }
     internal sealed class Cache
     {
@@ -27,7 +33,10 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                 if (entries.TryGetValue(owner, out var entry) && entry.Inputs == inputs) return entry.Saved;
                 var saved = new Saved();
                 if (entry is not null)
+                {
                     foreach (var tile in entry.Saved.Tiles) saved.Tiles.TryAdd(tile.Key, tile.Value);
+                    saved.View = entry.Saved.View;
+                }
                 entries[owner] = new(inputs, saved);
                 return saved;
             }
@@ -51,7 +60,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     private Saved saved = new();
     private sealed record Source(Func<ScenePoint, double> Height,
         Func<ScenePanBounds, IEnumerable<(string Key, TerrainHeightCap.Builder Work)>> Parts,
-        SceneMaterial Material, int TextureSpan);
+        SceneMaterial Material, int TextureSpan, Func<ScenePanBounds, string> Inputs);
     private Source? source;
     private Func<Source>? initialize;
     private Func<ScenePanBounds, string>? tileInputs;
@@ -86,20 +95,12 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                 NodeLayout.ReadInputs(snapshot, path.Start.Id), NodeLayout.ReadInputs(snapshot, path.End.Id), snapshot.Content.Generation });
             bound = path; content = snapshot.Content.Generation;
             if (!Reset("edge:" + edge.Id.Value, key)) return;
-            var groundInputs = RailwayDependencies.Values(new object?[] { path.Seed, edge.Id,
-                edge.Terrain, snapshot.Content.Generation });
-            var tileGeneration = Fingerprint(key);
-            groundInputs = Fingerprint(groundInputs);
-            var influence = path.Bounds(0, path.LengthCells, default,
-                RailwayCoordinates.TerrainHalfWidth(edge.Tracks) + TerrainSurface.Railway.FadeCells + RailwayCoordinates.CellFootprintMargin);
-            tileInputs = bounds => bounds.Minimum.X <= influence.Maximum.X && bounds.Maximum.X >= influence.Minimum.X &&
-                bounds.Minimum.Y <= influence.Maximum.Z && bounds.Maximum.Y >= influence.Minimum.Z ? tileGeneration : groundInputs;
             var capCache = saved.Caps;
             initialize = () =>
             {
                 var caps = new RailwayTerrainCaps(snapshot, path, key => capCache.GetValueOrDefault(key));
                 var (material, span) = Appearance(snapshot.Content, caps.Terrain);
-                return new(caps.Height, caps.Parts, material, span);
+                return new(caps.Height, caps.Parts, material, span, caps.CreateInputs(material, span));
             };
         }
     }
@@ -124,7 +125,8 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
             var tileGeneration = Fingerprint(key);
             groundInputs = Fingerprint(groundInputs);
             tileInputs = bounds => caps.UsesLayout(bounds) ? tileGeneration : groundInputs;
-            initialize = () => new(caps.Height, caps.Parts, material, span);
+            var inputs = tileInputs;
+            initialize = () => new(caps.Height, caps.Parts, material, span, inputs);
         }
     }
 
@@ -137,7 +139,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         owner = nextOwner; generation = nextGeneration;
         saved = cache.Get(owner, generation);
         jobs.Clear(); wanted.Clear(); visibleParents.Clear(); fineParents.Clear(); prefetchParents.Clear(); objects.Clear();
-        view = new([]); source = null; initialize = null;
+        view = saved.View; source = null; initialize = null; tileInputs = null;
         return true;
     }
 
@@ -172,11 +174,12 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
             AddFine(fineParents.OrderBy(p => Distance(p, focus)));
             AddFine(prefetch.Except(fineParents).OrderBy(p => Distance(p, focus)));
             var required = wanted.ToHashSet();
+            var coordinates = wanted.Select(key => key.Coordinate).ToHashSet();
+            foreach (var coordinate in saved.Keys.Keys.Where(at => !coordinates.Contains(at))) saved.Keys.TryRemove(coordinate, out _);
             foreach (var key in jobs.Keys.Where(key => !required.Contains(key)).ToArray())
             { if (!jobs[key].Processing) jobs[key].Parts?.Dispose(); jobs.Remove(key); }
-            foreach (var key in saved.Tiles.Keys.Where(key => !required.Contains(key))) saved.Tiles.TryRemove(key, out _);
-            var retainedTiles = saved.Tiles.Values.ToHashSet();
-            foreach (var tile in objects.Keys.Where(tile => !retainedTiles.Contains(tile)).ToArray()) objects.Remove(tile);
+            foreach (var key in saved.Tiles.Keys.Where(key => !coordinates.Contains(key.Coordinate) ||
+                saved.Keys.TryGetValue(key.Coordinate, out var current) && current != key)) saved.Tiles.TryRemove(key, out _);
             Publish();
             return true;
         }
@@ -207,9 +210,12 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     }
     private TileKey Key(int x, int z, int spacing)
     {
-        var size = spacing == TerrainTile.FarSpacingCells ? TerrainTile.ParentCells : TerrainTile.ParentCells / 4;
+        if (saved.Keys.TryGetValue((x, z, spacing), out var found)) return found;
+        var key = new TileKey(x, z, spacing, "");
+        if (tileInputs is null) return key;
         var margin = TerrainTile.ColumnMarginCells;
-        return new(x, z, spacing, tileInputs!(new(new(x - margin, z - margin), new(x + size + margin, z + size + margin))));
+        return saved.Keys[(x, z, spacing)] = key with
+        { Inputs = tileInputs!(new(new(x - margin, z - margin), new(x + key.Size + margin, z + key.Size + margin))) };
     }
 
     internal bool IntersectsDemand(SceneBounds bounds)
@@ -217,9 +223,8 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         lock (gate)
             foreach (var key in wanted)
             {
-                var size = key.Spacing == TerrainTile.FarSpacingCells ? TerrainTile.ParentCells : TerrainTile.ParentCells / 4;
-                if (key.X < bounds.Maximum.X && key.X + size > bounds.Minimum.X &&
-                    key.Z < bounds.Maximum.Z && key.Z + size > bounds.Minimum.Z) return true;
+                if (key.X < bounds.Maximum.X && key.X + key.Size > bounds.Minimum.X &&
+                    key.Z < bounds.Maximum.Z && key.Z + key.Size > bounds.Minimum.Z) return true;
             }
         return false;
     }
@@ -227,14 +232,15 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     internal void ReuseTiles(FarTerrain previous)
     {
         KeyValuePair<TileKey, TerrainTile>[] tiles;
-        lock (previous.gate) tiles = previous.saved.Tiles.ToArray();
+        FarTerrainView previousView;
+        lock (previous.gate) { tiles = previous.saved.Tiles.ToArray(); previousView = previous.view; }
         lock (gate)
         {
-            var required = wanted.ToHashSet();
+            var required = wanted.Select(key => key.Coordinate).ToHashSet();
             foreach (var tile in tiles)
-                if (required.Contains(tile.Key) && saved.Tiles.TryAdd(tile.Key, tile.Value) &&
+                if (required.Contains(tile.Key.Coordinate) && saved.Tiles.TryAdd(tile.Key, tile.Value) &&
                     jobs.Remove(tile.Key, out var job) && !job.Processing) job.Parts?.Dispose();
-            Publish();
+            Publish(previousView);
         }
     }
 
@@ -243,7 +249,10 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(budget);
         token.ThrowIfCancellationRequested();
         Func<Source>? prepare;
-        lock (gate) prepare = initialize;
+        Source? input;
+        Saved target;
+        TileKey? missing;
+        lock (gate) { prepare = initialize; input = source; target = saved; missing = NextMissing(fineBuildAllowed); }
         if (prepare is not null)
         {
             var ready = prepare();
@@ -251,10 +260,28 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                 if (ReferenceEquals(initialize, prepare)) { source = ready; initialize = null; }
             return false;
         }
+        if (input is not null && missing is { Inputs.Length: 0 } unresolved)
+        {
+            // Content/model projections belong to far work; Demand and frame reads must not wait for them.
+            var margin = TerrainTile.ColumnMarginCells;
+            var key = unresolved with { Inputs = input.Inputs(new(new(unresolved.X - margin, unresolved.Z - margin),
+                new(unresolved.X + unresolved.Size + margin, unresolved.Z + unresolved.Size + margin))) };
+            token.ThrowIfCancellationRequested();
+            lock (gate)
+                if (ReferenceEquals(saved, target) && ReferenceEquals(source, input) && wanted.IndexOf(unresolved) is var index && index >= 0)
+                {
+                    saved.Keys[key.Coordinate] = key;
+                    wanted[index] = key;
+                    foreach (var old in saved.Tiles.Keys.Where(old => old.Coordinate == key.Coordinate && old != key))
+                        saved.Tiles.TryRemove(old, out _);
+                    Publish();
+                }
+            return false;
+        }
         return AdvanceTile(budget, token);
     }
 
-    private bool AdvanceTile(int budget, CancellationToken token)
+    internal bool AdvanceTile(int budget, CancellationToken token)
     {
         Job job;
         TileKey key;
@@ -265,6 +292,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
             // Binding may have changed since Advance checked initialization outside this lock.
             if (initialize is not null || source is null) return false;
             if (NextMissing(fineBuildAllowed) is not { } next) return true;
+            if (next.Inputs.Length == 0) return false;
             key = next;
             if (!jobs.TryGetValue(key, out job!)) jobs[key] = job = new();
             job.Processing = true;
@@ -296,7 +324,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     // The scene owns one worker. Main-thread demand and frame reads never wait for a work unit.
     private static void AdvanceJob(Job job, TileKey key, Source input, Saved target, int budget, CancellationToken token)
     {
-        var size = key.Spacing == TerrainTile.FarSpacingCells ? TerrainTile.ParentCells : TerrainTile.ParentCells / 4;
+        var size = key.Size;
         while (budget > 0)
         {
             token.ThrowIfCancellationRequested();
@@ -329,8 +357,11 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         }
     }
 
-    private void Publish()
+    private void Publish(FarTerrainView? inherited = null)
     {
+        var previous = view.Tiles.Concat(inherited?.Tiles ?? []).ToLookup(tile => (
+            X: (int)Math.Floor(tile.Origin.X / TerrainTile.ParentCells) * TerrainTile.ParentCells,
+            Z: (int)Math.Floor(tile.Origin.Z / TerrainTile.ParentCells) * TerrainTile.ParentCells));
         var selected = ImmutableArray.CreateBuilder<TerrainTile>();
         foreach (var parent in visibleParents)
         {
@@ -340,10 +371,20 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                     if (saved.Tiles.TryGetValue(Key(parent.X + x * (TerrainTile.ParentCells / 4), parent.Z + z * (TerrainTile.ParentCells / 4), TerrainTile.NearSpacingCells), out var tile)) fine.Add(tile);
             if (fine.Count == 16) selected.AddRange(fine);
             else if (saved.Tiles.TryGetValue(Key(parent.X, parent.Z, TerrainTile.FarSpacingCells), out var coarse)) selected.Add(coarse);
-            else selected.AddRange(fine);
+            else
+            {
+                var older = previous[parent].Distinct().ToArray();
+                if (older.FirstOrDefault(tile => tile.SpacingCells == TerrainTile.FarSpacingCells) is { } oldCoarse)
+                    selected.Add(oldCoarse);
+                else if (older.Length > 0) selected.AddRange(older.DistinctBy(tile => tile.Origin));
+                else selected.AddRange(fine);
+            }
         }
         var tiles = selected.ToImmutable();
         if (!view.Tiles.SequenceEqual(tiles)) view = new(tiles);
+        saved.View = view;
+        var retained = tiles.ToHashSet();
+        foreach (var tile in objects.Keys.Where(tile => !retained.Contains(tile)).ToArray()) objects.Remove(tile);
     }
 
     internal ImmutableArray<SceneObject> Objects(ScenePoint origin, Func<string, SceneObjectId> objectId,

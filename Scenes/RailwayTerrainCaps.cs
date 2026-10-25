@@ -1,4 +1,8 @@
 using System.Numerics;
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -13,6 +17,7 @@ internal sealed class RailwayTerrainCaps
     private readonly Dictionary<TerrainTypeId, TerrainAppearanceProjection?> terrains = [];
     private readonly Dictionary<DesignHash, FlattenRegion?> decorations = [];
     private readonly Dictionary<int, TerrainHeightCap.Builder> parts = [];
+    private readonly ConcurrentDictionary<int, Lazy<ImmutableArray<RailwayTerrain.FlattenPlacement>>> heightFlattens = [];
     private readonly bool hasDecorationFlatten;
     private readonly bool hasRailwayFlatten;
     private readonly Func<string, TerrainHeightCap?>? completed;
@@ -47,6 +52,61 @@ internal sealed class RailwayTerrainCaps
     internal double Height(ScenePoint point) => surface.FarHeight(point);
     internal TerrainAppearanceProjection? Terrain => terrains[path.Edge.Terrain.TypeId];
 
+    internal Func<ScenePanBounds, string> CreateInputs(SceneMaterial material, int textureSpan)
+    {
+        var ground = RailwayDependencies.Values(new object?[] { path.Seed, path.Edge.Id,
+            path.Edge.Terrain.Relief, Terrain?.LocalHeightNoise, material, textureSpan });
+        var geometry = RailwayDependencies.Values(new object?[] { path.Edge.LengthMeters, path.Edge.TrackLimit,
+            path.Edge.Tracks, path.Start.Position, path.End.Position, path.Edge.Terrain.Relief,
+            path.Rules.MinimumCurveRadiusMeters, path.Rules.MaximumGrade,
+            path.Edge.Terrain.FeatureIds.Contains("river"), path.Edge.Terrain.FeatureIds.Contains("lake") });
+        var segments = new ConcurrentDictionary<int, Lazy<string>>();
+        var blend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
+        return bounds =>
+        {
+            var inputs = new List<object?> { ground };
+            for (var index = 0; index < surface.InfluenceBands.Length; index++)
+            {
+                if (!Intersects(surface.InfluenceBands[index], bounds)) continue;
+                var segment = segments.GetOrAdd(index, part => new Lazy<string>(() =>
+                {
+                    var begin = part * RailwayCoordinates.SegmentLengthCells;
+                    var end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
+                    var values = new List<object?> { part, geometry, DecorationInputs(Terrain) };
+                    if (begin < blend) values.Add(EndpointInputs(path.Start, path.StartLayout));
+                    if (end > path.LengthCells - blend) values.Add(EndpointInputs(path.End, path.EndLayout));
+                    values.Add(HeightFlattens(part)
+                        .Select(item => new object[] { item.Region, item.Pose, item.Origin }).ToArray());
+                    return RailwayDependencies.Values(values);
+                })).Value;
+                inputs.Add(segment);
+            }
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(RailwayDependencies.Values(inputs))));
+        };
+    }
+
+    private object? DecorationInputs(TerrainAppearanceProjection? terrain)
+    {
+        if (terrain is null || !terrain.Decorations.Any(item => decorations[item.SceneModel] is not null)) return null;
+        return new object?[] { terrain.DecorationTargetPerSquareMeter,
+            terrain.Decorations.Select(item => new object?[] { item.Weight, decorations[item.SceneModel] }).ToArray() };
+    }
+
+    private object[] EndpointInputs(NodeMapItem node, NodeLayout layout) =>
+        [node.Id, node.Position, node.Terrain.Relief, terrains[node.Terrain.TypeId]?.LocalHeightNoise,
+            layout.EntryPoint(path.Edge.Id),
+            layout.Template is { } template ? NodeSettlement.Flatten(template.SceneModel.Scene)
+                .Select(item => new object[] { item.Region, item.Pose }).ToArray() : Array.Empty<object[]>(),
+            DecorationInputs(terrains[node.Terrain.TypeId])!];
+
+    private static bool Intersects(ScenePanBounds left, ScenePanBounds right) =>
+        left.Minimum.X <= right.Maximum.X && left.Maximum.X >= right.Minimum.X &&
+        left.Minimum.Y <= right.Maximum.Y && left.Maximum.Y >= right.Minimum.Y;
+
+    private ImmutableArray<RailwayTerrain.FlattenPlacement> HeightFlattens(int index) =>
+        hasRailwayFlatten ? heightFlattens.GetOrAdd(index, part => new Lazy<ImmutableArray<RailwayTerrain.FlattenPlacement>>(
+            () => RailwayTerrain.HeightFlattens(snapshot, path, part))).Value : [];
+
     internal IEnumerable<(string Key, TerrainHeightCap.Builder Work)> Parts(ScenePanBounds bounds)
     {
         for (var index = 0; index < path.SegmentCount; index++)
@@ -79,8 +139,7 @@ internal sealed class RailwayTerrainCaps
         var begin = index * RailwayCoordinates.SegmentLengthCells;
         var end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
         var bounds = Bounds(index);
-        var fixedFlattens = hasRailwayFlatten
-            ? RailwayTerrain.HeightFlattens(snapshot, path, index).Select(FlattenBounds).ToArray() : [];
+        var fixedFlattens = HeightFlattens(index).Select(FlattenBounds).ToArray();
         var modelMinimum = fixedFlattens.Select(item => item.Top).DefaultIfEmpty(double.PositiveInfinity).Min();
         var width = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
         var maskX = (int)Math.Floor(bounds.Minimum.X / (double)TerrainTile.NearSpacingCells) * TerrainTile.NearSpacingCells;

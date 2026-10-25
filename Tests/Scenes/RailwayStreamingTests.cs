@@ -27,7 +27,7 @@ public sealed class RailwayStreamingTests
     }
 
     [TestMethod]
-    public async Task Outside_window_fog_follows_the_curve_and_excludes_built_columns()
+    public async Task Outside_window_fog_uses_segment_bounds_and_excludes_built_columns()
     {
         var snapshot = RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 100, relief: 0);
         await using var vehicles = new SceneVehicles();
@@ -41,17 +41,66 @@ public sealed class RailwayStreamingTests
         var path = scene.Path!;
         var fog = frame.Update.Environment.FoggedRegions;
         Assert.IsFalse(fog.IsEmpty, "Unbuilt segments outside the loaded window must still be fogged.");
-        var band = ConstructionFog.Band(arc => path.Sample(arc), 0, path.LengthCells,
-            RailwayCoordinates.FogHalfWidth(path.Edge.Tracks), -128, 128);
+        var bounds = Enumerable.Range(0, path.SegmentCount).Select(index => path.Bounds(
+            index * RailwayCoordinates.SegmentLengthCells,
+            Math.Min(path.LengthCells, (index + 1) * RailwayCoordinates.SegmentLengthCells), default,
+            RailwayCoordinates.FogHalfWidth(path.Edge.Tracks)));
         var worldFog = fog.Select(box => new SceneBounds(
             box.Minimum + RailwayCoordinates.Relative(frame.Origin, default),
             box.Maximum + RailwayCoordinates.Relative(frame.Origin, default)));
-        Assert.IsTrue(ConstructionFog.Clip(worldFog, band).IsEmpty,
-            "A curved line's construction fog must not fill the empty ground inside a long segment AABB.");
+        Assert.IsTrue(ConstructionFog.Clip(worldFog, bounds).IsEmpty,
+            "Outside-window fog must stay inside the individual segment bounds.");
         var loaded = path.Sample(64).Position;
         Assert.IsFalse(fog.Any(box => loaded.X - frame.Origin.X > box.Minimum.X && loaded.X - frame.Origin.X < box.Maximum.X &&
             loaded.Z - frame.Origin.Z > box.Minimum.Z && loaded.Z - frame.Origin.Z < box.Maximum.Z),
             "Fog for distant curved segments must not cover the attached window.");
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task Long_diagonal_unbuilt_segments_have_bounded_fog_before_far_display(bool demand, bool rebind)
+    {
+        var snapshot = RailwayFixtures.Snapshot(lengthMeters: 4000, directMeters: 4000, relief: 0);
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[1] with { Position = new(2400, 3200) });
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, Scope(new()), build: (input, railway, index, token) =>
+        {
+            release.Wait(token);
+            return RailwayFixtures.EmptySegment(input, railway, index, token);
+        });
+        if (demand) scene.SetTerrainViewRadius(16384);
+        scene.SetFarBuildAllowed(false);
+        var target = new WorldSceneTarget.Location(RailwayFixtures.Location);
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var stamp = new SceneFrameStamp(new(Guid.Empty), new(1), new(1), 1);
+        try
+        {
+            var frame = scene.Present(snapshot, null, target, request, stamp, null);
+            if (rebind)
+            {
+                snapshot = RailwayFixtures.ReplaceCore(snapshot, edge: snapshot.Core.World.Edges[0] with
+                    { Breaks = [new TrackBreakView(new(1), 1, 64)] });
+                frame = scene.Present(snapshot, null, target, request, stamp with { Revision = 2 }, frame);
+            }
+            var path = scene.Path!;
+            Assert.IsTrue(frame.Update.Environment.FoggedRegions.Length <= path.SegmentCount * 3,
+                $"Pending far terrain must not rasterize diagonal fog into thousands of boxes: {frame.Update.Environment.FoggedRegions.Length} boxes for {path.SegmentCount} segments.");
+            for (var index = RailwayCoordinates.ViewRadiusSegments + 1; index < path.SegmentCount; index++)
+            {
+                var point = path.Sample(Math.Min(path.LengthCells - 1,
+                    (index + 0.5) * RailwayCoordinates.SegmentLengthCells)).Position;
+                var local = RailwayCoordinates.Relative(point, frame.Origin);
+                Assert.IsTrue(frame.Update.Environment.FoggedRegions.Any(box => local.X >= box.Minimum.X && local.X < box.Maximum.X &&
+                    local.Z >= box.Minimum.Z && local.Z < box.Maximum.Z), $"Unbuilt outside-window segment {index} must remain fogged.");
+                Assert.IsInstanceOfType<Lookup<double>.Missing>(frame.DisplayTerrainHeight(local.X, local.Z),
+                    "The test must inspect fog before any far terrain has been displayed.");
+            }
+        }
+        finally { release.Set(); }
     }
 
     [TestMethod]

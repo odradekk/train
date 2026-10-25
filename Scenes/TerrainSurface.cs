@@ -77,19 +77,24 @@ internal static class TerrainSurface
         private readonly double endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
         private readonly ScenePoint startPoint = path.Sample(0).Position;
         private readonly ScenePoint endPoint = path.Sample(path.LengthCells).Position;
-        private readonly ScenePoint startEntry = path.StartLayout.EntryPoint(path.Edge.Id);
-        private readonly ScenePoint endEntry = path.EndLayout.EntryPoint(path.Edge.Id);
-        private SceneBounds? influence;
+        private readonly Lazy<ScenePoint> startEntry = new(() => path.StartLayout.EntryPoint(path.Edge.Id));
+        private readonly Lazy<ScenePoint> endEntry = new(() => path.EndLayout.EntryPoint(path.Edge.Id));
+        private readonly Lazy<ScenePanBounds[]> influenceBands = new(() => Enumerable.Range(0, path.SegmentCount).Select(index =>
+        {
+            var begin = index * RailwayCoordinates.SegmentLengthCells;
+            var bounds = path.Bounds(begin, Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells), default,
+                RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks) + FadeCells + RailwayCoordinates.CellFootprintMargin);
+            return new ScenePanBounds(new(bounds.Minimum.X, bounds.Minimum.Z), new(bounds.Maximum.X, bounds.Maximum.Z));
+        }).ToArray());
+        internal ScenePanBounds[] InfluenceBands => influenceBands.Value;
         internal (double Center, double First, double Last, double Level)[] WaterRegions { get; } = PrepareWater(path);
 
         internal double FarHeight(ScenePoint point)
         {
             var appearance = terrain(path.Edge.Terrain.TypeId);
             var ground = Ground(path.Seed, path.Edge.Id.Value, path.Edge.Terrain, appearance, point);
-            var bounds = influence ??= path.Bounds(0, path.LengthCells, default,
-                RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks) + FadeCells + RailwayCoordinates.CellFootprintMargin);
-            if (point.X < bounds.Minimum.X || point.X > bounds.Maximum.X ||
-                point.Z < bounds.Minimum.Z || point.Z > bounds.Maximum.Z) return ground;
+            if (!InfluenceBands.Any(bounds => point.X >= bounds.Minimum.X && point.X <= bounds.Maximum.X &&
+                point.Z >= bounds.Minimum.Y && point.Z <= bounds.Maximum.Y)) return ground;
             var arc = path.Locate(point);
             var nearest = path.Sample(arc);
             var dx = point.X - nearest.Position.X;
@@ -203,7 +208,7 @@ internal static class TerrainSurface
         private double NodeHeight(NodeMapItem node, ScenePoint endpoint, ScenePoint point)
         {
             var mapOrigin = RailwayCoordinates.NodePoint(node);
-            var entry = node.Id == path.Start.Id ? startEntry : endEntry;
+            var entry = (node.Id == path.Start.Id ? startEntry : endEntry).Value;
             var local = new ScenePoint(entry.X + point.X - endpoint.X, entry.Y + point.Y - endpoint.Y, entry.Z + point.Z - endpoint.Z);
             var raw = Ground(path.Seed, node.Id.Value, node.Terrain, terrain(node.Terrain.TypeId),
                 new(mapOrigin.X + local.X, mapOrigin.Y + local.Y, mapOrigin.Z + local.Z));
