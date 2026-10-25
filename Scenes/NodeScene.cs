@@ -358,7 +358,7 @@ internal sealed class NodeScene : IAsyncDisposable
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
         Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
         PresentationState? presentation = null, SceneStreamingScope? streaming = null,
-        FarTerrain.Cache? farCache = null)
+        FarTerrain.Cache? farCache = null, FarTerrainPermission? farPermission = null)
     {
         Streaming = streaming;
         Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId; this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
@@ -369,7 +369,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             lock (workGate)
                 if (!cancellation.IsCancellationRequested) StartParts();
-        });
+        }, farPermission);
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
         this.buildRail = buildRail ?? ((data, segment, old, token) => segment.Build(old, token));
         snapshot = initial;

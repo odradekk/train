@@ -48,6 +48,11 @@ public sealed class FarTerrainSessionTests
         Present(session, current);
         Assert.IsInstanceOfType<WorldLocation.Node>(session.PrebuiltLocation);
         await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+        while (!Field<FarTerrainPermission>(session, "farPermission").Allowed)
+        {
+            current = Present(session, current);
+            await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+        }
         var candidate = Field<object>(session, "candidate");
         var node = (NodeScene)candidate.GetType().GetProperty("Node")!.GetValue(candidate)!;
         var terrain = Field<FarTerrain>(node, "farTerrain");

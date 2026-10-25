@@ -75,14 +75,14 @@ internal sealed class RailwayScene : IAsyncDisposable
         Func<string, SceneObjectId?> findId,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
         PresentationState? presentation = null, SceneStreamingScope? streaming = null,
-        FarTerrain.Cache? farCache = null)
+        FarTerrain.Cache? farCache = null, FarTerrainPermission? farPermission = null)
     {
         Streaming = streaming;
         this.cache = cache;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
         farTerrain = new(farCache ?? new());
-        farBuilds = new(farTerrain.Advance);
+        farBuilds = new(farTerrain.Advance, permission: farPermission);
         Edge = edge;
         owner = cache.OpenSession(edge);
         this.objectId = objectId;

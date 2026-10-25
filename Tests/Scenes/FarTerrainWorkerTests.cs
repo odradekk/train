@@ -6,6 +6,85 @@ namespace Train.Scenes.Tests;
 public sealed class FarTerrainWorkerTests
 {
     [TestMethod]
+    public async Task A_single_running_L0_build_prevents_far_work()
+    {
+        var calls = 0;
+        await using var worker = new FarTerrainWorker((_, _) => { Interlocked.Increment(ref calls); return true; });
+        worker.Pump(1, true);
+        await worker.PendingWork.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.AreEqual(0, calls, "A free build slot must not allow far work alongside L0.");
+        worker.Pump(0, true);
+        await worker.PendingWork.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.AreEqual(1, calls);
+    }
+
+    [TestMethod]
+    public async Task Session_permission_stops_each_worker_after_its_current_unit_and_resumes_without_another_pump()
+    {
+        var permission = new FarTerrainPermission();
+        var firstEntered = Signal();
+        var secondEntered = Signal();
+        var release = Signal();
+        var firstCalls = 0;
+        var secondCalls = 0;
+        await using var first = new FarTerrainWorker((budget, _) =>
+        {
+            Assert.AreEqual(128, budget);
+            if (Interlocked.Increment(ref firstCalls) == 1)
+            { firstEntered.SetResult(); release.Task.GetAwaiter().GetResult(); }
+            return firstCalls == 3;
+        }, permission: permission);
+        await using var second = new FarTerrainWorker((_, _) =>
+        {
+            if (Interlocked.Increment(ref secondCalls) == 1)
+            { secondEntered.SetResult(); release.Task.GetAwaiter().GetResult(); }
+            return secondCalls == 3;
+        }, permission: permission);
+        try
+        {
+            first.Pump(0, true);
+            second.Pump(0, true);
+            Assert.AreEqual(0, first.RunningCount);
+            Assert.AreEqual(0, second.RunningCount);
+            permission.SetAllowed(true);
+            await Task.WhenAll(firstEntered.Task, secondEntered.Task).WaitAsync(TimeSpan.FromSeconds(10));
+            permission.SetAllowed(false);
+            var stopped = Task.WhenAll(first.PendingWork, second.PendingWork);
+            release.SetResult();
+            await stopped.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual(1, firstCalls);
+            Assert.AreEqual(1, secondCalls);
+            Assert.AreEqual(0, first.RunningCount);
+            Assert.AreEqual(0, second.RunningCount);
+            permission.SetAllowed(true);
+            await Task.WhenAll(first.PendingWork, second.PendingWork).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual(3, firstCalls);
+            Assert.AreEqual(3, secondCalls);
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [TestMethod]
+    public async Task Session_permission_does_not_revive_disposed_or_locally_paused_workers()
+    {
+        var permission = new FarTerrainPermission();
+        var calls = 0;
+        var old = new FarTerrainWorker((_, _) => { Interlocked.Increment(ref calls); return true; }, permission: permission);
+        old.Pump(0, true);
+        await old.DisposeAsync();
+        await using var current = new FarTerrainWorker((_, _) => { Interlocked.Increment(ref calls); return true; }, permission: permission);
+        current.Pump(0, true);
+        current.Pause();
+        permission.SetAllowed(true);
+        Assert.AreEqual(0, old.RunningCount);
+        Assert.AreEqual(0, current.RunningCount);
+        Assert.AreEqual(0, calls);
+        current.Pump(0, true);
+        await current.PendingWork.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.AreEqual(1, calls);
+    }
+
+    [TestMethod]
     public async Task RequiredL0SlotsAndScenePermissionPreventStartingFarWork()
     {
         var calls = 0;
@@ -16,7 +95,7 @@ public sealed class FarTerrainWorkerTests
         worker.Pump(0, true);
         Assert.AreEqual(0, worker.RunningCount);
         worker.SetEnabled(true);
-        worker.Pump(RailwayCoordinates.MaxConcurrentBuilds - 1, true);
+        worker.Pump(0, true);
         await worker.PendingWork.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.AreEqual(1, calls);
     }

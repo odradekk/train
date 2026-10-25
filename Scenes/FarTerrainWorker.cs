@@ -1,7 +1,10 @@
 namespace Train.Scenes;
 
-internal sealed class FarTerrainWorker(Func<int, CancellationToken, bool> advance, Action? slotAvailable = null) : IAsyncDisposable
+internal sealed class FarTerrainWorker : IAsyncDisposable
 {
+    private readonly Func<int, CancellationToken, bool> advance;
+    private readonly Action? slotAvailable;
+    private readonly FarTerrainPermission? permission;
     private readonly object gate = new();
     private readonly CancellationTokenSource cancellation = new();
     private Task pending = Task.CompletedTask;
@@ -13,6 +16,15 @@ internal sealed class FarTerrainWorker(Func<int, CancellationToken, bool> advanc
     internal Task PendingWork { get { lock (gate) return pending; } }
     internal int RunningCount { get { lock (gate) return running ? 1 : 0; } }
 
+    internal FarTerrainWorker(Func<int, CancellationToken, bool> advance, Action? slotAvailable = null,
+        FarTerrainPermission? permission = null)
+    {
+        this.advance = advance;
+        this.slotAvailable = slotAvailable;
+        this.permission = permission;
+        permission?.Register(this);
+    }
+
     internal void SetEnabled(bool value)
     {
         lock (gate) { enabled = value; if (!value) allowed = false; }
@@ -23,13 +35,14 @@ internal sealed class FarTerrainWorker(Func<int, CancellationToken, bool> advanc
         lock (gate)
         {
             ObjectDisposedException.ThrowIf(disposal is not null, this);
-            allowed = enabled && activeL0Builds < RailwayCoordinates.MaxConcurrentBuilds && hasRunnableWork;
+            allowed = enabled && activeL0Builds == 0 && hasRunnableWork;
             Start();
         }
     }
+    internal void Resume() { lock (gate) Start(); }
     private void Start()
     {
-        if (!allowed || running || notifying || failure is not null || disposal is not null) return;
+        if (!allowed || permission?.Allowed == false || running || notifying || failure is not null || disposal is not null) return;
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         pending = completion.Task;
         running = true;
@@ -37,19 +50,20 @@ internal sealed class FarTerrainWorker(Func<int, CancellationToken, bool> advanc
     }
     private void Run(TaskCompletionSource completion)
     {
+        var complete = false;
         try
         {
             while (true)
             {
-                lock (gate) if (!allowed || disposal is not null) break;
-                if (advance(128, cancellation.Token)) break;
+                lock (gate) if (!allowed || permission?.Allowed == false || disposal is not null) break;
+                if (advance(128, cancellation.Token)) { complete = true; break; }
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error) { lock (gate) failure = error; }
         finally
         {
-            lock (gate) { allowed = false; running = false; notifying = true; }
+            lock (gate) { if (complete) allowed = false; running = false; notifying = true; }
             try { slotAvailable?.Invoke(); }
             catch (Exception error) { lock (gate) failure ??= error; }
             finally
@@ -69,6 +83,7 @@ internal sealed class FarTerrainWorker(Func<int, CancellationToken, bool> advanc
         {
             if (disposal is not null) return new(disposal);
             allowed = false;
+            permission?.Remove(this);
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             disposal = completion.Task;
             cancellation.Cancel();

@@ -10,6 +10,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private readonly RailwayCache railwayCache;
     private readonly NodeScene.Cache nodeCache;
     private readonly FarTerrain.Cache farCache = new();
+    private readonly FarTerrainPermission farPermission = new();
     private double terrainViewRadiusCells;
     private readonly SceneVehicles vehicles;
     private readonly DisplayRate displayRate;
@@ -99,6 +100,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         ArgumentNullException.ThrowIfNull(value);
         if (fault is not null) return new SceneResult<SceneRequestId>.Faulted(fault);
         if (!Exists(value)) return Failure<SceneRequestId>("target_missing", SceneStage.Input);
+        farPermission.SetAllowed(false);
         CancelCandidate(); rejectedCandidate = null; candidateFailure = null; sceneOrigin = null;
         if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
@@ -113,7 +115,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             case WorldLocation.Edge edge:
                 railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate,
                     findId: key => Find(ids, key), presentation: presentation, streaming: OpenStreaming(edge, SceneStreamingRole.Active),
-                    farCache: farCache);
+                    farCache: farCache, farPermission: farPermission);
                 break;
             case WorldLocation.Node location:
                 node = OpenNode(location.Id, ObjectId, key => Find(ids, key));
@@ -222,6 +224,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (target is null || !Exists(target)) return Failure<ISceneFrame>("target_missing", SceneStage.Present);
         try
         {
+            // A presentation can add L0 in any scene. Publish permission only after all scheduling is finished.
+            farPermission.SetAllowed(false);
             vehicles.Retain(snapshot.Core.World.Trains.Select(item => snapshot.Core.FindTrain(item.Id))
                 .OfType<Lookup<TrainView>.Found>().SelectMany(item => item.Value.Vehicles).Select(id => (InstanceId)new InstanceId.Vehicle(id)));
             if (target is WorldSceneTarget.Follow or WorldSceneTarget.Combat)
@@ -251,6 +255,10 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             RetainObjectIds(frame);
             Prebuild(displayedFrame as SceneFrame);
             PruneCaches();
+            // Only the presentation thread reads mutable scene queues; workers read the shared permission between units.
+            farPermission.SetAllowed(node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true &&
+                candidate?.Node?.HasPendingBuilds != true && candidate?.Railway?.HasPendingBuilds != true &&
+                successor?.HasPendingBuilds != true && !closingScenes.Any(task => !task.IsCompleted));
             return new SceneResult<ISceneFrame>.Success(frame);
         }
         catch (Exception error)
@@ -415,7 +423,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             var map = ids;
             if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key),
                 vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
-                streaming: OpenStreaming(edge, SceneStreamingRole.Active), farCache: farCache);
+                streaming: OpenStreaming(edge, SceneStreamingRole.Active), farCache: farCache, farPermission: farPermission);
             else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key));
             else throw new ArgumentException("Invalid follow location.");
         }
@@ -448,7 +456,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
         return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, findId, nodeBuild, caches.Buildings, caches.Parked,
-            background: background, presentation: presentation, streaming: OpenStreaming(new WorldLocation.Node(id), role), farCache: farCache);
+            background: background, presentation: presentation, streaming: OpenStreaming(new WorldLocation.Node(id), role),
+            farCache: farCache, farPermission: farPermission);
     }
 
     private static SceneObjectId? Find(ObjectIds map, string key) =>
@@ -483,7 +492,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                     role: SceneStreamingRole.Candidate))
                 : new(wanted, map, new(++nextSpace), Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key),
                     vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
-                    streaming: OpenStreaming(wanted, SceneStreamingRole.Candidate), farCache: farCache));
+                    streaming: OpenStreaming(wanted, SceneStreamingRole.Candidate), farCache: farCache, farPermission: farPermission));
         }
         try
         {
@@ -613,6 +622,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         if (closing is not null) return new(closing);
         disposed = true;
+        farPermission.SetAllowed(false);
         CancelCandidate();
         if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
