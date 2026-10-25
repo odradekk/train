@@ -22,9 +22,12 @@ internal static class UiStyle
         _ => Error
     };
 
+    private static readonly Dictionary<TrainActivity, Texture2D> Symbols = [];
+
     internal static Texture2D TrainSymbol(TrainActivity activity)
     {
         if (activity == TrainActivity.Stopped) activity = TrainActivity.Waiting;
+        if (Symbols.TryGetValue(activity, out var symbol)) return symbol;
         var path = activity switch
         {
             TrainActivity.Running => "res://Ui/Symbols/train-running.png",
@@ -35,7 +38,8 @@ internal static class UiStyle
             TrainActivity.Retreating => "res://Ui/Symbols/train-retreating.png",
             _ => "res://Ui/Symbols/warning.png"
         };
-        return GD.Load<Texture2D>(path);
+        Symbols[activity] = symbol = GD.Load<Texture2D>(path);
+        return symbol;
     }
 
     internal static Color RelationColor(SettlementRelation relation) => relation switch

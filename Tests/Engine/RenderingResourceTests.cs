@@ -167,7 +167,10 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var mesh = instance.Mesh;
         var material = Material(followed);
         var originalShader = material.Shader;
-        var damageMask = material.GetShaderParameter("damage_mask").AsGodotObject() as Texture2D;
+        Texture2D? damageMask;
+        using (var parameter = material.GetShaderParameter("damage_mask"))
+            damageMask = parameter.AsGodotObject() as Texture2D;
+        var damageMaskId = damageMask!.GetInstanceId();
         using var damageImage = damageMask?.GetImage();
         Require(damageMask is not null && damageMask.GetWidth() == 128 && damageMask.GetHeight() == 128 && damageImage?.HasMipmaps() == true,
             "场景材质必须加载带 Mipmap 的正式损伤遮罩。");
@@ -182,9 +185,10 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(ReferenceEquals(instance.Mesh, mesh), "雾豁免不应重建车辆网格。");
         AssertSurface(material, source.Surface);
         Require(material.GetShaderParameter("rail_steel").AsBool(), "切换着色器不能丢失材质参数。");
-        Require(material.GetShaderParameter("damage_mask").AsGodotObject() == damageMask &&
-            Material(other).GetShaderParameter("damage_mask").AsGodotObject() == damageMask,
-            "普通和跟随材质必须共享同一份损伤遮罩。");
+        using (var materialMask = material.GetShaderParameter("damage_mask"))
+        using (var otherMask = Material(other).GetShaderParameter("damage_mask"))
+            Require(materialMask.AsGodotObject() == damageMask && otherMask.AsGodotObject() == damageMask,
+                "普通和跟随材质必须共享同一份损伤遮罩。");
         var next = source with { Surface = new(false, 31, 0.75f, true) };
         followed.Update(next);
         AssertSurface(material, next.Surface);
@@ -194,10 +198,15 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(material.Shader == originalShader, "离开跟随目标后必须恢复普通构建雾遮挡。");
         AssertSurface(material, next.Surface);
         Require(ReferenceEquals(instance.Mesh, mesh), "移除豁免不应重建车辆网格。");
+        var shader = material.Shader;
+        var shaderId = shader.GetInstanceId();
         followed.Dispose();
         other.Dispose();
         resources.Dispose();
-        Require(!GodotObject.IsInstanceValid(damageMask), "释放场景资源必须释放损伤遮罩。");
+        Require(!GodotObject.IsInstanceValid(damageMask) && !GodotObject.IsInstanceIdValid(damageMaskId),
+            "释放场景资源必须在主线程销毁损伤遮罩。");
+        Require(!GodotObject.IsInstanceValid(shader) && !GodotObject.IsInstanceIdValid(shaderId),
+            "释放场景资源必须在主线程销毁共享着色器。");
     }
 
     [Test]
@@ -280,6 +289,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         using var second = resources.Prepare(source with { RelativeHeightPlane = new(0, 1, 0, -1) });
         var instance = Instance(first);
         var mesh = instance.Mesh;
+        var meshId = mesh.GetInstanceId();
         Require(mesh.GetInstanceId() == Instance(second).Mesh.GetInstanceId(), "显示实例绕过了模型缓存。");
         for (var index = 0; index < 3; index++)
         {
@@ -293,11 +303,18 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             Require(material.GetShaderParameter("alpha_cutout").AsBool() == (index == 1), "模型 alpha mask 与表面次序不对应。");
         }
         var mask = (ShaderMaterial)instance.GetSurfaceOverrideMaterial(1);
+        var maskId = mask.GetInstanceId();
         Near(mask.GetShaderParameter("alpha_cutoff").AsSingle(), 0.5f);
         Require(mask.GetShaderParameter("base_color").AsColor().IsEqualApprox(new Color(0.25f, 0.5f, 0.75f, 0.8f)), "模型基础色系数丢失。");
-        var texture = mask.GetShaderParameter("base_texture").As<Texture2D>();
+        Texture2D texture;
+        using (var parameter = mask.GetShaderParameter("base_texture"))
+            texture = parameter.As<Texture2D>();
+        var textureId = texture.GetInstanceId();
         using (var mipmapped = texture.GetImage()) Require(mipmapped.HasMipmaps(), "模型内嵌纹理没有 mipmap。");
-        Require(texture.GetInstanceId() == ((ShaderMaterial)instance.GetSurfaceOverrideMaterial(2)).GetShaderParameter("base_texture").As<Texture2D>().GetInstanceId(), "同模型内嵌图片没有共享。");
+        using (var secondTexture = ((ShaderMaterial)instance.GetSurfaceOverrideMaterial(2)).GetShaderParameter("base_texture"))
+            Require(textureId == secondTexture.As<Texture2D>().GetInstanceId(), "同模型内嵌图片没有共享。");
+        var modelShader = mask.Shader;
+        var modelShaderId = modelShader.GetInstanceId();
         Require(!first.CanUpdate(source with { Paint = null }) &&
             !first.CanUpdate(source with { Surface = new(false, ulong.MaxValue, 0.5f, false) }),
             "涂装或表面状态变化必须重新准备共享材质。");
@@ -326,8 +343,15 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture) && GodotObject.IsInstanceValid(mask),
             "释放一个模型实例销毁了另一实例的资源。");
         second.Dispose();
-        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceValid(mask),
-            "最后模型显示实例没有释放共享材质、模型网格和内嵌纹理。");
+        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceIdValid(meshId),
+            "最后模型显示实例必须在主线程释放模型网格。");
+        Require(!GodotObject.IsInstanceValid(mask) && !GodotObject.IsInstanceIdValid(maskId),
+            "最后模型显示实例必须在主线程释放共享材质。");
+        Require(!GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceIdValid(textureId),
+            "最后模型显示实例必须在主线程释放内嵌纹理。");
+        resources.Dispose();
+        Require(!GodotObject.IsInstanceValid(modelShader) && !GodotObject.IsInstanceIdValid(modelShaderId),
+            "释放场景资源必须在主线程销毁共享着色器。");
     }
 
     [Test]
@@ -392,18 +416,26 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         using var first = resources.Prepare(source);
         using var second = resources.Prepare(source);
         var mesh = Instance(first).Mesh;
-        var texture = Material(first).GetShaderParameter("base_texture").As<ImageTexture>();
-        Require(mesh.GetInstanceId() == Instance(second).Mesh.GetInstanceId(), "同不可变几何没有共享 ArrayMesh。");
-        Require(texture.GetInstanceId() == Material(second).GetShaderParameter("base_texture").As<ImageTexture>().GetInstanceId(), "显示实例没有共享面纹理。");
+        var meshId = mesh.GetInstanceId();
+        ImageTexture texture;
+        using (var parameter = Material(first).GetShaderParameter("base_texture"))
+            texture = parameter.As<ImageTexture>();
+        var textureId = texture.GetInstanceId();
+        Require(meshId == Instance(second).Mesh.GetInstanceId(), "同不可变几何没有共享 ArrayMesh。");
+        using (var secondTexture = Material(second).GetShaderParameter("base_texture"))
+            Require(textureId == secondTexture.As<ImageTexture>().GetInstanceId(), "显示实例没有共享面纹理。");
         using (var image = texture.GetImage()) Require(image.HasMipmaps(), "显示器使用了无 mipmap 的面纹理。");
         first.Node.Position = new(100, 200, -300);
         Require(first.CanUpdate(source), "对象移动破坏了几何复用。");
         first.Update(source with { Surface = new(true, 17, 0.1f, false) });
-        Require(mesh.GetInstanceId() == Instance(first).Mesh.GetInstanceId(), "平移或状态更新重建了 ArrayMesh。");
+        Require(meshId == Instance(first).Mesh.GetInstanceId(), "平移或状态更新重建了 ArrayMesh。");
         first.Dispose();
         Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture), "共享资源在最后使用者结束前被释放。");
         second.Dispose();
-        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(texture), "最后显示租约没有释放共享资源。");
+        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceIdValid(meshId),
+            "最后显示租约没有在主线程释放共享网格。");
+        Require(!GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceIdValid(textureId),
+            "最后显示租约没有在主线程释放面纹理。");
     }
 
     [Test]

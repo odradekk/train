@@ -15,10 +15,10 @@ public partial class NotificationPanel : Control
     private VBoxContainer _toastsBox = null!;
     private VBoxContainer _logBody = null!;
     private PanelContainer _log = null!;
-    private Texture2D? _infoIcon;
-    private Texture2D? _completeIcon;
-    private Texture2D? _warningIcon;
-    private Texture2D? _severeIcon;
+    private static readonly Texture2D InfoIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-info.png");
+    private static readonly Texture2D CompleteIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-complete.png");
+    private static readonly Texture2D WarningIcon = GD.Load<Texture2D>("res://Ui/Symbols/warning.png");
+    private static readonly Texture2D SevereIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-critical.png");
     private Guid? _session;
 
     internal event Action<NotificationNotice>? Chosen;
@@ -84,10 +84,6 @@ public partial class NotificationPanel : Control
         _toastsBox = new VBoxContainer { Name = "Toasts", MouseFilter = MouseFilterEnum.Ignore };
         _toastsBox.AddThemeConstantOverride("separation", 8);
         (ToastParent ?? this).AddChild(_toastsBox);
-        _infoIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-info.png");
-        _completeIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-complete.png");
-        _warningIcon = GD.Load<Texture2D>("res://Ui/Symbols/warning.png");
-        _severeIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-critical.png");
         _log = UiStyle.Panel(this, "NoticeLog", "通知", new(24, 68), 460, () => _log.Hide(), out _logBody);
         var filters = new HFlowContainer();
         AddFilter(filters, NotificationLevel.Information, "FilterInformation", "信息");
@@ -180,10 +176,10 @@ public partial class NotificationPanel : Control
 
     private Texture2D? Icon(NotificationLevel level) => level switch
     {
-        NotificationLevel.Information => _infoIcon,
-        NotificationLevel.Completion => _completeIcon,
-        NotificationLevel.Warning => _warningIcon,
-        _ => _severeIcon
+        NotificationLevel.Information => InfoIcon,
+        NotificationLevel.Completion => CompleteIcon,
+        NotificationLevel.Warning => WarningIcon,
+        _ => SevereIcon
     };
 
     private static string? SubjectName(WorldObjectId subject, ICoreReadView view, IContentView content) => subject switch

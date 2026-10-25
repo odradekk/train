@@ -383,12 +383,17 @@ internal sealed class SceneResources : IDisposable
         {
             material.SetShaderParameter("base_color", color);
             material.SetShaderParameter("has_texture", texture is not null);
-            if (texture is not null) material.SetShaderParameter("base_texture", texture);
+            if (texture is not null)
+            {
+                using var value = Variant.From(texture);
+                material.SetShaderParameter("base_texture", value);
+            }
             material.SetShaderParameter("material_roughness", roughness);
             material.SetShaderParameter("material_metallic", metallic);
             material.SetShaderParameter("material_specular", specular);
             material.SetShaderParameter("material_category", (int)category);
-            material.SetShaderParameter("damage_mask", _damageMask);
+            using (var value = Variant.From(_damageMask))
+                material.SetShaderParameter("damage_mask", value);
             SetPaint(material, paint);
             return material;
         }
