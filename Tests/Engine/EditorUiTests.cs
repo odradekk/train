@@ -594,6 +594,8 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
                 return new SceneResult<EditState>.Failure([new("target_missing", SceneStage.Edit, null, null, null, null, "选取目标已过期。")]);
             };
             await Click(0);
+            // 点击已选中的多选行会等鼠标释放才请求单选，随后一帧才执行状态同步。
+            await input.Frames();
             Require(attempts > 0 && fixture.Editor.State.Selection == accepted && Selected(firstIds),
                 "列表选择被拒绝后，下一次同步必须恢复状态选择，即使状态选择本身没有变化。");
             await input.Frames(2);
