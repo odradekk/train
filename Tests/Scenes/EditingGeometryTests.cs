@@ -13,6 +13,55 @@ namespace Train.Scenes.Tests;
 public sealed class EditingGeometryTests
 {
     [TestMethod]
+    [DataRow(-2)]
+    [DataRow(2)]
+    public void HeightBoundaryChangesAndFollowingLocalEditsMatchColdFramesThroughHistory(int boundaryY)
+    {
+        var content = SceneFixtures.Content();
+        using var session = EditingFixtures.Open(EditingFixtures.Draft(
+            new(-32, -2, 0), new(0, 0, 0), new(32, 2, 0)), content: content);
+        var comparison = new FullComparison(session, content);
+        var first = comparison.Check();
+        var original = session.Read();
+        var boundary = new GridPosition(boundaryY < 0 ? -32 : 32, boundaryY, 0);
+        var boundaryId = original.Elements.Single(element => element.At == boundary).Id;
+        var boundaryRay = EditingFixtures.Ray(boundary.X + .5f, boundary.Y + .5f);
+        EditingHit(first, boundaryRay, original.Snapshot.Stamp, boundaryId, boundary);
+
+        Edit(new(0, 0, 0), new CellEdit.Paint(new("#ff0000")));
+        Edit(boundary, new CellEdit.Remove());
+        var removed = comparison.Frame;
+        Assert.IsInstanceOfType<ScenePick.Miss>(removed.Pick(boundaryRay));
+        Edit(new(0, 0, 0), new CellEdit.Paint(new("#00ff00")));
+        EditingFixtures.Value(session.Undo());
+        comparison.Check();
+        EditingFixtures.Value(session.Redo());
+        comparison.Check();
+
+        Edit(new(64, 4, 0), new CellEdit.Add(EditingFixtures.Cube));
+        Edit(new(-64, -4, 0), new CellEdit.Add(EditingFixtures.Cube));
+        Edit(new(64, 4, 0), new CellEdit.Remove());
+        Edit(new(-64, -4, 0), new CellEdit.Remove());
+        Edit(new(-boundary.X, -boundary.Y, 0), new CellEdit.Remove());
+        Edit(new(0, 0, 0), new CellEdit.Remove());
+        Assert.IsFalse(Meshes(comparison.Frame).Any());
+        Assert.IsInstanceOfType<ScenePick.Miss>(comparison.Frame.Pick(EditingFixtures.Ray()));
+        EditingFixtures.Value(session.Undo());
+        comparison.Check();
+        EditingFixtures.Value(session.Redo());
+        comparison.Check();
+
+        EditingHit(first, boundaryRay, original.Snapshot.Stamp, boundaryId, boundary);
+        Assert.IsInstanceOfType<ScenePick.Miss>(removed.Pick(boundaryRay));
+
+        void Edit(GridPosition at, CellEdit action)
+        {
+            EditingFixtures.Apply(session, new EditOperation.Cells(new EditFootprint.Cell(at), action));
+            comparison.Check();
+        }
+    }
+
+    [TestMethod]
     public void CellBufferHandoffPreservesPickingAndDuplicateDiagnosticsAcrossEmptyClippedViews()
     {
         var content = SceneFixtures.Content();

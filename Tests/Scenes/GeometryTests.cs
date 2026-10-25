@@ -96,6 +96,37 @@ public sealed class GeometryTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MultiChunkInputOrdersPreserveIncrementalCellValuesAndRejectDuplicates(bool interleaved)
+    {
+        var first = new SceneCell(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null,
+            null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []));
+        var grouped = Enumerable.Range(-12, 24).SelectMany(chunk => new[]
+        {
+            first with { At = new(chunk * 32, 0, 0) },
+            first with { At = new(chunk * 32 + 1, 0, 0) }
+        }).ToImmutableArray();
+        var cells = interleaved
+            ? grouped.Where((_, index) => index % 2 == 0).Concat(grouped.Where((_, index) => index % 2 != 0)).ToImmutableArray()
+            : grouped;
+        ImmutableArray<SceneCell> previousCells = [cells[0], cells[^1]];
+        var previous = new VoxelGrid(previousCells);
+        var grid = new VoxelGrid(cells, previous, out var changes);
+        var cold = new VoxelGrid(cells);
+        CollectionAssert.AreEquivalent(cells.Where(cell => !previousCells.Contains(cell)).Select(cell => cell.At).ToArray(),
+            changes.ToArray());
+        CollectionAssert.AreEqual(cold.Cells.ToArray(), grid.Cells.ToArray());
+        Assert.AreEqual(cold.Bounds, grid.Bounds);
+        foreach (var cell in cells) Assert.AreEqual(cold.Find(cell.At), grid.Find(cell.At));
+        Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([.. cells, cells[0]], previous, out _));
+        var oldCold = new VoxelGrid(previousCells);
+        CollectionAssert.AreEqual(oldCold.Cells.ToArray(), previous.Cells.ToArray());
+        Assert.AreEqual(oldCold.Bounds, previous.Bounds);
+        foreach (var cell in cells) Assert.AreEqual(oldCold.Find(cell.At), previous.Find(cell.At));
+    }
+
+    [TestMethod]
     public void IncrementalGridsMatchColdValuesAcrossChunkAndPropertyChangesWithoutMutatingPreviousGrids()
     {
         var subject = new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(1));

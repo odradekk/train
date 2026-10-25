@@ -116,9 +116,8 @@ internal sealed class EditGeometry
             else
             {
                 ImmutableArray<GridPosition> changedCells = [];
-                var grid = previous is null ? new VoxelGrid(values) : new(values, previous.Grid, out changedCells);
-                var sameHeight = previous is not null && previous.Grid.Bounds?.Minimum.Y == grid.Bounds?.Minimum.Y &&
-                    previous.Grid.Bounds?.Maximum.Y == grid.Bounds?.Maximum.Y;
+                var sameHeight = previous is not null && SameHeight(values, previous.Grid.Bounds);
+                var grid = sameHeight ? new VoxelGrid(values, previous!.Grid, out changedCells) : new(values);
                 HashSet<GridPosition> changed = [];
                 if (sameHeight)
                 {
@@ -164,6 +163,20 @@ internal sealed class EditGeometry
             return (new(entry.Orientation, appearance, entry.Shape, entry.Paint, null, path, appearance is null ? reference : null),
                 EditContent.MissingProblems(lookup, reference));
         }
+    }
+
+    private static bool SameHeight(ImmutableArray<SceneCell> cells, SceneBounds? bounds)
+    {
+        if (cells.IsEmpty) return bounds is null;
+        if (bounds is null) return false;
+        var minimum = int.MaxValue;
+        var maximum = int.MinValue;
+        foreach (var cell in cells)
+        {
+            minimum = Math.Min(minimum, cell.At.Y);
+            maximum = Math.Max(maximum, cell.At.Y);
+        }
+        return minimum == bounds.Minimum.Y && maximum + 1f == bounds.Maximum.Y;
     }
 
     // 拾取修订和元素路径会变化，但不参与网格生成。

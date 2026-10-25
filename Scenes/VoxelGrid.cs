@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -150,29 +151,40 @@ internal sealed class VoxelGrid
         var minimum = new GridPosition(int.MaxValue, int.MaxValue, int.MaxValue);
         var maximum = new GridPosition(int.MinValue, int.MinValue, int.MinValue);
         Dictionary<GridPosition, (int Start, int Count)> groups = [];
+        var previousChunk = default(GridPosition);
+        ref var previousGroup = ref CollectionsMarshal.GetValueRefOrNullRef(groups, default);
         for (var i = 0; i < cells.Length; i++)
         {
             var cell = cells[i];
             var key = Chunk(cell.At);
-            groups.TryGetValue(key, out var group);
-            groups[key] = (0, group.Count + 1);
+            if (i == 0 || key != previousChunk)
+            {
+                // 新键可能使字典扩容；每次新增键都重新取得引用，随后只复用当前区块。
+                previousGroup = ref CollectionsMarshal.GetValueRefOrAddDefault(groups, key, out _);
+                previousChunk = key;
+            }
+            previousGroup.Count++;
             minimum = new(Math.Min(minimum.X, cell.At.X), Math.Min(minimum.Y, cell.At.Y), Math.Min(minimum.Z, cell.At.Z));
             maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
         }
         var start = 0;
-        foreach (var key in groups.Keys.ToArray())
+        foreach (var key in groups.Keys)
         {
-            var count = groups[key].Count;
-            groups[key] = (start, 0);
+            ref var group = ref CollectionsMarshal.GetValueRefOrNullRef(groups, key);
+            var count = group.Count;
+            group = (start, 0);
             start += count;
         }
         var indices = new int[cells.Length];
         for (var i = 0; i < cells.Length; i++)
         {
             var key = Chunk(cells[i].At);
-            var group = groups[key];
-            indices[group.Start + group.Count] = i;
-            groups[key] = (group.Start, group.Count + 1);
+            if (i == 0 || key != previousChunk)
+            {
+                previousGroup = ref CollectionsMarshal.GetValueRefOrNullRef(groups, key);
+                previousChunk = key;
+            }
+            indices[previousGroup.Start + previousGroup.Count++] = i;
         }
         var buffer = cells.IsEmpty ? Array.Empty<int>() : new int[HalfSize * 2];
         var changed = ImmutableArray.CreateBuilder<GridPosition>();
