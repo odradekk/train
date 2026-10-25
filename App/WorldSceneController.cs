@@ -274,12 +274,12 @@ internal sealed class WorldSceneController : IDisposable
         if (_candidateFirst)
         {
             PrepareCandidate(half);
-            var active = display.Prepare(frame, display.IsPreparingCandidate ? half : whole);
+            var active = display.Prepare(frame, whole);
             if (active is not null) PrepareCandidate(whole);
             return active;
         }
         var prepared = display.Prepare(frame, half);
-        PrepareCandidate(prepared is null ? half : whole);
+        PrepareCandidate(whole);
         return prepared ?? (!display.IsPreparingCandidate ? display.Prepare(frame, whole) : null);
     }
 

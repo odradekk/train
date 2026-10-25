@@ -10,7 +10,7 @@ namespace Train.Ui;
 public partial class MacroMap : Control
 {
     private static readonly Color Ink = new("#2a2a2a");
-    private readonly Texture2D _lairSymbol = GD.Load<Texture2D>("res://Ui/Symbols/lair.png");
+    private static readonly Texture2D LairSymbol = GD.Load<Texture2D>("res://Ui/Symbols/lair.png");
     private IContentView? _content;
     private WorldSummary? _world;
     private readonly Dictionary<NodeId, NodeMapItem> _nodes = [];
@@ -280,7 +280,7 @@ public partial class MacroMap : Control
     private void DrawCreatureAnnotation(string text, Vector2 center)
     {
         var rectangle = DrawAnnotation(text, center, 24);
-        DrawTextureRect(_lairSymbol, new Rect2(rectangle.Position + new Vector2(3, 2), new Vector2(20, 20)), false, UiStyle.Error);
+        DrawTextureRect(LairSymbol, new Rect2(rectangle.Position + new Vector2(3, 2), new Vector2(20, 20)), false, UiStyle.Error);
     }
 
     private Rect2 DrawAnnotation(string text, Vector2 center, int iconWidth)
@@ -360,7 +360,7 @@ public partial class MacroMap : Control
         DrawArc(point, radius, 0, Mathf.Tau, 48, color, 3, true);
         if (node.Occupant is NodeOccupant.Lair or NodeOccupant.Settlement { Relation: SettlementRelation.Hostile })
             for (var i = 0; i < 12; i++) DrawArc(point, radius + 6, i * Mathf.Tau / 12, (i + .55f) * Mathf.Tau / 12, 4, color, 2, true);
-        var symbol = node.Occupant is NodeOccupant.Lair ? _lairSymbol : revision is { } asset ? FindSymbol(asset) : null;
+        var symbol = node.Occupant is NodeOccupant.Lair ? LairSymbol : revision is { } asset ? FindSymbol(asset) : null;
         if (symbol is not null) DrawTextureRect(symbol, new Rect2(point - new Vector2(12, 12), new Vector2(24, 24)), false, color);
         else
         {

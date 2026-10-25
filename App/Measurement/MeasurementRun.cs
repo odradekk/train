@@ -284,6 +284,7 @@ internal sealed partial class MeasurementRun : IDisposable
             _drawFailure ??= new InvalidOperationException($"测量窗口与视口必须保持 1920×1080，实际为 {window}／{viewport}。");
         if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
         {
+            RecordSceneResourceFrame();
             OnSceneDraw();
             return;
         }
@@ -387,6 +388,7 @@ internal sealed partial class MeasurementRun : IDisposable
     public void Dispose()
     {
         _disposed = true;
+        StopEditorMeasurement();
         RenderingServer.FramePostDraw -= OnDraw;
         _process.Dispose();
     }

@@ -212,6 +212,7 @@ internal sealed partial class MeasurementRun
         {
             FlushSceneProbeEvents();
             FlushSceneProbeCosts();
+            WriteSceneResourceTimings();
             _app.Saves!.Changed -= OnSceneSaveChanged;
             _app.WorldScenes!.FramePresented -= OnScenePresented;
             _sceneTrace = _sceneOperationTrace = _sceneCollectionTrace = _sceneCostTrace = null;
@@ -690,6 +691,7 @@ internal sealed partial class MeasurementRun
 
     private void OnScenePresented(ISceneFrame frame)
     {
+        ObserveSceneResources();
         if (IsRouteMeasurement && _routeSampling) { RecordRoutePresented(frame); return; }
         _scenePresentedStamp = frame.Update.Frame;
         var followPose = _subject is not null && frame.FindPose(_subject) is Lookup<ScenePose>.Found pose

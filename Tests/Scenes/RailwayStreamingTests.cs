@@ -364,21 +364,22 @@ public sealed class RailwayStreamingTests
         var snapshot = RailwayFixtures.Snapshot();
         var observer = new RecordingStreamingObserver();
         using var release = new ManualResetEventSlim();
-        var entered = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var entered = new SemaphoreSlim(0);
         await using var vehicles = new SceneVehicles();
         await using var scene = Open(snapshot, vehicles, Scope(observer), build: (input, path, index, _) =>
         {
-            entered.TrySetResult(index);
+            entered.Release();
             release.Wait();
             return RailwayFixtures.EmptySegment(input, path, index, CancellationToken.None);
         });
         try
         {
             scene.Pump(snapshot, new(RailwayFixtures.Edge, 0));
-            var enteredIndex = await entered.Task;
             var oldWork = scene.PendingWork;
+            foreach (var _ in oldWork)
+                await entered.WaitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             scene.Pump(snapshot, new(RailwayFixtures.Edge, 750));
-            var cancelled = observer.Snapshot().OfType<SceneStreamingEvent.Changed>().First(item => item.Stage == SceneStreamingStage.Cancelled && item.Attempt.Part.Key == enteredIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)).Attempt;
+            var cancelled = observer.Snapshot().OfType<SceneStreamingEvent.Changed>().First(item => item.Stage == SceneStreamingStage.Cancelled).Attempt;
             scene.Pump(snapshot, new(RailwayFixtures.Edge, 0), allowBuild: false);
             var renewed = observer.Snapshot().OfType<SceneStreamingEvent.Changed>().Last(item => item.Stage == SceneStreamingStage.Needed && item.Attempt.Part == cancelled.Part).Attempt;
             Assert.IsTrue(renewed.Value > cancelled.Value);

@@ -75,7 +75,7 @@ internal static class PopulationStockTargets
     internal static ImmutableArray<GoodsQuantity> Allocate(IEnumerable<(GoodId Good, BigInteger Quantity)> targets, long capacityBudget)
     {
         var integerTargets = targets.Where(t => t.Quantity > 0)
-            .OrderBy(t => WorldReferences.GoodKey(t.Good), StringComparer.Ordinal).ToArray();
+            .OrderBy(t => t.Good, WorldReferences.GoodComparer).ToArray();
         BigInteger total = 0;
         foreach (var target in integerTargets) total += target.Quantity;
         if (total <= capacityBudget)

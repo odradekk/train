@@ -10,75 +10,118 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private static readonly BlueprintAddress EditorBlueprint = new(BlueprintLibrary.Packages, new("core:titan-armed-vehicle"));
+    private DesignEditorPanel? _measuredEditorPanel;
+    private EditStamp? _editorStepStamp;
+    private double? _editorFirstPresentSeconds, _editorListSeconds;
+    private ulong? _editorPresentProcessFrame, _editorCommitProcessFrame;
+
+    private void OnEditorFirstPresented(EditStamp stamp, TimeSpan elapsed)
+    {
+        if (stamp != _editorStepStamp || _editorPresentProcessFrame is not null) return;
+        _editorFirstPresentSeconds = elapsed.TotalSeconds;
+        _editorPresentProcessFrame = Engine.GetProcessFrames();
+    }
+
+    private void OnEditorRevisionCommitted(EditStamp stamp)
+    {
+        if (stamp == _editorStepStamp) _editorCommitProcessFrame ??= Engine.GetProcessFrames();
+    }
+
+    private void OnEditorElementsUpdated(EditStamp stamp, TimeSpan elapsed)
+    {
+        if (stamp == _editorStepStamp) _editorListSeconds ??= elapsed.TotalSeconds;
+    }
+
+    private void StopEditorMeasurement()
+    {
+        if (_measuredEditorPanel is not { } panel) return;
+        panel.Scene.DisplayCreated -= ObserveSceneResources;
+        panel.Scene.FirstPresented -= OnEditorFirstPresented;
+        panel.Scene.RevisionCommitted -= OnEditorRevisionCommitted;
+        panel.ElementsUpdated -= OnEditorElementsUpdated;
+        _measuredEditorPanel = null;
+        _editorStepStamp = null;
+        ObserveSceneResources(_disposed ? null : _app.WorldScenes!.Display);
+    }
 
     // 内容包蓝图在界面上只能经蓝图库的「复制到本局…」打开；关闭走「退出」和「放弃本次修改」。
     private async Task RunEditorMeasurement()
     {
         var editor = _app.Editor!;
         var panel = _app.GetNode<DesignEditorPanel>("GameUi/Root/DesignEditor");
-        _scenePhase = "initial-map";
-        var mapStarted = _sceneLastDraw;
-        await Wait(() => _sceneLastDraw >= mapStarted + 5);
-        _sceneEvidence["initial_map"] = SceneSteady();
-        CollectSceneHeap(0, "initial-map");
-
-        _scenePhase = "editor-open";
-        var name = _app.Host!.Content!.Blueprints.Single(item => item.Address == EditorBlueprint).Display.Name;
-        var library = _app.GetNode<BlueprintLibraryPanel>("GameUi/Root/BlueprintLibrary");
-        SceneUiDescendants(_app.GetNode("GameUi")).OfType<Button>().Single(item => item.Name == "BlueprintLibrary")
-            .EmitSignal(BaseButton.SignalName.Pressed);
-        var copy = SceneUiDescendants(library).OfType<HFlowContainer>()
-            .Where(row => row.GetChildCount() > 0 && row.GetChild(0) is Label label && label.Text == name)
-            .SelectMany(row => row.GetChildren().OfType<Button>()).Single(item => item.Text == "复制到本局…");
-        var click = Seconds();
-        copy.EmitSignal(BaseButton.SignalName.Pressed);
-        double? session = null;
-        long displayedDraw = 0;
-        await Wait(() =>
+        _measuredEditorPanel = panel;
+        panel.Scene.DisplayCreated += ObserveSceneResources;
+        panel.Scene.FirstPresented += OnEditorFirstPresented;
+        panel.Scene.RevisionCommitted += OnEditorRevisionCommitted;
+        panel.ElementsUpdated += OnEditorElementsUpdated;
+        if (panel.Scene.Display is { } display) ObserveSceneResources(display);
+        try
         {
-            if (editor.Session is not null) session ??= Seconds();
-            if (displayedDraw == 0 && panel.Scene.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready }) displayedDraw = _sceneDrawCount;
-            return displayedDraw > 0 && _sceneDrawCount > displayedDraw;
-        });
-        var state = editor.State!;
-        var evaluation = state.CurrentEvaluation as DesignEvaluation.Complete;
-        var meshes = panel.Scene.Display!.Objects.Values.SelectMany(item => item.Source.Visuals)
-            .OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
-        _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new
-        {
-            kind = "editor-open", blueprint = EditorBlueprint.Id.Value, click, session, first_ready_draw = _sceneLastDraw,
-            click_to_session_seconds = session - click, click_to_ready_draw_seconds = _sceneLastDraw - click,
-            elements = state.Elements.Length, evaluated_voxels = evaluation?.Scene.Voxels.Length,
-            parts = evaluation?.Core?.Design.Parts.Length, meshes = meshes.Length,
-            vertices = meshes.Sum(mesh => (long)mesh.Vertices.Length), triangles = meshes.Sum(mesh => (long)mesh.TriangleIndices.Length / 3)
-        }, SceneJson));
+            _scenePhase = "initial-map";
+            var mapStarted = _sceneLastDraw;
+            await Wait(() => _sceneLastDraw >= mapStarted + 5);
+            _sceneEvidence["initial_map"] = SceneSteady();
+            CollectSceneHeap(0, "initial-map");
 
-        _scenePhase = "editor-hold";
-        var holdStarted = _sceneLastDraw;
-        _sceneTiming = new(holdStarted, _app.Host.GetStatus()!.View.Position.CompletedSteps);
-        await Wait(() => _sceneLastDraw >= holdStarted + SampleSeconds);
-        _timing = _sceneTiming.Summarize();
-        _sceneTiming = null;
-        _sceneEvidence["editor_steady"] = SceneSteady();
+            _scenePhase = "editor-open";
+            var name = _app.Host!.Content!.Blueprints.Single(item => item.Address == EditorBlueprint).Display.Name;
+            var library = _app.GetNode<BlueprintLibraryPanel>("GameUi/Root/BlueprintLibrary");
+            SceneUiDescendants(_app.GetNode("GameUi")).OfType<Button>().Single(item => item.Name == "BlueprintLibrary")
+                .EmitSignal(BaseButton.SignalName.Pressed);
+            var copy = SceneUiDescendants(library).OfType<HFlowContainer>()
+                .Where(row => row.GetChildCount() > 0 && row.GetChild(0) is Label label && label.Text == name)
+                .SelectMany(row => row.GetChildren().OfType<Button>()).Single(item => item.Text == "复制到本局…");
+            var click = Seconds();
+            copy.EmitSignal(BaseButton.SignalName.Pressed);
+            double? session = null;
+            long displayedDraw = 0;
+            await Wait(() =>
+            {
+                if (editor.Session is not null) session ??= Seconds();
+                if (displayedDraw == 0 && panel.Scene.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready }) displayedDraw = _sceneDrawCount;
+                return displayedDraw > 0 && _sceneDrawCount > displayedDraw;
+            });
+            var state = editor.State!;
+            var evaluation = state.CurrentEvaluation as DesignEvaluation.Complete;
+            var meshes = panel.Scene.Display!.Objects.Values.SelectMany(item => item.Source.Visuals)
+                .OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
+            _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new
+            {
+                kind = "editor-open", blueprint = EditorBlueprint.Id.Value, click, session, first_ready_draw = _sceneLastDraw,
+                click_to_session_seconds = session - click, click_to_ready_draw_seconds = _sceneLastDraw - click,
+                elements = state.Elements.Length, evaluated_voxels = evaluation?.Scene.Voxels.Length,
+                parts = evaluation?.Core?.Design.Parts.Length, meshes = meshes.Length,
+                vertices = meshes.Sum(mesh => (long)mesh.Vertices.Length), triangles = meshes.Sum(mesh => (long)mesh.TriangleIndices.Length / 3)
+            }, SceneJson));
 
-        await RunEditorSequence(editor, panel);
+            _scenePhase = "editor-hold";
+            var holdStarted = _sceneLastDraw;
+            _sceneTiming = new(holdStarted, _app.Host.GetStatus()!.View.Position.CompletedSteps);
+            await Wait(() => _sceneLastDraw >= holdStarted + SampleSeconds);
+            _timing = _sceneTiming.Summarize();
+            _sceneTiming = null;
+            _sceneEvidence["editor_steady"] = SceneSteady();
 
-        _scenePhase = "editor-close";
-        var close = Seconds();
-        SceneUiDescendants(panel).OfType<Button>().Single(item => item.Name == "ExitEditor").EmitSignal(BaseButton.SignalName.Pressed);
-        await Wait(() => editor.Leaving || !editor.IsOpen);
-        if (editor.Leaving)
-            SceneUiDescendants(panel).OfType<Button>().Single(item => item.Name == "DiscardAndLeave").EmitSignal(BaseButton.SignalName.Pressed);
-        var closedDraw = _sceneDrawCount;
-        await Wait(() => !editor.IsOpen && !panel.Visible && _sceneDrawCount > closedDraw);
-        _sceneOperationTrace.WriteLine(JsonSerializer.Serialize(new
-            { kind = "editor-close", click = close, map_drawn = _sceneLastDraw, seconds = _sceneLastDraw - close }, SceneJson));
+            await RunEditorSequence(editor, panel);
 
-        _scenePhase = "after-editor-map";
-        var afterStarted = _sceneLastDraw;
-        await Wait(() => _sceneLastDraw >= afterStarted + 5);
-        _sceneEvidence["after_editor_map"] = SceneSteady();
-        CollectSceneHeap(1, "after-editor-map");
+            _scenePhase = "editor-close";
+            var close = Seconds();
+            SceneUiDescendants(panel).OfType<Button>().Single(item => item.Name == "ExitEditor").EmitSignal(BaseButton.SignalName.Pressed);
+            await Wait(() => editor.Leaving || !editor.IsOpen);
+            if (editor.Leaving)
+                SceneUiDescendants(panel).OfType<Button>().Single(item => item.Name == "DiscardAndLeave").EmitSignal(BaseButton.SignalName.Pressed);
+            var closedDraw = _sceneDrawCount;
+            await Wait(() => !editor.IsOpen && !panel.Visible && _sceneDrawCount > closedDraw);
+            _sceneOperationTrace.WriteLine(JsonSerializer.Serialize(new
+                { kind = "editor-close", click = close, map_drawn = _sceneLastDraw, seconds = _sceneLastDraw - close }, SceneJson));
+
+            _scenePhase = "after-editor-map";
+            var afterStarted = _sceneLastDraw;
+            await Wait(() => _sceneLastDraw >= afterStarted + 5);
+            _sceneEvidence["after_editor_map"] = SceneSteady();
+            CollectSceneHeap(1, "after-editor-map");
+        }
+        finally { StopEditorMeasurement(); }
     }
 
     // 与 #365 的 TitanEditingTests 相同的序列：泰坦内部一块空长方体整块加入 5,000 格（需确认），
@@ -104,25 +147,41 @@ internal sealed partial class MeasurementRun
         async Task Step(string action, int index, Action call, double? previewSeconds = null)
         {
             _scenePhase = "editor-" + action;
+            _editorStepStamp = null;
+            _editorFirstPresentSeconds = _editorListSeconds = null;
+            _editorPresentProcessFrame = _editorCommitProcessFrame = null;
+            var firstResourceFrame = _resourceFrames.Count;
             var before = editor.State!.Snapshot.Stamp;
             var started = Seconds();
             call();
             var called = Seconds();
             var after = editor.State!.Snapshot.Stamp;
             if (after == before) throw new InvalidDataException($"编辑序列第 {index} 步（{action}）没有产生新修订：{editor.Message}");
+            _editorStepStamp = after;
             long drawn = 0;
             await Wait(() =>
             {
                 if (drawn == 0 && panel.Scene.DisplayedStamp == after) drawn = _sceneDrawCount;
                 return drawn > 0 && _sceneDrawCount > drawn;
             });
+            if (_editorPresentProcessFrame is not { } presentFrame || _editorCommitProcessFrame is not { } commitFrame ||
+                _editorListSeconds is null)
+                throw new InvalidDataException($"编辑序列第 {index} 步（{action}）缺少 Present、提交或列表更新计时。");
+            var longestFrame = _resourceFrames.Skip(firstResourceFrame)
+                .Where(frame => frame.ProcessFrame >= presentFrame && frame.ProcessFrame <= commitFrame)
+                .Max(frame => frame.FrameSeconds);
             _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new
             {
                 kind = "editor-step", index, action, started, displayed = _sceneLastDraw, preview_seconds = previewSeconds,
                 call_seconds = called - started, call_to_displayed_seconds = _sceneLastDraw - started,
+                first_present_seconds = _editorFirstPresentSeconds,
+                present_process_frame = presentFrame, commit_process_frame = commitFrame,
+                present_to_commit_process_frames = commitFrame - presentFrame + 1,
+                present_to_commit_longest_frame_seconds = longestFrame, list_update_seconds = _editorListSeconds,
                 revision = after.Revision.Value, cells = editor.State.Snapshot.Draft.Layout.Cells.Length,
                 private_bytes = _scenePrivate, working_set_bytes = _sceneWorking
             }, SceneJson));
+            _editorStepStamp = null;
         }
 
         var box = Preview(new EditOperation.Cells(new EditFootprint.Box(region), new CellEdit.Add(cube)), out var boxSeconds);
@@ -152,6 +211,7 @@ internal sealed partial class MeasurementRun
             original_cells = original.Layout.Cells.Length, edited_cells = final.Layout.Cells.Length,
             steps = 150, seconds = Seconds() - sequenceStarted, after = SceneSteady()
         };
+        _sceneEvidence["editor_step_timing_scope"] = "first_present_seconds measures only the first session.Present call for the new EditStamp, including geometry and frame diff, not pure geometry. Process frames include both the first Present frame and first commit frame (same-frame commit = 1). Longest frame uses actual draw-to-draw intervals in that inclusive process-frame range, including the frame blocked by Present. list_update_seconds includes row text generation and ShowElements, not the whole UI Process. Resource work observes the editor SceneDisplay.";
     }
 
     // 在泰坦占用范围内找一块体积正好 5,000 格、完全空着的长方体，与 TitanEditingTests 的选法相同。

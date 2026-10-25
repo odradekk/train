@@ -20,12 +20,14 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
             var id = new InstanceId.Vehicle(vehicle);
             var instance = world.Instances.Single(i => i.Id == id);
             var design = world.Designs.Single(d => d.Design == instance.Design);
+            var currentDesign = content.Designs.SingleOrDefault(d => d.Design == design.Design);
             length += ((DesignKind.Vehicle)design.Kind).LengthCells * 0.5;
             mass += design.MassTons;
-            foreach (var part in design.Parts.OrderBy(p => p.Id.Value))
+            for (var index = 0; index < design.Parts.Length; index++)
             {
-                var current = instance.Parts.Single(d => d.Id == part.Id).Current;
-                if (InstanceCapabilities.DefinitionMissing(world, content, design.Design, part)
+                var part = design.Parts[index];
+                var current = instance.Parts[index].Current;
+                if (InstanceCapabilities.DefinitionMissing(content, currentDesign, part)
                     || Math.Min(current, part.MaxDurability) <= 0)
                     continue;
                 foreach (var capability in part.Capabilities)
@@ -46,16 +48,17 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
         ImmutableArray<GoodId> missingGoods = [];
         if (!inventory.IsEmpty)
         {
-            var goods = content.Goods.AddRange(world.DesignGoods.Where(g => g.Good is GoodId.Assembly));
             var missing = ImmutableArray.CreateBuilder<GoodId>();
             foreach (var stack in inventory.OrderBy(s => GoodOrder(s.Good).Kind)
                          .ThenBy(s => GoodOrder(s.Good).Identity, StringComparer.Ordinal))
             {
-                var definition = goods.SingleOrDefault(g => g.Good == stack.Good);
+                var definition = content.Goods.SingleOrDefault(g => g.Good == stack.Good)
+                    ?? (stack.Good is GoodId.Assembly
+                        ? world.DesignGoods.SingleOrDefault(g => g.Good == stack.Good) : null);
                 if (definition is null) missing.Add(stack.Good);
                 else mass += definition.MassTons * stack.Quantity;
             }
-            missingGoods = missing.OrderBy(WorldReferences.GoodKey, StringComparer.Ordinal).ToImmutableArray();
+            missingGoods = missing.Order(WorldReferences.GoodComparer).ToImmutableArray();
         }
         return new(length, mass, traction, maximumSpeed ?? 0, mass > 0 ? traction / mass : 0,
             hasControl, missingGoods);

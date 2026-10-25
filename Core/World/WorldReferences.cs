@@ -5,6 +5,22 @@ namespace Train.Core.World;
 
 internal static class WorldReferences
 {
+    internal static readonly IComparer<GoodId> GoodComparer = Comparer<GoodId>.Create(static (left, right) =>
+    {
+        var first = GoodOrder(left);
+        var second = GoodOrder(right);
+        var kind = first.Kind.CompareTo(second.Kind);
+        return kind != 0 ? kind : StringComparer.Ordinal.Compare(first.Identity, second.Identity);
+    });
+
+    private static (int Kind, string Identity) GoodOrder(GoodId good) => good switch
+    {
+        GoodId.Assembly a => (0, a.Composition.Value),
+        GoodId.Composite c => (1, c.Definition.Value),
+        GoodId.Voxel v => (2, v.Definition.Value),
+        _ => throw new ArgumentException("货物种类非法。", nameof(good))
+    };
+
     internal static CoreReferenceManifest Create(WorldState world, CoreContentProjection content)
     {
         var usedDesigns = world.Designs.Select(d => d.Design).ToHashSet();

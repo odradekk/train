@@ -4,7 +4,7 @@ using Train.Core.World;
 
 namespace Train.Core.Settlements;
 
-internal sealed record BuildingCapabilities(double Production, double Extraction, double Construction, double Power)
+internal readonly record struct BuildingCapabilities(double Production, double Extraction, double Construction, double Power)
 {
     internal static BuildingCapabilities Read(WorldState world, CoreContentProjection content, BuildingId building)
     {

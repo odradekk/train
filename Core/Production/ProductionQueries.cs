@@ -21,12 +21,15 @@ internal static class ProductionQueries
                 batchProcess is not null && (batchProcess.Revision != batch.StartedFromRevision
                     || batchProcess.WorkRequired != batch.FrozenWorkRequired || batchProcess.PowerPerWork != batch.FrozenPowerPerWork
                     || batchProcess.LaborPerWork != batch.FrozenLaborPerWork
-                    || !Outputs(batchProcess.Details).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).SequenceEqual(batch.FrozenOutputs))),
+                    || !Outputs(batchProcess.Details).OrderBy(g => g.Good, WorldReferences.GoodComparer).SequenceEqual(batch.FrozenOutputs))),
             runtime?.OutputBuffer ?? [], [], Blockers(key, problem));
     }
 
     private readonly record struct FacilityEvaluation(TemplateProductionPlan? Plan, ProductionFacilityState? Runtime,
         double Capability, ProcessProjection? Process, ProductionState State, string? Problem);
+
+    internal static bool CanStart(WorldState world, CoreContentProjection content, FacilityKey key, double capability)
+        => Evaluate(world, content, key, capability)?.State == ProductionState.Running;
 
     private static FacilityEvaluation? Evaluate(WorldState world, CoreContentProjection content, FacilityKey key,
         double? knownCapability = null)
@@ -112,7 +115,7 @@ internal static class ProductionQueries
                 if (fuel is not null && process.PowerPerWork > 0)
                     consumption.Add(new(fuel.Good, rate * process.PowerPerWork / fuel.FuelEnergyPerUnit!.Value));
             }
-            var rates = consumption.GroupBy(g => g.Good).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+            var rates = consumption.GroupBy(g => g.Good).OrderBy(g => g.Key, WorldReferences.GoodComparer)
                 .Select(g => new GoodsRateView(g.Key, g.Sum(r => r.UnitsPerSecond))).ToImmutableArray();
             result.Add((view with { PotentialConsumption = rates }, process, rate));
         }
@@ -151,15 +154,24 @@ internal static class ProductionQueries
         {
             var previousSettlement = before.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == plot.Building));
             var previousPlot = previousSettlement?.Plots.Single(p => p.Building == plot.Building);
-            foreach (var capability in new[] { CapabilityKind.Production, CapabilityKind.Extraction })
+            BuildingCapabilities? oldCapabilities = null;
+            BuildingCapabilities? currentCapabilities = null;
+            ReadOnlySpan<CapabilityKind> kinds = [CapabilityKind.Production, CapabilityKind.Extraction];
+            foreach (var capability in kinds)
             {
                 // 两边都没有计划时，设施只可能不存在或为 Disabled，不会产生状态变化。
                 if (!settlement.Template.ProductionPlans.Any(p => p.PlotNumber == plot.TemplateNumber && p.Capability == capability)
                     && previousSettlement?.Template.ProductionPlans.Any(p => p.PlotNumber == previousPlot!.TemplateNumber
                         && p.Capability == capability) != true) continue;
                 var key = new FacilityKey(plot.Building!.Value, capability);
-                var old = Evaluate(before, beforeContent, key);
-                var current = Evaluate(after, afterContent, key, sameCapabilities ? old?.Capability : null);
+                if (previousPlot is not null)
+                    oldCapabilities ??= BuildingCapabilities.Read(before, beforeContent, key.Building);
+                currentCapabilities ??= sameCapabilities && oldCapabilities is { } previousCapabilities
+                    ? previousCapabilities : BuildingCapabilities.Read(after, afterContent, key.Building);
+                var old = Evaluate(before, beforeContent, key, capability == CapabilityKind.Extraction
+                    ? oldCapabilities?.Extraction : oldCapabilities?.Production);
+                var current = Evaluate(after, afterContent, key, capability == CapabilityKind.Extraction
+                    ? currentCapabilities.Value.Extraction : currentCapabilities.Value.Production);
                 if (old is { } previous && current is { } next && previous.State != next.State)
                     events.Add(new CoreEvent.ProductionStateChanged(key, previous.State, next.State, Blockers(key, next.Problem)));
             }

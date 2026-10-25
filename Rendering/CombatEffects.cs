@@ -184,7 +184,8 @@ internal sealed class CombatEffects : IDisposable
     {
         var material = new ShaderMaterial { Shader = _shader };
         material.SetShaderParameter("appearance", (int)appearance);
-        material.SetShaderParameter("particle_mask", _particleMask);
+        using var particleMask = Variant.From(_particleMask);
+        material.SetShaderParameter("particle_mask", particleMask);
         return new(mesh, material);
     }
 
