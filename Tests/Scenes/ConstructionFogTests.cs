@@ -33,11 +33,14 @@ public sealed class ConstructionFogTests
         var oldBounds = scene.Layout!.Bounds;
         var oldWindow = new NodeRange(default, NodeStreaming.RetainCells).Window(scene.Layout);
         var first = scene.Present(initial, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), null, default);
+        AssertMissingTerrainFog(first, oldBounds);
         var pending = scene.PendingWork.ToHashSet();
         scene.Pump(changed, allowBuild: false);
         await Task.WhenAll(scene.PendingWork.Where(task => !pending.Contains(task)));
         var next = scene.Present(changed, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), first, default);
         var newBounds = scene.Layout!.Bounds;
+        AssertMissingTerrainFog(next, newBounds);
+        AssertMissingTerrainFog(first, oldBounds);
         Assert.AreNotEqual(oldBounds, newBounds, "The production refresh must adopt a different terrain boundary.");
         Assert.AreNotEqual(oldWindow, new NodeRange(default, NodeStreaming.RetainCells).Window(scene.Layout),
             "The adopted layout must change the clipped construction window.");
@@ -55,6 +58,16 @@ public sealed class ConstructionFogTests
             token.WaitHandle.WaitOne();
             token.ThrowIfCancellationRequested();
             throw new InvalidOperationException();
+        }
+
+        static void AssertMissingTerrainFog(SceneFrame frame, ScenePanBounds bounds)
+        {
+            for (var z = bounds.Minimum.Y; z < bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+            for (var x = bounds.Minimum.X; x < bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+                Assert.IsTrue(frame.Update.Environment.FoggedRegions.Any(box =>
+                    box.Minimum.Y == -128 && box.Maximum.Y == 128 &&
+                    Contains(box, new(x + VoxelGrid.ChunkSize / 2, 0, z + VoxelGrid.ChunkSize / 2))),
+                    "Every unbuilt L0 chunk must remain fogged when the layout is first prepared or rebound.");
         }
     }
 

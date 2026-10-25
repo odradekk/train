@@ -566,13 +566,32 @@ public sealed class NodeStreamingTests
         var cache = new NodeScene.Cache();
         await using var vehicles = new SceneVehicles();
         await using var scene = Open(snapshot, vehicles, cache);
+        scene.SetFarBuildAllowed(false);
         await Settle(scene, snapshot, default);
         var before = Chunks(cache);
+        var first = Present(scene, snapshot);
+        AssertTerrainFog(first, before);
         var focus = new ScenePoint(288, 0, 288);
         await Settle(scene, snapshot, focus);
         var retention = new NodeRange(focus, NodeStreaming.RetainCells);
         Assert.IsTrue(before.Keys.Any(from => !retention.Intersects(from)));
         Assert.IsTrue(Chunks(cache).Keys.All(retention.Intersects));
+        AssertTerrainFog(Present(scene, snapshot, first), Chunks(cache));
+        AssertTerrainFog(first, before);
+
+        void AssertTerrainFog(SceneFrame frame, ImmutableDictionary<GridColumn, NodeScene.Part> connected)
+        {
+            var fog = frame.Update.Environment.FoggedRegions.Where(box =>
+                box.Minimum.Y == -128 && box.Maximum.Y == 128).ToArray();
+            foreach (var from in new NodeRange(default, 10000).Chunks(scene.Layout!))
+            {
+                var x = from.X + VoxelGrid.ChunkSize / 2;
+                var z = from.Z + VoxelGrid.ChunkSize / 2;
+                Assert.AreEqual(!connected.ContainsKey(from), fog.Any(box =>
+                    x > box.Minimum.X && x < box.Maximum.X && z > box.Minimum.Z && z < box.Maximum.Z),
+                    $"Without far terrain, fog must cover precisely the missing L0 chunks after attachment or unloading: {from}.");
+            }
+        }
     }
 
     [TestMethod]
@@ -1132,6 +1151,38 @@ public sealed class NodeStreamingTests
             Assert.IsTrue(outside.Length > 0);
             Assert.IsTrue(outside.All(segment => !keys.Contains(segment.Key)));
         }
+    }
+
+    [TestMethod]
+    public async Task Missing_rail_outside_streaming_demand_does_not_expand_fog()
+    {
+        var snapshot = RailSnapshot();
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var range = new NodeRange(default, NodeStreaming.PrefetchCells);
+        var outside = prepared.Rails.Values.Where(segment =>
+            !range.Intersects(segment.Bounds)).ToArray();
+        Assert.IsNotEmpty(outside, "The fixture must contain undemanded track beyond the node streaming windows.");
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles,
+            build: (data, from, old, token) => { release.Wait(token); return SmallPart(data, from, old, token); },
+            buildRail: (_, rail, old, token) => { release.Wait(token); return rail.Build(old, token); });
+        scene.SetFarBuildAllowed(false);
+        try
+        {
+            await scene.BuildWork!;
+            var frame = scene.Present(snapshot, Request, NodeFixtures.NextStamp(scene), null, default);
+            foreach (var segment in outside)
+            {
+                var point = segment.Sample((segment.Begin + segment.End) / 2).Position;
+                var fog = frame.Update.Environment.FoggedRegions.Where(box =>
+                    box.Minimum.Y == segment.Bounds.Minimum.Y && box.Maximum.Y == segment.Bounds.Maximum.Y);
+                Assert.IsFalse(fog.Any(box => point.X > box.Minimum.X && point.X < box.Maximum.X &&
+                    point.Z > box.Minimum.Z && point.Z < box.Maximum.Z),
+                    $"Missing undemanded rail {segment.Key} must not create a distant fog wall while far terrain is unavailable.");
+            }
+        }
+        finally { release.Set(); }
     }
 
     [TestMethod]

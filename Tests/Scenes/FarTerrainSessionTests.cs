@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Numerics;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -280,6 +281,9 @@ public sealed class FarTerrainSessionTests
         const float x = 240.5f, z = 8.5f;
         Assert.IsInstanceOfType<Lookup<double>.Missing>(before.TerrainHeight(x, z));
         Assert.IsTrue(FogCovers(before), "Unbuilt static L0 terrain must remain fogged before far terrain appears.");
+        var ray = new SceneRay(new(x, 20, z), -Vector3.UnitY, 200);
+        Assert.IsInstanceOfType<ScenePick.NotReady>(before.Pick(ray),
+            "Fog outside the required window must still block picking until far terrain is displayed.");
 
         var terrain = Field<FarTerrain>(scene, "farTerrain");
         while (terrain.HasPendingCoarse) terrain.Advance(128, CancellationToken.None);
@@ -290,9 +294,66 @@ public sealed class FarTerrainSessionTests
         Assert.IsInstanceOfType<Lookup<double>.Found>(after.DisplayTerrainHeight(x, z));
         Assert.IsFalse(FogCovers(after), "Visible far terrain must replace fog outside the required L0 window.");
         Assert.IsTrue(FogCovers(before), "An older immutable frame must retain its own fog.");
+        Assert.IsInstanceOfType<ScenePick.NotReady>(before.Pick(ray),
+            "Publishing far terrain must preserve an older frame's picking result.");
 
         static bool FogCovers(SceneFrame frame) => frame.Update.Environment.FoggedRegions.Any(box =>
             x >= box.Minimum.X && x <= box.Maximum.X && z >= box.Minimum.Z && z <= box.Maximum.Z);
+    }
+
+    [TestMethod]
+    public async Task Terrain_fog_preserves_required_L0_across_far_replacement_and_unload()
+    {
+        var template = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
+        { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-512, 0, -512), new(511, 0, 511)) } } };
+        var snapshot = NodeFixtures.EmptyNodeSnapshot(template, []);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), SceneFixtures.NextId(),
+            vehicles, new(), _ => null);
+        scene.SetFarBuildAllowed(false);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false);
+        var terrain = Field<FarTerrain>(scene, "farTerrain");
+        var positive = Tile(default, 0);
+        var negative = Tile(new(-1024, 0, -1024), 0);
+        foreach (var tiles in new ImmutableArray<TerrainTile>[]
+            { [], [positive], [Tile(default, 10)], [negative], [] })
+        {
+            typeof(FarTerrain).GetField("view", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(terrain, new FarTerrainView(tiles));
+            Check();
+            foreach (var from in new[] { new GridColumn(0, 0), new GridColumn(256, 256) })
+            {
+                Change(from, true);
+                Check();
+                Change(from, false);
+                Check();
+            }
+        }
+
+        static TerrainTile Tile(ScenePoint at, double height) => TerrainTile.Build(at, 1024, 1024,
+            _ => height, new SceneMaterial.BuiltIn(BuiltInMaterial.Construction));
+        void Change(GridColumn from, bool present) => typeof(NodeScene)
+            .GetMethod("ChangeTerrain", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(scene, [from, present]);
+        void Check()
+        {
+            var fog = ImmutableArray.CreateBuilder<SceneFog>();
+            typeof(NodeScene).GetMethod("TerrainFog", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(scene, [default(ScenePoint), fog]);
+            var range = Field<NodeRange>(scene, "range").Around(NodeStreaming.RetainCells).Window(scene.Layout!);
+            var prefetch = Field<NodeRange>(scene, "prefetch").Window(scene.Layout!);
+            var attached = Field<HashSet<GridColumn>>(scene, "terrainChunks");
+            foreach (var from in new NodeRange(default, 10000).Chunks(scene.Layout!))
+            {
+                var point = new ScenePoint(from.X + 16, 0, from.Z + 16);
+                var required = from.X >= Math.Min(range.Left, prefetch.Left) && from.X < Math.Max(range.Right, prefetch.Right) &&
+                    from.Z >= Math.Min(range.Back, prefetch.Back) && from.Z < Math.Max(range.Front, prefetch.Front);
+                var expected = !attached.Contains(from) && (required || terrain.View.Height(point) is null);
+                Assert.AreEqual(expected, fog.Any(box => point.X > box.Bounds.Minimum.X && point.X < box.Bounds.Maximum.X &&
+                    point.Z > box.Bounds.Minimum.Z && point.Z < box.Bounds.Maximum.Z),
+                    $"Chunk {from} must reflect only current L0/far coverage, including an unchanged or removed far footprint.");
+            }
+        }
     }
 
     private static ScenePoint[] OutsideWitnesses(FarTerrainView view, ScenePanBounds bounds) => view.Tiles

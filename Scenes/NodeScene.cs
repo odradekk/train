@@ -242,7 +242,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly HashSet<int> dirtyTerrainRows = [];
     private (int Left, int Right, int Back, int Front)? terrainFogWindow;
     private ScenePoint? terrainFogOrigin;
-    private FarTerrainView? terrainFogFarView, railFogFarView;
+    private FarTerrainView? terrainFogFarView;
+    private bool[] terrainFarCoverage = [];
     private (int Left, int Right, int Back, int Front) terrainFogRequired;
     private ImmutableArray<SceneFog> cachedTerrainFog = [];
     private readonly Dictionary<string, Part> rails = [];
@@ -250,7 +251,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly HashSet<string> rebuilding = [];
     private readonly HashSet<string> foggedRails = [];
     private bool railFogDirty = true;
-    private NodeRange? railFogRange;
+    private (NodeRange Range, NodeRange Prefetch)? railFogRange;
     private ImmutableArray<SceneBounds> railFogBounds = [];
     private ImmutableArray<SceneFog> translatedRailFog = [];
     private ScenePoint? railFogOrigin;
@@ -798,6 +799,7 @@ internal sealed class NodeScene : IAsyncDisposable
             peripheralRails.UnionWith(rails.Keys.Where(key => !InCorridor(key, prepared.Rails[key].Bounds)));
             indexedCorridor = corridor;
             indexedPreparation = prepared;
+            railFogDirty = true;
         }
         var plan = (prepared!, range, prefetch, corridor, nearCompleted);
         var path = followedPath?.Priority ?? [];
@@ -1196,9 +1198,8 @@ internal sealed class NodeScene : IAsyncDisposable
         if (prepared is null) return [];
         bool NeedsFog(RailSegment segment) => !rails.ContainsKey(segment.Key) &&
             (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) ||
-                NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks) || !farTerrain.View.Covers(segment.Bounds));
-        if (!ReferenceEquals(railFogFarView, farTerrain.View)) { railFogDirty = true; railFogFarView = farTerrain.View; }
-        if (railFogDirty || railFogRange != range)
+                corridorRails.Contains(segment.Key) || NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks));
+        if (railFogDirty || railFogRange != (range, prefetch))
         {
             var count = 0;
             foreach (var segment in prepared.Rails.Values)
@@ -1222,7 +1223,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 railFogDirty = false;
                 railFogOrigin = null;
             }
-            railFogRange = range;
+            railFogRange = (range, prefetch);
         }
         if (railFogOrigin != origin)
         {
@@ -1236,48 +1237,75 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void TerrainFog(ScenePoint origin, ImmutableArray<SceneFog>.Builder fog)
     {
-        var retained = range.Around(NodeStreaming.RetainCells).Window(layout!);
-        var ahead = prefetch.Window(layout!);
-        var left = Math.Min(retained.Left, ahead.Left);
-        var right = Math.Max(retained.Right, ahead.Right);
-        var back = Math.Min(retained.Back, ahead.Back);
-        var front = Math.Max(retained.Front, ahead.Front);
-        var required = (Left: left, Right: right, Back: back, Front: front);
-        var farView = farTerrain.View;
-        left = (int)layout!.Bounds.Minimum.X; right = (int)layout.Bounds.Maximum.X;
-        back = (int)layout.Bounds.Minimum.Y; front = (int)layout.Bounds.Maximum.Y;
-        if (!ReferenceEquals(terrainFogFarView, farView) || terrainFogRequired != required)
-        {
-            for (var z = back; z < front; z += VoxelGrid.ChunkSize) dirtyTerrainRows.Add(z);
-            terrainFogFarView = farView; terrainFogRequired = required;
-        }
+        var left = (int)layout!.Bounds.Minimum.X;
+        var right = (int)layout.Bounds.Maximum.X;
+        var back = (int)layout.Bounds.Minimum.Y;
+        var front = (int)layout.Bounds.Maximum.Y;
         if (prepared is null)
         { Add(left, right, back, front); return; }
-        if (terrainFogWindow == (left, right, back, front) && dirtyTerrainRows.Count == 0 && terrainFogOrigin == origin)
-        { fog.AddRange(cachedTerrainFog); AddCorridor(); return; }
+        var size = VoxelGrid.ChunkSize;
+        var columns = (right - left + size - 1) / size;
+        var rows = (front - back + size - 1) / size;
         var window = (left, right, back, front);
-        if (terrainFogWindow is not { } old || old.Left != left || old.Right != right)
+        if (terrainFogWindow != window)
         {
             terrainFogRows.Clear();
-            for (var z = back; z < front; z += VoxelGrid.ChunkSize) dirtyTerrainRows.Add(z);
+            dirtyTerrainRows.Clear();
+            for (var z = back; z < front; z += size) dirtyTerrainRows.Add(z);
+            terrainFogWindow = window;
+            terrainFogFarView = null;
+            terrainFarCoverage = [];
         }
-        else if (old.Back != back || old.Front != front)
+        var farView = farTerrain.View;
+        if (!ReferenceEquals(terrainFogFarView, farView))
         {
-            for (var z = back; z < front; z += VoxelGrid.ChunkSize)
-                if (z < old.Back || z >= old.Front) dirtyTerrainRows.Add(z);
-            foreach (var z in terrainFogRows.Keys.Where(z => z < back || z >= front).ToArray()) terrainFogRows.Remove(z);
+            var coverage = new bool[columns * rows];
+            foreach (var tile in farView.Tiles)
+            {
+                // Match the old chunk-centre query, including a tile's closed outer edges.
+                var firstX = Math.Max(0, (int)Math.Ceiling((tile.Origin.X - left - size / 2.0) / size));
+                var lastX = Math.Min(columns - 1, (int)Math.Floor((tile.Origin.X + tile.SizeCells - left - size / 2.0) / size));
+                var firstZ = Math.Max(0, (int)Math.Ceiling((tile.Origin.Z - back - size / 2.0) / size));
+                var lastZ = Math.Min(rows - 1, (int)Math.Floor((tile.Origin.Z + tile.SizeCells - back - size / 2.0) / size));
+                if (firstX > lastX) continue;
+                for (var row = firstZ; row <= lastZ; row++)
+                    Array.Fill(coverage, true, row * columns + firstX, lastX - firstX + 1);
+            }
+            for (var row = 0; row < rows; row++)
+                if (terrainFarCoverage.Length != coverage.Length ||
+                    !terrainFarCoverage.AsSpan(row * columns, columns).SequenceEqual(coverage.AsSpan(row * columns, columns)))
+                    dirtyTerrainRows.Add(back + row * size);
+            terrainFarCoverage = coverage;
+            terrainFogFarView = farView;
         }
-        terrainFogWindow = window;
+        var retained = range.Around(NodeStreaming.RetainCells).Window(layout!);
+        var ahead = prefetch.Window(layout!);
+        var required = (Left: Math.Min(retained.Left, ahead.Left), Right: Math.Max(retained.Right, ahead.Right),
+            Back: Math.Min(retained.Back, ahead.Back), Front: Math.Max(retained.Front, ahead.Front));
+        if (terrainFogRequired != required)
+        {
+            for (var z = back; z < front; z += size)
+            {
+                var wasRequired = z >= terrainFogRequired.Back && z < terrainFogRequired.Front;
+                var isRequired = z >= required.Back && z < required.Front;
+                if (wasRequired != isRequired || isRequired &&
+                    (terrainFogRequired.Left != required.Left || terrainFogRequired.Right != required.Right))
+                    dirtyTerrainRows.Add(z);
+            }
+            terrainFogRequired = required;
+        }
+        if (dirtyTerrainRows.Count == 0 && terrainFogOrigin == origin)
+        { fog.AddRange(cachedTerrainFog); AddCorridor(); return; }
         foreach (var z in dirtyTerrainRows)
         {
             if (z < back || z >= front) continue;
             var row = ImmutableArray.CreateBuilder<SceneBounds>();
             int? start = null;
-            for (var x = left; x < right; x += VoxelGrid.ChunkSize)
+            for (var x = left; x < right; x += size)
             {
                 var inWindow = x >= required.Left && x < required.Right && z >= required.Back && z < required.Front ||
                     unbuiltCorridorChunks.Contains(new(x, z));
-                var hasFar = !inWindow && farView.Height(new(x + VoxelGrid.ChunkSize / 2, 0, z + VoxelGrid.ChunkSize / 2)) is not null;
+                var hasFar = !inWindow && terrainFarCoverage[(z - back) / size * columns + (x - left) / size];
                 if (!terrainChunks.Contains(new(x, z)) && !hasFar) start ??= x;
                 else if (start is { } begin) { Missing(begin, x); start = null; }
             }
