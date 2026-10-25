@@ -42,23 +42,29 @@ internal static class ProductionQueries
         var settlement = world.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == key.Building));
         if (settlement is null) return null;
         var plot = settlement.Plots.Single(p => p.Building == key.Building);
-        return Evaluate(world, content, settlement, plot, key, knownCapability);
+        return Evaluate(world, content, settlement, key, FindPlan(settlement, plot.TemplateNumber, key.Capability), knownCapability);
+    }
+
+    private static TemplateProductionPlan? FindPlan(SettlementState settlement, int plotNumber, CapabilityKind capability)
+    {
+        foreach (var plan in settlement.Template.ProductionPlans)
+            if (plan.PlotNumber == plotNumber && plan.Capability == capability) return plan;
+        return null;
     }
 
     private static FacilityEvaluation? Evaluate(WorldState world, CoreContentProjection content,
-        SettlementState settlement, PlotState plot, FacilityKey key, double? knownCapability)
+        SettlementState settlement, FacilityKey key, TemplateProductionPlan? plan, double? knownCapability)
     {
         var id = new InstanceId.Building(key.Building);
         var instance = world.GetInstance(id);
         var design = world.Designs.Single(d => d.Design == instance.Design);
-        var plan = settlement.Template.ProductionPlans.SingleOrDefault(p => p.PlotNumber == plot.TemplateNumber
-            && p.Capability == key.Capability);
         if (plan is null && !design.Parts.Any(p => p.Capabilities.Any(c => key.Capability == CapabilityKind.Production
             ? c is PartCapability.Production : c is PartCapability.Extraction))) return null;
         var runtime = settlement.ProductionFacilities.SingleOrDefault(f => f.Facility == key);
         var capability = knownCapability ?? Capability(world, content, key);
         var process = plan is null ? null : Process(content, plan.Process);
-        var batchProcessMissing = runtime?.Batch is { } active && Process(content, active.Process) is null;
+        var batchProcessMissing = runtime?.Batch is { } active
+            && (active.Process == plan?.Process ? process : Process(content, active.Process)) is null;
         var state = ProductionState.Running;
         string? problem = null;
         if ((plan is not null && process is null) || batchProcessMissing) { state = ProductionState.ProcessMissing; problem = "content_missing"; }
@@ -158,31 +164,42 @@ internal static class ProductionQueries
         var sameCapabilities = ReferenceEquals(beforeContent, afterContent) && before.Instances == after.Instances
             && before.Designs == after.Designs && before.DesignGoods == after.DesignGoods
             && before.ConstructionJobs == after.ConstructionJobs;
-        foreach (var plot in settlement.Plots.Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value))
+        foreach (var plot in settlement.Plots)
         {
-            var previousPlot = previousSettlement?.Plots.SingleOrDefault(p => p.Building == plot.Building);
+            if (plot.Building is not { } building) continue;
+            PlotState? previousPlot = null;
+            if (previousSettlement is not null)
+                foreach (var candidate in previousSettlement.Plots)
+                    if (candidate.Building == building) { previousPlot = candidate; break; }
             BuildingCapabilities? oldCapabilities = null;
             BuildingCapabilities? currentCapabilities = null;
             ReadOnlySpan<CapabilityKind> kinds = [CapabilityKind.Production, CapabilityKind.Extraction];
             foreach (var capability in kinds)
             {
+                var plan = FindPlan(settlement, plot.TemplateNumber, capability);
+                var previousPlan = previousPlot is null ? null
+                    : FindPlan(previousSettlement!, previousPlot.TemplateNumber, capability);
                 // 两边都没有计划时，设施只可能不存在或为 Disabled，不会产生状态变化。
-                if (!settlement.Template.ProductionPlans.Any(p => p.PlotNumber == plot.TemplateNumber && p.Capability == capability)
-                    && (previousPlot is null || !previousSettlement!.Template.ProductionPlans.Any(p => p.PlotNumber == previousPlot.TemplateNumber
-                        && p.Capability == capability))) continue;
-                var key = new FacilityKey(plot.Building!.Value, capability);
+                if (plan is null && previousPlan is null) continue;
+                var key = new FacilityKey(building, capability);
                 if (previousPlot is not null)
                     oldCapabilities ??= BuildingCapabilities.Read(before, beforeContent, key.Building);
                 currentCapabilities ??= sameCapabilities && oldCapabilities is { } previousCapabilities
                     ? previousCapabilities : BuildingCapabilities.Read(after, afterContent, key.Building);
-                var old = previousPlot is null ? null : Evaluate(before, beforeContent, previousSettlement!, previousPlot, key,
+                var old = previousPlot is null ? null : Evaluate(before, beforeContent, previousSettlement!, key, previousPlan,
                     capability == CapabilityKind.Extraction ? oldCapabilities?.Extraction : oldCapabilities?.Production);
-                var current = Evaluate(after, afterContent, settlement, plot, key, capability == CapabilityKind.Extraction
+                var current = Evaluate(after, afterContent, settlement, key, plan, capability == CapabilityKind.Extraction
                     ? currentCapabilities.Value.Extraction : currentCapabilities.Value.Production);
                 if (old is { } previous && current is { } next && previous.State != next.State)
                     events.Add(new CoreEvent.ProductionStateChanged(key, previous.State, next.State, Blockers(key, next.Problem)));
             }
         }
+        events.Sort(static (left, right) =>
+        {
+            var a = ((CoreEvent.ProductionStateChanged)left).Facility;
+            var b = ((CoreEvent.ProductionStateChanged)right).Facility;
+            return (a.Building.Value, a.Capability).CompareTo((b.Building.Value, b.Capability));
+        });
         return events.ToImmutable();
     }
 }
