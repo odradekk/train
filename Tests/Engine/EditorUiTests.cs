@@ -486,6 +486,142 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { OS.RemoveLogger(output); fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
+    [Test]
+    public async Task Element_list_text_tracks_display_fields_across_levels_and_sessions()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var session = fixture.Factory.Session!;
+            var original = fixture.Editor.State!.Elements[0];
+            var variants = new (EditElement Element, string Text)[]
+            {
+                (original with { Id = new(2) }, "2 · 体素 (0, 0, 0)"),
+                (original with { Parent = new(10) }, "↳ 10 / 1 · 体素 (0, 0, 0)"),
+                (original with { Kind = EditElementKind.SceneModel }, "1 · 场景模型 (0, 0, 0)"),
+                (original with { At = new(-7, 2, 3) }, "1 · 体素 (-7, 2, 3)"),
+                (original with { Locked = true }, "1 · 体素 (0, 0, 0) [锁定]")
+            };
+            foreach (var (element, text) in variants)
+            {
+                session.SetState(state => state with
+                {
+                    Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(state.Snapshot.Stamp.Revision.Value + 1) } },
+                    Elements = state.Elements.SetItem(0, original)
+                });
+                await FramesUntil(TestScene, () => list.ItemCount > 0 && list.GetItemText(0) == "1 · 体素 (0, 0, 0)");
+                session.SetState(state => state with
+                {
+                    Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(state.Snapshot.Stamp.Revision.Value + 1) } },
+                    Elements = state.Elements.SetItem(0, element)
+                });
+                await FramesUntil(TestScene, () => list.ItemCount > 0 && list.GetItemText(0) == text);
+            }
+            session.SetState(state => state with
+            {
+                EnteredObject = new(10),
+                Elements = state.Elements.SetItem(0, original with { At = new(4, 5, 6) })
+            });
+            await FramesUntil(TestScene, () => fixture.Editor.State!.EnteredObject == new EditElementId(10)
+                && list.GetItemText(0) == "1 · 体素 (4, 5, 6)");
+            fixture.Editor.RequestClose(() => { });
+            if (fixture.Editor.Leaving) fixture.Editor.ResolveClose(LeaveChoice.Discard);
+            await FramesUntil(TestScene, () => !fixture.Editor.IsOpen);
+            fixture.Factory.ConfigureSession = next => next.SetState(state => state with
+            {
+                Elements = [original with { At = new(7, 8, 9) }]
+            });
+            fixture.Editor.Open(EditorPreviewSession.Draft, new DraftTarget.LocalBlueprint(null));
+            await FramesUntil(TestScene, () => fixture.Factory.Session != session && list.ItemCount == 1
+                && list.GetItemText(0) == "1 · 体素 (7, 8, 9)");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Element_list_selection_matches_state_after_external_changes_and_accepted_or_rejected_clicks()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var session = fixture.Factory.Session!;
+            var input = new UiTestInput(TestScene);
+            bool Selected(params ulong[] ids) => list.GetSelectedItems()
+                .Select(index => fixture.Editor.State!.Elements[index].Id.Value).ToHashSet().SetEquals(ids);
+            var cell = fixture.Editor.State!.Elements[0];
+            var elements = Enumerable.Range(1000, 512)
+                .Select(id => cell with { Id = new((ulong)id), At = new(id, 0, 0) }).ToImmutableArray();
+            var firstHalf = elements.Take(256).Select(element => element.Id).ToImmutableArray();
+            var secondHalf = elements.Skip(256).Select(element => element.Id).ToImmutableArray();
+            var firstIds = firstHalf.Select(id => id.Value).ToArray();
+            var secondIds = secondHalf.Select(id => id.Value).ToArray();
+            session.SetState(state => state with
+            {
+                Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(state.Snapshot.Stamp.Revision.Value + 1) } },
+                Elements = elements, Selection = firstHalf
+            });
+            await FramesUntil(TestScene, () => list.ItemCount == elements.Length && Selected(firstIds));
+            var revision = fixture.Editor.State!.Snapshot.Stamp.Revision;
+            session.SetState(state => state with { Selection = secondHalf });
+            await FramesUntil(TestScene, () => Selected(secondIds));
+            await input.Frames(3);
+            Require(fixture.Editor.State!.Snapshot.Stamp.Revision == revision && Selected(secondIds),
+                "相同修订的外部选择变化及稳定帧必须保持256个元素的原生选择。");
+            await EnsureVisible(list);
+            async Task Click(int index, bool control = false)
+            {
+                var point = list.GetItemRect(index).GetCenter()
+                    - new Vector2((float)list.GetHScrollBar().Value, (float)list.GetVScrollBar().Value);
+                Require(list.GetItemAtPosition(point, true) == index, "真实点击必须先命中目标行。");
+                await input.Click(list.GlobalPosition + point, control);
+            }
+            await Click(1);
+            Require(fixture.Editor.State!.Selection.SequenceEqual([new EditElementId(1001)]) && Selected(1001),
+                "列表点击成功后，原生选中与状态必须同时指向被点击的元素。");
+            await Click(3, true);
+            Require(fixture.Editor.State!.Selection.ToHashSet().SetEquals([new(1001), new(1003)]) && Selected(1001, 1003),
+                "Ctrl点击成功后，原生多选必须与状态一致。");
+            session.SetState(state => state with { Selection = firstHalf });
+            await FramesUntil(TestScene, () => Selected(firstIds));
+            var attempts = 0;
+            var accepted = fixture.Editor.State.Selection;
+            session.SelectCall = _ =>
+            {
+                attempts++;
+                return new SceneResult<EditState>.Failure([new("target_missing", SceneStage.Edit, null, null, null, null, "选取目标已过期。")]);
+            };
+            await Click(0);
+            // 点击已选中的多选行会等鼠标释放才请求单选，随后一帧才执行状态同步。
+            await input.Frames();
+            Require(attempts > 0 && fixture.Editor.State.Selection == accepted && Selected(firstIds),
+                "列表选择被拒绝后，下一次同步必须恢复状态选择，即使状态选择本身没有变化。");
+            await input.Frames(2);
+            Require(Selected(firstIds), "被拒绝的选择不能在后续帧重新出现。");
+            session.SetState(state => state with { Selection = secondHalf });
+            await FramesUntil(TestScene, () => Selected(secondIds));
+            Require(fixture.Editor.State.Snapshot.Stamp.Revision == revision,
+                "接受和拒绝选择以及外部选择同步都不能改变草稿修订。");
+
+            fixture.Editor.RequestClose(() => { });
+            if (fixture.Editor.Leaving) fixture.Editor.ResolveClose(LeaveChoice.Discard);
+            await FramesUntil(TestScene, () => !fixture.Editor.IsOpen);
+            fixture.Factory.ConfigureSession = next => next.SetState(state => state with
+            {
+                Elements = elements.Reverse().ToImmutableArray(), Selection = secondHalf
+            });
+            fixture.Editor.Open(EditorPreviewSession.Draft, new DraftTarget.LocalBlueprint(null));
+            await FramesUntil(TestScene, () => fixture.Factory.Session != session && list.ItemCount == elements.Length
+                && Selected(secondIds));
+            await EnsureVisible(list);
+            await Click(1);
+            Require(fixture.Editor.State!.Selection.SequenceEqual([elements[^2].Id]) && Selected(elements[^2].Id.Value),
+                "新会话复用同一选择数组并反排行顺序后，原生选择和点击仍须对应正确元素ID。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
     private static DesignEditorPanel EditorPanel(EditorPreview fixture) => Find<DesignEditorPanel>(fixture.App, "DesignEditor");
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));
