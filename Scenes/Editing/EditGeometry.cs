@@ -30,9 +30,9 @@ internal sealed class EditGeometry
             ScenePose composed, ImmutableArray<int> path)
         {
             var id = objectId(element);
-            var cells = ImmutableArray.CreateBuilder<SceneCell>();
+            var cells = ImmutableArray.CreateBuilder<SceneCell>(highestY is null ? value.Cells.Length : 0);
             var models = new List<SceneCell>();
-            var ids = new Dictionary<GridPosition, EditElementId>();
+            var ids = new Dictionary<GridPosition, EditElementId>(value.Cells.Length);
             var palette = new (CellProperties Properties, ImmutableArray<SceneProblem> Problems)?[value.Palette.Length];
             for (var i = 0; i < value.Cells.Length; i++)
             {
@@ -109,7 +109,7 @@ internal sealed class EditGeometry
         void AddGrid(EditElementId element, SceneObjectId id, SceneObjectId? parent, ScenePose pose, ScenePose composed,
             ImmutableArray<SceneCell>.Builder cells, List<SceneCell> models, Func<GridPosition, PickSubject> resolveSubject)
         {
-            var values = cells.ToImmutable();
+            var values = cells.DrainToImmutable();
             grids.TryGetValue(element, out var previous);
             GridGeometry current;
             if (previous is not null && values.AsSpan().SequenceEqual(previous.Cells.AsSpan())) current = previous;
@@ -151,7 +151,7 @@ internal sealed class EditGeometry
                 .Concat(current.Chunks.Values.SelectMany(chunk => chunk.Shapes)).ToImmutableArray();
             objects.Add(new(id, parent, pose, null, visuals, [], []));
             objects.AddRange(DesignGeometry.Models(current.Grid, id, null, cell => modelId(id, cell.At), true, cells: models));
-            if (cells.Count > 0) picking.Add(new(id, composed, current.Grid, resolveSubject));
+            if (values.Length > 0) picking.Add(new(id, composed, current.Grid, resolveSubject));
         }
 
         bool Visible(GridPosition at, ScenePose pose) => highestY is null ||

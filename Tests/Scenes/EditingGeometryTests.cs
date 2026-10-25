@@ -13,6 +13,29 @@ namespace Train.Scenes.Tests;
 public sealed class EditingGeometryTests
 {
     [TestMethod]
+    public void CellBufferHandoffPreservesPickingAndDuplicateDiagnosticsAcrossEmptyClippedViews()
+    {
+        var content = SceneFixtures.Content();
+        using var session = EditingFixtures.Open(EditingFixtures.Draft(new(0, 0, 0), new(0, 0, 0)), content: content);
+        var comparison = new FullComparison(session, content);
+        var first = comparison.Check();
+        var state = session.Read();
+        EditingHit(first, EditingFixtures.Ray(), state.Snapshot.Stamp, state.Elements[0].Id, new(0, 0, 0));
+        Assert.IsTrue(first.Diagnostics.Any(problem => problem.Code == "occupancy_conflict"));
+
+        var clipped = comparison.Check(-1);
+        Assert.IsInstanceOfType<ScenePick.Miss>(clipped.Pick(EditingFixtures.Ray()));
+        Assert.IsTrue(clipped.Diagnostics.Any(problem => problem.Code == "occupancy_conflict"));
+        EditingHit(comparison.Check(), EditingFixtures.Ray(), state.Snapshot.Stamp, state.Elements[0].Id, new(0, 0, 0));
+        EditingHit(first, EditingFixtures.Ray(), state.Snapshot.Stamp, state.Elements[0].Id, new(0, 0, 0));
+
+        using var empty = EditingFixtures.Open(EditingFixtures.Draft(), content: content);
+        var emptyComparison = new FullComparison(empty, content);
+        Assert.IsInstanceOfType<ScenePick.Miss>(emptyComparison.Check().Pick(EditingFixtures.Ray()));
+        Assert.IsInstanceOfType<ScenePick.Miss>(emptyComparison.Check(-1).Pick(EditingFixtures.Ray()));
+    }
+
+    [TestMethod]
     public void LocalEditsMatchFullMeshesAndReuseDistantChunksWithoutChangingOldFrames()
     {
         var content = SceneFixtures.Content(appearance: SceneFixtures.Cube with
