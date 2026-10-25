@@ -77,9 +77,17 @@ internal static class ConstructionJobs
         var id = new InstanceId.Building(facility.Building);
         if (InstanceLocked(world, id)) return 0;
         var instance = world.GetInstance(id);
-        var capabilities = InstanceCapabilities.EffectiveParts(world, content, instance)
-            .SelectMany(p => p.Capabilities).OfType<PartCapability.Construction>().ToArray();
-        return capabilities.Any(c => Allows(c, target)) ? capabilities.Sum(c => c.WorkPerSecond) : 0;
+        double rate = 0;
+        var allowed = false;
+        foreach (var part in InstanceCapabilities.EffectiveParts(world, content, instance,
+            static part => part.Capabilities.Any(c => c is PartCapability.Construction)))
+            foreach (var capability in part.Capabilities)
+                if (capability is PartCapability.Construction construction)
+                {
+                    rate += construction.WorkPerSecond;
+                    allowed |= Allows(construction, target);
+                }
+        return allowed ? rate : 0;
     }
 
     internal static PlotSize Archive(PlotSize size) => size switch

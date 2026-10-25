@@ -433,6 +433,55 @@ public sealed class ProductionTests
     }
 
     [TestMethod]
+    public void State_changes_order_buildings_and_capabilities_independently_of_plot_order()
+    {
+        var content = ExtractionFixture.Content(dual: true);
+        content = content with { SettlementTemplates = [content.SettlementTemplates[0] with
+        {
+            Plots = [..content.SettlementTemplates[0].Plots, new(3, PlotSize.Small, WorldFixture.FactoryBuilding)],
+            ProductionPlans = [..content.SettlementTemplates[0].ProductionPlans,
+                new(3, CapabilityKind.Production, Process, true, 0),
+                new(3, CapabilityKind.Extraction, ExtractionFixture.Process, true, 0)]
+        }] };
+        using var candidate = ExtractionFixture.Prepare(content);
+        using var session = (CoreSession)candidate.Activate();
+        var generated = session.State.World;
+        var settlement = generated.Settlements.Single();
+        var first = settlement.Plots.Single(p => p.Building == new BuildingId(2));
+        var second = settlement.Plots.Single(p => p.Building == new BuildingId(3));
+        var before = generated with
+        {
+            Settlements = [settlement with { Plots = settlement.Plots.Select(p => p.Id == first.Id
+                ? p with { Building = second.Building } : p.Id == second.Id ? p with { Building = first.Building } : p).ToImmutableArray() }],
+            Instances = generated.Instances.Select(i => i.Id == new InstanceId.Building(first.Building!.Value)
+                ? i with { Details = new InstanceDetails.Building(second.Id, second.Size) }
+                : i.Id == new InstanceId.Building(second.Building!.Value)
+                    ? i with { Details = new InstanceDetails.Building(first.Id, first.Size) } : i).ToImmutableArray()
+        };
+        WorldFixture.Success(CoreFactory.Create().DecodeState(new CoreCapture(session.State with { World = before }).Encode()));
+        var after = before with
+        {
+            Instances = before.Instances.Select(i => i.Design != WorldFixture.FactoryBuilding ? i
+                : i with { StructureDurability = 0 }).ToImmutableArray()
+        };
+        var changes = ProductionQueries.StateChanges(before, session.State.Content, after, session.State.Content, Settlement)
+            .Cast<CoreEvent.ProductionStateChanged>().ToArray();
+        FacilityKey[] expected = [new(new(2), CapabilityKind.Production), new(new(2), CapabilityKind.Extraction),
+            new(new(3), CapabilityKind.Production), new(new(3), CapabilityKind.Extraction)];
+        CollectionAssert.AreEqual(expected, changes.Select(c => c.Facility).ToArray());
+        foreach (var change in changes)
+        {
+            Assert.AreEqual(ProductionState.Running, change.Before);
+            Assert.AreEqual(ProductionState.ZeroCapability, change.After);
+            var reason = change.Reasons.Single();
+            Assert.AreEqual("capability_zero", reason.Code);
+            Assert.AreEqual("Facility", reason.Field);
+            Assert.AreEqual(new WorldObjectId.Instance(new InstanceId.Building(change.Facility.Building)), reason.Subject);
+            Assert.IsEmpty(reason.RelatedIdentities);
+        }
+    }
+
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, true)]
     [DataRow(false, false)]
