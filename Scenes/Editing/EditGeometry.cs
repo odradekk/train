@@ -110,42 +110,48 @@ internal sealed class EditGeometry
             ImmutableArray<SceneCell>.Builder cells, List<SceneCell> models, Func<GridPosition, PickSubject> resolveSubject)
         {
             var values = cells.ToImmutable();
-            var grid = new VoxelGrid(values);
             grids.TryGetValue(element, out var previous);
-            var sameHeight = previous is not null && previous.Grid.Bounds?.Minimum.Y == grid.Bounds?.Minimum.Y &&
-                previous.Grid.Bounds?.Maximum.Y == grid.Bounds?.Maximum.Y;
-            HashSet<GridPosition> changed = [];
-            if (sameHeight)
+            GridGeometry current;
+            if (previous is not null && values.AsSpan().SequenceEqual(previous.Cells.AsSpan())) current = previous;
+            else
             {
-                foreach (var cell in values)
-                    if (previous!.Grid.Find(cell.At) is not { } old || !SameAppearance(old, cell)) Change(cell.At);
-                foreach (var cell in previous!.Cells)
-                    if (!grid.Contains(cell.At)) Change(cell.At);
-            }
-            Dictionary<GridPosition, DesignGeometry.MeshGroups> chunks = [];
-            foreach (var chunk in grid.Chunks)
-                chunks.Add(chunk, sameHeight && !changed.Contains(chunk) && previous!.Chunks.TryGetValue(chunk, out var cached)
-                    ? cached : DesignGeometry.MeshChunk(grid, chunk));
-            nextGrids.Add(element, new(grid, values, chunks));
-            // 完整生成先交出所有立方体，再交出其他形状；增量拼接保持同一次序。
-            var visuals = chunks.Values.SelectMany(chunk => chunk.Cubes)
-                .Concat(chunks.Values.SelectMany(chunk => chunk.Shapes)).ToImmutableArray();
-            objects.Add(new(id, parent, pose, null, visuals, [], []));
-            objects.AddRange(DesignGeometry.Models(grid, id, null, cell => modelId(id, cell.At), true, cells: models));
-            if (cells.Count > 0) picking.Add(new(id, composed, grid, resolveSubject));
-
-            void Change(GridPosition at)
-            {
-                changed.Add(VoxelGrid.Chunk(at));
-                for (var axis = 0; axis < 3; axis++)
+                var grid = new VoxelGrid(values);
+                var sameHeight = previous is not null && previous.Grid.Bounds?.Minimum.Y == grid.Bounds?.Minimum.Y &&
+                    previous.Grid.Bounds?.Maximum.Y == grid.Bounds?.Maximum.Y;
+                HashSet<GridPosition> changed = [];
+                if (sameHeight)
                 {
-                    var x = axis == 0 ? 1 : 0;
-                    var y = axis == 1 ? 1 : 0;
-                    var z = axis == 2 ? 1 : 0;
-                    changed.Add(VoxelGrid.Chunk(new(at.X + x, at.Y + y, at.Z + z)));
-                    changed.Add(VoxelGrid.Chunk(new(at.X - x, at.Y - y, at.Z - z)));
+                    foreach (var cell in values)
+                        if (previous!.Grid.Find(cell.At) is not { } old || !SameAppearance(old, cell)) Change(cell.At);
+                    foreach (var cell in previous!.Cells)
+                        if (!grid.Contains(cell.At)) Change(cell.At);
+                }
+                Dictionary<GridPosition, DesignGeometry.MeshGroups> chunks = [];
+                foreach (var chunk in grid.Chunks)
+                    chunks.Add(chunk, sameHeight && !changed.Contains(chunk) && previous!.Chunks.TryGetValue(chunk, out var cached)
+                        ? cached : DesignGeometry.MeshChunk(grid, chunk));
+                current = new(grid, values, chunks);
+
+                void Change(GridPosition at)
+                {
+                    changed.Add(VoxelGrid.Chunk(at));
+                    for (var axis = 0; axis < 3; axis++)
+                    {
+                        var x = axis == 0 ? 1 : 0;
+                        var y = axis == 1 ? 1 : 0;
+                        var z = axis == 2 ? 1 : 0;
+                        changed.Add(VoxelGrid.Chunk(new(at.X + x, at.Y + y, at.Z + z)));
+                        changed.Add(VoxelGrid.Chunk(new(at.X - x, at.Y - y, at.Z - z)));
+                    }
                 }
             }
+            nextGrids.Add(element, current);
+            // 完整生成先交出所有立方体，再交出其他形状；增量拼接保持同一次序。
+            var visuals = current.Chunks.Values.SelectMany(chunk => chunk.Cubes)
+                .Concat(current.Chunks.Values.SelectMany(chunk => chunk.Shapes)).ToImmutableArray();
+            objects.Add(new(id, parent, pose, null, visuals, [], []));
+            objects.AddRange(DesignGeometry.Models(current.Grid, id, null, cell => modelId(id, cell.At), true, cells: models));
+            if (cells.Count > 0) picking.Add(new(id, composed, current.Grid, resolveSubject));
         }
 
         bool Visible(GridPosition at, ScenePose pose) => highestY is null ||
