@@ -8,6 +8,30 @@ namespace Train.Core.Tests.World;
 public sealed class WorldQueryTests
 {
     [TestMethod]
+    public void Required_instances_are_found_by_kind_and_full_id_with_gaps()
+    {
+        var world = State().World;
+        var building = world.Instances[0];
+        var vehicle = world.Instances[1];
+        world = world with
+        {
+            Instances = [building, building with { Id = new InstanceId.Building(new(4)) },
+                building with { Id = new InstanceId.Building(new(ulong.MaxValue)) },
+                vehicle, vehicle with { Id = new InstanceId.Vehicle(new(4)) },
+                vehicle with { Id = new InstanceId.Vehicle(new(ulong.MaxValue)) }]
+        };
+        foreach (var instance in world.Instances)
+            Assert.AreSame(instance, world.GetInstance(instance.Id));
+        foreach (var id in new ulong[] { 0, 2, 5 })
+        {
+            Assert.ThrowsExactly<InvalidOperationException>(() => world.GetInstance(new InstanceId.Building(new(id))));
+            Assert.ThrowsExactly<InvalidOperationException>(() => world.GetInstance(new InstanceId.Vehicle(new(id))));
+        }
+        var empty = world with { Instances = [] };
+        Assert.ThrowsExactly<InvalidOperationException>(() => empty.GetInstance(building.Id));
+    }
+
+    [TestMethod]
     public void Minimal_world_queries_expose_initial_station_vehicle_and_stopped_train()
     {
         using var candidate = Prepare();

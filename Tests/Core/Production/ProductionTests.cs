@@ -4,6 +4,7 @@ using Train.Core.Construction;
 using Train.Core.Contracts;
 using Train.Core.Production;
 using Train.Core.Sessions;
+using Train.Core.Settlements;
 using Train.Core.Tests.World;
 using Train.Core.World;
 using static Train.Core.Tests.Production.ProductionFixture;
@@ -13,6 +14,53 @@ namespace Train.Core.Tests.Production;
 [TestClass]
 public sealed class ProductionTests
 {
+    [TestMethod]
+    public void Preparation_orders_large_mixed_plans_and_keeps_facilities_without_requests()
+    {
+        var content = ExtractionFixture.Content(dual: true, work: 100);
+        content = content with { SettlementTemplates = [content.SettlementTemplates[0] with
+        {
+            Plots = [new(1, PlotSize.SmallStation, WorldFixture.Station),
+                ..Enumerable.Range(2, 9).Select(n => new TemplatePlotProjection(n, PlotSize.Small, WorldFixture.FactoryBuilding)),
+                new(11, PlotSize.Small, WorldFixture.FactoryBuilding)],
+            ProductionPlans = [new(10, CapabilityKind.Production, Process, true, int.MaxValue),
+                new(3, CapabilityKind.Production, Process, true, -1),
+                new(2, CapabilityKind.Extraction, ExtractionFixture.Process, true, 0),
+                new(4, CapabilityKind.Production, Process, false, 0),
+                new(6, CapabilityKind.Production, Process, true, 1),
+                new(2, CapabilityKind.Production, Process, true, 0),
+                new(8, CapabilityKind.Production, Process, true, 2),
+                new(7, CapabilityKind.Production, Process, true, 2),
+                new(5, CapabilityKind.Production, Process, true, 1),
+                new(9, CapabilityKind.Production, Process, true, int.MinValue),
+                new(11, CapabilityKind.Production, Process, true, -2)]
+        }] };
+        using var candidate = ExtractionFixture.Prepare(content);
+        using var session = (CoreSession)candidate.Activate();
+        var working = new FacilityKey(new(5), CapabilityKind.Production);
+        var world = session.State.World with
+        {
+            Instances = session.State.World.Instances.Where(i => i.Id != new InstanceId.Building(new(11)))
+                .Select(i => i.Id == new InstanceId.Building(new(6))
+                ? i with { StructureDurability = 0 } : i).ToImmutableArray(),
+            Settlements = session.State.World.Settlements.Select(s => s with
+            {
+                Plots = s.Plots.Select(p => p.TemplateNumber == 11 ? p with { Building = null } : p).ToImmutableArray(),
+                ProductionFacilities = s.ProductionFacilities.Where(f => f.Facility.Building.Value != 11).Select(f => f.Facility == working
+                    ? f with { Batch = new(Process, WorldFixture.Revision, [new(Product, 3)], 100, 0, 0, 20) } : f).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+        var prepared = ProductionOperations.Prepare(world, session.State.Content, Settlement);
+        FacilityKey[] expected = [new(new(9), CapabilityKind.Production), new(new(3), CapabilityKind.Production),
+            new(new(2), CapabilityKind.Production), new(new(2), CapabilityKind.Extraction),
+            new(new(4), CapabilityKind.Production), working, new(new(6), CapabilityKind.Production),
+            new(new(7), CapabilityKind.Production), new(new(8), CapabilityKind.Production), new(new(10), CapabilityKind.Production)];
+        CollectionAssert.AreEqual(expected, prepared.Facilities.Select(f => f.Key).ToArray());
+        CollectionAssert.AreEqual(expected.Where(k => k.Building.Value is not (4 or 6)).ToArray(),
+            prepared.Requests.Select(r => r.Facility).ToArray());
+        Assert.IsInstanceOfType<FacilityRequest.Work>(prepared.Requests.Single(r => r.Facility == working));
+    }
+
     [TestMethod]
     public void Session_work_uses_current_population_labor_and_new_residents_only_on_the_next_step()
     {

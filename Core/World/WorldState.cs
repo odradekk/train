@@ -284,6 +284,31 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         _ => false
     };
 
+    internal InstanceState GetInstance(InstanceId id)
+    {
+        // 状态校验和实例增删路径保证按建筑、车辆及各自 ID 严格升序。
+        var key = Key(id);
+        var low = 0;
+        var high = Instances.Length - 1;
+        while (low <= high)
+        {
+            var middle = low + (high - low) / 2;
+            var instance = Instances[middle];
+            var comparison = Key(instance.Id).CompareTo(key);
+            if (comparison == 0) return instance;
+            if (comparison < 0) low = middle + 1;
+            else high = middle - 1;
+        }
+        throw new InvalidOperationException($"实例不存在：{id}。");
+
+        static (int Kind, ulong Id) Key(InstanceId value) => value switch
+        {
+            InstanceId.Building building => (0, building.Id.Value),
+            InstanceId.Vehicle vehicle => (1, vehicle.Id.Value),
+            _ => throw new InvalidOperationException("实例身份无效。")
+        };
+    }
+
     internal InstanceView? FindInstance(InstanceId id, CoreContentProjection content)
     {
         var instance = Instances.FirstOrDefault(i => i.Id == id);

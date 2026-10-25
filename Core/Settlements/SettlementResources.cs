@@ -32,7 +32,7 @@ internal static class SettlementResources
     // Callers submit at most one request per facility capability and cap work at this step's useful rate.
     internal static SettlementResolution Resolve(WorldState world, CoreContentProjection content, SettlementId id,
         double availableLabor, ImmutableArray<GoodsQuantity> basic, ImmutableArray<FacilityRequest> facilities,
-        Func<ImmutableArray<long>, ImmutableArray<GoodsQuantity>> improvement)
+        Func<ImmutableArray<long>, ImmutableArray<GoodsQuantity>> improvement, ImmutableArray<GoodDefinitionProjection> fuels)
     {
         var settlement = world.Settlements.Single(s => s.Id == id);
         var inventory = world.Inventories.Single(i => i.Id == settlement.Inventory);
@@ -42,7 +42,6 @@ internal static class SettlementResources
         var resourcesChanged = false;
         var energyRemaining = GeneratedEnergy(world, content, settlement);
         var fuelRemaining = settlement.FuelEnergyRemaining;
-        var fuels = Fuels(world, content).ToArray();
         var batches = ImmutableArray.CreateBuilder<FacilityKey>();
         var work = ImmutableArray.CreateBuilder<WorkAllocation>();
         var basicGranted = Consume(basic);
@@ -92,17 +91,25 @@ internal static class SettlementResources
         }
 
         var improvementGranted = Consume(improvement(basicGranted));
+        var inventories = world.Inventories;
+        // 仲裁不增加正数量货物，沿原库存的规范顺序保留剩余项。
+        if (inventory.Goods.Any(g => quantities[g.Good] != g.Quantity))
+        {
+            var goods = ImmutableArray.CreateBuilder<GoodsQuantity>(inventory.Goods.Length);
+            foreach (var item in inventory.Goods)
+            {
+                var quantity = quantities[item.Good];
+                if (quantity > 0) goods.Add(quantity == item.Quantity ? item : item with { Quantity = quantity });
+            }
+            inventories = inventories.Replace(inventory, inventory with { Goods = goods.DrainToImmutable() });
+        }
         var resolved = world with
         {
             Nodes = !resourcesChanged ? world.Nodes : world.Nodes.Select(n => n.Id == node.Id
                 ? n with { Resources = resources.Values.OrderBy(r => r.Good, WorldReferences.GoodComparer).ToImmutableArray() }
                 : n).ToImmutableArray(),
-            Settlements = world.Settlements.Select(s => s.Id == id ? s with { FuelEnergyRemaining = fuelRemaining } : s).ToImmutableArray(),
-            Inventories = world.Inventories.Select(i => i.Id == inventory.Id ? i with
-            {
-                Goods = quantities.Where(g => g.Value > 0).OrderBy(g => g.Key, WorldReferences.GoodComparer)
-                    .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray()
-            } : i).ToImmutableArray()
+            Settlements = world.Settlements.Replace(settlement, settlement with { FuelEnergyRemaining = fuelRemaining }),
+            Inventories = inventories
         };
         return new(resolved, basicGranted, batches.ToImmutable(), work.ToImmutable(), improvementGranted);
 

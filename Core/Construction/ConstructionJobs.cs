@@ -76,7 +76,7 @@ internal static class ConstructionJobs
     {
         var id = new InstanceId.Building(facility.Building);
         if (InstanceLocked(world, id)) return 0;
-        var instance = world.Instances.Single(i => i.Id == id);
+        var instance = world.GetInstance(id);
         var capabilities = InstanceCapabilities.EffectiveParts(world, content, instance)
             .SelectMany(p => p.Capabilities).OfType<PartCapability.Construction>().ToArray();
         return capabilities.Any(c => Allows(c, target)) ? capabilities.Sum(c => c.WorkPerSecond) : 0;

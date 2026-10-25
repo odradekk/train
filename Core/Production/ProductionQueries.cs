@@ -49,7 +49,7 @@ internal static class ProductionQueries
         SettlementState settlement, PlotState plot, FacilityKey key, double? knownCapability)
     {
         var id = new InstanceId.Building(key.Building);
-        var instance = world.Instances.Single(i => i.Id == id);
+        var instance = world.GetInstance(id);
         var design = world.Designs.Single(d => d.Design == instance.Design);
         var plan = settlement.Template.ProductionPlans.SingleOrDefault(p => p.PlotNumber == plot.TemplateNumber
             && p.Capability == key.Capability);

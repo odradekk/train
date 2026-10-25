@@ -9,7 +9,7 @@ internal readonly record struct BuildingCapabilities(double Production, double E
     internal static BuildingCapabilities Read(WorldState world, CoreContentProjection content, BuildingId building)
     {
         var id = new InstanceId.Building(building);
-        var instance = world.Instances.Single(i => i.Id == id);
+        var instance = world.GetInstance(id);
         if (ConstructionJobs.InstanceLocked(world, id)) return new(0, 0, 0, 0);
         double production = 0, extraction = 0, construction = 0, power = 0;
         foreach (var part in InstanceCapabilities.EffectiveParts(world, content, instance,

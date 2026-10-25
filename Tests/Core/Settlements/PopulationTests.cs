@@ -253,7 +253,8 @@ public sealed class PopulationTests
             new FacilityRequest.Work(new(new(1), CapabilityKind.Construction), 2, 20, 0, 2)];
         var consumption = population.Consumption!;
         var resolved = SettlementResources.Resolve(world, content, new(1), population.AvailableLabor,
-            consumption.BasicRequests, facilities.ToImmutableArray(), consumption.PrepareImprovement);
+            consumption.BasicRequests, facilities.ToImmutableArray(), consumption.PrepareImprovement,
+            SettlementResources.Fuels(world, content).ToImmutableArray());
         Assert.AreEqual(CapabilityKind.Extraction, resolved.AcceptedBatches.Single().Capability);
         Assert.AreEqual(2.5, resolved.Work.Single().WorkPerSecond);
         var complete = PopulationOperations.Complete(resolved.World, new(1), population, resolved.ImprovementGrantedUnits, new(1, 0));
