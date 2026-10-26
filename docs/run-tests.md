@@ -55,7 +55,7 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 入口先显示预览选择，选择“显示帧预览”使用上述固定显示帧。“进入”打开跟随场景；“下一情景”依次切换原点移动、部分就绪与空间变更；“切换车辆”在同列车的两个跟随目标间切换；“节点”和“线路”用于比较中键平移范围；“退出”或 Escape 返回验证地图。“最小化”设置真实窗口模式，从任务栏恢复。状态栏显示模拟步数、Present／Observe 次数、Session／Request、对象根与雾组实例 ID、根节点退出树次数及 Camera／Environment 激活状态，可检查连续帧、目标切换、稳定节点身份与最小化期间模拟推进。这是人工观察入口，不生成 JUnit，也不代表真实体素工厂或完整玩法验收。
 
-选择“检查光照预览”启动 `InspectionLightingPreview`。该手动预览通过真实 `ScenesFactory.Create()` 生成一条线路和一列小型列车，复用生产 App、世界视图、相机和渲染；Core/Content 使用 ContractSupport 的固定读视图与明确的线路、车辆及素材输入，并保持暂停。按反引号打开控制台，执行 [`lighting`](console/lighting.md) 切换三种检查光照或恢复；“线路 / 重新进入”支持线路平移及重入，“跟随列车”切换跟随目标。它提供真实 Scenes 生成、真实 Godot 渲染的窗口检查入口，不生成截图或 JUnit，不证明完整四模块联调或 Godot 完整隔离；后两者分别归 #298 和 #424。自动截图使用[美术检查截图入口](art/08-asset-pipeline-and-review.md#检查人与记录)，从普通存档恢复真实编组，证据放在工作树 `.godot/validation/<名称>/`。预览代码仅在 Debug 可用，导出构建不包含此入口。
+选择“检查光照预览”启动 `InspectionLightingPreview`。该手动预览通过真实 `ScenesFactory.Create()` 生成一条线路和一列小型列车，复用生产 App、世界视图、相机和渲染；Core/Content 使用 ContractSupport 的固定读视图与明确的线路、车辆及素材输入，并保持暂停。按反引号打开控制台，执行 [`lighting`](console/lighting.md) 切换三种检查光照或恢复；“线路 / 重新进入”支持线路平移及重入，“跟随列车”切换跟随目标。它提供真实 Scenes 生成、真实 Godot 渲染的窗口检查入口，不生成截图或 JUnit，不证明完整四模块联调或 Godot 完整隔离。自动截图使用[美术检查截图入口](art/08-asset-pipeline-and-review.md#检查人与记录)，从普通存档恢复真实编组，证据放在工作树 `.godot/validation/<名称>/`。预览代码仅在 Debug 可用，导出构建不包含此入口。
 
 选择“节点列车帧序列”启动 `NodeTransitionPreview`，以固定 Core/Content 读视图和真实 Scenes 工厂，覆盖双轨线路从 2 号轨进站、W 等候与获站台、停靠后从 1／2 号轨出站、途经、同边异轨返回和同侧回转。它核对真实车辆 Node3D 与 FindPose 的姿态，并对配对边界关键帧断言位置、方向和高度连续；记录进出轨号、Origin、车辆姿态、相机、边界误差和加载状态，连同 PNG 输出至 `.godot/validation/node-transition-preview-<时间戳>/`。受控关键帧不能替代生产 Core 时序、连续行驶或窗口性能证据。
 
@@ -76,17 +76,10 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 ```powershell
 # 分支全量检查：全部正确性层和 Linux 阶段检查
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=nightly
-# 长示例各自触发，不进入日常测试层
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=lease-expiry
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=starting-trade
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=rail-repair
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=conquest
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=clearance
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=operating-failure
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=long-consist
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=standard-world
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=busy-combat
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=crowded-station
+# 长示例各自触发；可选名称见示例手册
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=<示例>
+# 正式测量：先与协调者确认 runner 时段和主机条件
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=measure -f measure_scenarios=scene-node,scene-edge -f measure_input=examples/standard-world/save.json -f measure_repeat=3 -f measure_seconds=0
 # 测试机器上的正式窗口长测；先与协调者确认 runner 时段和主机条件
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=window-soak -f soak_seconds=7200
 # 阶段验收：工作流使用 master，代码使用固定的完整 40 位提交 SHA
@@ -103,7 +96,7 @@ gh run view <run_id> --repo odradekk/train
 gh run download <run_id> --repo odradekk/train --dir TestResults/remote-<run_id>
 ```
 
-Actions 页面和 job 摘要也可查看结果、逐条命令退出码与耗时，并下载 artifact。排队和运行时间不表示通过；必须核对结论、被测提交和摘要中的实际检查。失败或未完成的命令不能作为成功证据。工作流取自 `--ref`，可选 `commit` 指定被测代码；留空时二者使用触发的 ref。核对 artifact 中 `ci/environment.txt` 的 `head=`（被测提交）、`workflow=`（工作流版本），以及摘要中的 commit；Actions 的 `headSha` 对应工作流版本，不能代替实际被测提交。编排脚本取自工作流版本，CLI、配方、SDK 配置及全量检查入口取自被测提交。工作流文件已在默认分支，手动 dispatch 可使用任务分支上的版本；上述 master 命令须等新输入合并后使用。
+Actions 页面和 job 摘要也可查看结果、逐条命令退出码与耗时，并下载 artifact。排队和运行时间不表示通过；必须核对结论、被测提交和摘要中的实际检查。失败或未完成的命令不能作为成功证据。工作流取自 `--ref`，可选 `commit` 指定被测代码；留空时二者使用触发的 ref。核对 artifact 中 `ci/environment.txt` 的 `head=`（被测提交）、`workflow=`（工作流版本），以及摘要中的 commit；Actions 的 `headSha` 对应工作流版本，不能代替实际被测提交。编排和测量脚本取自工作流版本，CLI、配方、SDK 配置及全量检查入口取自被测提交。工作流文件已在默认分支，手动 dispatch 可使用任务分支上的版本。
 
 Linux 全量结果可承担同份代码的完整回归，但不替代真实窗口交互／截图、目标实机性能、Windows 导出及导出后运行、已提交 Windows 示例的重制比较，以及 Windows 固定重放语料等平台限定检查。上述检查仍在相应本机环境运行，按[Testing standard](implement-sop.md#testing-standard)判断证据是否适用；最终 PR head 的 Windows routine CI 仍须通过。Linux CLI 长示例不提供 Godot、Scenes 或完整阶段联调证据。
 
@@ -115,20 +108,20 @@ Linux 全量结果可承担同份代码的完整回归，但不替代真实窗�
 
 标准世界变体读取 `examples/standard-world/save.json`，那里节点战斗、线路战斗、施工、生产和站台排队都在进行。参考结果不经过宿主帧驱动：同一进程直接用核心和内容工厂恢复同一存档，每 100 步推进并捕获检查点，共 600 步。三个 App 经生产 `SaveService.StartExample` 打开同一份文档，分别以 1×／60 Hz、8× 不规则帧间隔加暂停帧、8× 下依次打开节点战斗场景、线路战斗场景和跟随场景再返回地图，在相同位置与参考结果逐个比较；所有宿主变体共有的驱动错误也会因此暴露。
 
-`scripts/export-measurement.ps1` 为测量生成并保留 Windows 或 Linux Release 导出，先读[本地 Windows 环境要求](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，导出结束后确认 HEAD 未变且工作树仍干净。它隔离用户目录（Windows 为 `APPDATA`／`LOCALAPPDATA`，Linux 为 XDG 目录），只复制 Release 模板并在结束时清理该副本：默认取已安装的模板，`-TemplatePath` 可指定已核对的模板文件；Linux 使用 `Linux` 预设，输出 `train.x86_64`。构建和测量的输出都须使用新目录或空目录；仓库内构建目录须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制；测量需要另行保留完整导出。
+`scripts/measure/export-measurement.ps1` 为测量生成并保留 Windows 或 Linux Release 导出，先读[本地 Windows 环境要求](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，导出结束后确认 HEAD 未变且工作树仍干净。它隔离用户目录（Windows 为 `APPDATA`／`LOCALAPPDATA`，Linux 为 XDG 目录），只复制 Release 模板并在结束时清理该副本：默认取已安装的模板，`-TemplatePath` 可指定已核对的模板文件；Linux 使用 `Linux` 预设，输出 `train.x86_64`。构建和测量的输出都须使用新目录或空目录；仓库内构建目录须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制；测量需要另行保留完整导出。
 
 测量导出同样执行共享的程序集优化检查，结果记入 `export-summary.json` 的 `optimizations` 步骤；检查失败时拒绝该构建。
 
-`scripts/measure.ps1` 复用这个已有导出，不重新构建。保留完整导出目录中的 EXE、旁置 PCK 和唯一的 `Train.dll`；输入为普通存档：
+`scripts/measure/measure.ps1` 复用这个已有导出，不重新构建。保留完整导出目录中的 EXE、旁置 PCK 和唯一的 `Train.dll`；输入为普通存档：
 
 ```powershell
 # 构建一次，后续测量复用此固定二进制；保留完整目录与构建日志
-pwsh -NoProfile -File scripts/export-measurement.ps1 -OutputDirectory TestResults/measurement-build
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-small-world
+pwsh -NoProfile -File scripts/measure/export-measurement.ps1 -OutputDirectory TestResults/measurement-build
+pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-small-world
 # 单独复测一组情景，仍执行三个独立进程
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-follow -Scenario follow-8x
+pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-follow -Scenario follow-8x
 # 在 PowerShell 中多选；不把逗号列表作为 -File 的单个参数传入
-& ./scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-selected -Scenario @('sdfgi-off', 'sdfgi-on')
+& ./scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-selected -Scenario @('sdfgi-off', 'sdfgi-on')
 ```
 
 报告的 `identity.game_build` 和 `identity.build_commit` 来自实际加载程序集的 `AssemblyInformationalVersion`。脚本从该构建提交计算 `git rev-parse <commit>:docs/contracts/public-api.txt`，记录为 `identity.public_api_git_blob`；提交须存在于本地仓库。脚本同时记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以当前工作树 HEAD 代替二进制来源。
@@ -151,11 +144,11 @@ SDFGI 情景必须在采样窗口观察到原点变化，跟随／TAA 情景必�
 
 ```powershell
 # 同一 HEAD、同一输入先生成参考；参考运行不计入性能样本
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-reference -Scenario scene-reference -Repeat 1
+pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-reference -Scenario scene-reference -Repeat 1
 # 常态负载预演；正式重复次数由测量计划指定
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-node-preview -Scenario scene-node -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2
+pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-node-preview -Scenario scene-node -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2
 # 内存循环的短预演；默认 DurationSeconds=0 时运行两小时
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-memory-preview -Scenario scene-memory -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2 -DurationSeconds 30
+pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-memory-preview -Scenario scene-memory -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2 -DurationSeconds 30
 ```
 
 | 情景 | 实际路径 |
@@ -201,7 +194,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 `scene-route-*` 的流式记录默认关闭。原有路线入口不传新参数时，镜头、采样与原有输出保持原行为。单组可用 `-StreamingDiagnostics -RouteCamera default|farthest`；`Scenario` 和 `RouteCamera` 均支持多值，以下组合生成完整矩阵：
 
 ```powershell
-& ./scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/streaming-matrix -Scenario scene-route-1x,scene-route-8x -StreamingDiagnostics -RouteCamera default,farthest
+& ./scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/streaming-matrix -Scenario scene-route-1x,scene-route-8x -StreamingDiagnostics -RouteCamera default,farthest
 ```
 
 矩阵使用 `examples/starting-trade/save.json` 作为输入，默认目标为列车 1，复用 `scene-route-1x`、`scene-route-8x` 各自的完整线路→节点→线路路线。输入身份保留在每个进程的 `identity.json.input.sha256`，构建身份仍由原有入口校验。每种速度分别使用默认和最远镜头，各运行 3 个新进程；目录例如 `scene-route-8x-farthest-2`。`-Repeat 1 -DurationSeconds 30` 只作预演，完整基线使用默认 `DurationSeconds=0`。显式指定 `RouteCamera` 需要启用 `StreamingDiagnostics`。
@@ -329,7 +322,7 @@ try {
 
 ## 按改动选择
 
-默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从六个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。引擎层复用同一次改动分析：dotnet-affected 输出包含 `Tests/Engine/Train.Engine.Tests.csproj`，或改动命中下述引擎路径规则时选中；该项目引用根 `Train.csproj`，所以根项目及其依赖的影响沿同一张项目图传播。选中后执行当前全部引擎用例。`-All` 和 `-ExportWindows` 强制引擎，不依赖改动结果。单独选择 `stage` 时完全跳过改动分析，不要求基准引用存在，始终执行[阶段检查](#阶段检查与候选基准)；`-Layer stage,engine` 不强制引擎，阶段全量检查使用 `-All -Layer all,stage`。
+默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从七个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。引擎层复用同一次改动分析：dotnet-affected 输出包含 `Tests/Engine/Train.Engine.Tests.csproj`，或改动命中下述引擎路径规则时选中；该项目引用根 `Train.csproj`，所以根项目及其依赖的影响沿同一张项目图传播。选中后执行当前全部引擎用例。`-All` 和 `-ExportWindows` 强制引擎，不依赖改动结果。单独选择 `stage` 时完全跳过改动分析，不要求基准引用存在，始终执行[阶段检查](#阶段检查与候选基准)；`-Layer stage,engine` 不强制引擎，阶段全量检查使用 `-All -Layer all,stage`。
 
 以下共享文件改动选择全部 MSTest 项目：`Contracts/**`、任意层级的 `Directory.Build.*`、`global.json`、`docs/content/schemas/**`、`Tests/ContractSupport/**`、`Train.sln`、`.config/dotnet-tools.json`、`scripts/test.ps1`、`scripts/checks/**`。工作流 YAML 不在共享列表中。
 
@@ -337,7 +330,7 @@ CLI 及其项目依赖的源码改动由 dotnet-affected 沿引用图选择。`e
 
 引擎路径规则复用上述整体构建与测试入口条目，但不包含 `docs/content/schemas/**` 和 `Tests/ContractSupport/**`；另外包含 `Tests/Engine/**`、`project.godot`、`export_presets.cfg`、`builtin/**`、`addons/**`，以及 `archive/`、`docs/`、`prototypes/`、`Tests/` 之外的 `*.tscn`、`*.tres`、`*.uid`、`*.import`。`Tests/Engine/` 内的资源已由该目录规则覆盖。普通宿主 MSTest 被选中不表示引擎也被选中。
 
-集成层的契约结构、公开面和调用样例检查，在 `Contracts/**`、任意 `*.csproj`、任意层级的 `Directory.Build.*`、`Train.sln`、`prototypes/**`、`Tests/ContractChecks/**`、`scripts/checks/project-boundaries.json` 或 `docs/contracts/public-api.txt` 改动时进入默认选择；`builtin/**` PNG／GLB 及其 `.import` 改动也选择该检查，由 C# 工具要求全部内置资产使用 Keep File。内容 Schema 检查在 `docs/content/**`、`builtin/core/**` 或 `scripts/content/**` 改动时进入默认选择；同一任务依次检查示例 Schema、正式数据可重制性与 Schema，以及正式经济关系和静态供电估算。隔离重建在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、`scripts/checks/project-boundaries.json` 或 `Tests/ContractChecks/**` 改动时进入默认选择。`-All` 选择结构、公开面、隔离和 Schema 独立检查。
+集成层的契约结构、公开面和调用样例检查，在 `Contracts/**`、任意 `*.csproj`、任意层级的 `Directory.Build.*`、`Train.sln`、`prototypes/**`、`Tests/ContractChecks/**`、`scripts/checks/project-boundaries.json` 或 `docs/contracts/public-api.txt` 改动时进入默认选择；`builtin/**` PNG／GLB 及其 `.import` 改动也选择该检查，由 C# 工具要求全部内置资产使用 Keep File。内容 Schema 检查在 `docs/content/**`、`builtin/core/**` 或 `scripts/content/**` 改动时进入默认选择；同一任务依次检查示例 Schema、正式数据可重制性与 Schema，以及正式经济关系、静态供电估算、UI 符号和战斗效果资产一致性。隔离重建在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、`scripts/checks/project-boundaries.json` 或 `Tests/ContractChecks/**` 改动时进入默认选择。`-All` 选择结构、公开面、隔离和 Schema 独立检查。
 
 dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、120 秒分析超时或进程清理失败均使入口失败。工具输出写入本次运行目录。仓库路径保留 Git 返回的大小写，再用 `Path.GetFullPath` 转为原生完整路径与分隔符，避免工具的路径前缀匹配漏选。
 

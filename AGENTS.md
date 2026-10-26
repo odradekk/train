@@ -70,6 +70,7 @@ Maintained with the `setup-agent-workflow` skill. Edit values freely; keep the f
 | Content examples and schemas in `docs/content/**` | `pwsh -NoProfile -File scripts/checks/validate-content-examples.ps1` |
 | Behavior in `Scenes/**` | `dotnet test --project Tests/Scenes/Train.Scenes.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
 | Host code in `App/**`, `Rendering/**`, `Ui/**` that runs without Godot | `dotnet test --project Tests/Godot/Train.Godot.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| Measurement code in `App/Measurement/**` | `dotnet test --project Tests/Godot/Train.Godot.Tests.csproj --filter "FullyQualifiedName~Train.Godot.Tests.Measurement"`; the scenario rules are in `App/Measurement/AGENTS.md` and the `train-performance` skill |
 | Host behavior that needs a running Godot | `pwsh -NoProfile -File scripts/test.ps1 -Layer engine`; one engine test runs through the manual route in [the test entry](docs/run-tests.md) |
 | `Tools/Cli/**` | `dotnet test --project Tests/Cli/Train.Cli.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
 | `Tests/ContractSupport/**` | `dotnet test --project Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |

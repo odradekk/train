@@ -34,20 +34,9 @@ sim checkpoint
 
 内部故障发生时，宿主会立即记录一次 `simulation_fault` 错误日志，包含异常详情并冻结会话。重复查询或操作冻结会话只报告当前状态，不再重复记录该故障的错误日志。
 
-宿主保留原有日志事件 ID，故障字段按契约迁移如下：
+宿主的 `simulation_fault` 日志包含 `fault_code`、`operation`、`field`、`fault_completed_steps`、`fault_sequence`、`command_id`、`subject`、`run_session`、`diagnostic_message` 和 `diagnostic_stack_trace` 字段。
 
-| 旧字段 | 新字段或处理 |
-| --- | --- |
-| `fault_code` | 保留 |
-| `fault_phase` | 改为 `operation`、`field` |
-| `attempted_completed_steps`、`attempted_sequence` | 改为 `fault_completed_steps`、`fault_sequence`，来自 `CoreFault.Position` |
-| `attempted_command_id` | 改为 `command_id`，没有命令时为 null |
-| `entity_id` | 改为 `subject`，来自有类型的 `CoreFault.Subject` |
-| `attempted_transaction_id` | 删除 |
-| 无 | 新增 `run_session`，标识当前运行会话 |
-| 异常对象 | 改为 `CoreDiagnostic` 的 `diagnostic_message`、`diagnostic_stack_trace` 字段 |
-
-`simulation_fault` 保持 Error 级别。`simulation_frozen` 保留 `fault_code`，并用 `operation`、`field` 替代旧 `fault_phase`；拒绝原因另由 `problem_code`、`problem_field` 表达。每次 checkpoint 捕获失败只记录一条 Warning `simulation_checkpoint_failed`，普通失败带 `problem_code`、`problem_field`，故障失败带 `fault_code`、`operation`、`field`、`fault_completed_steps`、`fault_sequence`、`subject` 和 `diagnostic_*`。冻结后诊断捕获再次返回故障也不会重复记录 `simulation_fault`。
+`simulation_fault` 保持 Error 级别。`simulation_frozen` 包含 `fault_code`、`operation`、`field`；拒绝原因另由 `problem_code`、`problem_field` 表达。每次 checkpoint 捕获失败只记录一条 Warning `simulation_checkpoint_failed`，普通失败带 `problem_code`、`problem_field`，故障失败带 `fault_code`、`operation`、`field`、`fault_completed_steps`、`fault_sequence`、`subject` 和 `diagnostic_*`。冻结后诊断捕获再次返回故障也不会重复记录 `simulation_fault`。
 
 手动推进结果仍用 `requested_steps`、`steps_advanced`、`completed_steps`；checkpoint 仍用 `completed_steps`、`sequence`、`sha256`。
 
