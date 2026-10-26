@@ -70,7 +70,7 @@ public sealed class WorldDisplayConsumer(IWorldSceneSession scene, IFrameDisplay
     public SceneResult<ISceneFrame> Present(IContentView content, double interpolation,
         Vector3 focus, SceneDebugLayer debug)
     {
-        var camera = _displayed is null ? null : new SceneCameraSample(_displayed, focus);
+        var camera = _displayed is null ? null : new SceneCameraSample(_displayed, focus, 6656);
         var result = scene.Present(new SceneFrameRequest(interpolation, camera, debug, _pickRay), _displayed);
         if (result is not SceneResult<ISceneFrame>.Success ready || ready.Value.Readiness == SceneReadiness.Failed)
         {

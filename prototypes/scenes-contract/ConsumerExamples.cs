@@ -134,7 +134,7 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
             return new SceneResult<ISceneFrame>.Failure(failure.Problems);
         if (observed is SceneResult<SimulationPosition>.Faulted faulted)
             return new SceneResult<ISceneFrame>.Faulted(faulted.Problem);
-        var camera = displayedFrame is null ? null : new SceneCameraSample(displayedFrame, cameraFocus);
+        var camera = displayedFrame is null ? null : new SceneCameraSample(displayedFrame, cameraFocus, 6656);
         var request = new SceneFrameRequest(interpolation, camera, debugLayers, pickRay);
         var presented = session.Present(request, displayedFrame);
         if (presented is SceneResult<ISceneFrame>.Success candidate

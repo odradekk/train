@@ -45,6 +45,7 @@ internal sealed class SceneFrame : ISceneFrame
     private readonly ImmutableArray<SceneFog> fog;
     private readonly NodeLayout? node;
     private readonly NodeHeights nodeHeights;
+    private readonly FarTerrainView? farTerrain;
     internal RailwayPath? Railway => railway;
     internal NodeLayout? Node => node;
     internal sealed class StaticGeometry
@@ -200,9 +201,10 @@ internal sealed class SceneFrame : ISceneFrame
         SceneDebugLayer debugLayers = SceneDebugLayer.None, ImmutableDictionary<EdgeId, int>? nodeTracks = null,
         ScenePickRaySample? pickRay = null, ImmutableArray<SceneDebugLine> editLines = default,
         ImmutableArray<SceneEffectCue> effects = default, ImmutableArray<TerrainCollisionPatch> terrain = default,
-        StaticGeometry? staticGeometry = null, int staticPickOffset = 0)
+        StaticGeometry? staticGeometry = null, int staticPickOffset = 0, FarTerrainView? farTerrain = null)
     {
         Origin = origin;
+        this.farTerrain = farTerrain;
         SimulationSeconds = seconds;
         Readiness = readiness;
         this.staticGeometry = staticGeometry;
@@ -303,6 +305,8 @@ internal sealed class SceneFrame : ISceneFrame
                     region.Arc, entry, Math.Min(exit, nearest?.DistanceCells ?? exit))))
                 return new ScenePick.NotReady();
         }
+        if (farTerrain?.Intersect(ray, Origin, nearest?.DistanceCells ?? ray.MaximumDistanceCells) is { } distance &&
+            (nearest is null || distance < nearest.DistanceCells)) return new ScenePick.NotReady();
         return nearest is null ? new ScenePick.Miss() : new ScenePick.Hit(nearest);
     }
 
@@ -328,6 +332,11 @@ internal sealed class SceneFrame : ISceneFrame
         return segments.Any(segment => segment.Index == index)
             ? new Lookup<WorldLocation>.Found(new WorldLocation.Edge(railway.Edge.Id, distance / RailwayCoordinates.CellsPerMeter)) : new Lookup<WorldLocation>.Missing();
     }
+    public Lookup<double> DisplayTerrainHeight(double x, double z) =>
+        TerrainHeight(x, z) is Lookup<double>.Found found ? found :
+            farTerrain?.Height(new(x + Origin.X, 0, z + Origin.Z)) is { } height
+                ? new Lookup<double>.Found(height - Origin.Y) : new Lookup<double>.Missing();
+
     public Lookup<double> TerrainHeight(double x, double z)
     {
         if (!double.IsFinite(x) || !double.IsFinite(z)) throw new ArgumentException("Coordinates must be finite.");

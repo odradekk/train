@@ -21,7 +21,7 @@ public abstract record WorldSceneTarget
     public sealed record Follow(TrainId Train, VehicleId Vehicle) : WorldSceneTarget;
     public sealed record Combat(CombatId Id) : WorldSceneTarget;
 }
-public sealed record SceneCameraSample(ISceneFrame Frame, Vector3 Focus);
+public sealed record SceneCameraSample(ISceneFrame Frame, Vector3 Focus, double TerrainViewRadiusCells);
 public sealed record ScenePickRaySample(ISceneFrame Frame, SceneRay Ray);
 public sealed record SceneFrameRequest(double Interpolation, SceneCameraSample? Camera,
     SceneDebugLayer DebugLayers, ScenePickRaySample? PickRay = null);

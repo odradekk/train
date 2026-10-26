@@ -7,7 +7,7 @@ internal sealed record CoverageRay(ScenePoint Origin, ScenePoint Direction, doub
 internal sealed record CoverageCategoryCount(string Category, int FogOnly, int Neither);
 internal sealed record CoverageSample(int Eligible, int Terrain, int FogOnly, int Neither,
     int ExcludedNoForward, int ExcludedNear, int ExcludedFar,
-    CoverageCategoryCount[]? PartCategories = null)
+    CoverageCategoryCount[]? PartCategories = null, int SimplifiedTerrain = 0)
 {
     public bool Known => Eligible > 0;
     public int MissingTerrain => FogOnly + Neither;
@@ -34,7 +34,7 @@ internal static class ViewCoverage
     internal static CoverageSample Sample(ISceneFrame displayedFrame, IEnumerable<CoverageRay> rays,
         ISceneStreamingCoverage? coverage = null, Func<SceneStreamingPartId, string>? category = null)
     {
-        int terrain = 0, fogOnly = 0, neither = 0, noForward = 0, near = 0, far = 0;
+        int terrain = 0, simplifiedTerrain = 0, fogOnly = 0, neither = 0, noForward = 0, near = 0, far = 0;
         var planeY = -displayedFrame.Origin.Y;
         var categories = new Dictionary<string, CoverageCategoryCount>();
         foreach (var ray in rays)
@@ -53,6 +53,11 @@ internal static class ViewCoverage
                 point.X >= box.Minimum.X && point.X <= box.Maximum.X &&
                 point.Y >= box.Minimum.Y && point.Y <= box.Maximum.Y &&
                 point.Z >= box.Minimum.Z && point.Z <= box.Maximum.Z);
+            if (!inFog && displayedFrame.DisplayTerrainHeight(point.X, point.Z) is Lookup<double>.Found)
+            {
+                simplifiedTerrain++;
+                continue;
+            }
             var parts = coverage?.FindTerrainParts(point.X, point.Z);
             if (parts is null) Count("layout_unknown");
             else if (parts.Value.IsEmpty) Count("outside_terrain_domain");
@@ -72,7 +77,8 @@ internal static class ViewCoverage
                 };
             }
         }
-        return new(terrain + fogOnly + neither, terrain, fogOnly, neither, noForward, near, far, categories.Values.ToArray());
+        return new(terrain + simplifiedTerrain + fogOnly + neither, terrain, fogOnly, neither, noForward, near, far,
+            categories.Values.ToArray(), simplifiedTerrain);
     }
 
     internal static CoverageCategoryCount[] SummarizeCategories(IEnumerable<CoverageObservation> observations) =>

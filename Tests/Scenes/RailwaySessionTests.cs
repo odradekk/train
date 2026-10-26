@@ -7,6 +7,7 @@ using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 
 namespace Train.Scenes.Tests;
 
@@ -47,6 +48,7 @@ public sealed class RailwaySessionTests
         Assert.AreEqual(Quaternion.Identity, pose.Rotation);
         Assert.AreEqual(1.0, ((WorldLocation.Edge)((Lookup<WorldLocation>.Found)frame.Locate(new(0, 0, 2))).Value).DistanceMeters, 1e-6);
         Assert.IsInstanceOfType<Lookup<double>.Found>(frame.TerrainHeight(0.5, 2.5));
+        FrameDisplayScenario.AssertPreciseDisplayHeight(frame, 0.5, 2.5);
         var hit = (ScenePick.Hit)frame.Pick(new(new(20.5f, 10, 2.5f), -Vector3.UnitY, 30));
         Assert.IsInstanceOfType<PickSubject.Terrain>(hit.Value.Subject);
         Assert.IsInstanceOfType<SceneResult<PickSubject>.Success>(session.Resolve(hit.Value));
@@ -67,7 +69,7 @@ public sealed class RailwaySessionTests
         AssertLocation(first, Vector3.Zero);
 
         var next = await RailwayFixtures.Settled(scene, snapshot, target,
-            request with { Camera = new(first, Vector3.Zero) },
+            request with { Camera = new(first, Vector3.Zero, 6656) },
             Stamp(first.Update.Frame.Revision + 1), displayed: first);
         Assert.AreEqual(first.Origin, next.Origin);
         Assert.AreEqual(Vector3.Zero, next.Update.ShiftExistingRoots);
@@ -191,7 +193,7 @@ public sealed class RailwaySessionTests
     }
 
     [TestMethod]
-    public async Task SampleLongConsistKeepsBodiesBeyondTheSegmentWindowAndFogsTheirPicks()
+    public async Task SampleLongConsistKeepsBodiesAndPrecisePicksBeyondTheSegmentWindow()
     {
         // Demo 长编组样例的尺寸：32 辆共 1,280 米，远超跟随时保留的分段窗口。
         const int vehicleCells = 80;
@@ -204,15 +206,18 @@ public sealed class RailwaySessionTests
             trains: [RailwayFixtures.Train(667, members)], instances: instances);
         await using var vehicles = new SceneVehicles();
         await using var scene = RailwayFixtures.Controlled(old, vehicles);
+        scene.SetFineTerrainBuildAllowed(false);
+        scene.SetTerrainViewRadius(members.Length * vehicleCells);
         var before = await Settled(scene, old, followed: new(30));
         var next = RailwayFixtures.Snapshot(1400, 1400, 0, content: content,
             trains: [RailwayFixtures.Train(669, members)], instances: instances);
         var after = await Settled(scene, next, displayed: before,
             revision: before.Update.Frame.Revision + 1, followed: new(30));
+        await SceneFixtures.AwaitPendingWork(scene.PendingFarWork);
+        after = await Settled(scene, next, displayed: before,
+            revision: before.Update.Frame.Revision + 1, followed: new(30));
         Assert.AreEqual(new ScenePoint(0, 0, RailwayCoordinates.OriginStepCells), after.Origin);
         Assert.AreEqual(new Vector3(0, 0, (float)-RailwayCoordinates.OriginStepCells), after.Update.ShiftExistingRoots);
-        var focus = Pose(after, 30).Position;
-        var fogged = 0;
         foreach (var id in members)
         {
             var index = (int)id.Value - 1;
@@ -225,17 +230,10 @@ public sealed class RailwaySessionTests
             AssertPosition(after, id.Value, new(0, 0, (float)(1338 + 1240 - vehicleCells * index - RailwayCoordinates.OriginStepCells)));
             var pose = Pose(after, id.Value);
             var pick = after.Pick(new(pose.Position + new Vector3(.5f, 10, .5f), -Vector3.UnitY, 20));
-            // 焦点一段之内必在 Ready 范围；窗口外的车体照常显示，但其下分段未加载，拾取按雾区返回 NotReady。
-            if (pick is ScenePick.NotReady && Math.Abs(pose.Position.Z - focus.Z) > RailwayCoordinates.SegmentLengthCells)
-            {
-                fogged++;
-                continue;
-            }
             var hit = (ScenePick.Hit)pick;
             Assert.AreEqual(subject, ((PickSubject.WorldObject)hit.Value.Subject).Object);
             Assert.AreEqual(after.Update.Frame, hit.Value.Frame);
         }
-        Assert.IsTrue(fogged > 0);
     }
 
     [TestMethod]

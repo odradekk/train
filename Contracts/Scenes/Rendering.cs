@@ -71,4 +71,5 @@ public interface ISceneFrame
     Lookup<ScenePose> FindPose(WorldObjectId subject);
     Lookup<WorldLocation> Locate(Vector3 point);
     Lookup<double> TerrainHeight(double x, double z);
+    Lookup<double> DisplayTerrainHeight(double x, double z);
 }

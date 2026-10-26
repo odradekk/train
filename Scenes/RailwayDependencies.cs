@@ -27,7 +27,7 @@ internal sealed class RailwayDependencies
             type.Get = value => value.GetType().FullName;
             info.Properties.Add(type);
         });
-        return new() { TypeInfoResolver = resolver, Converters = { new RuntimeVariantConverterFactory() } };
+        return new() { IncludeFields = true, TypeInfoResolver = resolver, Converters = { new RuntimeVariantConverterFactory() } };
     }
 
     private sealed class RuntimeVariantConverterFactory : JsonConverterFactory

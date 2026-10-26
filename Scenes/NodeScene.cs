@@ -238,26 +238,32 @@ internal sealed class NodeScene : IAsyncDisposable
     private NodeCorridor? indexedCorridor;
     private Preparation? indexedPreparation;
     private readonly HashSet<GridColumn> terrainChunks = [];
-    private readonly SortedSet<GridColumn> corridorTerrainX = new(Comparer<GridColumn>.Create((a, b) =>
-        a.X != b.X ? a.X.CompareTo(b.X) : a.Z.CompareTo(b.Z)));
-    private readonly SortedSet<GridColumn> corridorTerrainZ = new(Comparer<GridColumn>.Create((a, b) =>
-        a.Z != b.Z ? a.Z.CompareTo(b.Z) : a.X.CompareTo(b.X)));
     private readonly Dictionary<int, ImmutableArray<SceneBounds>> terrainFogRows = [];
     private readonly HashSet<int> dirtyTerrainRows = [];
     private (int Left, int Right, int Back, int Front)? terrainFogWindow;
     private ScenePoint? terrainFogOrigin;
+    private FarTerrainView? terrainFogFarView;
+    private bool[] terrainFarCoverage = [];
+    private (int Left, int Right, int Back, int Front) terrainFogRequired;
     private ImmutableArray<SceneFog> cachedTerrainFog = [];
     private readonly Dictionary<string, Part> rails = [];
     private readonly Dictionary<GridColumn, HashSet<string>> builtRailsByChunk = [];
+    private readonly Dictionary<GridColumn, HashSet<string>> railFogSegmentsByChunk = [];
+    private readonly Dictionary<string, ImmutableArray<SceneBounds>> railFogBySegment = [];
+    private Preparation? railFogPreparation;
     private readonly HashSet<string> rebuilding = [];
     private readonly HashSet<string> foggedRails = [];
     private bool railFogDirty = true;
-    private NodeRange? railFogRange;
+    private (NodeRange Range, NodeRange Prefetch)? railFogRange;
     private ImmutableArray<SceneBounds> railFogBounds = [];
     private ImmutableArray<SceneFog> translatedRailFog = [];
     private ScenePoint? railFogOrigin;
     private readonly Dictionary<string, CompletedPart> completedParts = [];
     private readonly object workGate = new();
+    private readonly FarTerrain farTerrain;
+    private readonly FarTerrainWorker farBuilds;
+    private double terrainViewRadiusCells;
+    private HashSet<SceneObjectId> candidateFarObjects = [];
     private Queue<(string Key, SceneBounds Bounds, GridColumn? Chunk)> waitingParts = [];
     private readonly Dictionary<string, PartWork> pendingParts = [];
     private readonly List<PartWork> retiring = [];
@@ -324,6 +330,13 @@ internal sealed class NodeScene : IAsyncDisposable
         }
     }
     internal bool Failed => failure is not null;
+    internal Task[] PendingFarWork => farBuilds.PendingWork is { IsCompleted: false } work ? [work] : [];
+    internal bool HasPendingCoarseTerrain => terrainViewRadiusCells > 0 && (prepared is null || farTerrain.HasPendingCoarse);
+    internal void SetTerrainViewRadius(double radius) { if (radius > 0) terrainViewRadiusCells = radius; }
+    internal void SetFineTerrainBuildAllowed(bool allowed) => farTerrain.SetFineBuildAllowed(allowed);
+    internal void SetFarBuildAllowed(bool allowed) => farBuilds.SetEnabled(allowed);
+    internal void ReuseFarTerrain(NodeScene previous) => farTerrain.ReuseTiles(previous.farTerrain);
+
     internal bool HasPendingBuilds
     {
         get
@@ -333,7 +346,14 @@ internal sealed class NodeScene : IAsyncDisposable
                 vehicles.HasPendingBuilds || settlement.HasPendingBuilds;
         }
     }
-    internal void SetBuildAllowed(bool allowed) { lock (workGate) buildAllowed = allowed; }
+    internal void SetBuildAllowed(bool allowed)
+    {
+        lock (workGate)
+        {
+            buildAllowed = allowed;
+            if (!allowed) farBuilds.Pause();
+        }
+    }
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
         Func<string, SceneObjectId?> findId,
@@ -341,12 +361,19 @@ internal sealed class NodeScene : IAsyncDisposable
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
         Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
-        PresentationState? presentation = null, SceneStreamingScope? streaming = null)
+        PresentationState? presentation = null, SceneStreamingScope? streaming = null,
+        FarTerrain.Cache? farCache = null, FarTerrainPermission? farPermission = null)
     {
         Streaming = streaming;
         Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId; this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
+        farTerrain = new(farCache ?? new());
+        farBuilds = new(farTerrain.Advance, () =>
+        {
+            lock (workGate)
+                if (!cancellation.IsCancellationRequested) StartParts();
+        }, farPermission);
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
         this.buildRail = buildRail ?? ((data, segment, old, token) => segment.Build(old, token));
         snapshot = initial;
@@ -455,6 +482,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             if (promote) DeferCandidateParts();
             ReconcileParts();
+            PumpFar();
         }
         if (!ReferenceEquals(publishedBuilt, built) || !ReferenceEquals(publishedParts, cacheParts))
         {
@@ -463,6 +491,25 @@ internal sealed class NodeScene : IAsyncDisposable
             publishedParts = cacheParts;
         }
         ScheduleRefresh();
+    }
+
+    private void PumpFar()
+    {
+        if (terrainViewRadiusCells <= 0 || prepared is null || layout is null) return;
+        farBuilds.Pause();
+        farTerrain.BindNode(prepared);
+        var domain = layout.PanBounds(default);
+        var minimum = Vector2.Min(domain.Minimum, new((float)range.Focus.X, (float)range.Focus.Z));
+        var maximum = Vector2.Max(domain.Maximum, new((float)range.Focus.X, (float)range.Focus.Z));
+        if (followedPath is { } following)
+            foreach (var point in following.Priority)
+            {
+                minimum = Vector2.Min(minimum, new((float)point.X, (float)point.Z));
+                maximum = Vector2.Max(maximum, new((float)point.X, (float)point.Z));
+            }
+        farTerrain.Demand(range.Focus, terrainViewRadiusCells, new(minimum, maximum), followedPath?.Priority);
+        StartParts();
+        if (farBuilds.Failure is { } error) Fail(new RailwayBuildException(error.Message));
     }
 
     internal void InvalidatePlatforms() => corridorPlatformsDirty = true;
@@ -487,11 +534,6 @@ internal sealed class NodeScene : IAsyncDisposable
         corridorPlatforms = platforms;
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
         corridor = new(currentLayout, dimensions, position, train.LengthMeters * RailwayCoordinates.CellsPerMeter, platforms);
-        corridorTerrainX.Clear();
-        corridorTerrainZ.Clear();
-        foreach (var from in chunks.Keys)
-            if (InCorridor(ChunkKey(from), ChunkBounds(from)))
-            { corridorTerrainX.Add(from); corridorTerrainZ.Add(from); }
     }
 
     private void UpdatePrefetch(WorldSceneTarget? target, FollowedPath? following)
@@ -659,11 +701,11 @@ internal sealed class NodeScene : IAsyncDisposable
             terrainChunks.Add(from);
             unbuiltCorridorChunks.Remove(from);
             if (InCorridor(ChunkKey(from), ChunkBounds(from)))
-            { corridorTerrainX.Add(from); corridorTerrainZ.Add(from); peripheralChunks.Remove(from); }
+            { peripheralChunks.Remove(from); }
             else peripheralChunks.Add(from);
         }
         else
-        { terrainChunks.Remove(from); corridorTerrainX.Remove(from); corridorTerrainZ.Remove(from); peripheralChunks.Remove(from); }
+        { terrainChunks.Remove(from); peripheralChunks.Remove(from); }
         dirtyTerrainRows.Add(from.Z);
         railFogDirty = true;
     }
@@ -678,6 +720,12 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void IndexRail(string key, bool present)
     {
+        IndexRailFog();
+        var changed = RailFogNeighborhood(prepared!.Rails[key].Bounds);
+        foreach (var from in BoundsChunks(changed))
+            if (railFogSegmentsByChunk.TryGetValue(from, out var adjacent))
+                foreach (var other in adjacent)
+                    if (RailFogOverlaps(changed, prepared.Rails[other].Bounds)) railFogBySegment.Remove(other);
         foreach (var from in BoundsChunks(prepared!.Rails[key].Bounds))
             if (present)
             {
@@ -690,6 +738,28 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (keys.Count == 0) builtRailsByChunk.Remove(from);
             }
     }
+
+    private void IndexRailFog()
+    {
+        if (ReferenceEquals(railFogPreparation, prepared)) return;
+        railFogPreparation = prepared;
+        railFogBySegment.Clear();
+        railFogSegmentsByChunk.Clear();
+        foreach (var segment in prepared!.Rails.Values)
+        foreach (var from in BoundsChunks(segment.Bounds))
+        {
+            if (!railFogSegmentsByChunk.TryGetValue(from, out var keys)) railFogSegmentsByChunk.Add(from, keys = []);
+            keys.Add(segment.Key);
+        }
+    }
+
+    // Sleeper end caps and rasterization can extend slightly beyond one cell outside the bounds.
+    private static SceneBounds RailFogNeighborhood(SceneBounds bounds) => new(
+        bounds.Minimum - new Vector3(2, 0, 2), bounds.Maximum + new Vector3(2, 0, 2));
+
+    private static bool RailFogOverlaps(SceneBounds left, SceneBounds right) =>
+        left.Minimum.X < right.Maximum.X && left.Maximum.X > right.Minimum.X &&
+        left.Minimum.Z < right.Maximum.Z && left.Maximum.Z > right.Minimum.Z;
 
     private static SceneStreamingPartKind StreamingKind(string key) => key.StartsWith("terrain:", StringComparison.Ordinal)
         ? SceneStreamingPartKind.NodeTerrain : NodePartKeys.IsBoundary(key)
@@ -746,9 +816,11 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         if (indexedCorridor != corridor || indexedPreparation != prepared)
         {
+            foreach (var from in unbuiltCorridorChunks) dirtyTerrainRows.Add(from.Z);
             unbuiltCorridorChunks.Clear();
             if (prepared!.HasChunks && corridor is not null)
                 unbuiltCorridorChunks.UnionWith(corridor.Chunks.Where(from => !chunks.ContainsKey(from) || rebuilding.Contains(ChunkKey(from))));
+            foreach (var from in unbuiltCorridorChunks) dirtyTerrainRows.Add(from.Z);
             corridorRails.Clear();
             foreach (var segment in prepared!.Rails.Values)
                 if (corridor?.Intersects(segment.Bounds) == true) corridorRails.Add(segment.Key);
@@ -758,6 +830,7 @@ internal sealed class NodeScene : IAsyncDisposable
             peripheralRails.UnionWith(rails.Keys.Where(key => !InCorridor(key, prepared.Rails[key].Bounds)));
             indexedCorridor = corridor;
             indexedPreparation = prepared;
+            railFogDirty = true;
         }
         var plan = (prepared!, range, prefetch, corridor, nearCompleted);
         var path = followedPath?.Priority ?? [];
@@ -950,6 +1023,15 @@ internal sealed class NodeScene : IAsyncDisposable
             candidateInstances = instances;
             candidateInstancesInput = instanceInput;
         }
+        var farObjects = farTerrain.Objects(default, objectId);
+        var nextFar = farObjects.Select(item => item.Id).ToHashSet();
+        foreach (var item in farObjects)
+        {
+            if (!candidateObjects.TryGetValue(item.Id, out var old) || item != old) upserts[item.Id] = item;
+            candidateObjects[item.Id] = item;
+        }
+        foreach (var id in candidateFarObjects.Except(nextFar)) { candidateObjects.Remove(id); removed.Add(id); }
+        candidateFarObjects = nextFar;
         return (full ? candidateObjects.Values.OrderBy(item => item.Id.Value).ToImmutableArray() :
             upserts.Values.OrderBy(item => item.Id.Value).ToImmutableArray(),
             full ? [] : removed.OrderBy(id => id.Value).ToImmutableArray());
@@ -958,9 +1040,11 @@ internal sealed class NodeScene : IAsyncDisposable
     // Caller holds workGate; only Pump replaces the priority order and consumes results.
     private void StartParts()
     {
-        if (!buildAllowed || cancellation.IsCancellationRequested || failure is not null || pendingParts.Values.Any(work => work.Task.IsFaulted)) return;
+        if (cancellation.IsCancellationRequested) return;
+        farBuilds.Pause();
+        if (!buildAllowed || failure is not null || pendingParts.Values.Any(work => work.Task.IsFaulted)) return;
         while (waitingParts.Count > 0 && pendingParts.Values.Count(work => !work.Task.IsCompleted) +
-            retiring.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
+            retiring.Count(work => !work.Task.IsCompleted) + farBuilds.RunningCount < RailwayCoordinates.MaxConcurrentBuilds)
         {
             var item = waitingParts.Dequeue();
             var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
@@ -973,6 +1057,8 @@ internal sealed class NodeScene : IAsyncDisposable
             _ = task.ContinueWith(_ => { lock (workGate) StartParts(); }, CancellationToken.None,
                 TaskContinuationOptions.None, TaskScheduler.Default);
         }
+        var occupied = pendingParts.Values.Count(work => !work.Task.IsCompleted) + retiring.Count(work => !work.Task.IsCompleted);
+        farBuilds.Pump(occupied, waitingParts.Count == 0 && farTerrain.HasRunnableWork);
     }
     private void Fail(RailwayBuildException error)
     {
@@ -1046,6 +1132,8 @@ internal sealed class NodeScene : IAsyncDisposable
                     new(RailwayCoordinates.Relative(new(placed.ShiftX, 0, placed.ShiftZ), origin), Quaternion.Identity),
                     new WorldObjectId.Lair(occupant.Id), [], [], []));
         }
+        var farView = farTerrain.View;
+        objects.AddRange(farTerrain.Objects(origin, objectId, farView));
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);
         reported.Clear();
@@ -1077,7 +1165,8 @@ internal sealed class NodeScene : IAsyncDisposable
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
             node: layout, nodeHeights: nodeHeights,
             debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay,
-            effects: effects, terrain: staticTerrain, staticGeometry: staticGeometry, staticPickOffset: trainPicks);
+            effects: effects, terrain: staticTerrain, staticGeometry: staticGeometry, staticPickOffset: trainPicks,
+            farTerrain: farView);
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
@@ -1138,9 +1227,11 @@ internal sealed class NodeScene : IAsyncDisposable
     private ImmutableArray<SceneFog> RailFog(ScenePoint origin)
     {
         if (prepared is null) return [];
+        IndexRailFog();
         bool NeedsFog(RailSegment segment) => !rails.ContainsKey(segment.Key) &&
-            (range.Intersects(segment.Bounds) || NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks));
-        if (railFogDirty || railFogRange != range)
+            (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) ||
+                corridorRails.Contains(segment.Key) || NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks));
+        if (railFogDirty || railFogRange != (range, prefetch))
         {
             var count = 0;
             foreach (var segment in prepared.Rails.Values)
@@ -1154,17 +1245,27 @@ internal sealed class NodeScene : IAsyncDisposable
             {
                 foggedRails.Clear();
                 foreach (var segment in prepared.Rails.Values.Where(NeedsFog)) foggedRails.Add(segment.Key);
-                var missing = foggedRails.Select(key => prepared.Rails[key].Bounds).ToImmutableArray();
-                var cutters = new HashSet<string>();
-                foreach (var area in missing)
-                foreach (var from in BoundsChunks(area))
-                    if (builtRailsByChunk.TryGetValue(from, out var keys)) cutters.UnionWith(keys);
-                railFogBounds = ConstructionFog.Clip(missing, cutters.Order(StringComparer.Ordinal)
-                    .SelectMany(key => prepared.Rails[key].Footprint));
+                var regions = ImmutableArray.CreateBuilder<SceneBounds>();
+                foreach (var key in foggedRails.Order(StringComparer.Ordinal))
+                {
+                    if (!railFogBySegment.TryGetValue(key, out var clipped))
+                    {
+                        var segment = prepared.Rails[key];
+                        var cutters = new HashSet<string>();
+                        foreach (var from in BoundsChunks(RailFogNeighborhood(segment.Bounds)))
+                            if (builtRailsByChunk.TryGetValue(from, out var keys)) cutters.UnionWith(keys);
+                        clipped = ConstructionFog.Clip([segment.Bounds], cutters.Order(StringComparer.Ordinal)
+                            .SelectMany(other => prepared.Rails[other].Footprint)
+                            .Where(bounds => RailFogOverlaps(bounds, segment.Bounds)));
+                        railFogBySegment[key] = clipped;
+                    }
+                    regions.AddRange(clipped);
+                }
+                railFogBounds = regions.ToImmutable();
                 railFogDirty = false;
                 railFogOrigin = null;
             }
-            railFogRange = range;
+            railFogRange = (range, prefetch);
         }
         if (railFogOrigin != origin)
         {
@@ -1178,43 +1279,76 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void TerrainFog(ScenePoint origin, ImmutableArray<SceneFog>.Builder fog)
     {
-        var minimum = layout!.Bounds.Minimum;
-        var maximum = layout.Bounds.Maximum;
+        var left = (int)layout!.Bounds.Minimum.X;
+        var right = (int)layout.Bounds.Maximum.X;
+        var back = (int)layout.Bounds.Minimum.Y;
+        var front = (int)layout.Bounds.Maximum.Y;
         if (prepared is null)
-        { Add(minimum.X, maximum.X, minimum.Y, maximum.Y); return; }
-        var retained = range.Around(NodeStreaming.RetainCells).Window(layout);
-        var ahead = prefetch.Window(layout);
-        var left = Math.Min(retained.Left, Math.Min(ahead.Left, corridorTerrainX.Count == 0 ? retained.Left : corridorTerrainX.Min.X));
-        var right = Math.Max(retained.Right, Math.Max(ahead.Right, corridorTerrainX.Count == 0 ? retained.Right : corridorTerrainX.Max.X + VoxelGrid.ChunkSize));
-        var back = Math.Min(retained.Back, Math.Min(ahead.Back, corridorTerrainZ.Count == 0 ? retained.Back : corridorTerrainZ.Min.Z));
-        var front = Math.Max(retained.Front, Math.Max(ahead.Front, corridorTerrainZ.Count == 0 ? retained.Front : corridorTerrainZ.Max.Z + VoxelGrid.ChunkSize));
-        if (terrainFogWindow == (left, right, back, front) && dirtyTerrainRows.Count == 0 && terrainFogOrigin == origin)
-        { fog.AddRange(cachedTerrainFog); return; }
-        Add(minimum.X, left, minimum.Y, maximum.Y);
-        Add(right, maximum.X, minimum.Y, maximum.Y);
-        Add(left, right, minimum.Y, back);
-        Add(left, right, front, maximum.Y);
+        { Add(left, right, back, front); return; }
+        var size = VoxelGrid.ChunkSize;
+        var columns = (right - left + size - 1) / size;
+        var rows = (front - back + size - 1) / size;
         var window = (left, right, back, front);
-        if (terrainFogWindow is not { } old || old.Left != left || old.Right != right)
+        if (terrainFogWindow != window)
         {
             terrainFogRows.Clear();
-            for (var z = back; z < front; z += VoxelGrid.ChunkSize) dirtyTerrainRows.Add(z);
+            dirtyTerrainRows.Clear();
+            for (var z = back; z < front; z += size) dirtyTerrainRows.Add(z);
+            terrainFogWindow = window;
+            terrainFogFarView = null;
+            terrainFarCoverage = [];
         }
-        else if (old.Back != back || old.Front != front)
+        var farView = farTerrain.View;
+        if (!ReferenceEquals(terrainFogFarView, farView))
         {
-            for (var z = back; z < front; z += VoxelGrid.ChunkSize)
-                if (z < old.Back || z >= old.Front) dirtyTerrainRows.Add(z);
-            foreach (var z in terrainFogRows.Keys.Where(z => z < back || z >= front).ToArray()) terrainFogRows.Remove(z);
+            var coverage = new bool[columns * rows];
+            foreach (var tile in farView.Tiles)
+            {
+                // Match the old chunk-centre query, including a tile's closed outer edges.
+                var firstX = Math.Max(0, (int)Math.Ceiling((tile.Origin.X - left - size / 2.0) / size));
+                var lastX = Math.Min(columns - 1, (int)Math.Floor((tile.Origin.X + tile.SizeCells - left - size / 2.0) / size));
+                var firstZ = Math.Max(0, (int)Math.Ceiling((tile.Origin.Z - back - size / 2.0) / size));
+                var lastZ = Math.Min(rows - 1, (int)Math.Floor((tile.Origin.Z + tile.SizeCells - back - size / 2.0) / size));
+                if (firstX > lastX) continue;
+                for (var row = firstZ; row <= lastZ; row++)
+                    Array.Fill(coverage, true, row * columns + firstX, lastX - firstX + 1);
+            }
+            for (var row = 0; row < rows; row++)
+                if (terrainFarCoverage.Length != coverage.Length ||
+                    !terrainFarCoverage.AsSpan(row * columns, columns).SequenceEqual(coverage.AsSpan(row * columns, columns)))
+                    dirtyTerrainRows.Add(back + row * size);
+            terrainFarCoverage = coverage;
+            terrainFogFarView = farView;
         }
-        terrainFogWindow = window;
+        var retained = range.Around(NodeStreaming.RetainCells).Window(layout!);
+        var ahead = prefetch.Window(layout!);
+        var required = (Left: Math.Min(retained.Left, ahead.Left), Right: Math.Max(retained.Right, ahead.Right),
+            Back: Math.Min(retained.Back, ahead.Back), Front: Math.Max(retained.Front, ahead.Front));
+        if (terrainFogRequired != required)
+        {
+            for (var z = back; z < front; z += size)
+            {
+                var wasRequired = z >= terrainFogRequired.Back && z < terrainFogRequired.Front;
+                var isRequired = z >= required.Back && z < required.Front;
+                if (wasRequired != isRequired || isRequired &&
+                    (terrainFogRequired.Left != required.Left || terrainFogRequired.Right != required.Right))
+                    dirtyTerrainRows.Add(z);
+            }
+            terrainFogRequired = required;
+        }
+        if (dirtyTerrainRows.Count == 0 && terrainFogOrigin == origin)
+        { fog.AddRange(cachedTerrainFog); AddCorridor(); return; }
         foreach (var z in dirtyTerrainRows)
         {
             if (z < back || z >= front) continue;
             var row = ImmutableArray.CreateBuilder<SceneBounds>();
             int? start = null;
-            for (var x = left; x < right; x += VoxelGrid.ChunkSize)
+            for (var x = left; x < right; x += size)
             {
-                if (!terrainChunks.Contains(new(x, z))) start ??= x;
+                var inWindow = x >= required.Left && x < required.Right && z >= required.Back && z < required.Front ||
+                    unbuiltCorridorChunks.Contains(new(x, z));
+                var hasFar = !inWindow && terrainFarCoverage[(z - back) / size * columns + (x - left) / size];
+                if (!terrainChunks.Contains(new(x, z)) && !hasFar) start ??= x;
                 else if (start is { } begin) { Missing(begin, x); start = null; }
             }
             if (start is { } last) Missing(last, right);
@@ -1226,6 +1360,15 @@ internal sealed class NodeScene : IAsyncDisposable
             foreach (var bounds in terrainFogRows[z]) Add(bounds.Minimum.X, bounds.Maximum.X, bounds.Minimum.Z, bounds.Maximum.Z);
         cachedTerrainFog = fog.ToImmutable();
         terrainFogOrigin = origin;
+        AddCorridor();
+
+        void AddCorridor()
+        {
+            foreach (var from in unbuiltCorridorChunks)
+                if (!terrainChunks.Contains(from) &&
+                    (from.X < left || from.X >= right || from.Z < back || from.Z >= front))
+                    Add(from.X, from.X + VoxelGrid.ChunkSize, from.Z, from.Z + VoxelGrid.ChunkSize);
+        }
 
         void Add(double left, double right, double back, double front)
         {
@@ -1563,17 +1706,9 @@ internal sealed class NodeScene : IAsyncDisposable
         Dictionary<GridColumn, RailBed> bed, GridColumn column)
     {
         var point = new ScenePoint(column.X + 0.5, 0, column.Z + 0.5);
-        var raw = RailwayTerrain.NodeGround(snapshot, node, point, layout.Template);
-        if (layout.Lair is { } lair)
-            raw = NodeSettlement.FlattenGround(lair.Model.Scene, lair.ShiftX, lair.ShiftZ, point, raw);
         var rail = bed.GetValueOrDefault(column);
-        var distance = rail?.Distance ?? double.PositiveInfinity;
-        if (rail is not null)
-        {
-            var blend = Math.Clamp((distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
-            raw = RailwayTerrain.BedHeight(rail.Height, distance) * (1 - blend) + raw * blend;
-        }
-        return ((int)Math.Floor(raw), distance);
+        var raw = TerrainSurface.NodeHeight(snapshot, node, layout, point, rail);
+        return ((int)Math.Floor(raw), rail?.Distance ?? double.PositiveInfinity);
     }
 
     private static Part GridPart(ImmutableArray<SceneCell> cells, ImmutableDictionary<GridColumn, double> heights,
@@ -1765,9 +1900,11 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         PartWork[] parts;
         Task[] ownedWork;
+        Task closingFar;
         lock (workGate)
         {
             cancellation.Cancel();
+            closingFar = farBuilds.DisposeAsync().AsTask();
             Streaming?.CancelPending();
             cache.Close(Node, owner);
             waitingParts.Clear();
@@ -1775,7 +1912,7 @@ internal sealed class NodeScene : IAsyncDisposable
             parts = pendingParts.Values.Concat(retiring).ToArray();
             foreach (var work in parts) work.Cancellation.Cancel();
             ownedWork = (pending is null ? Array.Empty<Task>() : [pending]).Concat(refresh is null ? [] : [refresh])
-                .Concat(parts.Select(item => item.Task)).ToArray();
+                .Concat(parts.Select(item => item.Task)).Append(closingFar).ToArray();
         }
         try { await Task.WhenAll(ownedWork).ConfigureAwait(false); }
         catch (Exception) { /* Retired scene work cannot be attached or published. */ }

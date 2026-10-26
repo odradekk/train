@@ -206,6 +206,13 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 矩阵使用 `examples/starting-trade/save.json` 作为输入，默认目标为列车 1，复用 `scene-route-1x`、`scene-route-8x` 各自的完整线路→节点→线路路线。输入身份保留在每个进程的 `identity.json.input.sha256`，构建身份仍由原有入口校验。每种速度分别使用默认和最远镜头，各运行 3 个新进程；目录例如 `scene-route-8x-farthest-2`。`-Repeat 1 -DurationSeconds 30` 只作预演，完整基线使用默认 `DurationSeconds=0`。显式指定 `RouteCamera` 需要启用 `StreamingDiagnostics`。
 
+
+#742 的低俯仰覆盖测量在同一入口增加 `-RouteCamera default-low-orbit,farthest-low-orbit`。路线情景仍须带 `-StreamingDiagnostics`，原 `default`／`farthest` 行为保持不变。两个新增档位通过现有相机输入请求最低俯仰 0.15，分别请求默认 48 格和最远距离；路线环绕周期为 30 秒除以请求倍率（1×为30秒、2×为15秒、4×为7.5秒、8×为3.75秒），自由镜头周期为30秒；实际角度与距离仍受地形避让影响，以记录为准。仅新增环绕档位生成 `route-orbit.jsonl`，以5Hz记录相对环绕偏航/俯仰状态、请求周期与连续累计请求环绕角；实际相机和显示空间读取 streaming-frames.jsonl，通过绘制帧号关联；核实各空间完整一圈时不能只使用混入列车转向的世界偏航。
+
+自由镜头使用 `-Scenario scene-node,scene-edge -RouteCamera default-low-orbit,farthest-low-orbit -Repeat 1 -ReferencePath <scene-reference.json>`，不带 `-StreamingDiagnostics`。每个组合仅执行原情景的首次打开操作，Ready 后持续观察 60 秒，不再重复打开；节点自由镜头最远 96 格，线路最远 240 格，使用 1×。`scene-operations.jsonl` 的 `low-orbit-sample` 每秒最多五次记录实际相机、环绕角状态、核心步数、速度与覆盖，`open.low_orbit` 保留观察起止。固定观察窗口不证明全域远景已补齐。
+
+内存对照使用 `-NodeReadyHold`（应用开关 `--measure-node-ready-hold`），仅扩长 `NodeId` 指定节点操作的 Ready 后保持时间至 60 秒；支持 `scene-node-first` 和 `scene-reference`，参考中的其他节点及线路操作保持原时长。省略时行为不变。`scene-node-first` 增加 55 秒；`scene-reference` 的目标节点参考增加 50 秒。每次打开的 `ready_hold_seconds_requested` 记录保持时间，报告保留实际观察起止；基线和新版须使用相同测量入口改动与参数。
+
 应用参数为 `--measure-streaming` 和 `--measure-route-camera default|farthest`。记录开启时窗口与视口仍固定为 1920×1080，使用玩家默认跟随相机：偏航跟随车体，保留默认俯仰与按地形抬高镜头，仅通过现有 `ShakeEnabled` 关闭镜头震动。默认缩放距离保持 48 格；最远档通过现有 `Zoom` 拉到 `ZoomCeiling`，跟随时线路和节点均为 240 格，96 格只适用于节点自由平移。每个绘制帧记录实际相机位置、焦点、距离和角度，包含地形避让造成的变化；距离单位为格（1 格 = 0.5 米）。
 
 窗口标签按核心列车参考中心的有向里程划分，单位是**核心米**，只用于分组，不用于推算场景速度：
@@ -240,13 +247,13 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `FramePreparationStarted` / `FramePrepared` / `FrameCommitted` | 内部帧级通知，`object=null`；分别在冻结候选、完整 PreparedFrame 生成及实际 Commit 结束时发出。开始通知的 `resource_objects` 列出至少一个视觉资源需要新准备的对象，其余通知为 null。全复用和无视觉候选也发，不替代逐对象资源事件。逐部件资源准备时间取同一成功候选中、与 Admitted.Objects 匹配的 ResourcesPrepared 最大值；尚未提交时可取截止时仍有效且已完成该部件准备的候选。已取消候选不参与，无新视觉对象为 null |
 | `HostCancelled` | 宿主放弃此候选，`object=null`；同一帧重试分配新的 `candidate`，不沿用被取消候选的准备时间 |
 | `streaming-coverage.jsonl` | 每次实际覆盖采样的 `seconds`、D 的完整 `frame`、`window`、`draw` 和 `sample`；无已提交帧时 `sample=null` |
-| `sample` | 仅保留 `eligible`、`terrain`、`fog_only`、`neither`、三类排除计数和缺地形／无雾缺口比例；空分母的比例为 null，不能当作 0。不保留逐点坐标；仅对 fog_only／neither 点调用绑定 D 帧布局的 `FindTerrainParts` 在线归属。`part_categories` 按 category 聚合，只保存 category、fog_only、neither，不保存完整 PartId 或 terrain 计数。分类为 not_needed、needed_<stage>、outside_terrain_domain、layout_unknown；重建时仍显示旧 attempt 的部件归 displayed。同一点对应多个部件时，每个不同类别各计一次，总计可能超过缺地形点数 |
+| `sample` | 仅保留 `eligible`、`terrain`、`simplified_terrain`、`fog_only`、`neither`、三类排除计数和缺地形／无雾缺口比例；空分母的比例为 null，不能当作 0。不保留逐点坐标；仅对 fog_only／neither 点调用绑定 D 帧布局的 `FindTerrainParts` 在线归属。`part_categories` 按 category 聚合，只保存 category、fog_only、neither，不保存完整 PartId 或 terrain 计数。分类为 not_needed、needed_<stage>、outside_terrain_domain、layout_unknown；重建时仍显示旧 attempt 的部件归 displayed。同一点对应多个部件时，每个不同类别各计一次，总计可能超过缺地形点数 |
 | `streaming-probes.jsonl` | 覆盖查询和整个流式绘制回调的实际起止、耗时，包含事件批量回放与覆盖归属查询成本。`coverage` 嵌套于 `streaming-draw`，后者嵌套于既有 `route-observer`，不能相加重复计算 |
 | `streaming-analysis.json` | 逐区间实际倍率／场景速度、窗口汇总、覆盖缺口区间与分位数。`coverage_by_window` 按窗口汇总 category 的 fog_only／neither 计数；窗口 `sample_intervals` 只使用该窗口内的样本，缺口分析仍保留完整序列的窗口边界删失。`already_visible_before_demand` 报告先显示后进入需求的尝试数，这类样本排除 Needed→Commit 延时分布；`part_outcomes` 汇总部件尝试结果，`part_latency_seconds` 报告已观测阶段差值的 n/p50/p95/p99/max，包括 Needed→Queued 和 Admitted→ResourcesPrepared；n=0 时分位数为 null。`parts_by_window_and_kind` 按窗口和 PartKind 给出同样的分布、尝试结果、取消和未完成数；窗口用原始 Frame.Stamp/Parts 与实际绘制帧 Displayed 精确关联，取该尝试首次实际显示时的窗口，未显示尝试归 not-observed；部件 committed 时间来自实际 FrameCommitted 回调，以完整帧身份联结 Parts；逐帧是否已显示仍仅使用实际 D 的 Parts |
 
 覆盖只查询已提交帧 `D = SceneDisplay.DisplayedFrame`，不查询最新但尚未提交的帧。对屏幕均匀分布的 32×18 个点投射射线，经实际显示根的逆变换转入 D 根空间，与稳定场景 `Y=0`（D 局部 `Y=-D.Origin.Y`）求交。没有正向交点、交点在近裁剪面之前或远裁剪面之后，不计入分母。相机裁剪值是视深；入口按每条射线的夹角换算有效距离，不把远裁剪面误作以相机为中心的球面。
 
-有效点优先调用 `D.TerrainHeight`：有值记为有地形；否则检查 D 已提交的施工雾盒，点的 XZ 与基准高度 Y 均落在盒子范围内记为只有雾；否则记为无地形无雾。雾使用玩家实际看到的盒子，不使用 Scenes 内部弧段规则。线路地形成员关系由 `TerrainHeight` 判断，不使用网格 AABB 并集估计弯道覆盖。这是**视野地面基准面投影覆盖率**，不衡量山坡、水面、隧道及建筑遮挡后的真实地形像素可见性。
+有效点优先调用 `D.TerrainHeight`：有值记为有地形；否则检查 D 已提交的构建雾盒，点的 XZ 与基准高度 Y 均落在盒子范围内记为只有雾；否则调用 `D.DisplayTerrainHeight`，Found 记为远景；仍无值则记为无地形无雾。雾下的远景不计作远景覆盖。雾使用玩家实际看到的盒子，不使用 Scenes 内部弧段规则。线路地形成员关系由 `TerrainHeight` 判断，不使用网格 AABB 并集估计弯道覆盖。这是**视野地面基准面投影覆盖率**，不衡量山坡、水面、隧道及建筑遮挡后的真实地形像素可见性。
 
 线路部件归属按生成器实际体素列判断，查询开销计入 coverage probe。
 

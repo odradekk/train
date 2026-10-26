@@ -1065,6 +1065,7 @@ Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePoint Orig
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneReadiness Readiness { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneUpdate Update { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|double SimulationSeconds { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<double> DisplayTerrainHeight(double x, double z);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneStreamingCoverage|ImmutableArray<SceneStreamingPartId> FindTerrainParts(double x, double z);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneStreamingObserver|void OnEvent(SceneStreamingEvent value);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial);
@@ -1140,7 +1141,7 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.PickSubject.WorldObject|publi
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.PickSubject|public abstract record PickSubject
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneBinding|public readonly record struct SceneBinding(Guid Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneBounds|public sealed record SceneBounds(Vector3 Minimum, Vector3 Maximum);
-Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneCameraSample|public sealed record SceneCameraSample(ISceneFrame Frame, Vector3 Focus);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneCameraSample|public sealed record SceneCameraSample(ISceneFrame Frame, Vector3 Focus, double TerrainViewRadiusCells);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneDebugLayer|[Flags] public enum SceneDebugLayer
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneDebugLine|public sealed record SceneDebugLine(Vector3 From, Vector3 To, Vector4 Color);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEffectCue|public sealed record SceneEffectCue(SceneEffectId Id, SceneEffectKind Kind, Vector3 From, Vector3? To, PaintColor? Color, VoxelCollision? FragmentCollision, WorldObjectId? Subject, double StartedAtSimulationSeconds);

@@ -486,7 +486,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
                     var candidatePoint = new ScenePoint(x, 0, z);
                     position = layout.ContainsPlot(candidatePoint) || InLair(layout, candidatePoint) ||
                         !layout.ClearOfTracks(candidatePoint, RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth)
-                        ? null : candidatePoint with { Y = Math.Floor(RailwayTerrain.NodeGround(snapshot, node, candidatePoint, layout.Template)) + 1 };
+                        ? null : candidatePoint with { Y = Math.Floor(TerrainSurface.NodeGround(snapshot, node, candidatePoint, layout.Template)) + 1 };
                     resourcePositions.Add(positionKey, position);
                 }
                 if (position is not { } point) continue;

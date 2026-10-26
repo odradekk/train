@@ -33,6 +33,7 @@ internal sealed partial class MeasurementRun
 
     private void StartStreamingRoute(VehicleId followed)
     {
+        if (IsLowOrbit) BeginLowOrbit();
         if (_streamingRecorder is null) return;
         _streamingFollowed = followed;
         var camera = _app.WorldScenes!.View.CameraRig;
@@ -96,12 +97,7 @@ internal sealed partial class MeasurementRun
             _streamingCoverageWindow = window.Key;
             _streamingProbes.Add(new(route.Draw, "coverage", probeStarted - _routeStarted, Seconds() - _routeStarted));
         }
-        var rig = _app.WorldScenes!.View.CameraRig;
-        var cameraPosition = rig.Camera.Position;
-        var offset = cameraPosition - rig.Focus;
-        var horizontal = Math.Sqrt(offset.X * offset.X + offset.Z * offset.Z);
-        var camera = new RouteCameraMeasurement(Point(cameraPosition), Point(rig.Focus), offset.Length(),
-            Math.Atan2(offset.X, offset.Z), Math.Atan2(offset.Y, horizontal), rig.Camera.Near, rig.Camera.Far);
+        var camera = RecordCamera();
         var position = route.DisplayedVehicles.FirstOrDefault(vehicle => vehicle.Id == _streamingFollowed.Value)?.Position;
         _streamingFrames.Add(new(route.Draw, route.At, route.Steps, route.Latest, route.Displayed, position,
             route.Transition, window, camera, _streamingCoverage.Count > 0 ? _streamingCoverage[^1].Draw : null,

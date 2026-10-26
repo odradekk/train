@@ -74,7 +74,7 @@ Godot 消费其他三个模块的契约，并实现内容要求的宿主端口�
 
 准备期间，同空间增量（`P.Update.Base == D.Update.Frame`）始终从 D 计算：Upserts 中同 ID、同父的已显示对象使用 P 的局部姿态；其余根使用基准姿态加 `ShiftExistingRoots`，子对象保持基准局部姿态；Removed 和换父对象保持原样到提交。同一请求以 D 为基准的跟随空间切换即使返回完整替换，旧显示树中带 Subject 的顶层对象也使用 `P.FindPose(subject)`，子对象随父移动；同 Space 的旧几何平移为 `D.Origin - P.Origin`，跨 Space 则以新 Space 首帧（含 Loading）的 Origin 为 E，交接时旧几何不移动，之后平移为 `E - P.Origin`。每次切换重新记录 E，不直接插值不同空间位置。C 提交后若 `P.Update.Base != D.Update.Frame`，同空间也按 Subject／`P.FindPose` 更新顶层对象，以新 D 的 `Origin - P.Origin` 平移旧几何，不能使用相对旧 D 的 Upserts 或 `ShiftExistingRoots`。提交时不能重复叠加已施加的平移。
 
-浮动原点变化同步作用于现存根、相机焦点和跟随状态；新 Upserts 已在新坐标中，不重复平移。以 D 为基准的准备期间每帧更新相机，焦点只加整帧前后显示坐标之间的平移差，包含 C 提交重设基准和重施 P 姿态的效果，不能再次累加根节点重设的平移；下一次 `Present` 传 `SceneCameraSample(P, focusInP)`，网格基准仍为 D。无跟随且无 `NodePanBounds` 的新空间首帧，焦点取本帧根零点。相机跟随取 P 的 `FindPose`，节点自由环绕用 P 的 `NodePanBounds` 限制水平焦点；节点范围尚不可用时不平移。防穿地形查询用同帧 P 的 `TerrainHeight`。首次打开仍等待首次完整提交后才进入可操作状态。
+浮动原点变化同步作用于现存根、相机焦点和跟随状态；新 Upserts 已在新坐标中，不重复平移。以 D 为基准的准备期间每帧更新相机，焦点只加整帧前后显示坐标之间的平移差，包含 C 提交重设基准和重施 P 姿态的效果，不能再次累加根节点重设的平移；下一次 `Present` 传 `SceneCameraSample(P, focusInP, terrainViewRadiusCells)`，网格基准仍为 D。无跟随且无 `NodePanBounds` 的新空间首帧，焦点取本帧根零点。相机跟随取 P 的 `FindPose`，节点自由环绕用 P 的 `NodePanBounds` 限制水平焦点；节点范围尚不可用时不平移。宿主按相机实际投影、环绕距离及抖动计算保守水平地形显示半径，窗口尺寸、宽高比或投影变化时重算，不能直接使用轴向远裁剪距离。防穿地形查询用同帧 P 的 `DisplayTerrainHeight`，只在返回 Found 时调整净空。首次打开仍等待首次完整提交后才进入可操作状态。
 
 坐标与[体素契约](scenes.md#坐标与身份)一致：一格为一个 Godot 单位，物理意义是 0.5 米。SceneMesh 和 Pose 不再乘 0.5；GLB 原始米坐标统一乘 2，随后使用体素给定的格放置及朝向，不重新适配尺寸。保持 +X 右、+Y 上、+Z 为内容正面；Godot 相机自身的朝前轴不改写内容约定。体素三角形从外侧看逆时针，转换 Godot 网格时交换两个索引，法线保持外向。引擎绕序依据 [ArrayMesh](https://docs.godotengine.org/en/4.7/classes/class_arraymesh.html)。
 
