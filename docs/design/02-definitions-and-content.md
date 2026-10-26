@@ -188,4 +188,4 @@ Code Mod API、通用 Material System；跨包覆盖与 patch、加载顺序覆�
 
 ## 开放问题
 
-- [内容契约](../contracts/content.md)与[核心契约](../contracts/core.md)已明确规则格式、投影和金额边界；独立行为验证、生产代码迁移与正式内容制作仍待后续任务，不能以 Schema 或声明编译通过代替加载、模拟和完整 Demo 验收。
+- [内容契约](../contracts/content.md)与[核心契约](../contracts/core-values.md)已明确规则格式、投影和金额边界；独立行为验证、生产代码迁移与正式内容制作仍待后续任务，不能以 Schema 或声明编译通过代替加载、模拟和完整 Demo 验收。

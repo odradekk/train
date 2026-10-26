@@ -44,7 +44,9 @@
     "docs/content/README.md": "一篇一个主题的规格文档，拆开反而难查",
     "docs/content/demo-catalog.md": "一篇一个主题的规格文档，拆开反而难查",
     "docs/godot-host-design.md": "一篇一个主题的规格文档，拆开反而难查",
-    "docs/art/08-asset-pipeline-and-review.md": "一篇一个主题的规格文档，拆开反而难查"
+    "docs/art/08-asset-pipeline-and-review.md": "一篇一个主题的规格文档，拆开反而难查",
+    "docs/contracts/core-trains.md": "单个原有子契约不拆开已超过 5,000 token，原文没有更细的标题可拆",
+    "docs/contracts/scenes-status.md": "单个原有子契约不拆开已超过 5,000 token，原文没有更细的标题可拆"
   },
   "baseline": {
     "App/ArtCapture/ArtCaptureEntry.cs": 5226,
@@ -180,8 +182,6 @@
     "Ui/GameUi.cs": 8701,
     "Ui/MacroMap.cs": 5819,
     "Ui/WorldPanels.cs": 5738,
-    "docs/contracts/core.md": 44139,
-    "docs/contracts/scenes.md": 20206,
     "docs/run-tests.md": 22990,
     "scripts/content/check_economy.py": 6393,
     "scripts/content/generate_small_world.py": 29437,
