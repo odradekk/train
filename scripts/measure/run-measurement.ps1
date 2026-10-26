@@ -22,19 +22,11 @@ $stage = 'input'
 $failure = $false
 try {
     $Root = (Resolve-Path -LiteralPath $Root).Path
-    Set-Location -LiteralPath $Root
-    [Environment]::CurrentDirectory = $Root
     $examples = Join-Path $Root 'examples'
     $InputPath = [IO.Path]::GetFullPath($InputPath, $Root)
     $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     if (-not $InputPath.StartsWith($examples + [IO.Path]::DirectorySeparatorChar, $comparison) -or
         -not (Test-Path -LiteralPath $InputPath -PathType Leaf)) { throw [ArgumentException]::new('存档必须是 examples/ 下已存在的文件。') }
-    # 逐级拒绝链接，避免 examples/ 内的链接把输入指向 checkout 之外。
-    for ($path = $InputPath; $path -ne $Root; $path = Split-Path $path -Parent) {
-        if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw [ArgumentException]::new('示例存档路径不能经过符号链接。')
-        }
-    }
     $stage = 'platform'
     if (-not $IsLinux) { throw '测量运行器只在 Linux 测试机器上运行。' }
     # /tmp 可能是 tmpfs，会占用被测内存；构建放在 runner 磁盘临时目录。
@@ -93,13 +85,13 @@ try {
 
     $executable = Join-Path $build 'train.x86_64'
     $stage = 'reference'
-    & (Join-Path $PSScriptRoot 'measure.ps1') -ExecutablePath $executable -InputPath $InputPath `
+    & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $InputPath `
         -OutputDirectory (Join-Path $results 'reference') -Scenario scene-reference -Repeat 1 -Machine test `
         *> (Join-Path $results 'reference-process.log')
     if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
     $stage = 'scenarios'
-    & (Join-Path $PSScriptRoot 'measure.ps1') -ExecutablePath $executable -InputPath $InputPath `
-        -OutputDirectory (Join-Path $results 'scenarios') -Scenario ($Scenario -split ',') -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds `
+    & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $InputPath `
+        -OutputDirectory (Join-Path $results 'scenarios') -Scenario ($Scenario -split ',' | ForEach-Object { $_.Trim() }) -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds `
         -ReferencePath (Join-Path $results 'reference/scene-reference-1/scene-reference.json') `
         *> (Join-Path $results 'scenarios-process.log')
     if ($LASTEXITCODE -ne 0) { throw "场景列表测量失败，退出码 $LASTEXITCODE。" }

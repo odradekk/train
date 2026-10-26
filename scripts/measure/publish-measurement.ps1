@@ -12,21 +12,11 @@ try {
     $prefixes = @{
         '<workspace>' = $env:GITHUB_WORKSPACE; '<temp>' = $env:RUNNER_TEMP
         '<tool-cache>' = $env:RUNNER_TOOL_CACHE; '<runner>' = $runnerRoot
-        '<home>' = $HOME; '<env-home>' = $env:HOME; '<dotnet>' = $env:DOTNET_ROOT
+        '<home>' = $HOME
         '<godot>' = $(if ($env:GODOT) { Split-Path $env:GODOT -Parent })
-        '<system-temp>' = [IO.Path]::GetTempPath().TrimEnd([char[]]'\/')
         '<runtime>' = $(if ($IsLinux) { "/run/user/$(& id -u)" })
     }
-    foreach ($command in @(Get-Command python, python3 -ErrorAction SilentlyContinue)) {
-        $prefixes["<$($command.Name)>"] = $command.Source
-    }
-    $replacements = @(foreach ($entry in $prefixes.GetEnumerator()) {
-        if ($entry.Value) {
-            foreach ($path in @($entry.Value, $entry.Value.Replace('\', '/'), $entry.Value.Replace('\', '\\')) | Select-Object -Unique) {
-                [pscustomobject]@{ path = $path.TrimEnd('/'); replacement = $entry.Key }
-            }
-        }
-    }) | Sort-Object { $_.path.Length } -Descending
+    $replacements = $prefixes.GetEnumerator() | Where-Object Value | Sort-Object { $_.Value.Length } -Descending
     $identities = @([Environment]::MachineName, [Environment]::UserName,
         $env:HOSTNAME, $env:COMPUTERNAME, $env:USER, $env:USERNAME, $HOME, $env:HOME) |
         Where-Object { $_ } | Select-Object -Unique
@@ -37,7 +27,7 @@ try {
         # 只改文本；PNG 等二进制仍扫描身份残留，不重编码。
         $content = [IO.File]::ReadAllText($file.FullName)
         if ($file.Extension -in '.json', '.jsonl', '.log', '.txt', '.csv', '.md', '.xml', '.trx') {
-            foreach ($item in $replacements) { $content = $content.Replace($item.path, $item.replacement) }
+            foreach ($item in $replacements) { $content = $content.Replace($item.Value, $item.Key) }
             [IO.File]::WriteAllText($file.FullName, $content)
         }
         if ($content -match $forbidden -or $relative -match $forbidden) { throw 'Private evidence.' }

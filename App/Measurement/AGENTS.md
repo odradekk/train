@@ -11,7 +11,7 @@
 
 ## 运行
 
-- `pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath <导出的游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario <场景列表> -Repeat <轮数>` 运行指定场景；不给 `-Scenario` 时跑默认列表。大多数 `scene-*` 场景先要同一构建的 `scene-reference` 输出。
+- `& ./scripts/measure/measure.ps1 -ExecutablePath <导出的游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario <场景列表> -Repeat <轮数>` 运行指定场景；不给 `-Scenario` 时跑默认列表。大多数 `scene-*` 场景先要同一构建的 `scene-reference` 输出。
 - 正式测量在 Linux runner 上，用 workflow 的 `measure` 选项手动触发；输入和命令见 [CI](../../docs/ci.md#linux-夜间运行)。运行器先跑一次参考，不计入指定轮数，再把参考传给每个所选场景。一次一个 job，触发前须与协调者确认 runner 空闲。开发机只用于定位问题和同一窗口内的交替对照，在协调者安排的安静窗口里做。
 - 测量代码通过发布的构建加载产品代码：`scripts/measure/export-measurement.ps1` 导出 ExportRelease 构建，游戏以真实 1920×1080 窗口运行（Linux 包在 gamescope 里），带 `--measure=<场景>`。无界面、窗口尺寸不对或被最小化的运行判为无效。
 - 每个场景通过 `MeasurementReport` 输出每轮的 `report.json`，`measure.ps1` 写 `summary.json` 和 `external-load.jsonl`。报告逐项对照设计 00 的阈值由 #822 完成。

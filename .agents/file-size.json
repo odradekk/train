@@ -185,7 +185,7 @@
     "docs/run-tests.md": 22811,
     "scripts/content/check_economy.py": 6393,
     "scripts/content/generate_small_world.py": 29437,
-    "scripts/measure/measure.ps1": 5971,
+    "scripts/measure/measure.ps1": 5959,
     "scripts/test.ps1": 8579
   }
 }
