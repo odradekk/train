@@ -103,18 +103,18 @@
 | 本局蓝图库 | 存档的内嵌内容 |
 | 草稿（非有效来源） | 已明确保存的改装草稿和本局蓝图库草稿存在存档里；用户内容库蓝图和创作模式的草稿在 `user://authoring-drafts/`；未保存的编辑修改不自动入档，都不参与有效内容扫描 |
 
-目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`processes/`、`settlement-types/`、`settlement-templates/`、`markets/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`。首切片临时 `.market-table.json` 只保留为格式记录，Demo 改用 [19 的共用市场规则](19-markets-and-trading.md#一局共用的市场规则)，具体字段与新增规则目录见[市场规则格式](../content/market-rule.md)及内容定义标准。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
+当前结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录，例如：`voxels/`、`blueprints/`、`processes/`、`settlement-types/`、`settlement-templates/`、`rules/`。各类目录、字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`。首切片临时 `.market-table.json` 只保留为格式记录，Demo 改用 [19 的共用市场规则](19-markets-and-trading.md#一局共用的市场规则)，当前文件为 `rules/<local id>.market-rule.json`，字段见[市场规则格式](../content/market-rule.md)及内容定义标准。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
-定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下，一个文件可以写多份定义，将由实施工单改成目标结构：
+定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。一个文件只写一份定义。下表列出部分当前格式，其余种类及版本见[内容定义标准](../content/README.md)。
 
 | 定义类型 | 文件后缀 | `schema_version` |
 | --- | --- | --- |
-| 体素定义 | `.voxels.json` | 2 |
-| 蓝图 | `.composites.json` | 2 |
-| 市场表 | `.market-tables.json` | 1 |
-| 聚居地类型 | `.settlement-types.json` | 1 |
+| 体素定义 | `.voxel.json` | 3 |
+| 蓝图 | `.blueprint.json` | 3 |
+| 市场规则 | `.market-rule.json` | 2 |
+| 聚居地类型 | `.settlement-type.json` | 3 |
 
-- 聚居地模板、场景模型和生物蓝图的格式见[内容定义标准](../content/README.md)；新内容工厂已支持聚居地模板的基础布局、无嵌套的场景模型蓝图、生物蓝图和生物聚落类型；生物聚落类型见 [17](17-combat.md#生物聚落)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
+- 聚居地模板、场景模型和生物蓝图的格式见[内容定义标准](../content/README.md)；新内容工厂已支持聚居地模板的基础布局、场景模型蓝图、生物蓝图和生物聚落类型；生物聚落类型见 [17](17-combat.md#生物聚落)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；设计编辑器与创作模式见 [15](15-design-editor-and-tools.md)。
 

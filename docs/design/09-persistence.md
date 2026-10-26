@@ -135,7 +135,7 @@ Save
 
 当前 #331 实现的自有车辆制造与修理保存于 `WorldState.ConstructionJobs`，下一任务编号保存于 `Next.Job`。活动任务保存设施、聚居地、目标设计／修理车辆、优先级、规则身份与启动修订、冻结总工作量和电力／劳动系数、投入货物、逐来源实际消费、工作进度、主状态、上一步速率、限制、阻塞及资源占用。完成或失败后移除任务；修理锁由活动任务派生。聚居地另保存 `LastConstructionPowerDemand`、`LastConstructionActualSupply`、`LastConstructionAllocatedLabor`，保留任务完工移除所在步骤的电力和劳动汇总，下一无工作请求步骤归零。目标设计与组装体货物沿既有设计目录和引用机制保存；录制还保留成功、拒绝和故障命令携带的设计输入，拒绝设计不进入普通世界状态。NPC 车辆制造与修理委托由 #387 接入：任务保存 Funding，全局保存实际委托工钱累计 UnassignedServicePayments；FIFO 由 FacilityKey 与 JobId 派生，Queued 状态保存零进度，恢复不重新扣料、补购或收费。车辆改装（含委托改装）、立即应用、拆解及冻结返还资料由 #332 接入。#343 将施工目标改为实例并增加地块，使用格式 19，覆盖自有建筑建造、改装、修理、拆解和大型设备制造。#344 的铁路扩建与修复保存于 `WorldState.RailwayJobs`，按边自动修复来源保存于 `AutomaticRailRepairs`，与其他任务共用 `Next.Job`；线路上的 `Works` 在存档中保持为空，查询时由任务算出。使用格式 21。#351 把生物群、成员和下一生物／生物群编号写入格式 22；没有聚落的在外群只游荡。
 
-#350 的战斗保存于 `WorldState.Combats`，下一编号保存于 `Next.Combat`。每场战斗保存地点、开始步、按控制方排序的状态（加入步、是否撤退、脱离余步、集中目标）、生物参战记录和双方损失摘要；#350 只产生节点战斗，#351 也会在线路距离上产生战斗。伤害直接写在既有实例结构耐久和部件耐久上，不另存战斗专用损伤副本。列车保存交战规则和可空撤退目的地，聚居地保存交战规则。战斗状态参加捕获、恢复、检查点、严格重放和跨进程比较；解码拒绝重复或乱序控制方、控制方不在战斗地点、集中目标不是本战斗中该控制方的敌对参战者、损失单位仍存在、损失对象不在战斗地点及编号不一致等。战斗删除导致的列车、建筑、停放车辆和库存删除沿用既有实例与列车规则。
+#350 的战斗保存于 `WorldState.Combats`，下一编号保存于 `Next.Combat`。每场战斗保存地点、开始步、按控制方排序的状态（加入步、是否撤退、脱离余步、集中目标）、生物参战记录和双方损失摘要；战斗发生在节点或线路距离上。伤害直接写在既有实例结构耐久和部件耐久上，不另存战斗专用损伤副本。列车保存交战规则和可空撤退目的地，聚居地保存交战规则。战斗状态参加捕获、恢复、检查点、严格重放和跨进程比较；解码拒绝重复或乱序控制方、控制方不在战斗地点、集中目标不是本战斗中该控制方的敌对参战者、损失单位仍存在、损失对象不在战斗地点及编号不一致等。战斗删除导致的列车、建筑、停放车辆和库存删除沿用既有实例与列车规则。
 
 相同有效内容下，读档后按原状态继续，结果与不中断运行一致，见 [04](04-deterministic-simulation.md#确定性验收)。
 
@@ -171,7 +171,7 @@ Save
 
 ### 资源与生产状态恢复
 
-资源与生产系统的以下状态都是核心状态，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、RepairJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderRepair / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities、施工任务冻结的总工作量与系数。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
+资源与生产系统的以下状态都是核心状态，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、RepairJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderRepair / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities、施工任务冻结的总工作量与系数。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。
 
 ### 交易与运行报告恢复
 
