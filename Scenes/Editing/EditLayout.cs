@@ -18,6 +18,20 @@ internal sealed record EditObject(DisplayText Display, DesignSpecification Speci
             NestedDesignItem.SceneModelCopy model => model with { Design = child.Copy!.Export() },
             _ => child.Item
         }).ToImmutableArray()));
+
+    internal DesignDraft Export(EditObject previous, DesignDraft exported)
+    {
+        if (Children != previous.Children) return Export();
+        if (Cells == previous.Cells)
+            return new(Display, Specification, new(Palette, exported.Layout.Cells, exported.Layout.NestedItems));
+        var (prefix, suffix) = EditLayout.UnchangedCells(previous.Cells, Cells);
+        var cells = ImmutableArray.CreateBuilder<LayoutCell>(Cells.Length);
+        cells.AddRange(exported.Layout.Cells.AsSpan(0, prefix));
+        for (var i = prefix; i < Cells.Length - suffix; i++)
+            cells.Add(new(Cells[i].At, Cells[i].PaletteIndex));
+        cells.AddRange(exported.Layout.Cells.AsSpan(previous.Cells.Length - suffix, suffix));
+        return new(Display, Specification, new(Palette, cells.MoveToImmutable(), exported.Layout.NestedItems));
+    }
 }
 
 internal sealed class EditPalette
@@ -176,6 +190,34 @@ internal static class EditLayout
     internal static EditObject Update(EditObject root, ImmutableArray<int> path, Func<EditObject, EditObject> change) =>
         path.IsEmpty ? change(root) : root with { Children = root.Children.SetItem(path[0],
             root.Children[path[0]] with { Copy = Update(root.Children[path[0]].Copy!, path.RemoveAt(0), change) }) };
+
+    internal static (int Prefix, int Suffix) UnchangedCells(ImmutableArray<EditCell> previous, ImmutableArray<EditCell> current)
+    {
+        var limit = Math.Min(previous.Length, current.Length);
+        var prefix = 0;
+        while (prefix < limit && ReferenceEquals(previous[prefix], current[prefix])) prefix++;
+        var suffix = 0;
+        while (suffix < limit - prefix && ReferenceEquals(previous[previous.Length - suffix - 1], current[current.Length - suffix - 1])) suffix++;
+        return (prefix, suffix);
+    }
+
+    internal static ImmutableArray<EditElement> Elements(EditObject root, EditObject previous, ImmutableArray<EditElement> elements)
+    {
+        if (root.Children != previous.Children) return Elements(root).ToImmutableArray();
+        if (root.Cells == previous.Cells) return elements;
+        var (prefix, suffix) = UnchangedCells(previous.Cells, root.Cells);
+        var result = ImmutableArray.CreateBuilder<EditElement>(root.Cells.Length + elements.Length - previous.Cells.Length);
+        result.AddRange(elements.AsSpan(0, prefix));
+        for (var i = prefix; i < root.Cells.Length; i++)
+        {
+            // 元素路径包含格索引；插入或删除后，移位的后缀不能复用旧路径。
+            var cell = root.Cells[i];
+            result.Add(root.Cells.Length == previous.Cells.Length && i >= root.Cells.Length - suffix ? elements[i]
+                : new(cell.Id, null, EditElementKind.Cell, cell.At, new DesignElementPath.Cell([], i), [], false));
+        }
+        result.AddRange(elements.AsSpan()[previous.Cells.Length..]);
+        return result.MoveToImmutable();
+    }
 
     internal static IEnumerable<EditElement> Elements(EditObject root, ImmutableArray<int> path = default,
         EditElementId? parent = null)

@@ -30,9 +30,9 @@ internal sealed class EditGeometry
             ScenePose composed, ImmutableArray<int> path)
         {
             var id = objectId(element);
-            var cells = ImmutableArray.CreateBuilder<SceneCell>();
+            var cells = ImmutableArray.CreateBuilder<SceneCell>(highestY is null ? value.Cells.Length : 0);
             var models = new List<SceneCell>();
-            var ids = new Dictionary<GridPosition, EditElementId>();
+            var ids = new Dictionary<GridPosition, EditElementId>(value.Cells.Length);
             var palette = new (CellProperties Properties, ImmutableArray<SceneProblem> Problems)?[value.Palette.Length];
             for (var i = 0; i < value.Cells.Length; i++)
             {
@@ -109,22 +109,20 @@ internal sealed class EditGeometry
         void AddGrid(EditElementId element, SceneObjectId id, SceneObjectId? parent, ScenePose pose, ScenePose composed,
             ImmutableArray<SceneCell>.Builder cells, List<SceneCell> models, Func<GridPosition, PickSubject> resolveSubject)
         {
-            var values = cells.ToImmutable();
+            var values = cells.DrainToImmutable();
             grids.TryGetValue(element, out var previous);
             GridGeometry current;
             if (previous is not null && values.AsSpan().SequenceEqual(previous.Cells.AsSpan())) current = previous;
             else
             {
-                var grid = new VoxelGrid(values);
-                var sameHeight = previous is not null && previous.Grid.Bounds?.Minimum.Y == grid.Bounds?.Minimum.Y &&
-                    previous.Grid.Bounds?.Maximum.Y == grid.Bounds?.Maximum.Y;
+                ImmutableArray<GridPosition> changedCells = [];
+                var sameHeight = previous is not null && SameHeight(values, previous.Grid.Bounds);
+                var grid = sameHeight ? new VoxelGrid(values, previous!.Grid, out changedCells) : new(values);
                 HashSet<GridPosition> changed = [];
                 if (sameHeight)
                 {
-                    foreach (var cell in values)
-                        if (previous!.Grid.Find(cell.At) is not { } old || !SameAppearance(old, cell)) Change(cell.At);
-                    foreach (var cell in previous!.Cells)
-                        if (!grid.Contains(cell.At)) Change(cell.At);
+                    foreach (var at in changedCells)
+                        if (previous!.Grid.Find(at) is not { } old || grid.Find(at) is not { } cell || !SameAppearance(old, cell)) Change(at);
                 }
                 Dictionary<GridPosition, DesignGeometry.MeshGroups> chunks = [];
                 foreach (var chunk in grid.Chunks)
@@ -151,7 +149,7 @@ internal sealed class EditGeometry
                 .Concat(current.Chunks.Values.SelectMany(chunk => chunk.Shapes)).ToImmutableArray();
             objects.Add(new(id, parent, pose, null, visuals, [], []));
             objects.AddRange(DesignGeometry.Models(current.Grid, id, null, cell => modelId(id, cell.At), true, cells: models));
-            if (cells.Count > 0) picking.Add(new(id, composed, current.Grid, resolveSubject));
+            if (values.Length > 0) picking.Add(new(id, composed, current.Grid, resolveSubject));
         }
 
         bool Visible(GridPosition at, ScenePose pose) => highestY is null ||
@@ -165,6 +163,20 @@ internal sealed class EditGeometry
             return (new(entry.Orientation, appearance, entry.Shape, entry.Paint, null, path, appearance is null ? reference : null),
                 EditContent.MissingProblems(lookup, reference));
         }
+    }
+
+    private static bool SameHeight(ImmutableArray<SceneCell> cells, SceneBounds? bounds)
+    {
+        if (cells.IsEmpty) return bounds is null;
+        if (bounds is null) return false;
+        var minimum = int.MaxValue;
+        var maximum = int.MinValue;
+        foreach (var cell in cells)
+        {
+            minimum = Math.Min(minimum, cell.At.Y);
+            maximum = Math.Max(maximum, cell.At.Y);
+        }
+        return minimum == bounds.Minimum.Y && maximum + 1f == bounds.Maximum.Y;
     }
 
     // 拾取修订和元素路径会变化，但不参与网格生成。

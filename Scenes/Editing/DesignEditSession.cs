@@ -28,7 +28,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     private readonly Stack<EditObject> undo = new();
     private readonly Stack<EditObject> redo = new();
     private readonly Dictionary<EditElementId, ElementLock> locks = [];
-    private readonly Dictionary<ulong, DesignDraft> captures = [];
+    private readonly Dictionary<ulong, EditObject> captures = [];
     private readonly Dictionary<EditElementId, SceneObjectId> objectIds = [];
     private readonly Dictionary<(SceneObjectId Parent, GridPosition Cell), SceneObjectId> modelIds = [];
     private readonly SceneSessionId frameSession = new(Guid.NewGuid());
@@ -62,11 +62,12 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         }
     }
 
-    private void Derive()
+    private void Derive(DesignDraft? draft = null)
     {
         if (ReferenceEquals(derivedRoot, root)) return;
-        elements = EditLayout.Elements(root).ToImmutableArray();
-        exported = root.Export();
+        elements = derivedRoot is null ? EditLayout.Elements(root).ToImmutableArray()
+            : EditLayout.Elements(root, derivedRoot, elements);
+        exported = draft ?? (derivedRoot is null ? root.Export() : root.Export(derivedRoot, exported!));
         lockedElements = default;
         dirtySaved = null;
         derivedRoot = root;
@@ -91,7 +92,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     {
         CheckOpen();
         Derive();
-        captures[revision] = exported!;
+        captures[revision] = root;
         return new(Stamp, exported!);
     }
     public EditState Read()
@@ -211,6 +212,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         var affected = 0;
         int? covered = null;
         var skipped = 0;
+        var occupancyComplete = false;
         var elements = Elements;
         var lockProblems = LockProblems(elements);
         switch (operation)
@@ -231,7 +233,9 @@ internal sealed partial class DesignEditSession : IDesignEditSession
                     if (!invalid.IsEmpty) return Failure<IEditPreview>(invalid);
                 }
                 var own = current.Cells.Where(cell => footprint.Contains(cell.At)).ToLookup(cell => cell.At);
-                var rootCells = Occupied(root).Cells;
+                var occupied = Occupied(root);
+                var rootCells = occupied.Cells;
+                occupancyComplete = occupied.Complete;
                 var rootFootprint = footprint;
                 if (!path.IsEmpty)
                 {
@@ -351,9 +355,15 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             }
             default: throw new ArgumentException("Invalid edit operation.", nameof(operation));
         }
-        return FinishPreview(new(Stamp, EditLayout.Update(root, path, _ => next), covered ?? highlight.Count, affected, skipped,
+        var candidate = new PreviewValue(Stamp, EditLayout.Update(root, path, _ => next), covered ?? highlight.Count, affected, skipped,
             operation is EditOperation.Cells && affected > VoxelRegionLimits.ConfirmationThreshold,
-            conflicts.ToImmutable(), Ordered(highlight), lockChecks.ToImmutable()), path);
+            conflicts.ToImmutable(), Ordered(highlight), lockChecks.ToImmutable());
+        if (operation is EditOperation.Cells { Action: not CellEdit.Add })
+        {
+            preview = candidate with { OccupancyComplete = occupancyComplete };
+            return Success<IEditPreview>(preview);
+        }
+        return FinishPreview(candidate, path);
 
         SceneProblem? CheckLock(EditElementId id, LockedDesignOperation action)
         {
@@ -404,11 +414,13 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         var next = preview.Result;
         preview = null;
         Derive();
-        if (!EditLayout.Same(exported!, next.Export()))
+        var nextExport = next.Export(root, exported!);
+        if (!EditLayout.Same(exported!, nextExport))
         {
             undo.Push(root);
             redo.Clear();
             root = next;
+            Derive(nextExport);
             Changed();
         }
         return Success(Read());
@@ -443,7 +455,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (disposed || requested != Stamp || result is DesignEvaluation.Failed) return false;
         var projection = EditContent.ValidateEvaluation(result);
         var draft = EditContent.Definition(result);
-        if (!EditLayout.Same(root.Export(), draft)) return false;
+        Derive();
+        if (!EditLayout.Same(exported!, draft)) return false;
         evaluation = result;
         RegisterLocks(projection);
         return true;
@@ -455,8 +468,9 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (disposed || value.Stamp.Session != Id || value.Stamp.Content != Content ||
             !captures.TryGetValue(value.Stamp.Revision.Value, out var captured)) return false;
         EditLayout.Validate(value.Draft);
-        if (!EditLayout.Same(captured, value.Draft)) return false;
-        saved = captured;
+        var draft = captured.Export();
+        if (!EditLayout.Same(draft, value.Draft)) return false;
+        saved = draft;
         return true;
     }
 
