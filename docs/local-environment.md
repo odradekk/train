@@ -21,7 +21,7 @@ $PSVersionTable.PSVersion.ToString()
 
 `GODOT` must contain an executable path without arguments; prefer the console executable for command-line checks. Godot's C# tooling finds `dotnet` only through the Godot process's PATH; if Godot reports `.NET Sdk not found` or `Cannot find the dotnet executable`, check that this PATH contains `C:\Program Files\dotnet\`. Restart existing terminals and editors after installing the SDK or changing user environment variables. Report missing prerequisites as validation blockers.
 
-The checkout may retain ignored settings from a historical acceptance environment. Before returning it to normal development, inspect `NuGet.Config` for an obsolete offline-only source and `override.cfg` for a custom acceptance user-data directory. Back up those local files outside the checkout before disabling them; preserve the associated acceptance evidence and saves. Normal dependency restore needs nuget.org access, and normal game data uses `%APPDATA%\Godot\app_userdata\Train`.
+Normal dependency restore needs nuget.org access, and normal game data uses `%APPDATA%\Godot\app_userdata\Train`.
 
 For a fresh checkout or after an SDK change, build and import before Godot checks. Resource import alone does not build the C# project. After building, agents import with the [isolated child-process recipe](#agent-手动启动-godot), whose example uses `--headless --path . --editor --import`. These are entry examples, not a mandatory sequence; unfiltered `dotnet test` runs the MSTest projects in the solution, not all repository correctness checks, which run through the [unified test entry](run-tests.md):
 
@@ -35,7 +35,7 @@ The graphical editor command above and VS Code's `Train (Godot)` launcher are us
 
 VS Code uses the repository's `build`, `test` and `export-windows` tasks. `test` selects the unified entry's `fast` layer; `export-windows` selects resource import, the engine test suite, Windows export, both production smoke runs and the asset export probe. With the C# extension installed, the `Train (Godot)` launch configuration builds the solution and starts the game. `GODOT_EDITOR` points to the main Godot executable for debugging; `GODOT` points to its console wrapper for validation output. This follows the [Godot C# editor setup](https://docs.godotengine.org/en/4.7/tutorials/scripting/c_sharp/c_sharp_basics.html#visual-studio-code).
 
-当前格式内容示例的 Schema 检查还需要可通过 `python` 调用的 Python 3 与 `jsonschema`。CI 使用 Python 3.11 和 `jsonschema==4.25.1`；本地可用 `python -m pip install jsonschema==4.25.1` 安装，并用 `python -c "import jsonschema, referencing"` 验证。未指定 `-Project` 的 `-Layer integration` 和 `-Layer all` 包含此检查；缺少工具或包时入口判失败并返回退出码 1。
+当前格式内容示例的 Schema 检查还需要可通过 `python` 调用的 Python 3 与 `jsonschema`。CI 使用 Python 3.11 和 `jsonschema==4.25.1`；本地可用 `python -m pip install jsonschema==4.25.1` 安装，并用 `python -c "import jsonschema, referencing"` 验证。未指定 `-Project` 时，`-Layer integration` 和 `-Layer all` 按改动选择此检查，`-All` 强制执行；缺少工具或包时入口判失败并返回退出码 1。
 
 ## Agent 手动启动 Godot
 

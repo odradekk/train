@@ -9,7 +9,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 pwsh -NoProfile -File scripts/test.ps1 -Layer engine
 ```
 
-工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。选中 MSTest 或契约检查时构建一次 `Train.sln`，使用 SDK 的 `dotnet test --test-modules` 运行所选项目的已构建测试程序集；Schema 单独运行时不构建。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规两个步骤分别生成运行目录和摘要。引擎步骤始终调用统一入口；引擎被选中时构建一次解决方案并运行当前 App 的真实 Godot 集成用例，未选中时明确报告、写摘要并成功退出，不构建或运行测试。该步骤使用 `continue-on-error: true`，暂不阻断 PR；本地失败仍返回 1，摘要保留实际 JUnit 用例计数。引擎是否受影响由统一入口按项目依赖与引擎路径规则选择，选中后执行全部引擎用例；用户于 2026-10-13 决定该步骤保持非阻断，不再计划转为阻断。Core/Content/Scenes 隔离重建按项目文件、构建配置、解决方案、边界矩阵和检查工具变更进入默认选择，`-All` 也会执行；选中后在集成队列结束后独立运行，使用 1290 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。普通 .NET 宿主用例不提供真实引擎证据。
+工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。选中 MSTest 或契约检查时构建一次 `Train.sln`，使用 SDK 的 `dotnet test --test-modules` 运行所选项目的已构建测试程序集；Schema 单独运行时不构建。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规两个步骤分别生成运行目录和摘要。引擎步骤始终调用统一入口；引擎被选中时构建一次解决方案并运行当前 App 的真实 Godot 集成用例，未选中时明确报告、写摘要并成功退出，不构建或运行测试。该步骤使用 `continue-on-error: true`，暂不阻断 PR；本地失败仍返回 1，摘要保留实际 JUnit 用例计数。引擎是否受影响由统一入口按项目依赖与引擎路径规则选择，选中后执行全部引擎用例；用户于 2026-10-13 决定该步骤保持非阻断，不再计划转为阻断。Core/Content/Scenes/Godot 隔离重建按项目文件、构建配置、解决方案、边界矩阵和检查工具变更进入默认选择，`-All` 也会执行；选中后在集成队列结束后独立运行，使用 1290 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。普通 .NET 宿主用例不提供真实引擎证据。
 
 测试前先运行 `python .agents/scripts/check_file_size.py --all`，检查全部跟踪文件不超过 5,000 token，规则和例外见 AGENTS.md 的 Agent workflow 节；它失败时本次检查失败。
 
@@ -35,7 +35,7 @@ gh pr edit <PR号> --repo odradekk/train --add-label ci:correctness
 
 手动运行可选择 ref 和 `routine` 或 `correctness`。Windows job 只接受上述 PR 事件和这两种手动选择，不在 master push 或 schedule 时运行。触发和查看命令见[远端检查](run-tests.md#远端检查)。
 
-`correctness` 运行六个现有 MSTest 项目、结构与公开面、Core/Content/Scenes 隔离、内容示例 Schema 及当前 App 的非导出真实 Godot 集成用例。入口复用一次游戏构建和导入并运行独立引擎测试程序集；集成层 MSTest、structure、verify 与可选 Schema 共用最多 4 个并发任务和 2070 秒截止时间；选中的 isolate 在该队列结束后独立运行，使用 1290 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。导出冒烟对同一次 Windows 导出运行两次，用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
+`correctness` 运行七个现有 MSTest 项目、结构与公开面、Core/Content/Scenes/Godot 隔离、内容示例 Schema 及当前 App 的非导出真实 Godot 集成用例。入口复用一次游戏构建和导入并运行独立引擎测试程序集；集成层 MSTest、structure、verify 与可选 Schema 共用最多 4 个并发任务和 2070 秒截止时间；选中的 isolate 在该队列结束后独立运行，使用 1290 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。导出冒烟对同一次 Windows 导出运行两次，用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 
@@ -68,7 +68,7 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 全量检查 job 上限为 153 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟、crowded-station 175 分钟，其余 105 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。`measure` 固定上限为 720 分钟，容纳两小时场景的 3 轮及导出、参考运行和退出余量。自托管 runner 已用于 `lease-expiry` 的 485 分钟长 job；所选场景总耗时超过 720 分钟时，仍由 job 时限终止。窗口长测的上限仍为 200 分钟：7200 秒循环、跑完最后一段（约 16 分钟）、导出与参考运行（缓存模板时约 5 分钟）合计约 150 分钟，另留余量；首次正式运行后按同一预算原则核对。
 
-局域网自托管 runner `lan-linux-nightly` 由 systemd 服务运行，主机提供 PowerShell、Godot 和 Python；版本与环境配置见[Linux 验证与自托管 runner](local-environment.md#linux-验证与自托管-runner)。checkout 后，job 使用固定 SHA 的 `actions/setup-dotnet` 按 `global.json` 准备 SDK，安装到 `${{ runner.tool_cache }}/dotnet`，避开系统包管理器维护的目录。action 将该目录加入 PATH 并导出 `DOTNET_ROOT`，后续 CLI、Godot 和 `dotnet tool restore` 共用它；环境记录保留实际版本和 `DOTNET_ROOT`。workflow 不含主机安装路径，不安装额外 Godot，不使用 xvfb。job 仅授予 `contents: read`，checkout 完整历史与所选 SHA，`persist-credentials: false`。schedule 使用默认分支的工作流，新的 SDK 准备方式在本 PR 合并后才用于定时运行。
+局域网自托管 runner `lan-linux-nightly` 由 systemd 服务运行，主机提供 PowerShell、Godot 和 Python；版本与环境配置见[Linux 验证与自托管 runner](local-environment.md#linux-验证与自托管-runner)。checkout 后，job 使用固定 SHA 的 `actions/setup-dotnet` 按 `global.json` 准备 SDK，安装到 `${{ runner.tool_cache }}/dotnet`，避开系统包管理器维护的目录。action 将该目录加入 PATH 并导出 `DOTNET_ROOT`，后续 CLI、Godot 和 `dotnet tool restore` 共用它；环境记录保留实际版本和 `DOTNET_ROOT`。workflow 不含主机安装路径，不安装额外 Godot，不使用 xvfb。job 仅授予 `contents: read`，checkout 完整历史与所选 SHA，`persist-credentials: false`。schedule 使用默认分支的工作流。
 
 Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error`。摘要发布和产物上传使用 `always()`；`measure` 和 `window-soak` 还须先通过上述脱敏及残留检查。按选择上传整个 `TestResults/`，artifact 名为 `linux-nightly-<run_id>-<attempt>`、`linux-post-merge-<run_id>-<attempt>`、`linux-long-example-<示例>-<run_id>-<attempt>`、`linux-measure-<run_id>-<attempt>` 或 `linux-window-soak-<run_id>-<attempt>`，保留 14 天。上传之后始终清理：确认当前目录和 Git 仓库根目录均为 `GITHUB_WORKSPACE`，执行 `git clean -ffdx`，并在日志列出清理后的目录；不能在其他工作目录运行该清理命令。统一测试入口仍负责真实用户目录和临时目录的快照检查。强制终止 runner 或服务故障时，`always()` 不能保证上传或清理完成，应按实际日志报告。
 
