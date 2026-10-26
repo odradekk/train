@@ -1,6 +1,6 @@
 # Use code-provided behavior types and sealed functional composites
 
-Status: proposed
+Status: accepted
 
 ## Problem
 

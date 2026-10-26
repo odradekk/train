@@ -1,6 +1,8 @@
 # Separate module contracts and limit implementation access to composition
 
-Status: proposed
+Status: accepted
+Supersedes in part: 2026-10-09-content-project-and-split-by-reader — 项目引用与日志、控制台的归属
+Supersedes in part: 2026-10-06-godot-free-libraries-and-core-rewrite — 项目引用与日志、控制台的归属
 
 ## Problem
 

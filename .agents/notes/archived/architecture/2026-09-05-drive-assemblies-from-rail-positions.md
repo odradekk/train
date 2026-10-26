@@ -1,6 +1,7 @@
 # Drive connected assemblies from physical rail positions
 
-Status: proposed
+Status: accepted
+Archived: 2026-10-26
 
 ## Problem
 

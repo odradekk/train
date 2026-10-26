@@ -1,6 +1,9 @@
 # Split the code into Godot-free core and scene libraries and rewrite the core
 
-Status: proposed
+Status: accepted
+Archived: 2026-10-26
+Superseded in part by: 2026-10-09-content-project-and-split-by-reader — 内容层的位置
+Superseded in part by: 2026-10-10-separate-module-contracts — 项目引用与日志、控制台的归属
 
 ## Problem
 

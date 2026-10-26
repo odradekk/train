@@ -1,6 +1,6 @@
 # Render with Forward+
 
-Status: proposed
+Status: accepted
 
 ## Problem
 

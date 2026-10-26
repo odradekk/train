@@ -1,6 +1,6 @@
 # Limit mods to data packages and isolate package failures
 
-Status: proposed
+Status: accepted
 
 ## Problem
 

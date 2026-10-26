@@ -1,6 +1,7 @@
 # Give each composite instance its own design and keep blueprints as templates
 
-Status: proposed
+Status: accepted
+Supersedes in part: 2026-09-05-resolve-current-definitions-separate-versions — 蓝图版本
 
 ## Problem
 

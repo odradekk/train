@@ -1,6 +1,8 @@
 # Move the content layer into its own project and split definitions by reader
 
-Status: proposed
+Status: accepted
+Superseded in part by: 2026-10-10-separate-module-contracts — 项目引用与日志、控制台的归属
+Supersedes in part: 2026-10-06-godot-free-libraries-and-core-rewrite — 内容层的位置
 
 ## Problem
 

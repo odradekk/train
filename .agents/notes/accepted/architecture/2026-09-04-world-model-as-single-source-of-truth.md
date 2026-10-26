@@ -1,6 +1,7 @@
 # Keep the World Model as the single source of truth and treat Godot as a derived adapter
 
-Status: proposed
+Status: accepted
+Superseded in part by: 2026-10-05-voxel-free-core-and-presentation-scenes — 游戏状态的范围
 
 ## Problem
 

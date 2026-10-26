@@ -1,6 +1,7 @@
 # Preserve physical rail geometry and local breaks
 
-Status: proposed
+Status: accepted
+Archived: 2026-10-26
 
 ## Problem
 

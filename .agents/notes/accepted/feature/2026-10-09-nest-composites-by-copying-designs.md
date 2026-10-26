@@ -1,6 +1,6 @@
 # Nest composites by copying designs and treat storable composites as goods
 
-Status: proposed
+Status: accepted
 
 ## Problem
 

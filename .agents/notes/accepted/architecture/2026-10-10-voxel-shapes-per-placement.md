@@ -1,6 +1,6 @@
 # Choose voxel shapes per placement so shapes never create goods
 
-Status: proposed
+Status: accepted
 
 ## Problem
 

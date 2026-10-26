@@ -1,6 +1,7 @@
 # Use namespaced voxel identities and strict versioned definition schemas
 
-Status: proposed
+Status: accepted
+Superseded in part by: 2026-10-09-package-dependencies-and-missing-placeholders — 文件后缀和目录约定
 
 ## Problem
 

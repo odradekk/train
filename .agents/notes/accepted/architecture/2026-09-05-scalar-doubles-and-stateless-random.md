@@ -1,6 +1,6 @@
 # Use scalar doubles and stateless random within a fixed runtime boundary
 
-Status: proposed
+Status: accepted
 
 ## Problem
 

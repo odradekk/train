@@ -1,6 +1,6 @@
 # Hand off presentation assets as raw bytes keyed by asset revision
 
-Status: proposed
+Status: accepted
 
 ## Problem
 

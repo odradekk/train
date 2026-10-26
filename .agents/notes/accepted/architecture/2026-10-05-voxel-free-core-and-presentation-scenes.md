@@ -1,6 +1,7 @@
 # Simulate the world in a voxel-free core and build voxel scenes as presentation
 
-Status: proposed
+Status: accepted
+Supersedes in part: 2026-09-04-world-model-as-single-source-of-truth — 游戏状态的范围
 
 ## Problem
 

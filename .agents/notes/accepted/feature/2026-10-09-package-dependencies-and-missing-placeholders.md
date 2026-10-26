@@ -1,6 +1,8 @@
 # Declare package dependencies and keep missing content as placeholders
 
-Status: proposed
+Status: accepted
+Supersedes in part: 2026-08-27-namespaced-identities-and-versioned-schema — 文件后缀和目录约定
+Supersedes in part: 2026-09-05-resolve-current-definitions-separate-versions — 缺内容即加载失败
 
 ## Problem
 

@@ -1,6 +1,8 @@
 # Resolve current definitions and separate semantic, asset and catalog versions
 
-Status: proposed
+Status: accepted
+Superseded in part by: 2026-10-09-instance-designs-and-blueprint-templates — 蓝图版本
+Superseded in part by: 2026-10-09-package-dependencies-and-missing-placeholders — 缺内容即加载失败
 
 ## Problem
 
