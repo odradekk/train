@@ -248,6 +248,9 @@ internal sealed class NodeScene : IAsyncDisposable
     private ImmutableArray<SceneFog> cachedTerrainFog = [];
     private readonly Dictionary<string, Part> rails = [];
     private readonly Dictionary<GridColumn, HashSet<string>> builtRailsByChunk = [];
+    private readonly Dictionary<GridColumn, HashSet<string>> railFogSegmentsByChunk = [];
+    private readonly Dictionary<string, ImmutableArray<SceneBounds>> railFogBySegment = [];
+    private Preparation? railFogPreparation;
     private readonly HashSet<string> rebuilding = [];
     private readonly HashSet<string> foggedRails = [];
     private bool railFogDirty = true;
@@ -717,6 +720,12 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void IndexRail(string key, bool present)
     {
+        IndexRailFog();
+        var changed = RailFogNeighborhood(prepared!.Rails[key].Bounds);
+        foreach (var from in BoundsChunks(changed))
+            if (railFogSegmentsByChunk.TryGetValue(from, out var adjacent))
+                foreach (var other in adjacent)
+                    if (RailFogOverlaps(changed, prepared.Rails[other].Bounds)) railFogBySegment.Remove(other);
         foreach (var from in BoundsChunks(prepared!.Rails[key].Bounds))
             if (present)
             {
@@ -729,6 +738,28 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (keys.Count == 0) builtRailsByChunk.Remove(from);
             }
     }
+
+    private void IndexRailFog()
+    {
+        if (ReferenceEquals(railFogPreparation, prepared)) return;
+        railFogPreparation = prepared;
+        railFogBySegment.Clear();
+        railFogSegmentsByChunk.Clear();
+        foreach (var segment in prepared!.Rails.Values)
+        foreach (var from in BoundsChunks(segment.Bounds))
+        {
+            if (!railFogSegmentsByChunk.TryGetValue(from, out var keys)) railFogSegmentsByChunk.Add(from, keys = []);
+            keys.Add(segment.Key);
+        }
+    }
+
+    // Rasterized rail footprints can extend to the next voxel-column edge.
+    private static SceneBounds RailFogNeighborhood(SceneBounds bounds) => new(
+        bounds.Minimum - new Vector3(1, 0, 1), bounds.Maximum + new Vector3(1, 0, 1));
+
+    private static bool RailFogOverlaps(SceneBounds left, SceneBounds right) =>
+        left.Minimum.X < right.Maximum.X && left.Maximum.X > right.Minimum.X &&
+        left.Minimum.Z < right.Maximum.Z && left.Maximum.Z > right.Minimum.Z;
 
     private static SceneStreamingPartKind StreamingKind(string key) => key.StartsWith("terrain:", StringComparison.Ordinal)
         ? SceneStreamingPartKind.NodeTerrain : NodePartKeys.IsBoundary(key)
@@ -1196,6 +1227,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private ImmutableArray<SceneFog> RailFog(ScenePoint origin)
     {
         if (prepared is null) return [];
+        IndexRailFog();
         bool NeedsFog(RailSegment segment) => !rails.ContainsKey(segment.Key) &&
             (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) ||
                 corridorRails.Contains(segment.Key) || NodeStreaming.OverlapsTerrain(segment.Bounds, terrainChunks));
@@ -1213,13 +1245,23 @@ internal sealed class NodeScene : IAsyncDisposable
             {
                 foggedRails.Clear();
                 foreach (var segment in prepared.Rails.Values.Where(NeedsFog)) foggedRails.Add(segment.Key);
-                var missing = foggedRails.Select(key => prepared.Rails[key].Bounds).ToImmutableArray();
-                var cutters = new HashSet<string>();
-                foreach (var area in missing)
-                foreach (var from in BoundsChunks(area))
-                    if (builtRailsByChunk.TryGetValue(from, out var keys)) cutters.UnionWith(keys);
-                railFogBounds = ConstructionFog.Clip(missing, cutters.Order(StringComparer.Ordinal)
-                    .SelectMany(key => prepared.Rails[key].Footprint));
+                var regions = ImmutableArray.CreateBuilder<SceneBounds>();
+                foreach (var key in foggedRails)
+                {
+                    if (!railFogBySegment.TryGetValue(key, out var clipped))
+                    {
+                        var segment = prepared.Rails[key];
+                        var cutters = new HashSet<string>();
+                        foreach (var from in BoundsChunks(RailFogNeighborhood(segment.Bounds)))
+                            if (builtRailsByChunk.TryGetValue(from, out var keys)) cutters.UnionWith(keys);
+                        clipped = ConstructionFog.Clip([segment.Bounds], cutters.Order(StringComparer.Ordinal)
+                            .SelectMany(other => prepared.Rails[other].Footprint)
+                            .Where(bounds => RailFogOverlaps(bounds, segment.Bounds)));
+                        railFogBySegment[key] = clipped;
+                    }
+                    regions.AddRange(clipped);
+                }
+                railFogBounds = regions.ToImmutable();
                 railFogDirty = false;
                 railFogOrigin = null;
             }

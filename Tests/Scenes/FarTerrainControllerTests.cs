@@ -12,6 +12,81 @@ public sealed class FarTerrainControllerTests
     private static readonly ScenePoint Focus = new(102912, 0, 102912);
 
     [TestMethod]
+    public void Repeating_parent_ranges_preserves_the_view_but_rebinding_requires_the_same_demand_again()
+    {
+        var terrain = Bound(new());
+        terrain.SetFineBuildAllowed(false);
+        var focus = Focus with { X = Focus.X + 16, Z = Focus.Z + 16 };
+        terrain.Demand(focus, 1);
+        while (terrain.HasRunnableWork) terrain.Advance(10000, CancellationToken.None);
+        var visible = terrain.View;
+        Assert.IsFalse(terrain.Demand(focus with { X = focus.X + 1 }, 2));
+        Assert.AreSame(visible, terrain.View);
+
+        var changed = RailwayFixtures.Snapshot(relief: 2);
+        terrain.BindRailway(changed, new(changed, RailwayFixtures.Edge));
+        Assert.IsTrue(terrain.Demand(focus, 1), "A new binding must accept even an unchanged parent range.");
+        Assert.AreSame(visible, terrain.View, "The old surface remains visible during replacement.");
+        while (terrain.HasRunnableWork) terrain.Advance(10000, CancellationToken.None);
+        Assert.AreNotSame(visible.Tiles.Single(), terrain.View.Tiles.Single());
+        var replacement = terrain.View;
+        Assert.IsFalse(terrain.Demand(focus, 1));
+        Assert.AreSame(replacement, terrain.View);
+    }
+
+    [TestMethod]
+    public void Repeated_demand_observes_tiles_completed_by_another_terrain_sharing_the_cache()
+    {
+        var cache = new FarTerrain.Cache();
+        var producer = Bound(cache);
+        var observer = Bound(cache);
+        foreach (var terrain in new[] { producer, observer })
+        {
+            terrain.SetFineBuildAllowed(false);
+            terrain.Demand(Focus, 1);
+            terrain.Advance(1, CancellationToken.None); // Bind to the shared cache.
+            terrain.Advance(1, CancellationToken.None); // Resolve the requested parent's keys.
+        }
+        Assert.IsTrue(observer.View.Tiles.IsEmpty);
+        while (producer.HasRunnableWork) producer.Advance(10000, CancellationToken.None);
+        Assert.IsFalse(observer.HasRunnableWork, "Shared completed tiles satisfy the observer without its own build.");
+        Assert.IsTrue(observer.View.Tiles.IsEmpty, "The observer has not published the shared completion yet.");
+        Assert.IsFalse(observer.Demand(Focus, 1));
+        Assert.AreSame(producer.View.Tiles.Single(), observer.View.Tiles.Single());
+    }
+
+    [TestMethod]
+    public void Demand_uses_exclusive_parent_boundaries_and_updates_when_radius_domain_or_ahead_crosses_them()
+    {
+        var focus = new ScenePoint(512, 0, 512);
+        var terrain = Bound(new());
+        Assert.IsTrue(terrain.Demand(focus, 512));
+        Assert.IsFalse(terrain.IntersectsDemand(new(new(1024, 0, 512), new(1025, 1, 513))),
+            "An exact upper boundary must not include the next parent.");
+        Assert.IsFalse(terrain.Demand(focus, 511));
+        Assert.IsTrue(terrain.Demand(focus, 513));
+        Assert.IsTrue(terrain.IntersectsDemand(new(new(1024, 0, 512), new(1025, 1, 513))));
+
+        var domain = new ScenePanBounds(new(1, 1), new(1023, 1023));
+        terrain = Bound(new());
+        Assert.IsTrue(terrain.Demand(focus, 1, domain));
+        Assert.IsFalse(terrain.Demand(focus, 1, new(new(2, 2), new(1022, 1022))));
+        Assert.IsTrue(terrain.Demand(focus, 1, new(new(1, 1), new(1024, 1023))));
+        Assert.IsTrue(terrain.IntersectsDemand(new(new(1024, 0, 512), new(1025, 1, 513))));
+
+        terrain = Bound(new());
+        Assert.IsTrue(terrain.Demand(focus, 1, ahead: []));
+        Assert.IsFalse(terrain.Demand(focus, 1, ahead: [focus with { Y = 1 }]));
+        Assert.IsTrue(terrain.Demand(focus, 1, ahead: [focus with { X = 513 }]),
+            "Prefetch crosses the parent boundary even while visible terrain stays in the same parent.");
+        Assert.IsTrue(terrain.IntersectsDemand(new(new(1024, 0, 512), new(1025, 1, 513))));
+        Assert.IsTrue(terrain.Demand(focus, 1), "Removing ahead must remove its prefetch demand.");
+        Assert.IsFalse(terrain.IntersectsDemand(new(new(1024, 0, 512), new(1025, 1, 513))));
+        Assert.IsTrue(terrain.Demand(focus, 1, ahead: []), "An empty ahead list still enables prefetch around the focus.");
+        Assert.IsFalse(terrain.Demand(focus, 1, ahead: []));
+    }
+
+    [TestMethod]
     public void Swept_demand_covers_the_bend_middle_and_stays_inside_the_expanded_route_bounds()
     {
         var terrain = Bound(new());
@@ -134,6 +209,8 @@ public sealed class FarTerrainControllerTests
         var sameInputs = Bound(cache);
         sameInputs.Demand(Focus, 1);
         Assert.AreSame(tile, sameInputs.View.Tiles.Single());
+        Assert.IsTrue(sameInputs.HasPendingCoarse, "Cache identity is resolved by the worker.");
+        sameInputs.Advance(128, CancellationToken.None);
         Assert.IsFalse(sameInputs.HasPendingCoarse);
 
         var changedInputs = Bound(cache, relief: 2);
@@ -205,6 +282,9 @@ public sealed class FarTerrainControllerTests
         changed.Demand(Focus, 1);
         changed.ReuseTiles(old);
         Assert.AreSame(outside, changed.View.Tiles.Single());
+        Assert.IsTrue(changed.HasPendingCoarse, "The worker must resolve the newly demanded parent's inputs first.");
+        Assert.IsFalse(changed.Advance(1, CancellationToken.None));
+        Assert.AreSame(outside, changed.View.Tiles.Single(), "Resolving unchanged inputs must reuse the completed tile without rebuilding it.");
         Assert.IsFalse(changed.HasPendingCoarse);
 
         FarTerrain Node(SceneWorldSnapshot snapshot)
@@ -345,6 +425,61 @@ public sealed class FarTerrainControllerTests
         Assert.IsFalse(completed);
         Assert.IsTrue(terrain.View.Tiles.IsEmpty);
         Assert.IsNotNull(FirstCoarse(terrain));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Binding_defers_dependency_reads_and_discards_initialization_completed_after_rebinding(bool node)
+    {
+        var original = node ? NodeFixtures.EmptyNodeSnapshot(NodeFixtures.Layout with { Plots = [] }, [])
+            : RailwayFixtures.Snapshot(relief: 0);
+        var path = node ? null : new RailwayPath(original, RailwayFixtures.Edge);
+        var prepared = node ? NodeScene.Prepare(original, NodeLayout.Build(original, NodeFixtures.NodeId)) : null;
+        using var content = new SceneFixtures.BlockedAppearanceView(original.Content, blockRailway: !node);
+        var blocked = original with { Content = content };
+        var terrain = new FarTerrain(new());
+        Task? initialization = null;
+        try
+        {
+            // Railway dependency capture and node source construction must both run outside Bind.
+            await Task.Run(() =>
+            {
+                if (node) terrain.BindNode(prepared! with { Snapshot = blocked });
+                else terrain.BindRailway(blocked, path!);
+            }).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsFalse(content.Entered.Task.IsCompleted, "Bind must only capture inputs and binding identity.");
+            Assert.IsTrue(terrain.HasPendingCoarse);
+            terrain.Demand(Focus, 1);
+            initialization = Task.Run(() => terrain.Advance(128, CancellationToken.None));
+            await content.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var changed = node ? original : RailwayFixtures.Snapshot(relief: 2);
+            if (node) terrain.BindNode(NodeScene.Prepare(changed, NodeLayout.Build(changed, NodeFixtures.NodeId)));
+            else terrain.BindRailway(changed, new(changed, RailwayFixtures.Edge));
+            var latestFocus = new ScenePoint(128, 0, 128);
+            terrain.Demand(latestFocus, 1);
+            terrain.SetFineBuildAllowed(false);
+            content.Release.Set();
+            await initialization.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsTrue(terrain.HasPendingCoarse, "The old initializer must not complete the new binding.");
+            while (terrain.HasRunnableWork) terrain.Advance(10000, CancellationToken.None);
+            var tile = terrain.View.Tiles.Single();
+            Assert.AreEqual(new ScenePoint(0, 0, 0), tile.Origin, "Initialization must retain the latest demand.");
+
+            var expected = new FarTerrain(new());
+            if (node) expected.BindNode(NodeScene.Prepare(changed, NodeLayout.Build(changed, NodeFixtures.NodeId)));
+            else expected.BindRailway(changed, new(changed, RailwayFixtures.Edge));
+            expected.SetFineBuildAllowed(false);
+            expected.Demand(latestFocus, 1);
+            while (expected.HasRunnableWork) expected.Advance(10000, CancellationToken.None);
+            CollectionAssert.AreEqual(expected.View.Tiles.Single().Mesh.Vertices.ToArray(), tile.Mesh.Vertices.ToArray());
+        }
+        finally
+        {
+            content.Release.Set();
+            if (initialization is not null) await initialization;
+        }
     }
 
     private static FarTerrain Bound(FarTerrain.Cache cache, double relief = 0)

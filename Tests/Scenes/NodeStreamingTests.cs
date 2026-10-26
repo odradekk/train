@@ -1258,6 +1258,129 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
+    public async Task Attaching_one_rail_reuses_nonadjacent_fog_and_preserves_the_previous_union()
+    {
+        var snapshot = RailSnapshot();
+        var cache = new NodeScene.Cache();
+        using var releaseFirst = new ManualResetEventSlim();
+        using var releaseOthers = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache, buildRail: (_, segment, old, token) =>
+        {
+            (entered.TrySetResult(segment.Key) ? releaseFirst : releaseOthers).Wait(token);
+            return segment.Build(old, token);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(allowBuild: false);
+            var line = scene.Layout!.Parking.First();
+            var focus = RailwayCoordinates.Add(line.Start, line.Forward * (float)(line.Length - 64));
+            scene.Pump(focus: focus, allowBuild: false);
+            AssertRailFogUnion(scene);
+            for (var attempt = 0; !entered.Task.IsCompleted; attempt++)
+            {
+                Assert.IsTrue(attempt < 1000, "No rail builder started within the finite node work set.");
+                scene.Pump(focus: focus);
+                Present(scene, snapshot);
+                if (!entered.Task.IsCompleted)
+                    await Task.WhenAny(Task.WhenAll(scene.PendingWork), entered.Task);
+            }
+            var key = await entered.Task;
+            var pendingParts = SceneField<System.Collections.IDictionary>(scene, "pendingParts");
+            var firstWork = pendingParts[key]!;
+            var firstBuild = (Task)firstWork.GetType().GetProperty("Task")!.GetValue(firstWork)!;
+            AssertRailFogUnion(scene);
+            var before = RailFogSegments(scene);
+            var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+            var bounds = prepared.Rails[key].Bounds;
+            var distant = before.Where(pair => !pair.Value.IsEmpty && !Overlaps(pair.Key)).ToArray();
+            var adjacent = before.Where(pair => pair.Key != key && !pair.Value.IsEmpty && Overlaps(pair.Key)).ToArray();
+            Assert.IsNotEmpty(distant, "The fixture needs nonempty distant fog to detect unnecessary rebuilding.");
+            Assert.IsNotEmpty(adjacent, "The fixture needs another pending rail next to the attached rail.");
+            releaseFirst.Set();
+            await firstBuild;
+            for (var attempt = 0; !Rails(cache).ContainsKey(key); attempt++)
+            {
+                Assert.IsTrue(attempt < 10, "The completed rail was not attached after consuming its build result.");
+                scene.Pump(focus: focus, allowBuild: false);
+                Present(scene, snapshot);
+            }
+            Assert.AreEqual(1, Rails(cache).Count, "Exactly one rail is released by the controlled builder.");
+            AssertRailFogUnion(scene);
+            var after = RailFogSegments(scene);
+            foreach (var (other, value) in distant)
+                Assert.IsTrue(after[other].Equals(value), $"Unrelated rail {other} must reuse its clipped fog array.");
+            foreach (var (other, value) in adjacent)
+                Assert.IsFalse(after[other].Equals(value), $"Adjacent rail {other} must be clipped again after attachment.");
+
+            scene.Pump(focus: new ScenePoint(10000, 0, 10000), allowBuild: false);
+            Assert.IsFalse(Rails(cache).ContainsKey(key), "Moving away must unload the released rail outside settlement prefetch.");
+            AssertRailFogUnion(scene);
+
+            bool Overlaps(string other)
+            {
+                var candidate = prepared.Rails[other].Bounds;
+                return candidate.Minimum.X < bounds.Maximum.X + 1 && candidate.Maximum.X > bounds.Minimum.X - 1 &&
+                    candidate.Minimum.Z < bounds.Maximum.Z + 1 && candidate.Maximum.Z > bounds.Minimum.Z - 1;
+            }
+        }
+        finally { releaseFirst.Set(); releaseOthers.Set(); }
+    }
+
+    [TestMethod]
+    public async Task Reopening_retained_rails_preserves_the_previous_fog_union()
+    {
+        var snapshot = RailSnapshot();
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var segment = prepared.Rails.Values.First();
+        var part = new NodeScene.Part(segment.Inputs, WorldSceneSession.BuildGeometry(_ => new([], [], [])),
+            ImmutableDictionary<GridColumn, double>.Empty);
+        var cache = new NodeScene.Cache();
+        var owner = cache.Open(NodeFixtures.NodeId);
+        cache.Publish(NodeFixtures.NodeId, owner, prepared.Global with { Parts = prepared.Global.Parts.Add(segment.Key, part) });
+        await using var vehicles = new SceneVehicles();
+        for (var binding = 0; binding < 2; binding++)
+        {
+            await using var scene = Open(snapshot, vehicles, cache);
+            await scene.BuildWork!;
+            scene.Pump(focus: segment.Sample((segment.Begin + segment.End) / 2).Position, allowBuild: false);
+            AssertRailFogUnion(scene);
+            Assert.IsTrue(Rails(cache).ContainsKey(segment.Key));
+        }
+    }
+
+    private static Dictionary<string, ImmutableArray<SceneBounds>> RailFogSegments(NodeScene scene) =>
+        new(SceneField<Dictionary<string, ImmutableArray<SceneBounds>>>(scene, "railFogBySegment"));
+
+    private static T SceneField<T>(NodeScene scene, string name) =>
+        (T)typeof(NodeScene).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(scene)!;
+
+    private static void AssertRailFogUnion(NodeScene scene)
+    {
+        var actual = (ImmutableArray<SceneFog>)typeof(NodeScene)
+            .GetMethod("RailFog", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(scene, [default(ScenePoint)])!;
+        var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+        var rails = SceneField<Dictionary<string, NodeScene.Part>>(scene, "rails");
+        var range = SceneField<NodeRange>(scene, "range");
+        var prefetch = SceneField<NodeRange>(scene, "prefetch");
+        var corridor = SceneField<HashSet<string>>(scene, "corridorRails");
+        var chunks = SceneField<HashSet<GridColumn>>(scene, "terrainChunks");
+        var missing = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) &&
+            (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) ||
+                corridor.Contains(segment.Key) || NodeStreaming.OverlapsTerrain(segment.Bounds, chunks)))
+            .Select(segment => segment.Bounds).ToArray();
+        var expected = ConstructionFog.Clip(missing, rails.Keys.Order(StringComparer.Ordinal)
+            .SelectMany(key => prepared.Rails[key].Footprint));
+        var normalized = ConstructionFog.Clip(actual.Select(fog => fog.WorldBounds), []);
+        CollectionAssert.AreEquivalent(expected.ToArray(), normalized.ToArray(),
+            "Incremental rail fog must retain the old demand and clipping union.");
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Cancelled_rail_work_cannot_attach_or_publish_cache(bool close)
