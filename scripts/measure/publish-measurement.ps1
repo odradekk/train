@@ -12,15 +12,16 @@ $removed = 0
 try {
     $directoryPath = (Resolve-Path -LiteralPath $Directory).Path
     $runnerRoot = if ($env:RUNNER_WORKSPACE) { Split-Path (Split-Path $env:RUNNER_WORKSPACE -Parent) -Parent }
+    $godotDirectory = if ($env:GODOT) { Split-Path $env:GODOT -Parent }
     $pythonDirectories = @(Get-Command python, python3 -ErrorAction SilentlyContinue | Where-Object Source |
         ForEach-Object { Split-Path $_.Source -Parent } | Select-Object -Unique)
     $toolPaths = @($pythonDirectories) + @($env:DOTNET_ROOT, $env:RUNNER_TOOL_CACHE,
-        $env:RUNNER_WORKSPACE, $env:RUNNER_TEMP)
+        $env:RUNNER_WORKSPACE, $env:RUNNER_TEMP, $godotDirectory, $PSHOME)
     $prefixes = @{
         '<workspace>' = $env:GITHUB_WORKSPACE; '<temp>' = $env:RUNNER_TEMP
         '<tool-cache>' = $env:RUNNER_TOOL_CACHE; '<runner>' = $runnerRoot
         '<home>' = $HOME; '<pwsh>' = $PSHOME
-        '<godot>' = $(if ($env:GODOT) { Split-Path $env:GODOT -Parent })
+        '<godot>' = $godotDirectory
         '<runtime>' = $(if ($IsLinux) { "/run/user/$(& id -u)" })
     }
     $replacements = @($prefixes.GetEnumerator()) + @($pythonDirectories | ForEach-Object { @{ Key = '<python>'; Value = $_ } })
