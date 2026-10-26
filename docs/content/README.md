@@ -112,8 +112,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
     ├── combat-rules/
     ├── lair-types/
     ├── generation-profiles/
-    ├── terrain-types/
-    └── markets/                历史临时市场表
+    └── terrain-types/
 ```
 
 - Mod 放在 `user://mods/<包目录>/`。内置的 `core` 包放在 `builtin/core/`，没有 `mod.json`，版本就是游戏版本。
