@@ -386,8 +386,12 @@ public sealed class RailwaySessionTests
             scene.Present(Snapshot(distance, 0, 60), null, target, Request, Stamp(revision++), null);
             Assert.IsFalse(forwardToken.IsCancellationRequested,
                 "A forward segment three places ahead remains in the six-segment retention even when demand drops.");
-            while (scene.PendingWork.Count(task => !task.IsCompleted) > 1)
-                await Task.WhenAny(scene.PendingWork.Where(task => !task.IsCompleted));
+            while (true)
+            {
+                var pending = scene.PendingWork.Where(task => !task.IsCompleted).ToArray();
+                if (pending.Length <= 1) break;
+                await Task.WhenAny(pending);
+            }
             var draining = scene.PendingWork;
             now += Stopwatch.Frequency;
             var moved = Snapshot(distance + 640, 0, 120);
