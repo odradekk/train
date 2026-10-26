@@ -1,6 +1,6 @@
 # Demo 后性能与内存剩余差距的处理
 
-Status: proposed
+Status: accepted
 
 ## Problem
 
