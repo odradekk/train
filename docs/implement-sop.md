@@ -25,7 +25,7 @@ Never drive the user's desktop: no Computer Use and no global keyboard or mouse 
 
 ## 0. Prepare
 
-Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, ADRs and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).
+Read the dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, decision notes and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).
 
 Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the [unified test entry](run-tests.md) with `-Project core|content|scenes|godot|contract-support` for the responsibility being changed, and `-Layer` for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
 

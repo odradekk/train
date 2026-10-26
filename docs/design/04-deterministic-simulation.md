@@ -2,11 +2,11 @@
 
 > **所属层**：核心模拟层。
 
-> 决策出处：时钟与倍速、核心不等待玩家、命令的执行时机、命令种类、输入格式版本 2、取消撤销与重做、录制与复现、随机键、Tick 流水线和确定性验收，由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)于 2026-10-05 确认。它取代了待执行命令队列、输入格式版本 1、编辑撤销与重做、断裂平局随机键，以及以体素世界为对象的检查点和证据矩阵。确定性边界、数值类型、浮点往返、Resolver、Transaction 与运行时 ID 沿用转录 Q49、Q63–Q88、Q152，研究 [`docs/research/dotnet-godot-determinism.md`](../research/dotnet-godot-determinism.md)（票 #26）和 [#34](https://github.com/odradekk/train/issues/34) 的决策，见 [ADR-0003](../adr/0003-use-scalar-doubles-and-stateless-random-for-determinism.md)；命令的拒绝与内部故障之分沿用[确定性和存档恢复决策](https://github.com/odradekk/train/issues/97)。
+> 决策出处：时钟与倍速、核心不等待玩家、命令的执行时机、命令种类、输入格式版本 2、取消撤销与重做、录制与复现、随机键、Tick 流水线和确定性验收，由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)于 2026-10-05 确认。它取代了待执行命令队列、输入格式版本 1、编辑撤销与重做、断裂平局随机键，以及以体素世界为对象的检查点和证据矩阵。确定性边界、数值类型、浮点往返、Resolver、Transaction 与运行时 ID 沿用转录 Q49、Q63–Q88、Q152，研究 [`docs/research/dotnet-godot-determinism.md`](../research/dotnet-godot-determinism.md)（票 #26）和 [#34](https://github.com/odradekk/train/issues/34) 的决策，见决策笔记 `2026-09-05-scalar-doubles-and-stateless-random`；命令的拒绝与内部故障之分沿用[确定性和存档恢复决策](https://github.com/odradekk/train/issues/97)。
 
 ## 边界
 
-本文定义核心模拟层的时钟与倍速、命令、Tick 流水线、资源仲裁、事务、随机性、运行时 ID、录制与复现，以及确定性验收。确定性契约只覆盖核心模拟层，场景不在其中，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。
+本文定义核心模拟层的时钟与倍速、命令、Tick 流水线、资源仲裁、事务、随机性、运行时 ID、录制与复现，以及确定性验收。确定性契约只覆盖核心模拟层，场景不在其中，见决策笔记 `2026-10-05-voxel-free-core-and-presentation-scenes`。
 
 相关内容见：
 - 损伤的结算粒度：[03](03-vehicles-buildings-and-designs.md#损伤与战斗事件)
@@ -47,7 +47,7 @@
 ### 核心不等待玩家
 
 - 凡是需要做决定的情况，例如遇敌、运行计划走到尽头、任务缺料，核心模拟层一律按玩家预设的规则或默认规则处理，并发出领域事件供界面通知玩家。玩家之后的命令只影响此后的行为。
-- 战斗进行时世界不暂停，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。
+- 战斗进行时世界不暂停，见决策笔记 `2026-10-05-voxel-free-core-and-presentation-scenes`。
 
 ### 确定性目标
 
@@ -60,7 +60,7 @@
 ### 数值类型与计算边界
 
 - 连续模拟量使用 `double`，包括地图上的位置、线路上的距离和速度；计数和运行时 ID 使用整数。体素坐标只在体素引擎层出现。Demo 不引入全局定点数体系。
-- 货币定价是局部例外：实际金额使用最小货币单位的有符号 64 位整数，中间运算以整数分子、分母保持精确，到结算单位才取整；不先经 `double` 近似或用 epsilon 修正。依据[市场与交易](https://github.com/odradekk/train/issues/281) Q27，公式和算例见 [19](19-markets-and-trading.md#货物的边际价格)，取舍见 [ADR-0003](../adr/0003-use-scalar-doubles-and-stateless-random-for-determinism.md)。经[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确认，基本价值用 `long`，价格倍率、敏感度和价差用万分比整数（10000 表示 1）；不公开 `Fraction`。内部精确运算使用标准整数类型并做必要溢出检查，意外溢出沿用下文内部故障，不增加金额越界业务错误或自动跳过分支。此例外不改变其他连续状态的存储与计算类型，仍是待实现的规划。
+- 货币定价是局部例外：实际金额使用最小货币单位的有符号 64 位整数，中间运算以整数分子、分母保持精确，到结算单位才取整；不先经 `double` 近似或用 epsilon 修正。依据[市场与交易](https://github.com/odradekk/train/issues/281) Q27，公式和算例见 [19](19-markets-and-trading.md#货物的边际价格)，取舍见决策笔记 `2026-09-05-scalar-doubles-and-stateless-random`。经[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确认，基本价值用 `long`，价格倍率、敏感度和价差用万分比整数（10000 表示 1）；不公开 `Fraction`。内部精确运算使用标准整数类型并做必要溢出检查，意外溢出沿用下文内部故障，不增加金额越界业务错误或自动跳过分支。此例外不改变其他连续状态的存储与计算类型，仍是待实现的规划。
 - 耐久和伤害用整数，结构累计耐久用 `long`；耐久上限与伤害内容格式原本就是整数。流程与施工总工作量及工作量系数用整数，派生总量保持整数；进度、速率、电量和劳动力用 `double`。
 - 核心模拟层使用普通 C# 类型与标量计算，连续坐标由多个 `double` 表达。Godot 数学类型只用于适配层与表现层，转换后的渲染值不能写回核心状态。
 - 核心模拟层不使用硬件宽度可变的 `System.Numerics.Vector<T>`。后续只在性能测试证明需要时考虑向量化，并单独验证它对计算结果的影响。
@@ -120,7 +120,7 @@
 | 调试命令：调试模式和控制台的瞬时修改 | [15](15-design-editor-and-tools.md#调试命令)、[编辑器的去向](https://github.com/odradekk/train/issues/211) |
 
 - 内容重新加载改变外部定义业务输入身份 `CoreInputId` 时，在当前边界执行一条内容发布命令，通过同步 `Submit(command, source)` 裁决，所有 Completed（接受、拒绝和故障）均记录并保留依赖；正常拒绝保留旧业务状态和内容，但按既有规则推进命令计数。纯表现变化只更新内容世代及观察记录，不改变核心检查点；无变化不发布。候选形成前的文件、解析、资产失败或取消只由宿主诊断，不伪造核心拒绝，完整分类见[跨层协议](../contracts/transactions.md#内容发布拒绝与录制)。
-- 玩家保存或删除蓝图不是命令，因为它不改变任何实例。建造、改装和“立即应用”命令引用一份设计（按设计哈希），命令记录带上这份设计；复现包带上被引用的设计。立即应用涵盖名称、说明、形状和涂装的变化，仍须完整校验且构成不变，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)及 ADR-0012 的编辑器修订。
+- 玩家保存或删除蓝图不是命令，因为它不改变任何实例。建造、改装和“立即应用”命令引用一份设计（按设计哈希），命令记录带上这份设计；复现包带上被引用的设计。立即应用涵盖名称、说明、形状和涂装的变化，仍须完整校验且构成不变，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)及决策笔记 `2026-10-09-instance-designs-and-blueprint-templates` 的编辑器修订。
 - 动态蓝图库、实例设计及模板副本不进入 `CoreInputId`；保存蓝图和草稿不生成内容发布命令。建造、改装和立即应用随命令携带内容校验后的 `DesignInput`，输入目录只作为初始生成、恢复与重载计算材料。
 - 调试命令与玩家命令走同一个同步入口，同样录制。
 

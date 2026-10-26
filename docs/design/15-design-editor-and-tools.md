@@ -2,7 +2,7 @@
 
 > **所属层**：工具；设计编辑器由体素引擎层构建。
 
-> 决策出处：由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认。它取代了以全局体素世界存档为工作对象的世界编辑器，以及它的存档工作区、世界创作工具、存档内发布和跨范围复制规则。工作平面、预览与提交反馈沿用[确定世界创作工具与铁路编辑的统一交互](https://github.com/odradekk/train/issues/140)；从实例提取、草稿与发布前校验沿用[确定蓝图、布局与内容定义的创作和发布流程](https://github.com/odradekk/train/issues/141)；诊断、录制与重放的界面沿用[确定运行调试、诊断观察与故障复现工作流](https://github.com/odradekk/train/issues/142)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见 ADR-0012。
+> 决策出处：由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认。它取代了以全局体素世界存档为工作对象的世界编辑器，以及它的存档工作区、世界创作工具、存档内发布和跨范围复制规则。工作平面、预览与提交反馈沿用[确定世界创作工具与铁路编辑的统一交互](https://github.com/odradekk/train/issues/140)；从实例提取、草稿与发布前校验沿用[确定蓝图、布局与内容定义的创作和发布流程](https://github.com/odradekk/train/issues/141)；诊断、录制与重放的界面沿用[确定运行调试、诊断观察与故障复现工作流](https://github.com/odradekk/train/issues/142)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见决策笔记 `2026-10-09-instance-designs-and-blueprint-templates`。
 
 ## 边界
 
@@ -28,7 +28,7 @@
 | 创作模式 | 开发者、Mod 作者 | 开发构建 | 制作场景模型、聚居地模板，填写各类定义表单，写入数据包 |
 | 调试模式 | 开发者 | 开发构建 | 调试命令、诊断、录制与重放 |
 
-开发构建指在 Godot 编辑器中运行，或用 debug 导出模板导出的游戏；用 release 模板导出的是玩家构建，见 [ADR-0009](../adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)。开发工具的代码也在玩家构建中，只是不显示。
+开发构建指在 Godot 编辑器中运行，或用 debug 导出模板导出的游戏；用 release 模板导出的是玩家构建，见决策笔记 `2026-10-06-godot-free-libraries-and-core-rewrite`。开发工具的代码也在玩家构建中，只是不显示。
 
 玩家构建中只有“报告问题”可以导出复现包，见 [08](08-window-and-ui.md#常驻控件)。
 

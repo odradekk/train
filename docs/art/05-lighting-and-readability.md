@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文规定局部场景的光照、天空与雾、后处理效果、色调映射和画面可读性。渲染器为 Forward+，理由见 [ADR-0010](../adr/0010-render-with-forward-plus.md)。材质参数与贴图见 [02](02-materials-and-textures.md)，色彩见 [03](03-color-and-paint.md)，渲染路径见 [07](../design/07-rendering.md)，性能目标见 [00 的本阶段性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。宏观地图和界面的视觉见 [07](07-icons-and-ui.md)。
+本文规定局部场景的光照、天空与雾、后处理效果、色调映射和画面可读性。渲染器为 Forward+，理由见决策笔记 `2026-10-09-render-with-forward-plus`。材质参数与贴图见 [02](02-materials-and-textures.md)，色彩见 [03](03-color-and-paint.md)，渲染路径见 [07](../design/07-rendering.md)，性能目标见 [00 的本阶段性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。宏观地图和界面的视觉见 [07](07-icons-and-ui.md)。
 
 ## 不变量
 

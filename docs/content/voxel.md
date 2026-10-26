@@ -2,7 +2,7 @@
 
 一个体素定义描述一种单格的东西：货物、部件，或者只用于场景的地块和装饰。文件名是 `<local id>.voxel.json`，放在 `resources/voxels/`，它的资产放在同名文件夹里。Schema 见 [schemas/voxel.schema.json](schemas/voxel.schema.json)，示例见 [examples/example-pack/resources/voxels/](examples/example-pack/resources/voxels/)。
 
-规则的来由：分节和场景体素见 [ADR-0011](../adr/0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)，行为见 [ADR-0014](../adr/0014-use-code-provided-behavior-types-and-sealed-functional-composites.md)，文件组成见 [ADR-0015](../adr/0015-declare-package-dependencies-and-keep-missing-content-as-placeholders.md)，表现字段见设计文档 [02 的表现资产校验](../design/02-definitions-and-content.md#表现资产校验)。
+规则的来由：分节和场景体素见决策笔记 `2026-10-09-content-project-and-split-by-reader`，行为见决策笔记 `2026-10-09-code-behavior-types-and-sealed-composites`，文件组成见决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`，表现字段见设计文档 [02 的表现资产校验](../design/02-definitions-and-content.md#表现资产校验)。
 
 ```json
 {
@@ -97,7 +97,7 @@
 | `faces.top`、`faces.side`、`faces.bottom` | 资产路径 | 是 | — | 顶面、侧面、底面的贴图。几个面用同一张图就写同一个文件 | 首个切片 |
 | `faces.front` | 资产路径 | 否 | 用侧面图 | 正面图，不平铺 | Demo |
 
-形状由放置时选择，不由体素定义固定：这一处只列出允许的形状，每一格用哪种写在蓝图的调色板里（[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)，2026-10-10；它只取代[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)中把形状写在定义上的部分，取舍见 [ADR-0018](../adr/0018-choose-voxel-shapes-per-placement-so-shapes-never-create-goods.md)）。
+形状由放置时选择，不由体素定义固定：这一处只列出允许的形状，每一格用哪种写在蓝图的调色板里（[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)，2026-10-10；它只取代[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)中把形状写在定义上的部分，取舍见决策笔记 `2026-10-10-voxel-shapes-per-placement`）。
 
 加载器检查图片：顶面、侧面、底面是边长相同的 2 的幂正方形；正面图是 2 的幂正方形，尺寸可以不同。边长是否等于 32 像素乘以平铺跨度，由美术检查。
 
