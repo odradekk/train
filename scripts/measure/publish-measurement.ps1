@@ -12,6 +12,10 @@ $removed = 0
 try {
     $directoryPath = (Resolve-Path -LiteralPath $Directory).Path
     $runnerRoot = if ($env:RUNNER_WORKSPACE) { Split-Path (Split-Path $env:RUNNER_WORKSPACE -Parent) -Parent }
+    $pythonDirectories = @(Get-Command python, python3 -ErrorAction SilentlyContinue | Where-Object Source |
+        ForEach-Object { Split-Path $_.Source -Parent } | Select-Object -Unique)
+    $toolPaths = @($pythonDirectories) + @($env:DOTNET_ROOT, $env:RUNNER_TOOL_CACHE,
+        $env:RUNNER_WORKSPACE, $env:RUNNER_TEMP)
     $prefixes = @{
         '<workspace>' = $env:GITHUB_WORKSPACE; '<temp>' = $env:RUNNER_TEMP
         '<tool-cache>' = $env:RUNNER_TOOL_CACHE; '<runner>' = $runnerRoot
@@ -19,8 +23,10 @@ try {
         '<godot>' = $(if ($env:GODOT) { Split-Path $env:GODOT -Parent })
         '<runtime>' = $(if ($IsLinux) { "/run/user/$(& id -u)" })
     }
-    $replacements = $prefixes.GetEnumerator() | Where-Object Value | Sort-Object { $_.Value.Length } -Descending
+    $replacements = @($prefixes.GetEnumerator()) + @($pythonDirectories | ForEach-Object { @{ Key = '<python>'; Value = $_ } })
+    $replacements = $replacements | Where-Object Value | Sort-Object { $_.Value.Length } -Descending
     $identities = [ordered]@{
+        'tool-path' = $toolPaths
         hostname = @([Environment]::MachineName, $env:HOSTNAME, $env:COMPUTERNAME)
         username = @([Environment]::UserName, $env:USER, $env:USERNAME)
         home = @($HOME, $env:HOME)
