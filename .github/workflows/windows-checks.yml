@@ -215,7 +215,7 @@ jobs:
         if: inputs.selection == 'measure' || inputs.selection == 'window-soak'
         shell: bash
         run: |
-          values=("$HOME" "$(id -un)" "$(hostname)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE")
+          values=("$HOME" "$(id -un)" "$(uname -n)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE")
           if [ -n "$RUNNER_WORKSPACE" ]; then values+=("$(dirname "$(dirname "$RUNNER_WORKSPACE")")"); fi
           if [ -n "$GODOT" ]; then values+=("$(dirname "$GODOT")"); fi
           if pwsh_path="$(command -v pwsh)"; then
