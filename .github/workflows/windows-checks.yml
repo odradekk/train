@@ -232,8 +232,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prepare measurement scripts from workflow commit
-        if: inputs.selection == 'measure' || inputs.selection == 'window-soak'
+      - name: Prepare publication and measurement scripts from workflow commit
         shell: pwsh
         run: |
           $directory = Join-Path $env:RUNNER_TEMP 'measure-tools'
@@ -327,10 +326,8 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          if ($env:CI_SELECTION -in 'measure', 'window-soak') {
-            & "$env:RUNNER_TEMP/measure-tools/scripts/measure/publish-measurement.ps1" -Directory TestResults
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+          & "$env:RUNNER_TEMP/measure-tools/scripts/measure/publish-measurement.ps1" -Directory TestResults
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem TestResults -Directory -ErrorAction SilentlyContinue |
             Where-Object Name -Match '^[a-z-]+-\d{8}T\d{9}-[0-9a-f]{7}$' |
             ForEach-Object {
@@ -344,7 +341,7 @@ jobs:
             }
 
       - name: Upload available evidence
-        if: always() && ((env.CI_SELECTION != 'measure' && env.CI_SELECTION != 'window-soak') || steps.publish.outcome == 'success')
+        if: always() && steps.publish.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-${{ github.event_name == 'push' && 'post-merge' || env.CI_SELECTION }}${{ inputs.selection == 'long-example' && format('-{0}', inputs.example) || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
