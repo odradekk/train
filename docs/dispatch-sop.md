@@ -21,7 +21,7 @@ Art Issues go through the same pairs; their production and inspection rules are 
 
 The current stage is the lowest-numbered open [stage acceptance Issue](#stage-integration). A candidate Issue:
 
-- blocks the current stage acceptance Issue, is open and labelled `ready-for-agent`, and is not labelled `needs-info`;
+- blocks the current stage acceptance Issue, is open, and has no question waiting for the user in the [progress record](#progress-record);
 - has every native blocker closed or labelled `awaiting-user`;
 - has no active Paseo workspace.
 
@@ -35,7 +35,7 @@ The current stage is the lowest-numbered open [stage acceptance Issue](#stage-in
 
 ## 0. Dispatch — coordinator
 
-1. Verify the candidate's Acceptance criteria are clear enough to start. If not, comment the gap, label it `needs-info`, and pick another candidate.
+1. Verify the candidate's Acceptance criteria are clear enough to start. If not, comment the gap, add the question to the progress record, and pick another candidate.
 2. Create the workspace with Paseo `create_workspace`: `isolation: worktree`, `mode: branch-off`, `branchName: issue-<n>-<slug>`, `baseBranch: origin/master`, `title: #<n> <module>`. Verify the branch and baseline SHA in the checkout. If the branch tracks `origin/master`, run `git branch --unset-upstream` so a bare `git push` cannot target master.
 3. If the Issue needs Godot, start the worktree's editor on its port and verify that `get_project_info` returns this worktree as `project_path` ([godot-mcp.md](godot-mcp.md)). If it needs Blender, start a Blender instance on its port ([blender-mcp.md](blender-mcp.md)). Point the worktree's `.mcp.json`, `.codex/config.toml` and `.cursor/mcp.json` at these ports and run `git update-index --skip-worktree .mcp.json .codex/config.toml .cursor/mcp.json`. Cursor loads a project MCP server only after approval, so also run `cursor-agent mcp enable godot` in the worktree. CodeBuddy also needs approval: write `.codebuddy/settings.local.json` containing `{"enabledMcpjsonServers": ["godot"]}` (the path is listed in the shared `.git/info/exclude`, so it never shows as untracked). Do this before creating the reviewer, because clients connect at session start.
 4. Post the dispatch comment: worktree path, task branch, baseline SHA, PR base `master`, module, stage acceptance Issue, contract baseline, MCP ports (Godot with its verified path, Blender) or not applicable, the Paseo workspace ID, and your own Paseo agent ID for the reviewer's report.
@@ -66,9 +66,9 @@ Read the reviewer's blocking comment on the Issue, then:
 
 | Reason | Action |
 | --- | --- |
-| A decision the docs cannot settle, or a scope or Acceptance-criteria change | Label `needs-info`, add the question to the progress record and tell the user. The pair stays in its workspace but releases its slot. When the user answers, record the decision in an Issue comment, then send it to the reviewer once a slot is free; it takes priority over new candidates of that module. |
+| A decision the docs cannot settle, or a scope or Acceptance-criteria change | Add the question to the progress record and tell the user. The pair stays in its workspace but releases its slot. When the user answers, record the decision in an Issue comment, then send it to the reviewer once a slot is free; it takes priority over new candidates of that module. |
 | Review-round limit reached | If the reviewer says the Issue is too large, split it into smaller Issues with native dependencies and archive the pair. Otherwise archive both agents and start a fresh reviewer in the same workspace once. A second failure goes to the user. |
-| Missing prerequisite or Issue defect | Record the dependency or the defect on the Issue, label `needs-info`, release the slot. |
+| Missing prerequisite or Issue defect | Record the dependency or the defect on the Issue and release the slot. |
 
 ## 3. Merge and close — coordinator
 
