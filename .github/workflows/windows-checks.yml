@@ -213,11 +213,17 @@ jobs:
     steps:
       - name: Mask measurement host identity
         if: inputs.selection == 'measure' || inputs.selection == 'window-soak'
-        shell: pwsh
+        shell: bash
         run: |
-          @($HOME, [Environment]::UserName, [Environment]::MachineName, $env:GITHUB_WORKSPACE,
-            $env:RUNNER_TEMP, $env:RUNNER_TOOL_CACHE, (Split-Path (Split-Path $env:RUNNER_WORKSPACE -Parent) -Parent),
-            (Split-Path $env:GODOT -Parent)) | Where-Object { $_ } | ForEach-Object { Write-Host "::add-mask::$_" }
+          values=("$HOME" "$(id -un)" "$(hostname)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE")
+          if [ -n "$RUNNER_WORKSPACE" ]; then values+=("$(dirname "$(dirname "$RUNNER_WORKSPACE")")"); fi
+          if [ -n "$GODOT" ]; then values+=("$(dirname "$GODOT")"); fi
+          if pwsh_path="$(command -v pwsh)"; then
+            values+=("$(dirname "$pwsh_path")" "$(dirname "$(readlink -f "$pwsh_path")")")
+          fi
+          for value in "${values[@]}"; do
+            if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+          done
 
       - name: Checkout tested head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
