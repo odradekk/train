@@ -183,6 +183,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
     public AdvanceResult Advance(uint steps)
     {
         PopulationInputs? inputs = null;
+        ImmutableArray<GoodDefinitionProjection>? fuels = null;
         return AdvanceWorld(steps, before =>
         {
             var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
@@ -205,8 +206,9 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 SettlementResolution? resolution = null;
                 if (consumption is not null || !requests.IsEmpty)
                 {
+                    fuels ??= SettlementResources.Fuels(world, before.Content).ToImmutableArray();
                     resolution = SettlementResources.Resolve(world, before.Content, settlement.Id, population.AvailableLabor,
-                        consumption?.BasicRequests ?? [], requests, granted => consumption?.PrepareImprovement(granted) ?? []);
+                        consumption?.BasicRequests ?? [], requests, granted => consumption?.PrepareImprovement(granted) ?? [], fuels.Value);
                     world = resolution.World;
                 }
                 if (!settlement.ProductionFacilities.IsEmpty)

@@ -148,6 +148,26 @@ public sealed class EditingGeometryTests
             .OfType<SceneVisual.Model>().Single().Asset);
         var model = initialState.Elements.Single(element => element.Kind == EditElementKind.Cell && element.At.X == -64);
         EditingHit(initialFrame, EditingFixtures.Ray(-63.5f), initialState.Snapshot.Stamp, model.Id, new(-64, 0, 0));
+        var initialGeometry = comparison.Incremental;
+        var rootObject = initialGeometry.Objects.Single(item => item.Parent is null).Id;
+        EditingFixtures.Apply(session, EditingFixtures.Add(new(96, 0, 0)));
+        comparison.Check();
+        foreach (var previous in initialGeometry.Picking)
+        {
+            var current = comparison.Incremental.Picking.Single(item => item.Object == previous.Object);
+            if (previous.Object == rootObject) Assert.AreNotSame(previous.Grid, current.Grid);
+            else
+            {
+                Assert.AreSame(previous.Grid, current.Grid);
+                var oldMeshes = initialGeometry.Objects.Single(item => item.Id == previous.Object).Visuals.OfType<SceneVisual.Geometry>().ToArray();
+                var newMeshes = comparison.Incremental.Objects.Single(item => item.Id == previous.Object).Visuals.OfType<SceneVisual.Geometry>().ToArray();
+                Assert.AreEqual(oldMeshes.Length, newMeshes.Length);
+                foreach (var (oldMesh, newMesh) in oldMeshes.Zip(newMeshes)) Assert.AreSame(oldMesh.Mesh, newMesh.Mesh);
+            }
+        }
+        CompositeHits(comparison.Frame, session.Read().Snapshot.Stamp);
+        EditingFixtures.Value(session.Undo());
+        comparison.Check();
         comparison.Check(0);
         comparison.Check();
         var assembly = session.Read().Elements.First(element => element.Kind == EditElementKind.Assembly);
@@ -190,6 +210,57 @@ public sealed class EditingGeometryTests
         }
     }
 
+    [TestMethod]
+    public void ReusedGridsKeepCurrentPoseAndPickingWhileSiblingPathsAndClippingChange()
+    {
+        var child = EditingFixtures.Draft(new(0, 0, 0), new(0, 1, 0)) with
+        { Specification = new DesignSpecification.Assembly(null) };
+        var draft = EditingFixtures.Draft(new GridPosition(-64, 0, 0));
+        draft = draft with { Layout = draft.Layout with { NestedItems =
+            [new NestedDesignItem.AssemblyCopy(new(8, 0, 0), VoxelOrientation.PxPy, child),
+             new NestedDesignItem.AssemblyCopy(new(16, 0, 0), VoxelOrientation.PxPy, child)] } };
+        var content = SceneFixtures.Content();
+        using var session = EditingFixtures.Open(draft, content: content);
+        var comparison = new FullComparison(session, content);
+        var initial = comparison.Check();
+        var initialState = session.Read();
+        var first = initialState.Elements.Single(element => element.Kind == EditElementKind.Assembly && element.At.X == 8).Id;
+        var second = initialState.Elements.Single(element => element.Kind == EditElementKind.Assembly && element.At.X == 16).Id;
+        var cell = initialState.Elements.Single(element => element.Parent == second && element.At == new GridPosition(0, 0, 0)).Id;
+        var original = comparison.Incremental.Picking.Single(item => item.Pose.Position.X == 16);
+        EditingFixtures.Value(session.Select(new EditSelection.Elements([first])));
+        EditingFixtures.Apply(session, new EditOperation.RemoveSelection());
+        var deleted = comparison.Check();
+        var deletedStamp = session.Read().Snapshot.Stamp;
+        var shifted = comparison.Incremental.Picking.Single(item => item.Object == original.Object);
+        Assert.AreNotSame(original.Grid, shifted.Grid);
+        CollectionAssert.AreEqual(new[] { 1 }, original.Grid.Cells.First().Path.ToArray());
+        CollectionAssert.AreEqual(new[] { 0 }, shifted.Grid.Cells.First().Path.ToArray());
+        EditingHit(deleted, EditingFixtures.Ray(16.5f), session.Read().Snapshot.Stamp, cell, new(0, 0, 0));
+        EditingFixtures.Value(session.Undo());
+        comparison.Check();
+        EditingFixtures.Value(session.Redo());
+        comparison.Check();
+        var beforeMove = comparison.Incremental.Picking.Single(item => item.Object == original.Object);
+        EditingFixtures.Value(session.Select(new EditSelection.Elements([second])));
+        EditingFixtures.Apply(session, new EditOperation.MoveSelection(new(0, 2, 0)));
+        var moved = comparison.Check();
+        var movedGrid = comparison.Incremental.Picking.Single(item => item.Object == original.Object);
+        Assert.AreSame(beforeMove.Grid, movedGrid.Grid);
+        Assert.AreEqual(new Vector3(16, 2, 0), movedGrid.Pose.Position);
+        EditingHit(moved, EditingFixtures.Ray(16.5f, 2.5f), session.Read().Snapshot.Stamp, cell, new(0, 0, 0));
+        comparison.Check(2);
+        var clipped = comparison.Incremental.Picking.Single(item => item.Object == original.Object);
+        Assert.AreNotSame(movedGrid.Grid, clipped.Grid);
+        Assert.AreEqual(1, clipped.Grid.Cells.Count());
+        comparison.Check();
+        EditingFixtures.Value(session.Undo());
+        comparison.Check();
+        EditingHit(deleted, EditingFixtures.Ray(16.5f), deletedStamp, cell, new(0, 0, 0));
+        EditingHit(initial, EditingFixtures.Ray(16.5f), initialState.Snapshot.Stamp, cell, new(0, 0, 0));
+        CollectionAssert.AreEqual(new[] { 1 }, original.Grid.Cells.First().Path.ToArray());
+    }
+
     private static void EditingHit(ISceneFrame frame, SceneRay ray, EditStamp stamp, EditElementId element, GridPosition cell)
     {
         var picked = frame.Pick(ray);
@@ -205,13 +276,16 @@ public sealed class EditingGeometryTests
 
     private sealed class FullComparison(IDesignEditSession session, IContentView content)
     {
+        private readonly EditGeometry editGeometry = new();
+        private readonly EditContent editContent = new(content);
         private readonly Dictionary<EditElementId, SceneObjectId> objectIds = [];
         private readonly Dictionary<(SceneObjectId, GridPosition), SceneObjectId> modelIds = [];
         private readonly Dictionary<SceneObjectId, SceneObject> displayed = [];
         private ulong nextObject;
-        private SceneFrame? first, firstExpected;
+        private SceneFrame? first, firstExpected, firstIncremental;
         private SceneRay[] firstRays = [];
         internal SceneFrame Frame { get; private set; } = null!;
+        internal RenderedDesign Incremental { get; private set; } = null!;
 
         internal SceneFrame Check(int? highestY = null)
         {
@@ -221,6 +295,8 @@ public sealed class EditingGeometryTests
             var path = state.EnteredObject is { } entered
                 ? state.Elements.Single(element => element.Id == entered).ObjectPath : ImmutableArray<int>.Empty;
             var cold = new EditGeometry().Build(EditLayout.At(root, path), new(content), session.Id,
+                state.Snapshot.Stamp.Revision, highestY, ObjectId, ModelId, path, state.EnteredObject ?? default);
+            Incremental = editGeometry.Build(EditLayout.At(root, path), editContent, session.Id,
                 state.Snapshot.Stamp.Revision, highestY, ObjectId, ModelId, path, state.EnteredObject ?? default);
             // 全量网格入口不经过编辑器的区块缓存和区块拼接。
             var grids = cold.Picking.ToDictionary(value => value.Object, value => value.Grid);
@@ -239,8 +315,12 @@ public sealed class EditingGeometryTests
                 return new SceneRay(center - Vector3.UnitZ * 4, Vector3.UnitZ, 8);
             })).Append(new(new(1000, 1000, 1000), Vector3.UnitZ, 8)).ToArray();
             FramesEqual(expected, Frame, rays, state.Snapshot.Stamp.Revision);
-            if (first is null) { first = Frame; firstExpected = expected; firstRays = rays; }
+            var incrementalFrame = new SceneFrame(Frame.Update.Frame, Frame.Origin, 0, SceneReadiness.Ready,
+                Incremental.Objects, Incremental.Picking, [], Incremental.Diagnostics);
+            FramesEqual(expected, incrementalFrame, rays, state.Snapshot.Stamp.Revision);
+            if (first is null) { first = Frame; firstExpected = expected; firstIncremental = incrementalFrame; firstRays = rays; }
             FramesEqual(firstExpected!, first, firstRays, null);
+            FramesEqual(firstExpected!, firstIncremental!, firstRays, null);
             return Frame;
         }
 

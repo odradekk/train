@@ -28,6 +28,7 @@
 模块测试拆开，任何独立模块测试项目最多引用本模块的一个真实实现；允许的契约范围沿用[生产依赖矩阵](README.md#依赖与装配)，不能经测试支持库绕过它。
 
 Content 隔离检查额外复制正式数据目录 `builtin/core`，供真实文件加载集成测试使用，并记入隔离输入清单；这不会提供其他模块的实现。
+Scenes 隔离检查额外复制 `builtin/core/resources/settlement-templates` 和 `builtin/core/resources/blueprints`，供内置布局用例使用，并记入隔离输入清单。
 
 | 模块 | 最小构建与测试入口 | 保留的契约 | 依赖替身与真实责任 |
 | --- | --- | --- | --- |
