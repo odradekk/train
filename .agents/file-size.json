@@ -53,7 +53,7 @@
     "App/HostCoordinator.cs": 13884,
     "App/Measurement/FollowRouteAnalysis.cs": 6034,
     "App/Measurement/MeasurementRun.FollowRoute.cs": 5012,
-    "App/Measurement/MeasurementRun.SceneBudget.cs": 11635,
+    "App/Measurement/MeasurementRun.SceneBudget.cs": 11475,
     "App/Measurement/MeasurementRun.SceneInteraction.cs": 7308,
     "App/Measurement/MeasurementRun.WindowSoak.cs": 8121,
     "App/Measurement/MeasurementRun.cs": 5910,
