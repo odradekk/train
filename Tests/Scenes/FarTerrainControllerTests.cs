@@ -12,12 +12,101 @@ public sealed class FarTerrainControllerTests
     private static readonly ScenePoint Focus = new(102912, 0, 102912);
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Handover_prefers_the_inherited_fine_view_over_the_successors_older_coarse_view(bool node)
+    {
+        var cache = new FarTerrain.Cache();
+        var previous = Bind();
+        var coarse = FirstCoarse(previous);
+        var successor = Bind();
+        successor.Demand(Focus, 1);
+        Assert.AreSame(coarse, successor.View.Tiles.Single());
+
+        while (previous.HasRunnableWork) previous.Advance(10000, CancellationToken.None);
+        var inherited = previous.View.Tiles.ToArray();
+        Assert.AreEqual(16, inherited.Length);
+        Assert.IsTrue(inherited.All(tile => tile.SpacingCells == TerrainTile.NearSpacingCells));
+
+        successor.ReuseTiles(previous);
+        CollectionAssert.AreEquivalent(inherited, successor.View.Tiles.ToArray(),
+            "The old scene may finish fine tiles after the successor inherited its earlier coarse view.");
+        while (successor.HasRunnableWork)
+        {
+            successor.Advance(128, CancellationToken.None);
+            CollectionAssert.AreEquivalent(inherited, successor.View.Tiles.ToArray());
+        }
+
+        FarTerrain Bind()
+        {
+            if (!node) return Bound(cache);
+            var snapshot = NodeFixtures.EmptyNodeSnapshot(NodeFixtures.Layout with { Plots = [] }, []);
+            var terrain = new FarTerrain(cache);
+            terrain.BindNode(NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)));
+            return terrain;
+        }
+    }
+
+    [TestMethod]
+    public void Handover_keeps_the_successors_view_for_parents_missing_from_the_inherited_view()
+    {
+        var cache = new FarTerrain.Cache();
+        var previous = Bound(cache);
+        previous.SetFineBuildAllowed(false);
+        var domain = new ScenePanBounds(new((float)Focus.X, (float)Focus.Z),
+            new((float)Focus.X + TerrainTile.ParentCells, (float)Focus.Z));
+        previous.Demand(Focus, 1, domain);
+        while (previous.HasRunnableWork) previous.Advance(10000, CancellationToken.None);
+        Assert.AreEqual(2, previous.View.Tiles.Length);
+        var neighboring = previous.View.Tiles.Single(tile => tile.Origin.X > Focus.X);
+        var successor = Bound(cache, relief: 2);
+        successor.Demand(Focus, 1, domain);
+
+        previous.SetFineBuildAllowed(true);
+        previous.Demand(Focus, 1);
+        while (previous.HasRunnableWork) previous.Advance(10000, CancellationToken.None);
+        var inherited = previous.View.Tiles.ToArray();
+        Assert.AreEqual(16, inherited.Length);
+        successor.ReuseTiles(previous);
+
+        Assert.AreEqual(17, successor.View.Tiles.Length);
+        Assert.IsTrue(successor.View.Tiles.Contains(neighboring),
+            "A parent omitted by the old scene must keep the successor's own displayed surface.");
+        foreach (var tile in inherited) Assert.IsTrue(successor.View.Tiles.Contains(tile));
+    }
+
+    [TestMethod]
+    public void First_demand_after_initialization_evicts_the_adopted_caches_out_of_range_tiles_and_keys()
+    {
+        var cache = new FarTerrain.Cache();
+        var previous = Bound(cache);
+        var oldTile = FirstCoarse(previous);
+        var successor = Bound(cache);
+        successor.SetFineBuildAllowed(false);
+        var focus = Focus with { X = Focus.X + 3 * TerrainTile.ParentCells };
+        successor.Demand(focus, 1);
+        successor.Advance(1, CancellationToken.None);
+        var saved = (FarTerrain.Saved)typeof(FarTerrain).GetField("saved",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(successor)!;
+        Assert.IsTrue(saved.Tiles.Values.Contains(oldTile), "Initialization adopts the real session cache after the first Demand.");
+
+        Assert.IsTrue(successor.Demand(focus, 1), "The adopted cache must receive its own demand reconciliation.");
+        Assert.IsTrue(saved.Tiles.IsEmpty, "Out-of-range meshes must not remain retained after initialization.");
+        Assert.IsTrue(saved.Keys.IsEmpty, "Out-of-range input keys must be evicted too.");
+        while (successor.HasRunnableWork) successor.Advance(10000, CancellationToken.None);
+        Assert.AreEqual(oldTile.Origin.X + 3 * TerrainTile.ParentCells, successor.View.Tiles.Single().Origin.X);
+        Assert.IsFalse(successor.Demand(focus, 1));
+    }
+
+    [TestMethod]
     public void Repeating_parent_ranges_preserves_the_view_but_rebinding_requires_the_same_demand_again()
     {
         var terrain = Bound(new());
         terrain.SetFineBuildAllowed(false);
         var focus = Focus with { X = Focus.X + 16, Z = Focus.Z + 16 };
         terrain.Demand(focus, 1);
+        terrain.Advance(1, CancellationToken.None);
+        Assert.IsTrue(terrain.Demand(focus, 1), "The initialized cache must be reconciled before repeated demand can be skipped.");
         while (terrain.HasRunnableWork) terrain.Advance(10000, CancellationToken.None);
         var visible = terrain.View;
         Assert.IsFalse(terrain.Demand(focus with { X = focus.X + 1 }, 2));
@@ -27,6 +116,8 @@ public sealed class FarTerrainControllerTests
         terrain.BindRailway(changed, new(changed, RailwayFixtures.Edge));
         Assert.IsTrue(terrain.Demand(focus, 1), "A new binding must accept even an unchanged parent range.");
         Assert.AreSame(visible, terrain.View, "The old surface remains visible during replacement.");
+        terrain.Advance(1, CancellationToken.None);
+        Assert.IsTrue(terrain.Demand(focus, 1));
         while (terrain.HasRunnableWork) terrain.Advance(10000, CancellationToken.None);
         Assert.AreNotSame(visible.Tiles.Single(), terrain.View.Tiles.Single());
         var replacement = terrain.View;
@@ -45,6 +136,7 @@ public sealed class FarTerrainControllerTests
             terrain.SetFineBuildAllowed(false);
             terrain.Demand(Focus, 1);
             terrain.Advance(1, CancellationToken.None); // Bind to the shared cache.
+            terrain.Demand(Focus, 1); // Reconcile that cache after initialization.
             terrain.Advance(1, CancellationToken.None); // Resolve the requested parent's keys.
         }
         Assert.IsTrue(observer.View.Tiles.IsEmpty);

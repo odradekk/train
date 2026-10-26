@@ -753,9 +753,9 @@ internal sealed class NodeScene : IAsyncDisposable
         }
     }
 
-    // Rasterized rail footprints can extend to the next voxel-column edge.
+    // Sleeper end caps and rasterization can extend slightly beyond one cell outside the bounds.
     private static SceneBounds RailFogNeighborhood(SceneBounds bounds) => new(
-        bounds.Minimum - new Vector3(1, 0, 1), bounds.Maximum + new Vector3(1, 0, 1));
+        bounds.Minimum - new Vector3(2, 0, 2), bounds.Maximum + new Vector3(2, 0, 2));
 
     private static bool RailFogOverlaps(SceneBounds left, SceneBounds right) =>
         left.Minimum.X < right.Maximum.X && left.Maximum.X > right.Minimum.X &&
@@ -1246,7 +1246,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 foggedRails.Clear();
                 foreach (var segment in prepared.Rails.Values.Where(NeedsFog)) foggedRails.Add(segment.Key);
                 var regions = ImmutableArray.CreateBuilder<SceneBounds>();
-                foreach (var key in foggedRails)
+                foreach (var key in foggedRails.Order(StringComparer.Ordinal))
                 {
                     if (!railFogBySegment.TryGetValue(key, out var clipped))
                     {

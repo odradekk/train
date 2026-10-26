@@ -308,6 +308,7 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
                         if (initialized.Tiles.TryAdd(tile.Key, tile.Value)) Interlocked.Increment(ref initialized.Revision);
                     saved = initialized;
                     source = ready; initialize = null;
+                    demandBounds = null;
                     wanted = wanted.Select(key => Key(key.X, key.Z, key.Spacing)).ToList();
                     Publish();
                 }
@@ -417,9 +418,8 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
     private void Publish(FarTerrainView? inherited = null)
     {
         var observedRevision = Volatile.Read(ref saved.Revision);
-        var previous = view.Tiles.Concat(inherited?.Tiles ?? []).ToLookup(tile => (
-            X: (int)Math.Floor(tile.Origin.X / TerrainTile.ParentCells) * TerrainTile.ParentCells,
-            Z: (int)Math.Floor(tile.Origin.Z / TerrainTile.ParentCells) * TerrainTile.ParentCells));
+        var previous = view.Tiles.ToLookup(Parent);
+        var transferred = inherited?.Tiles.ToLookup(Parent);
         var selected = ImmutableArray.CreateBuilder<TerrainTile>();
         foreach (var parent in visibleParents)
         {
@@ -431,7 +431,8 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
             else if (saved.Tiles.TryGetValue(Key(parent.X, parent.Z, TerrainTile.FarSpacingCells), out var coarse)) selected.Add(coarse);
             else
             {
-                var older = previous[parent].Distinct().ToArray();
+                var older = transferred?[parent].Distinct().ToArray() ?? [];
+                if (older.Length == 0) older = previous[parent].Distinct().ToArray();
                 if (older.FirstOrDefault(tile => tile.SpacingCells == TerrainTile.FarSpacingCells) is { } oldCoarse)
                     selected.Add(oldCoarse);
                 else if (older.Length > 0) selected.AddRange(older.DistinctBy(tile => tile.Origin));
@@ -444,6 +445,10 @@ internal sealed class FarTerrain(FarTerrain.Cache cache)
         publishedRevision = observedRevision;
         var retained = tiles.ToHashSet();
         foreach (var tile in objects.Keys.Where(tile => !retained.Contains(tile)).ToArray()) objects.Remove(tile);
+
+        static (int X, int Z) Parent(TerrainTile tile) => (
+            (int)Math.Floor(tile.Origin.X / TerrainTile.ParentCells) * TerrainTile.ParentCells,
+            (int)Math.Floor(tile.Origin.Z / TerrainTile.ParentCells) * TerrainTile.ParentCells);
     }
 
     internal ImmutableArray<SceneObject> Objects(ScenePoint origin, Func<string, SceneObjectId> objectId,

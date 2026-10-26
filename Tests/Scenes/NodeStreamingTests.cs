@@ -1351,6 +1351,80 @@ public sealed class NodeStreamingTests
         }
     }
 
+    [TestMethod]
+    public async Task Rail_fog_regions_follow_ordinal_segment_order()
+    {
+        var snapshot = RailSnapshot();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false);
+        var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+        var segments = Enumerable.Range(0, 32).Select(index => new NodeScene.RailSegment(
+            $"rail:{index}", arc => new(new(arc, 0, 0), Vector3.UnitX, Vector3.UnitZ), 0, 1,
+            new(new(index * 2, -1, 0), new(index * 2 + 1, 1, 1)), "test"))
+            .ToImmutableDictionary(segment => segment.Key);
+        for (var index = 32; segments.Keys.SequenceEqual(segments.Keys.Order(StringComparer.Ordinal)); index++)
+        {
+            var segment = segments.Values.First() with
+            {
+                Key = $"rail:{index}", Bounds = new(new(index * 2, -1, 0), new(index * 2 + 1, 1, 1))
+            };
+            segments = segments.Add(segment.Key, segment);
+        }
+        typeof(NodeScene).GetField("prepared", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(scene, prepared with { Rails = segments });
+        var demanded = SceneField<HashSet<string>>(scene, "corridorRails");
+        demanded.UnionWith(segments.Keys);
+        var actual = ReadRailFog(scene);
+        var cached = RailFogSegments(scene);
+        var expected = segments.Keys.Order(StringComparer.Ordinal).SelectMany(key => cached[key]).ToArray();
+        CollectionAssert.AreEqual(expected, actual.Select(fog => fog.WorldBounds).ToArray(),
+            "Rail fog output must use Ordinal segment order regardless of dictionary hash order.");
+    }
+
+    [TestMethod]
+    public async Task Attaching_a_rail_invalidates_fog_beyond_one_cell_at_its_end_cap()
+    {
+        var snapshot = RailSnapshot();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false);
+        var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+        var forward = Vector3.Normalize(new Vector3(.02856f, 0, 1));
+        var right = new Vector3(forward.Z, 0, -forward.X);
+        var attached = new NodeScene.RailSegment("attached", arc => new(
+            new(10.501 + forward.X * arc, 0, forward.Z * arc), forward, right), 0, 10,
+            new(new(.001f, -1, -10.5f), new(21.001f + forward.X * 10, 1, 20.5f)), "test");
+        var pending = new NodeScene.RailSegment("pending", arc => new(new(-11.4995, 0, arc),
+            Vector3.UnitZ, Vector3.UnitX), 0, 10,
+            new(new(-21.9995f, -1, -10.5f), new(-.9995f, 1, 20.5f)), "test");
+        Assert.IsTrue(attached.Footprint.Any(bounds => bounds.Minimum.X < attached.Bounds.Minimum.X - 1 &&
+            bounds.Minimum.X < pending.Bounds.Maximum.X && bounds.Maximum.X > pending.Bounds.Minimum.X &&
+            bounds.Minimum.Z < pending.Bounds.Maximum.Z && bounds.Maximum.Z > pending.Bounds.Minimum.Z),
+            "The rasterized end cap must overlap the pending rail beyond a one-cell bounds margin.");
+        typeof(NodeScene).GetField("prepared", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(scene, prepared with { Rails = new[] { attached, pending }.ToImmutableDictionary(segment => segment.Key) });
+        SceneField<HashSet<string>>(scene, "corridorRails").UnionWith([attached.Key, pending.Key]);
+        ReadRailFog(scene);
+        var before = RailFogSegments(scene)[pending.Key];
+        SceneField<Dictionary<string, NodeScene.Part>>(scene, "rails").Add(attached.Key,
+            new("test", WorldSceneSession.BuildGeometry(_ => new([], [], [])), ImmutableDictionary<GridColumn, double>.Empty));
+        typeof(NodeScene).GetMethod("IndexRail", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(scene, [attached.Key, true]);
+        typeof(NodeScene).GetField("railFogDirty", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(scene, true);
+        AssertRailFogUnion(scene);
+        Assert.IsFalse(RailFogSegments(scene)[pending.Key].Equals(before),
+            "Attaching an overlapping end cap must invalidate the neighboring segment's cached fog.");
+    }
+
+    private static ImmutableArray<SceneFog> ReadRailFog(NodeScene scene) =>
+        (ImmutableArray<SceneFog>)typeof(NodeScene)
+            .GetMethod("RailFog", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(scene, [default(ScenePoint)])!;
+
     private static Dictionary<string, ImmutableArray<SceneBounds>> RailFogSegments(NodeScene scene) =>
         new(SceneField<Dictionary<string, ImmutableArray<SceneBounds>>>(scene, "railFogBySegment"));
 
