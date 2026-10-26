@@ -46,23 +46,45 @@ Apply these when implementing, reviewing, and writing docs. Every piece of added
 - Godot .NET is installed at `D:\Godot_v4.7.2-stable_mono_win64\`. The `GODOT` environment variable points to `Godot_v4.7.2-stable_mono_win64_console.exe` in that directory, with no arguments; run headless checks with `& $env:GODOT --headless`.
 - Before configuring a new terminal, running validation, or exporting a Windows build, read [Local validation and Windows builds](docs/local-environment.md).
 
-## Agent skills
+## Agent workflow
 
-### Issue tracker
+Maintained with the `setup-agent-workflow` skill. Edit values freely; keep the field names.
 
-Issues and specs are tracked in GitHub Issues for `odradekk/train`. See `docs/agents/issue-tracker.md`.
+- Base branch: `master`
+- Decision notes: `.agents/notes/`, written in Chinese with English section headings and ASCII file names. Every decision record, ADRs included, is a decision note, written during planning with the `decision-notes` skill; work carries out accepted notes and never edits a note. Notes in `accepted/`, `rejected/`, and `archived/` are frozen and read-only: only the `decision-notes` skill's `note_lifecycle.py` changes them, on the user's word. The older ADRs in `docs/adr/` have not been adopted as notes yet; until then, read them as accepted decisions.
+- Tracker: GitHub issues on `origin` (`odradekk/train`), through `gh`. Tickets are referenced as `#N`. A pull request references its ticket with `Refs #N` and does not close it; the coordinator closes the ticket after merge, or leaves it open with `awaiting-user` while the user still has to check it. The tracker records blocking relations and labels natively. Tickets for decision notes follow the `note-to-tickets` skill. Commits on a pull request branch carry no ticket reference.
+- Labels: every issue and pull request gets exactly one `kind/*` label and every `area/*` label that applies. Use only the labels listed here; when none fits, refresh this section with the `setup-agent-workflow` skill.
+  - `kind/feature`: a new player-, modder-, or developer-facing capability. `kind/bug-fix`: corrects a defect. `kind/simplification`: removes code, behavior, or surface without adding capability. `kind/architecture`: the structure of the shipped code. `kind/performance`: speed or memory of existing behavior, measured before and after. `kind/process`: tooling and workflow around the code. `kind/testing`: test infrastructure and strategy. `kind/docs`: documentation-only work.
+  - Tests belong to the area of the code they test. `area/simulation`: `Core/**` outside the domain folders below. `area/world`: `Core/World/**`. `area/railway`: `Core/Railway/**`, `Scenes/Railway*`. `area/trade`: `Core/Trading/**`. `area/production`: `Core/Production/**`. `area/settlements`: `Core/Settlements/**`, `Scenes/Settlement*`. `area/construction`: `Core/Construction/**`. `area/combat`: `Core/Combat/**`, `Scenes/Combat*`, `Rendering/CombatEffects*`, `Ui/CombatPanel*`. `area/content`: `Content/Loading/**`, `Content/Designs/**`, `builtin/**`, `examples/**`, `docs/content/**`, `scripts/content/**`. `area/saves`: `Content/Persistence/**`, `App/Saves/**`. `area/editor`: `Content/Authoring/**`, `Scenes/Editing/**`, `App/Authoring/**`, `App/Editing/**`, `Ui/DesignEditor*`. `area/scenes`: `Scenes/**`. `area/rendering`: `Rendering/**`. `area/ui`: `Ui/**`. `area/host`: `App/**` outside the other areas, `Train.csproj`, `project.godot`. `area/contracts`: `Contracts/**`, `docs/contracts/**`, `prototypes/**`, `App/Composition/**`. `area/tooling`: `scripts/**`, `Tools/**`, `Tests/ContractChecks*/**`, `App/Measurement/**`, `.github/**`, `.agents/**`, and the test, CI, and environment docs. `area/art`: `art-source/**`, `docs/art/**`, `App/ArtCapture/**`. `area/design`: `docs/design/**`, `docs/research/**`, `CONTEXT.md`.
+  - Outside the scheme: `awaiting-user` marks finished work that waits for the user's own check; `ci:correctness` on a pull request requests one full Windows correctness run ([CI](docs/ci.md)).
+- Prose: documents, decision notes, tickets, pull request descriptions, and commit bodies are revised with the `plain-language` skill. House style: Chinese prose with established terms, following the `CONTEXT.md` glossary; design documents cite 转录 Qn, never §n.
+- File size: not checked yet.
+- Hooks: commit-msg removes AI attribution lines and pre-push rejects commits that still credit an AI tool, both through `.agents/scripts/strip_attribution.py`; post-checkout, post-merge, and post-rewrite make frozen decision notes read-only again through `.agents/scripts/note_lifecycle.py`. They need Python 3.10 or later on PATH. Connect them once per clone with `git config core.hooksPath .agents/hooks`; Paseo worktrees share the main clone's setting.
+- CI: GitHub Actions `windows-checks.yml` runs `scripts/test.ps1 -Layer fast,integration` on the projects a pull request to `master` affects, then a non-blocking engine layer, on Windows. The `ci:correctness` label requests one `-All -Layer all` run. The self-hosted Linux runner runs `-All -Layer all,stage` nightly and on every push to `master`.
 
-### Triage labels
+| Change | Narrowest check |
+|---|---|
+| Behavior in `Core/**` | `dotnet test --project Tests/Core/Train.Core.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| Behavior in `Content/**` | `dotnet test --project Tests/Content/Train.Content.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| Built-in content data in `builtin/**` | `dotnet test --project Tests/Content/Train.Content.Tests.csproj --filter "FullyQualifiedName~BuiltInContentTests"` |
+| Content examples and schemas in `docs/content/**` | `pwsh -NoProfile -File scripts/checks/validate-content-examples.ps1` |
+| Behavior in `Scenes/**` | `dotnet test --project Tests/Scenes/Train.Scenes.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| Host code in `App/**`, `Rendering/**`, `Ui/**` that runs without Godot | `dotnet test --project Tests/Godot/Train.Godot.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| Host behavior that needs a running Godot | `pwsh -NoProfile -File scripts/test.ps1 -Layer engine`; one engine test runs through the manual route in [the test entry](docs/run-tests.md) |
+| `Tools/Cli/**` | `dotnet test --project Tests/Cli/Train.Cli.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| `Tests/ContractSupport/**` | `dotnet test --project Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| `Tests/ContractChecks/**` | `dotnet test --project Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj --filter "FullyQualifiedName~<Class>.<Method>"` |
+| Public declarations in `Contracts/**` | `dotnet build Tests/ContractChecks/Train.ContractChecks.csproj`, then from the repository root `dotnet Tests/ContractChecks/bin/Debug/net10.0/Train.ContractChecks.dll verify . Debug docs/contracts/public-api.txt` |
+| Project references and layout: `*.csproj`, `Directory.Build.*`, `Train.sln`, `prototypes/**`, `scripts/checks/project-boundaries.json` | `dotnet build Train.sln`, then `dotnet Tests/ContractChecks/bin/Debug/net10.0/Train.ContractChecks.dll structure . Debug <temp dir>` |
+| Cross-module types and host composition in `App/Composition/**` | `dotnet build Train.sln`, then `dotnet Tests/ContractChecks/bin/Debug/net10.0/Train.ContractChecks.dll isolate . Debug <temp dir>` |
+| `scripts/**/*.ps1`, `scripts/**/*.py` | No tests cover them; run the changed script once on a real input. |
+| Other `**/*.md` | No check; review only. |
 
-Use the five default canonical triage labels. See `docs/agents/triage-labels.md`.
+## Agent roles and project docs
 
-### Area and discipline labels
+### Domain glossary
 
-When creating or triaging an issue, apply `area:` and `discipline:` labels per `docs/agents/area-and-discipline-labels.md`.
-
-### Domain docs
-
-Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository root. See `docs/agents/domain.md`.
+`CONTEXT.md` is the project glossary. Use its terms in code, documents, notes, and tickets, and avoid the words it lists under _Avoid_.
 
 ### Issue task workflow
 
