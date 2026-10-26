@@ -4,13 +4,13 @@ Use this procedure as the reviewer of one Issue. The reviewer owns the Issue's q
 
 ## Scope and authority
 
-Work in the assigned worktree and Issue. Do not edit product code, tests or docs, and do not commit, push, merge or close Issues. You may run builds, tests and Godot checks in the worktree, post Issue comments, and check satisfied Acceptance-criteria boxes. You share the worktree with the worker, so run checks only while the worker is idle. Ignored leftovers inside the worktree, such as old build outputs, go away with the worktree; neither agent deletes them.
+Work in the assigned worktree and Issue. Do not edit product code, tests, docs or decision notes, and do not commit, push, merge or close Issues. You may run builds, tests and Godot checks in the worktree, post Issue comments, and check satisfied Acceptance-criteria boxes. You share the worktree with the worker, so run checks only while the worker is idle. Ignored leftovers inside the worktree, such as old build outputs, go away with the worktree; neither agent deletes them.
 
-You decide design choices the docs leave open when they are reversible and change no design doc, contract or Acceptance criterion. Record each such decision with its reason in the [approved-plan comment](#2-review-the-plan); for a decision made after approval, edit that comment and add it. A choice that would change a design doc, a contract, the scope or an Acceptance criterion belongs to the user; [report it as blocked](#blocked).
+You decide design choices the docs leave open when they are reversible and change no design doc, contract, decision note or Acceptance criterion. Record each such decision with its reason in the [approved-plan comment](#2-review-the-plan); for a decision made after approval, edit that comment and add it. A choice that would change a design doc, a contract, the scope or an Acceptance criterion, or that conflicts with an accepted decision note, belongs to the user; [report it as blocked](#blocked).
 
 ## 0. Prepare
 
-Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, and the design docs, decision notes in `.agents/notes/`, contracts and `CONTEXT.md` terms the Issue references. Verify that the worktree path, branch and MCP assignment match the dispatch comment.
+Read the coordinator's dispatch comment, the Issue body and all comments, the decision note named on its first line if any, `AGENTS.md`, and the design docs, contracts and `CONTEXT.md` terms the Issue references. Verify that the worktree path, branch and MCP assignment match the dispatch comment.
 
 ## 1. Create the worker
 
@@ -27,7 +27,7 @@ Each client reads its own MCP config: Codex `.codex/config.toml`, Cursor `.curso
 
 Use this initial prompt:
 
-> You are the worker for Issue #\<n\> in this worktree. Follow docs/implement-sop.md. The dispatch comment on the Issue has your branch, MCP assignment and stage. Your first deliverable is the plan; do not write code before I approve it. End every reply with a `WORKER:` status line.
+> You are the worker for Issue #\<n\> in this worktree. Follow docs/implement-sop.md. The dispatch comment on the Issue has your branch and MCP assignment. Your first deliverable is the plan; do not write code before I approve it. End every reply with a `WORKER:` status line.
 
 The worker is your subagent, so you are notified when each of its turns ends. Read its reply from the notification or with `get_agent_activity`, answer with `send_agent_prompt`, then end your turn and wait for the next notification, including after you answer a question. Do not poll. If a question still arrives as an input request instead of a `WORKER: question` reply, answer it there (answers are keyed by each question's `header`) and remind the worker to use `WORKER: question`. If the worker stops with a model-capacity or transient error, send it a short continue prompt on the same model.
 
@@ -35,7 +35,7 @@ The worker is your subagent, so you are notified when each of its turns ends. Re
 
 Before any code, the worker sends a plan ending with `WORKER: plan`. Check:
 
-- **Direction:** the approach follows the design docs, decision notes, contracts, `CONTEXT.md` terms and the current stage scope.
+- **Direction:** the approach follows the design docs, accepted decision notes, contracts and `CONTEXT.md` terms.
 - **Scope:** it covers every Acceptance criterion and adds nothing the Issue and recorded decisions do not ask for, even if it looks useful.
 - **Code taste:** it uses the fewest files, types and concepts, reuses existing code, the standard library or Godot features, and adds no speculative abstraction, setting or extension point, per `AGENTS.md` code taste.
 - **Tests:** the selected checks match the changed risks under the [Testing standard](implement-sop.md#testing-standard).
@@ -46,17 +46,14 @@ On approval, post the approved-plan comment on the Issue: the approach, the step
 
 ## 3. Review the delivery
 
-When the worker reports `WORKER: delivered <PR> <SHA>`, read its completion comment and the full diff from the PR base to that head. Review three areas:
+When the worker reports `WORKER: delivered <PR> <SHA>`, read its completion comment, then review the diff from the PR base to that head with the `train-code-review` skill, giving it the Issue, the decision note ID and the PR description. Check every finding with the `verify-bug` skill before sending it, and drop the ones that do not hold. In addition:
 
-| Area | What to check |
-| --- | --- |
-| Correctness | Every Acceptance criterion is implemented as specified. Logic, edge cases, error handling, state and determinism are right. The tests can detect realistic defects and claim only the boundaries they exercise. |
-| Direction | The change matches the design docs, decision notes, contracts and `CONTEXT.md`; it stays within the Issue, the recorded decisions and the approved plan; module boundaries and dependency directions follow `AGENTS.md` source layout and the [contract index](contracts/README.md). |
-| Code taste | The code is plain and readable without comments; it has no unneeded helpers, layers, interfaces, settings or compatibility code; comments appear only where the code cannot show the reason. |
+- Check that the change stays within the approved plan and the decisions recorded in it.
+- Run the key risk-appropriate checks yourself, following [Review tests and evidence](implement-sop.md#review-tests-and-evidence).
+- For art Issues, review the screenshots against docs/art 00–07 and the [inspection checklist](art/08-asset-pipeline-and-review.md#检查清单); you may use Blender MCP to inspect models.
+- For changes to workflows or scripts that run on the Linux runner, check the [runner rule](implement-sop.md#scope-and-authority).
 
-You may run each area in its own subagent so that one area's findings do not narrow attention on another. Run the key risk-appropriate checks yourself rather than in subagents, following [Review tests and evidence](implement-sop.md#review-tests-and-evidence). For Godot changes, inspect saved scene and resource diffs and runtime evidence, not tool success messages. For art Issues, review the screenshots against docs/art 00–07 and the [inspection checklist](art/08-asset-pipeline-and-review.md#检查清单); you may use Blender MCP to inspect models.
-
-Verify each finding against the code or a reproduction before sending it, and drop claims that do not hold. Post one Issue comment per review round naming the PR head SHA and, for each finding, its severity, the violated requirement or doc, the file and line or reproduction, observed and expected results, and the requested correction. Send the same findings to the worker. A finding blocks acceptance when it breaks an Acceptance criterion, a design doc or contract, or adds code that costs maintenance. Low-severity findings that change no behavior, such as doc wording, go into the same round as blocking findings or into the acceptance comment as non-blocking risks; they alone do not start a new round.
+Post one Issue comment per review round naming the PR head SHA. For each finding give whether it blocks, the check, requirement or doc it violates, the file and line or reproduction, observed and expected results, and the requested correction; end with the checks you ran and their results. Send the same findings to the worker. A finding blocks acceptance when `train-code-review` lists its check as blocking, or when it breaks an Acceptance criterion, a design doc, an accepted decision note or a contract. Suggestions that change no behavior go into the same round as blocking findings or into the acceptance comment as non-blocking risks; they alone do not start a new round.
 
 Re-review each new delivery: the fixed findings, the areas the fixes touch, and anything else the new commits change. After four delivery rounds with findings still open, [report blocked](#blocked).
 
@@ -73,15 +70,15 @@ If master moves again before the coordinator merges, the coordinator updates the
 
 ## Blocked
 
-When the Issue cannot be accepted — a decision belongs to the user, the round limit is reached, a prerequisite is missing, or the Issue itself is wrong — tell the worker to stop. Post an Issue comment with the reason, the evidence, and for a decision the options with your recommendation. If the Issue is too large, say how to split it. End your final message with `PAIR-RESULT: blocked <comment URL>` and [send it to the coordinator](#report-to-the-coordinator). When the coordinator later sends the user's answer, which it has recorded on the Issue, add it to the approved-plan comment and continue from where the pair stopped.
+When the Issue cannot be accepted — a decision belongs to the user, the work conflicts with an accepted decision note, the round limit is reached, a prerequisite is missing, or the Issue itself is wrong — tell the worker to stop. Post an Issue comment with the reason, the evidence, and for a decision the options with your recommendation. If the Issue is too large, say how to split it. End your final message with `PAIR-RESULT: blocked <comment URL>` and [send it to the coordinator](#report-to-the-coordinator). When the coordinator later sends the user's answer, which it has recorded on the Issue, add it to the approved-plan comment and continue from where the pair stopped.
 
 ## Report to the coordinator
 
-Paseo notifies the coordinator only about turns it started, and most of your turns are started by the worker. So send every `PAIR-RESULT:` line to the coordinator with `send_agent_prompt`, using the coordinator agent ID from the dispatch comment, `background: true` and `notifyOnFinish: false`.
+Paseo notifies the coordinator only about turns it started, and most of your turns are started by the worker. So send every `PAIR-RESULT:` line to the coordinator with `send_agent_prompt`, using the coordinator agent ID from the dispatch comment, `background: true` and `notifyOnFinish: false`. Announce a Linux runner job the same way before the worker starts it ([Performance measurement](implement-sop.md#performance-measurement)). When the coordinator announces a quiet window, pass it on to the worker and keep to it.
 
 ## Stage acceptance pairs
 
-For a stage acceptance Issue, there is no PR. The worker produces evidence on the tested master commit under [Stage integration](dispatch-sop.md#stage-integration). Verify that evidence against the stage's Acceptance criteria and [stage acceptance](contracts/testing.md#阶段性联调的验收), and check only the technical criteria. Leave the user's confirmation to the user. Report `PAIR-RESULT: accepted <evidence comment URL> <tested SHA>`, or `blocked` with every failing path listed.
+When the coordinator dispatches a stage acceptance Issue, there is no PR. The worker produces evidence on the tested master commit under [Stage integration](dispatch-sop.md#stage-integration). Verify that evidence against the stage's Acceptance criteria and [stage acceptance](contracts/testing.md#阶段性联调的验收), and check only the technical criteria; leave the user's confirmation to the user. Report `PAIR-RESULT: accepted <evidence comment URL> <tested SHA>`, or `blocked` with every failing path listed.
 
 ## Recovery
 
