@@ -63,7 +63,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 当前工具命令为 `structure <仓库根> <配置> <输出目录>`、`verify <仓库根> <配置> <基线文件>`、`isolate <仓库根> <配置> <输出目录>`、`snapshot <仓库根> <配置> <基线文件>`；退出码 0 表示通过，1 表示检查或执行失败，2 表示用法错误。`contract-checks` 自测项目覆盖结构失败、公开面和隔离机制。按 #318 的审查决定，其中 6 个 Keep File 规则用例仅使用临时文件、在进程内执行，须满足快速层每例 1 秒上限；CLI 接线由既有结构失败用例同时断言，不额外启动 structure。
 
-单独选择阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 时完全跳过改动分析，总是构建一次解决方案并执行固定阶段检查，包括 structure、verify、isolate、确定性用例和 Benchmark；平台范围和候选基准见[阶段检查与候选基准](../run-tests.md#阶段检查与候选基准)。`-Layer stage,engine` 不强制引擎，引擎仍按同一套影响规则选择；完整阶段检查使用 `-All -Layer all,stage`，由 `-All` 强制引擎。常规集成入口仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；选中后在最多 4 个任务、2070 秒的集成队列结束后独立执行，使用 1290 秒上限，即使队列失败也执行，不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查；显式 `-Project` 跳过这些全仓检查。
+单独选择阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 时完全跳过改动分析，总是构建一次解决方案并执行固定阶段检查，包括 structure、verify、isolate 和确定性用例；平台范围和候选基准见[阶段检查与候选基准](../run-tests.md#阶段检查与候选基准)。`-Layer stage,engine` 不强制引擎，引擎仍按同一套影响规则选择；完整阶段检查使用 `-All -Layer all,stage`，由 `-All` 强制引擎。常规集成入口仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；选中后在最多 4 个任务、2070 秒的集成队列结束后独立执行，使用 1290 秒上限，即使队列失败也执行，不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查；显式 `-Project` 跳过这些全仓检查。
 
 边界矩阵 `scripts/checks/project-boundaries.json` 在顶层、与 `projects` 同级登记 `isolationTests`，其元素是 `projects` 中的隔离根测试项目名。`isolate` 只选择此列表中的项目，沿矩阵声明的允许引用生成各自的依赖闭包；空列表判失败，不回退到固定项目名。工具夹具可以只登记一个模块；真实仓库登记 `["Train.Core.Tests", "Train.Content.Tests", "Train.Scenes.Tests", "Train.Godot.Tests"]`，串行复制独立输入、冷构建四个模块、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；单次是否通过以运行日志与摘要为准。
 
