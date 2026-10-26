@@ -2,6 +2,8 @@
 
 日期：2026-10-17。对应 [Issue #499](https://github.com/odradekk/train/issues/499)、[批准计划及决定 1–24](https://github.com/odradekk/train/issues/499#issuecomment-6213933151)、[第 1 轮审查](https://github.com/odradekk/train/issues/499#issuecomment-6227213373)和[设计 00 的性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。本次工作验证并报告，不实现性能修复，也不把预算写入测试或 CI。
 
+历史注记：本报告中帧耗时尾部、整体内存判断和读档等待上限的待确认表述记录的是成文时状态。这些标准及每帧场景准备预算已由决策笔记 `2026-10-26-post-demo-performance-and-memory-gaps` 确定，现行要求见[设计 00 的性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。原始读数和当时判定保留，不据此更新性能验收结论。
+
 ## 判定与适用范围
 
 **以下所有判定均为开发机结果，不能替代目标配置验收。** 九个主要打开情景中，线路重开、重读后首显线路达标，其余七项不达标。四个规模点首开也均不达标。线路、跟随已用修正后的探针重测；旧两组不再作为任何结论依据。
