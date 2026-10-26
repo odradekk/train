@@ -41,13 +41,13 @@ try {
         }
         if ($file.Extension -eq '.png') { continue }
         if ($file.Extension -notin '.json', '.jsonl', '.log', '.txt', '.csv', '.md', '.xml', '.trx') {
-            Remove-Item -LiteralPath $file.FullName
+            Remove-Item -LiteralPath $file.FullName -Force
             $removed++
             continue
         }
         $content = [IO.File]::ReadAllText($file.FullName)
         foreach ($item in $replacements) { $content = $content.Replace($item.Value, $item.Key) }
-        [IO.File]::WriteAllText($file.FullName, $content)
+        Set-Content -LiteralPath $file.FullName -Value $content -NoNewline
         foreach ($check in $forbidden.GetEnumerator()) {
             $match = [regex]::Match($content, $check.Value, [Text.RegularExpressions.RegexOptions]::IgnoreCase)
             if ($match.Success) {
