@@ -28,6 +28,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot '../checks/Invoke-HiddenProcess.ps1')
+. (Join-Path $PSScriptRoot 'measurement-host.ps1')
 
 function Get-FileIdentity([string] $Path) {
     @{ path = $Path; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -58,50 +59,6 @@ try {
         throw '-StreamingDiagnostics 仅支持 scene-route-1x/2x/4x/8x。'
     }
     if (-not $IsWindows -and -not $IsLinux) { throw '测量入口需要 Windows 或 Linux Release 导出与真实窗口。' }
-    # 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
-    if ($IsWindows -and -not ('MeasurementDisplayAwake' -as [type])) {
-        Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-using System.Threading;
-public sealed class MeasurementDisplayAwake : IDisposable
-{
-    [DllImport("kernel32.dll")]
-    private static extern uint SetThreadExecutionState(uint flags);
-    private readonly ManualResetEventSlim ready = new ManualResetEventSlim();
-    private readonly ManualResetEventSlim stop = new ManualResetEventSlim();
-    private readonly Thread thread;
-    private string error;
-    public MeasurementDisplayAwake()
-    {
-        thread = new Thread(Hold) { IsBackground = true };
-        thread.Start();
-        ready.Wait();
-        if (error != null) { thread.Join(); throw new InvalidOperationException(error); }
-    }
-    private void Hold()
-    {
-        uint previous = SetThreadExecutionState(0x80000002);
-        if (previous == 0) { error = "SetThreadExecutionState 无法保持显示器唤醒。"; ready.Set(); return; }
-        ready.Set();
-        try { stop.Wait(); }
-        finally
-        {
-            if (SetThreadExecutionState(previous) == 0)
-                error = "SetThreadExecutionState 无法恢复原先执行状态。";
-        }
-    }
-    public void Dispose()
-    {
-        stop.Set();
-        thread.Join();
-        ready.Dispose();
-        stop.Dispose();
-        if (error != null) throw new InvalidOperationException(error);
-    }
-}
-"@
-    }
     if ($IsWindows) {
         $displayAwake = [MeasurementDisplayAwake]::new()
         $displayAwakeState.acquired = $true
@@ -219,7 +176,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
             $stopPath = Join-Path $runDirectory 'sampler.stop'
             $readyPath = Join-Path $runDirectory 'sampler.ready'
             Write-Json $identityPath $identity
-            $run = @{ scenario = $name; repeat = $iteration; report = $reportPath; external_load = $loadPath; succeeded = $false }
+            $run = @{ scenario = $name; repeat = $iteration; report = "$runName/report.json"; external_load = $loadPath; succeeded = $false }
             if ($StreamingDiagnostics) { $run.streaming_diagnostics = $true }
             if ($StreamingDiagnostics -or $lowOrbit) { $run.route_camera = $selection.camera }
             $runs.Add($run)
@@ -234,51 +191,21 @@ public sealed class MeasurementDisplayAwake : IDisposable
                     [System.IO.Directory]::CreateDirectory($directory) | Out-Null
                     [Environment]::SetEnvironmentVariable($variable, $directory)
                 }
-                $job = Start-Job -ArgumentList $loadPath, $stopPath, $readyPath -ScriptBlock {
-                    param($loadPath, $stopPath, $readyPath)
-                    $ErrorActionPreference = 'Stop'
-                    $previousCpu = $null
-                    while (-not (Test-Path -LiteralPath $stopPath)) {
-                        $processes = @(Get-Process | Where-Object { $_.ProcessName -like 'Godot*' -or $_.ProcessName -like 'train*' -or $_.ProcessName -eq 'dotnet' } |
-                            ForEach-Object { @{ pid = $_.Id; name = $_.ProcessName; cpu_seconds = $_.CPU; working_set_bytes = $_.WorkingSet64 } })
-                        $record = if ($IsWindows) {
-                            $cpu = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"
-                            $memory = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
-                            @{ total_cpu_percent = $cpu.PercentProcessorTime; available_bytes = $memory.AvailableBytes
-                                pages_input_per_sec = $memory.PagesInputPerSec; page_reads_per_sec = $memory.PageReadsPerSec }
-                        }
-                        else {
-                            # /proc/stat 首行是全部 CPU 的累计时钟数；第 4、5 项为空闲与 I/O 等待。
-                            $ticks = @((Get-Content -LiteralPath /proc/stat -TotalCount 1) -split '\s+' | Select-Object -Skip 1 -First 8 | ForEach-Object { [long]$_ })
-                            $cpuPercent = $null
-                            if ($null -ne $previousCpu) {
-                                $total = ($ticks | Measure-Object -Sum).Sum - ($previousCpu | Measure-Object -Sum).Sum
-                                $idle = $ticks[3] + $ticks[4] - $previousCpu[3] - $previousCpu[4]
-                                if ($total -gt 0) { $cpuPercent = 100 * ($total - $idle) / $total }
-                            }
-                            $previousCpu = $ticks
-                            $temperatures = @(Get-ChildItem /sys/class/thermal -Filter 'thermal_zone*' -ErrorAction SilentlyContinue |
-                                ForEach-Object { Get-Content -LiteralPath (Join-Path $_.FullName 'temp') -ErrorAction SilentlyContinue } |
-                                ForEach-Object { [double]$_ / 1000 })
-                            @{ total_cpu_percent = $cpuPercent
-                                available_bytes = [long](Select-String -LiteralPath /proc/meminfo -Pattern '^MemAvailable:\s+(\d+) kB$').Matches[0].Groups[1].Value * 1024
-                                max_thermal_celsius = ($temperatures | Measure-Object -Maximum).Maximum
-                                ac_online = @(Get-ChildItem /sys/class/power_supply -ErrorAction SilentlyContinue |
-                                    Where-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'type') -ErrorAction SilentlyContinue) -eq 'Mains' } |
-                                    ForEach-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'online')) -eq '1' }) }
-                        }
-                        $record.utc = [DateTime]::UtcNow.ToString('O')
-                        $record.processes = $processes
-                        $record | ConvertTo-Json -Depth 5 -Compress | Add-Content -LiteralPath $loadPath -Encoding utf8
-                        [System.IO.File]::WriteAllText($readyPath, '')
-                        Start-Sleep -Seconds 1
+                try {
+                    $job = Start-Job -ArgumentList (Join-Path $PSScriptRoot 'measurement-host.ps1'), $loadPath, $stopPath, $readyPath -ScriptBlock {
+                        param($helper, $loadPath, $stopPath, $readyPath)
+                        $ErrorActionPreference = 'Stop'
+                        . $helper
+                        Write-MeasurementLoadSamples $loadPath $stopPath $readyPath
                     }
-                }
-                $readyDeadline = [DateTime]::UtcNow.AddSeconds(15)
-                while (-not (Test-Path -LiteralPath $readyPath)) {
-                    if ($job.State -eq 'Failed' -or [DateTime]::UtcNow -gt $readyDeadline) { throw '外部负载采样未能启动。' }
-                    Start-Sleep -Milliseconds 100
-                }
+                    $readyDeadline = [DateTime]::UtcNow.AddSeconds(15)
+                    while (-not (Test-Path -LiteralPath $readyPath)) {
+                        if ($job.State -eq 'Failed' -or [DateTime]::UtcNow -gt $readyDeadline) {
+                            throw '外部负载采样未能启动；游戏测量继续。'
+                        }
+                        Start-Sleep -Milliseconds 100
+                    }
+                } catch { $_.Exception.Message | Add-Content (Join-Path $runDirectory 'sampler-errors.log') }
                 $arguments = @(
                     '--windowed', '--resolution', '1920x1080', '--log-file', (Join-Path $runDirectory 'godot.log'), '--',
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
@@ -322,6 +249,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
                         Receive-Job -Job $job -ErrorAction Stop | Out-Null
                         if ($job.State -ne 'Completed') { throw '外部负载采样失败。' }
                     }
+                    catch { $_.Exception.Message | Add-Content (Join-Path $runDirectory 'sampler-errors.log') }
                     finally { Remove-Job -Job $job -Force }
                 }
             }
@@ -346,7 +274,7 @@ finally {
                 warmup_seconds = 5; sample_seconds = $(if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }); repetitions = $Repeat
                 scene_duration_seconds_argument = $DurationSeconds
                 scene_timing = '新 scene 情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
-                external_load = $(if ($IsWindows) { '每秒记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。' }
+                external_load = $(if ($IsWindows) { '每秒通过性能计数器记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。' }
                     else { '每秒记录 /proc/stat 总 CPU 占用、MemAvailable、最高温区温度、交流电状态及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载。' })
                 limitation = $(if ($Machine -eq 'test') { '用户 2026-10-22 指定的测试机器上的真实窗口测量；阈值待用户确认，不判定通过。' }
                     else { '开发机真实窗口测量，仅用于重复采样与证据核对，不代表目标硬件最终性能。' })
