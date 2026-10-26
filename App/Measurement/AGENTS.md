@@ -5,15 +5,15 @@
 ## 布局
 
 - 游戏内的测量场景在这个目录，因为它们要编进游戏程序集。场景名用 `scene-*`，由 `MeasurementRun` 按 `--measure=<场景>` 分派；按场景类别拆成 `MeasurementRun.<类别>.cs` 分部文件。帧统计、报告、路线记录等支撑代码是不带 `MeasurementRun.` 前缀的独立文件。
-- runner 一侧的脚本在 `scripts/measure/`：运行命令、导出、常驻显示、负载采样和 CPU 预检、交替对照运行器、汇总分析。（`measure.ps1` 和 `export-measurement.ps1` 目前还在 `scripts/`，由 #819 搬过去；辅助脚本由 #820 收进来。）
+- runner 一侧的脚本在 `scripts/measure/`：运行命令、导出、常驻显示、负载采样和 CPU 预检、交替对照运行器、汇总分析。（辅助脚本由 #820 收进来。）
 - 只为某个模块做的诊断放在该模块旁边，不属于测量场景。
 - 测量专用的依赖只有：.NET 运行时和 Godot 自带的计数、`Tests/Benchmarks` 的 BenchmarkDotNet（只作 Core 诊断）。新增测量框架或依赖先写决策笔记。
 
 ## 运行
 
-- `pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath <导出的游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario <场景列表> -Repeat <轮数>` 运行指定场景；不给 `-Scenario` 时跑默认列表。大多数 `scene-*` 场景先要同一构建的 `scene-reference` 输出。
-- 正式测量在 Linux runner 上，用 workflow 的 `measure` 选项手动触发（#819 之前用 `window-soak` 选项或临时分支的 workflow）；一次一个 job，触发前确认 runner 空闲。开发机只用于定位问题和同一窗口内的交替对照，在协调者安排的安静窗口里做。
-- 测量代码通过发布的构建加载产品代码：`scripts/export-measurement.ps1` 导出 ExportRelease 构建，游戏以真实 1920×1080 窗口运行（Linux 包在 gamescope 里），带 `--measure=<场景>`。无界面、窗口尺寸不对或被最小化的运行判为无效。
+- `& ./scripts/measure/measure.ps1 -ExecutablePath <导出的游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario <场景列表> -Repeat <轮数>` 运行指定场景；不给 `-Scenario` 时跑默认列表。大多数 `scene-*` 场景先要同一构建的 `scene-reference` 输出。
+- 正式测量在 Linux runner 上，用 workflow 的 `measure` 选项手动触发；输入和命令见 [CI](../../docs/ci.md#linux-夜间运行)。运行器先跑一次参考，不计入指定轮数，再把参考传给每个所选场景。一次一个 job，触发前须与协调者确认 runner 空闲。开发机只用于定位问题和同一窗口内的交替对照，在协调者安排的安静窗口里做。
+- 测量代码通过发布的构建加载产品代码：`scripts/measure/export-measurement.ps1` 导出 ExportRelease 构建，游戏以真实 1920×1080 窗口运行（Linux 包在 gamescope 里），带 `--measure=<场景>`。无界面、窗口尺寸不对或被最小化的运行判为无效。
 - 每个场景通过 `MeasurementReport` 输出每轮的 `report.json`，`measure.ps1` 写 `summary.json` 和 `external-load.jsonl`。报告逐项对照设计 00 的阈值由 #822 完成。
 - 测量一次只跑一个；同一时段机器上不跑其他重负载。
 

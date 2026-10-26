@@ -13,20 +13,21 @@ param(
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     [switch] $StreamingDiagnostics,
     [ValidateSet('default', 'farthest', 'default-low-orbit', 'farthest-low-orbit')][string[]] $RouteCamera = @('default'),
-    # 启动器超时上限 2147478 秒，扣除 scene-memory 的 600 秒退出余量。
+    # 启动器上限减去 scene-memory 的 600 秒退出余量。
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
     [switch] $NodeReadyHold,
     [string] $ReferencePath,
-    # scene-* 情景的目标列车与节点；省略时游戏使用列车 1、节点 2。
+    # scene-* 默认列车 1、节点 2。
     [ValidateRange(1, 9223372036854775807)][long] $TrainId,
     [ValidateRange(1, 9223372036854775807)][long] $NodeId,
-    # test 只用于用户 2026-10-22 指定的测试机器，即 Linux runner lan-linux-nightly 所在主机。
-    [ValidateSet('development', 'test')][string] $Machine = 'development'
+    # test 指用户 2026-10-22 指定的 Linux runner 主机。
+    [ValidateSet('development', 'test')][string] $Machine = 'development',
+    [string] $RepositoryPath = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-. (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
+. (Join-Path $PSScriptRoot '../checks/Invoke-HiddenProcess.ps1')
 
 function Get-FileIdentity([string] $Path) {
     @{ path = $Path; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -36,7 +37,6 @@ function Write-Json([string] $Path, $Value) {
     $Value | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $Path -Encoding utf8
 }
 
-$repo = Split-Path $PSScriptRoot -Parent
 $runs = [System.Collections.Generic.List[object]]::new()
 $summaryPath = $null
 $failure = $null
@@ -143,7 +143,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
     $assemblies = @(Get-ChildItem -LiteralPath $exportDirectory -Filter Train.dll -File -Recurse)
     if ($assemblies.Count -ne 1) { throw '导出目录必须包含唯一的 Train.dll。' }
 
-    # 短命进程读取元数据，避免同一终端复测不同构建时程序集身份冲突或 DLL 锁定。
+    # 子进程避免复测不同构建时的程序集冲突与 DLL 锁定。
     $build = & (Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })) -NoProfile -Command {
         param($path)
         $ErrorActionPreference = 'Stop'
@@ -153,7 +153,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
     if ($LASTEXITCODE -ne 0) { throw '无法读取 Train.dll 构建版本。' }
     if ($build -notmatch '\+([0-9a-f]{40})$') { throw "程序集版本未包含完整 Git 提交：$build" }
     $commit = $Matches[1]
-    $apiBlob = & git -C $repo rev-parse "${commit}:docs/contracts/public-api.txt"
+    $apiBlob = & git -C $RepositoryPath rev-parse "${commit}:docs/contracts/public-api.txt"
     if ($LASTEXITCODE -ne 0) { throw '无法读取构建提交的 public-api Git blob。' }
     $identity = @{
         build_commit = $commit

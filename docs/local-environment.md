@@ -62,7 +62,7 @@ pwsh -NoProfile -Command {
 
 重定向只存在于这个子进程及其后代，不会改变调用终端。不要在调用者会话中持久设置 `APPDATA`、`LOCALAPPDATA` 或 XDG 目录：后续 `scripts/test.ps1` 和导出脚本需要从原用户目录读取已安装模板。`--headless`、`--recovery-mode` 和单独指定 `--log-file` 都不能代替用户目录隔离。
 
-Windows 的前后对照导出直接调用 `pwsh -NoProfile -File scripts/export-measurement.ps1 -SourceDirectory '<clean-source-checkout>' -OutputDirectory '<new-output-directory>'`；省略 `-SourceDirectory` 时使用脚本所在的工作树。脚本在自己的进程中隔离 `APPDATA`／`LOCALAPPDATA`，从原目录只读复制发布模板，并在结束时恢复环境。`export-summary.json` 的 `source_directory` 和 `build_commit` 标识实际源码；导出不带 `--recovery-mode`，让生产导出钩子执行，MCP 插件也会在隔离目录生成自己的文件。
+Windows 的前后对照导出直接调用 `pwsh -NoProfile -File scripts/measure/export-measurement.ps1 -SourceDirectory '<clean-source-checkout>' -OutputDirectory '<new-output-directory>'`；省略 `-SourceDirectory` 时使用脚本所在的工作树。脚本在自己的进程中隔离 `APPDATA`／`LOCALAPPDATA`，从原目录只读复制发布模板，并在结束时恢复环境。`export-summary.json` 的 `source_directory` 和 `build_commit` 标识实际源码；导出不带 `--recovery-mode`，让生产导出钩子执行，MCP 插件也会在隔离目录生成自己的文件。
 
 MCP 编辑器由协调者按 [MCP 启动方式](godot-mcp.md#启动服务)启动。运行证据留在本次目录，清理只处理自己创建的目录和进程；不得在真实用户目录中做污染实验。
 

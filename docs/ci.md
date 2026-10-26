@@ -49,15 +49,28 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 手动选择 `long-example` 时，`example` choice 输入接受 `starting-trade`、`lease-expiry`、`rail-repair`、`conquest`、`clearance`、`operating-failure`、`long-consist`、`standard-world`、`busy-combat` 和 `crowded-station`，通过环境变量传给[长示例脚本](../scripts/checks/run-long-example.ps1)。这条路径构建一次 Release CLI，并行运行 replay、save → resume、make → check 三组，再比较恢复后缀；不运行全量检查或恢复 dotnet-affected。每条命令完成即写入记录、日志和 `TestResults/long-example-<时间>-<7位提交>/summary.json`，失败依赖保持 `not_started`，任何失败或未执行使脚本非零退出。示例检查的平台分工见[示例手册](../examples/README.md#重制与长验证)。
 
-手动选择 `window-soak` 时，[窗口长测脚本](../scripts/checks/run-window-soak.ps1)在测试机器上执行正式窗口长测，`soak_seconds` 输入给出循环时长（默认 7200 秒）。脚本把官方 `Godot_v4.7.2-stable_mono_export_templates.tpz` 缓存在 runner 工具目录，每次运行都按同一发布的 `SHA512-SUMS.txt` 重新核对，只解出 `linux_release.x86_64` 到 `RUNNER_TEMP`；再用 `export-measurement.ps1` 导出 Linux Release，在 runner 用户自己的桌面会话里依次运行 `scene-reference` 和 `scene-soak`。结果在 `TestResults/window-soak/`。仓库公开，输出不写主机名、用户名、socket 路径和主机工具路径，显示只记作 `x11 :N` 或 `wayland`。这条路径只能经 `workflow_dispatch` 触发，会在主机屏幕上打开游戏窗口，运行前须与协调者确认 runner 时段和主机条件。主机须安装 gamescope：主机合成器会改写普通窗口的尺寸，测量入口在 Linux 上始终用 `gamescope -w 1920 -h 1080 -W 1920 -H 1080 --` 启动游戏，让游戏得到固定的 1920×1080 输出；找不到 gamescope 时运行失败，不退回普通窗口。
+手动选择 `measure` 时，[测量运行器](../scripts/measure/run-measurement.ps1)在 Linux 测试机器的真实窗口中运行指定场景。输入如下；`commit` 仍指定被测提交：
 
-以上事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。这些路径不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly`、带示例名的 `Linux long-example` 和 `Linux window-soak`。目前只有一台匹配的 runner，任务自然排队，不设置额外并发组；runner 排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
+| 输入 | 含义 | 默认值 |
+| --- | --- | --- |
+| `measure_scenarios` | 逗号分隔的场景列表，由 `measure.ps1` 校验 | `scene-reference` |
+| `measure_input` | 被测 checkout 中 `examples/` 下已存在的示例存档 | `examples/standard-world/save.json` |
+| `measure_repeat` | 每个所选场景的轮数 | `3` |
+| `measure_seconds` | 每轮时长，秒；`0` 使用场景默认值 | `0` |
 
-全量检查 job 上限为 153 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟、crowded-station 175 分钟，其余 105 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。窗口长测的初始上限为 200 分钟：7200 秒循环、跑完最后一段（约 16 分钟）、导出与参考运行（缓存模板时约 5 分钟）合计约 150 分钟，另留余量；首次正式运行后按同一预算原则核对。
+运行器先跑一次 `scene-reference`，把参考文件通过 `ReferencePath` 传给每个所选场景；这次准备不计入指定轮数。因此默认选择还会再跑 3 次 `scene-reference`。手动选择 `window-soak` 时，同一运行器使用固定的 `scene-soak`、`examples/standard-world/save.json`、Repeat 1，时长取 `soak_seconds`（默认 7200 秒）。两种选择均只报告测量结果，不强制性能预算。结果写入 `TestResults/measure-<UTC时间戳>-<被测提交短SHA>/`：`reference/` 是准备运行，`scenarios/` 是所选场景，`export/` 是导出日志。
+
+这两种选择只能经 `workflow_dispatch` 触发，会在主机屏幕上打开游戏窗口，运行前须与协调者确认 runner 时段和主机条件。输入通过环境变量传入脚本。工作流从 `GITHUB_SHA` 归档 `scripts/` 到 `RUNNER_TEMP` 并保留目录结构，运行该版本的脚本；`export-measurement.ps1 -SourceDirectory` 指向被测 checkout，所以也能测量搬迁前的提交。运行器把官方 `Godot_v4.7.2-stable_mono_export_templates.tpz` 缓存在 runner 工具目录，每次按同一发布的 `SHA512-SUMS.txt` 重新核对，只解出 `linux_release.x86_64` 到 `RUNNER_TEMP`，再导出 Linux Release。游戏使用 runner 用户自己的桌面会话。主机须安装 gamescope；入口始终用 `gamescope -w 1920 -h 1080 -W 1920 -H 1080 --` 固定游戏输出为 1920×1080，找不到 gamescope 时失败。
+
+掩码步骤先用 bash 掩码身份、工作区及工具目录，包括 pwsh 的查找目录和解析后的真实目录。`always()` 发布步骤再用 `scripts/measure/publish-measurement.ps1` 处理整个 `TestResults/` 的文本：把 HOME、PSHOME、Python 所在目录、GITHUB_WORKSPACE、RUNNER_TEMP、RUNNER_TOOL_CACHE 和 runner 根目录等已知绝对路径前缀换成占位符，再扫描本机主机名、用户名、home 路径、运行时 socket 路径和 sudo 字样；测量失败时也执行。`tool-path` 类别独立采集运行时的 Python 目录、DOTNET_ROOT、RUNNER_TOOL_CACHE、RUNNER_WORKSPACE 和 RUNNER_TEMP，按实际值精确检查残留，防止替换表漏项。这两种测量的 artifact 只含文本证据和 PNG：PNG 不扫描内容，其余文件在发布前删除，日志只记录删除数量。所有文件名仍须通过身份检查。扫描未通过则步骤失败，不发布 step summary 或 artifact，报错只写相对文件名、行号和类别，不写命中的值；行号为 0 表示文件名命中或读取失败。输出不写 sudo 状态或 socket 路径，显示只记作 `x11 :N` 或 `wayland`。
+
+以上事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。这些路径不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly`、带示例名的 `Linux long-example`、`Linux measure` 和 `Linux window-soak`。目前只有一台匹配的 runner，任务自然排队，不设置额外并发组；runner 排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
+
+全量检查 job 上限为 153 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟、crowded-station 175 分钟，其余 105 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。`measure` 固定上限为 720 分钟，容纳两小时场景的 3 轮及导出、参考运行和退出余量。自托管 runner 已用于 `lease-expiry` 的 485 分钟长 job；所选场景总耗时超过 720 分钟时，仍由 job 时限终止。窗口长测的上限仍为 200 分钟：7200 秒循环、跑完最后一段（约 16 分钟）、导出与参考运行（缓存模板时约 5 分钟）合计约 150 分钟，另留余量；首次正式运行后按同一预算原则核对。
 
 局域网自托管 runner `lan-linux-nightly` 由 systemd 服务运行，主机提供 PowerShell、Godot 和 Python；版本与环境配置见[Linux 验证与自托管 runner](local-environment.md#linux-验证与自托管-runner)。checkout 后，job 使用固定 SHA 的 `actions/setup-dotnet` 按 `global.json` 准备 SDK，安装到 `${{ runner.tool_cache }}/dotnet`，避开系统包管理器维护的目录。action 将该目录加入 PATH 并导出 `DOTNET_ROOT`，后续 CLI、Godot 和 `dotnet tool restore` 共用它；环境记录保留实际版本和 `DOTNET_ROOT`。workflow 不含主机安装路径，不安装额外 Godot，不使用 xvfb。job 仅授予 `contents: read`，checkout 完整历史与所选 SHA，`persist-credentials: false`。schedule 使用默认分支的工作流。
 
-Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error`。摘要发布和产物上传使用 `always()`，按选择上传整个 `TestResults/`，artifact 名为 `linux-nightly-<run_id>-<attempt>`、`linux-post-merge-<run_id>-<attempt>` 或 `linux-long-example-<示例>-<run_id>-<attempt>`，保留 14 天。上传之后始终清理：确认当前目录和 Git 仓库根目录均为 `GITHUB_WORKSPACE`，执行 `git clean -ffdx`，并在日志列出清理后的目录；不能在其他工作目录运行该清理命令。统一测试入口仍负责真实用户目录和临时目录的快照检查。强制终止 runner 或服务故障时，`always()` 不能保证上传或清理完成，应按实际日志报告。
+Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error`。摘要发布和产物上传使用 `always()`；`measure` 和 `window-soak` 还须先通过上述脱敏及残留检查。按选择上传整个 `TestResults/`，artifact 名为 `linux-nightly-<run_id>-<attempt>`、`linux-post-merge-<run_id>-<attempt>`、`linux-long-example-<示例>-<run_id>-<attempt>`、`linux-measure-<run_id>-<attempt>` 或 `linux-window-soak-<run_id>-<attempt>`，保留 14 天。上传之后始终清理：确认当前目录和 Git 仓库根目录均为 `GITHUB_WORKSPACE`，执行 `git clean -ffdx`，并在日志列出清理后的目录；不能在其他工作目录运行该清理命令。统一测试入口仍负责真实用户目录和临时目录的快照检查。强制终止 runner 或服务故障时，`always()` 不能保证上传或清理完成，应按实际日志报告。
 
 ## 环境与证据
 
