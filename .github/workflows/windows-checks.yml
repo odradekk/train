@@ -83,6 +83,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Check file sizes
+        shell: pwsh
+        run: python .agents/scripts/check_file_size.py --all
+
       - name: Restore locked .NET tools
         shell: pwsh
         run: dotnet tool restore
