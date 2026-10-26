@@ -20,7 +20,7 @@
 当前已实现的成员：
 
 - `PrepareNew` 及候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；生成失败不替换活动会话。
-- 会话的 `Read`、`Submit`、`Advance` 和 `Dispose`。实现 `PublishContent`、五个铁路命令、四个战斗命令、`DebugAddRailBreak` 和 `DebugSpawnCreatureGroup`，推进包含列车运行及线路、站台调度、节点开战与伤害结算；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。身份相同时在事务前抛 `ArgumentException`；合法投影身份不同时，在同步事务内检查世界引用并适配保存的设计、衍生货物、当前定义依赖和节点站台数，具体拒绝与兼容规则见下文“[内容候选与同步提交](core-content-sync.md#内容候选与同步提交)”。铁路货物查询和出发检查从当前货物目录识别缺失，恢复候选的缺失标注见下文“[当前载荷](core-capture.md#当前载荷)”。
+- 会话的 `Read`、`Submit`、`Advance` 和 `Dispose`。实现 `PublishContent`、列车命令（`FormTrain`、`DisbandTrain`、`ReplaceRunPlan`、`StartTrain`、`StopTrain`）、铁路施工命令（`ExpandRail`、`RepairRail`、`SetAutomaticRailRepair`）、四个战斗命令、`DebugAddRailBreak` 和 `DebugSpawnCreatureGroup`，推进包含列车运行及线路、站台调度、节点开战与伤害结算；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。身份相同时在事务前抛 `ArgumentException`；合法投影身份不同时，在同步事务内检查世界引用并适配保存的设计、衍生货物、当前定义依赖和节点站台数，具体拒绝与兼容规则见下文“[内容候选与同步提交](core-content-sync.md#内容候选与同步提交)”。铁路命令由 [CoreSession.Submit](../../Core/Sessions/CoreSession.cs) 经 [TrainCommands.Validate 和 Execute](../../Core/Railway/TrainCommands.cs) 处理。铁路货物查询和出发检查从当前货物目录识别缺失，恢复候选的缺失标注见下文“[当前载荷](core-capture.md#当前载荷)”。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`、`FindCombat`，覆盖生成的图、占据者、资源、实例、运行列车和进行中的战斗；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
 - `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；车辆与建筑的制造、修理不产生返还预留；车辆改装与拆解由 #332 产生和释放返还预留，建筑改装、拆解与大型设备制造由 #343 产生和释放，具体规则见下文“[库存与租约](core-inventory.md#库存与租约)”。
@@ -34,7 +34,7 @@
 - #332 接入车辆 `ApplyInstanceDesign`、自有 `Refit`／`Dismantle`、`SetDeconstructionPaused`、两种资金来源的车辆改装报价及委托改装；委托返还进入当地玩家租库，查询、事件与保存重放沿用同一任务路径。
 - 按 [#332 批准计划 D11](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)增加 `SettlementView.OwnedJobs`，让宿主从聚居地查询活动自有施工任务，再经 `FindJob` 读取详情；不新增持久字段。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“[当前载荷](core-capture.md#当前载荷)”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
-- `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、五个铁路命令、三个战斗命令（`SetTrainEngagement`、`FocusFire`、`Retreat`）和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留、调度和战斗中的录制通过生产重放路径逐检查点比较。
+- `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、列车命令（`FormTrain`、`DisbandTrain`、`ReplaceRunPlan`、`StartTrain`、`StopTrain`）、铁路施工命令（`ExpandRail`、`RepairRail`、`SetAutomaticRailRepair`）、三个战斗命令（`SetTrainEngagement`、`FocusFire`、`Retreat`）和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留、调度和战斗中的录制通过生产重放路径逐检查点比较。铁路施工命令的录制与严格重放用例见 [RailwayWorkTests.Railway_jobs_round_trip_and_strict_replay_keeps_the_receipts](../../Tests/Core/Railway/RailwayWorkTests.cs)。
 - #382 将人口消费与结算接入 `Advance`：六类生活需求、主食优先与加工食品共享满足、整数取用后的物理余量、分类加权、人口变化余量和最低一人。每次消费全部完成后判断各项短缺，仅在状态变化时发 `PopulationShortageChanged`；结算发 `PopulationSettled`，从多于一人降至一人时发 `PopulationMinimumReached`。停用与恢复使用 `PopulationAvailabilityChanged`，停用期间不消费、不累计周期、不判断短缺，劳动力为零。
 
 下表列出尚未实现的行为。尚未实现的独立成员直接抛 `NotImplementedException`，不以业务失败、故障结果或缺失查询代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类。
