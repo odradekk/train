@@ -5,7 +5,7 @@ import argparse
 from collections import Counter
 import json
 from math import isfinite
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from statistics import median
 
 TIMING_METRICS = tuple(
@@ -72,7 +72,16 @@ def read_json(path):
 
 
 def read_run(directory, run):
-    report_path = directory / run["report"]
+    report_name = Path(run["report"])
+    if report_name.anchor or PureWindowsPath(run["report"]).anchor:
+        return {}, "report_absolute_path"
+    try:
+        root = directory.resolve()
+        report_path = (root / report_name).resolve()
+    except (OSError, ValueError):
+        return {}, "report_invalid_path"
+    if not report_path.is_relative_to(root):
+        return {}, "report_outside_directory"
     report, report_problem = read_json(report_path)
     process, process_problem = read_json(report_path.parent / "process.json")
     reason = None
@@ -132,7 +141,7 @@ def summarize_directories(directories):
                 metrics[metric].update(compare(metrics[metric]["A"]["median"], metrics[metric]["B"]["median"]))
         scenarios[scenario] = {"runs": {side: len(reports) for side, reports in reports_by_side.items()},
                                "metrics": metrics}
-    return {"inputs": {side: str(directory.resolve()) for side, directory in sides.items()},
+    return {"inputs": {side: str(directory) for side, directory in sides.items()},
             "input_status": input_status, "scenarios": scenarios}
 
 

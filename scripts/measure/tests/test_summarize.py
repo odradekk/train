@@ -46,12 +46,9 @@ class DirectoryTests(unittest.TestCase):
         return result["scenarios"][scenario]["metrics"]
 
     def test_groups_only_by_scenario_and_uses_each_reports_fixed_timing_values(self):
-        first = self.add_run(report=self.report(2), route_camera="a")
+        self.add_run(report=self.report(2), route_camera="a")
         self.add_run(report=self.report(8), route_camera="b", report_unused="ignored")
         self.add_run(scenario="scene-other", report=self.report(20))
-        summary = json.loads((self.root / "A/summary.json").read_text())
-        summary["runs"][0]["report"] = str(first)
-        (self.root / "A/summary.json").write_text(json.dumps(summary))
         result = summarize.summarize_directories([self.root / "A"])
         self.assertEqual({"scene-test", "scene-other"}, set(result["scenarios"]))
         self.assertEqual(2, result["scenarios"]["scene-test"]["runs"]["A"])
@@ -242,7 +239,7 @@ class DirectoryTests(unittest.TestCase):
     def test_null_sections_produce_unknown_metrics(self):
         self.add_run(report={"outcome": "completed", "timing": None, "memory": None, "operations": None})
         metrics = self.metrics(summarize.summarize_directories([self.root / "A"]))
-        self.assertEqual(22, len(metrics))
+        self.assertEqual(len(summarize.TIMING_METRICS + summarize.MEMORY_METRICS), len(metrics))
         for metric in metrics.values():
             self.assertEqual((None, 1, "unknown"), tuple(metric["A"][key]
                                                        for key in ("median", "unknown_runs", "status")))

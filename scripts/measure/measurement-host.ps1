@@ -1,6 +1,8 @@
 #Requires -Version 7.0
 # Decision note: 2026-10-26-performance-measurement-system
 
+$MeasurementCpuWindowSeconds = 30
+
 function New-MeasurementLoadState {
     $state = @{ previous_cpu = $null; counters = @{} }
     if ($IsWindows) {
@@ -89,7 +91,7 @@ function Test-MeasurementCpuPrecheck {
         [double] $MeanThresholdPercent = 25, [double] $ConsecutiveThresholdPercent = 40)
     $decision = @{ status = 'unknown'; passed = $false; reason = '采样未覆盖完整的 30 秒。'
         sample_count = $Samples.Count; mean_cpu_percent = $null; consecutive_high = $false }
-    if ($ElapsedSeconds -lt 30 -or $Samples.Count -lt 2) { return $decision }
+    if ($ElapsedSeconds -lt $MeasurementCpuWindowSeconds -or $Samples.Count -lt 2) { return $decision }
     $previous = $null
     $sum = 0.0
     foreach ($sample in $Samples) {
@@ -120,9 +122,9 @@ function Test-MeasurementCpuPrecheck {
     return $decision
 }
 
-    # 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
-    if ($IsWindows -and -not ('MeasurementDisplayAwake' -as [type])) {
-        Add-Type -TypeDefinition @"
+# 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
+if ($IsWindows -and -not ('MeasurementDisplayAwake' -as [type])) {
+    Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -163,4 +165,4 @@ public sealed class MeasurementDisplayAwake : IDisposable
     }
 }
 "@
-    }
+}

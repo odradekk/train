@@ -55,20 +55,21 @@ function Write-ComparisonSummary {
     }
     @{ succeeded = @($slots | Where-Object { -not $_.result.succeeded }).Count -eq 0
         attempts = @($attempts.ToArray()); repeat = $Repeat; scenarios = $Scenario
-        cpu_precheck = @{ window_seconds = 30; mean_threshold_percent = $CpuMeanThresholdPercent
+        cpu_precheck = @{ window_seconds = $MeasurementCpuWindowSeconds; mean_threshold_percent = $CpuMeanThresholdPercent
             consecutive_threshold_percent = $CpuConsecutiveThresholdPercent } } |
         ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'comparison.json') -Encoding utf8
 }
 
 function Invoke-ComparisonSlot($Slot, [int] $Attempt) {
-    $directory = Join-Path $OutputDirectory "$($Slot.side)/$($Slot.scenario)-$($Slot.repeat)-attempt-$Attempt"
+    $runName = "$($Slot.scenario)-$($Slot.repeat)-attempt-$Attempt"
+    $directory = Join-Path $OutputDirectory "$($Slot.side)/$runName"
     New-Item -ItemType Directory -Path $directory | Out-Null
     $samples = [Collections.Generic.List[object]]::new()
     $clock = [Diagnostics.Stopwatch]::StartNew()
     # 计数器在本进程中只创建一次；丢弃前一轮游戏期间的累计区间。
     try { if ($state) { foreach ($counter in $state.counters.Values) { $null = $counter.NextValue() } } }
     catch { $samples.Add(@{ elapsed_seconds = 0; error = $_.Exception.Message }) }
-    while ($clock.Elapsed.TotalSeconds -lt 30) {
+    while ($clock.Elapsed.TotalSeconds -lt $MeasurementCpuWindowSeconds) {
         Start-Sleep -Seconds 1
         try {
             if ($initialError) { throw $initialError }
@@ -84,7 +85,7 @@ function Invoke-ComparisonSlot($Slot, [int] $Attempt) {
     $measurement = Join-Path $directory 'measurement'
     $entry = @{ side = $Slot.side; scenario = $Slot.scenario; repeat = $Slot.repeat; attempt = $Attempt
         precheck = $precheck; measurement_started = $false; succeeded = $false; exit_code = $null
-        report = (Join-Path $measurement "$($Slot.scenario)-1/report.json"); error = $null }
+        report = "$runName/measurement/$($Slot.scenario)-1/report.json"; error = $null }
     $attempts.Add($entry)
     $Slot.result = $entry
     if ($precheck.passed) {

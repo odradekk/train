@@ -176,7 +176,7 @@ try {
             $stopPath = Join-Path $runDirectory 'sampler.stop'
             $readyPath = Join-Path $runDirectory 'sampler.ready'
             Write-Json $identityPath $identity
-            $run = @{ scenario = $name; repeat = $iteration; report = $reportPath; external_load = $loadPath; succeeded = $false }
+            $run = @{ scenario = $name; repeat = $iteration; report = "$runName/report.json"; external_load = $loadPath; succeeded = $false }
             if ($StreamingDiagnostics) { $run.streaming_diagnostics = $true }
             if ($StreamingDiagnostics -or $lowOrbit) { $run.route_camera = $selection.camera }
             $runs.Add($run)
