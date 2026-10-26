@@ -93,10 +93,6 @@ public sealed class DocumentationBlueprintTests
         foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
         {
             var relative = Path.GetRelativePath(directory, file).Replace('\\', '/');
-            // 市场和非空 founding 仍未实现；这里加载 manifest、体素、蓝图和生物聚落，保留文件原字节。
-            if (relative != "mod.json" && !relative.StartsWith("resources/voxels/", StringComparison.Ordinal) &&
-                !relative.StartsWith("resources/blueprints/", StringComparison.Ordinal) &&
-                !relative.StartsWith("resources/lair-types/", StringComparison.Ordinal)) continue;
             var bytes = File.ReadAllBytes(file);
             if (relative.EndsWith(".png", StringComparison.Ordinal))
             {

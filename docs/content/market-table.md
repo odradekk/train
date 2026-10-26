@@ -1,6 +1,6 @@
 # 市场表
 
-市场表是首个切片的临时格式：按货物给出价格对供需的敏感度和价格上下限，底价读取同一内容快照里体素的 Value。该临时模型不再作为完整 Demo 的实施依据；替代规则已确定为 [19 的共用市场规则](../design/19-markets-and-trading.md#一局共用的市场规则)，使用真实库存与用途派生的供需、边际价格和局部精确货币计算。当前内容工厂使用[市场规则](market-rule.md)；本文、Schema 和样例仅保留原格式记录。文件名是 `<local id>.market-table.json`，放在 `resources/markets/`。Schema 见 [schemas/market-table.schema.json](schemas/market-table.schema.json)，示例见 [examples/example-pack/resources/markets/](examples/example-pack/resources/markets/)。
+市场表是首个切片的临时格式：按货物给出价格对供需的敏感度和价格上下限，底价读取同一内容快照里体素的 Value。该临时模型不再作为完整 Demo 的实施依据；替代规则已确定为 [19 的共用市场规则](../design/19-markets-and-trading.md#一局共用的市场规则)，使用真实库存与用途派生的供需、边际价格和局部精确货币计算。当前内容工厂使用[市场规则](market-rule.md)；本文和 Schema 仅保留原格式记录。历史文件名是 `<local id>.market-table.json`，放在 `resources/markets/`。Schema 见 [schemas/market-table.schema.json](schemas/market-table.schema.json)。
 
 以下仅描述历史临时格式：市场表只有核心模拟层读取，只有 `simulation` 一节。旧模型把全局选表和恢复间隔留给世界配置；Demo 不恢复虚构供需，也不把此表直接当成新市场规则。
 
@@ -30,12 +30,6 @@
 - `id` 和文件名一致；引用的体素存在，并且是货物。
 - 同一种货物不重复；`min_price` 不大于 `max_price`。
 
-## 样例
-
-| 文件 | 展示的写法 | 阶段 |
-| --- | --- | --- |
-| `example-pack` 的 `basic` | 一种货物的价格参数 | 首个切片 |
-
 ## 和现有代码的差别
 
-旧版本 1 的 `.market-tables.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。本文的单文件临时格式、Schema 和样例仅作历史记录；当前内容工厂解析[市场规则](market-rule.md)，具体范围见[内容契约](../contracts/content.md)，不再以实现本临时格式为目标。
+旧版本 1 的 `.market-tables.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。本文的单文件临时格式和 Schema 仅作历史记录；当前内容工厂解析[市场规则](market-rule.md)，具体范围见[内容契约](../contracts/content.md)，不再以实现本临时格式为目标。
