@@ -9,13 +9,13 @@ description: Measure and optimize train against its guarded scenarios for scene 
 
 ## 场景
 
-运行命令里的 `<游戏>` 是 `scripts/export-measurement.ps1` 导出的 ExportRelease 构建，`<存档>` 是 `examples/` 下的示例存档：典型负载 `standard-world`，重负载 `crowded-station`、`busy-combat`、`long-consist`。大多数场景要先跑同一构建的 `scene-reference`。
+运行命令里的 `<游戏>` 是 `scripts/measure/export-measurement.ps1` 导出的 ExportRelease 构建，`<存档>` 是 `examples/` 下的示例存档：典型负载 `standard-world`，重负载 `crowded-station`、`busy-combat`、`long-consist`。直接调用 `measure.ps1` 时，大多数场景要先跑同一构建的 `scene-reference`，再用 `-ReferencePath` 传入参考文件。正式测量用 workflow 的 `measure` 选项，输入和命令见 [CI](../../../docs/ci.md#linux-夜间运行)；运行器自动准备参考，不计入指定轮数。触发前须与协调者确认 runner 空闲。
 
 | 用户操作 | 场景 | 守护的代码和内容 | 运行 | 指标 | 基线 | 运行位置 |
 |---|---|---|---|---|---|---|
-| 场景打开和远处补齐 | `scene-node-first`、`scene-node`、`scene-edge`、`scene-follow` | `Scenes/`、`Rendering/SceneDisplay*`、`App/WorldSceneController.cs`、`App/HostCoordinator.cs` | `pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath <游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario scene-reference,scene-node-first,scene-node,scene-edge,scene-follow -Repeat <轮数>` | 点击到可操作的 p95 和最大值；远景补齐时间 | #824 | Linux runner，只报告；runner 选项见 #819 |
-| 完整游戏的帧耗时和实际倍速 | `scene-route-1x`、`scene-route-8x`（以及 2x、4x）、`scene-follow-8x`；聚居地和战斗用重负载存档 | `Core/`、`Scenes/`、`Rendering/`、`Ui/`、`App/` | 同上，`-Scenario scene-reference,scene-route-1x,scene-route-8x,scene-follow-8x` | 帧耗时 p50、p95、p99、最大；实际倍速 | #824 | Linux runner，只报告 |
-| 内存 | `scene-memory`、`scene-soak` | `Scenes/`、`Rendering/`、`Content/`、`Core/` 的存档和状态 | 同上，`-Scenario scene-reference,scene-memory`；两小时长测用 workflow 的 `window-soak` 选项 | 节点稳态私有字节增量、缓冲区加纹理增量、整个游戏稳态私有字节和工作集、离开节点后强制 GC 的存活堆、每小时增长 | #824 | Linux runner，只报告 |
+| 场景打开和远处补齐 | `scene-node-first`、`scene-node`、`scene-edge`、`scene-follow` | `Scenes/`、`Rendering/SceneDisplay*`、`App/WorldSceneController.cs`、`App/HostCoordinator.cs` | `& ./scripts/measure/measure.ps1 -ExecutablePath <游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario scene-node-first,scene-node,scene-edge,scene-follow -ReferencePath <参考文件> -Repeat <轮数>` | 点击到可操作的 p95 和最大值；远景补齐时间 | #824 | Linux runner，只报告 |
+| 完整游戏的帧耗时和实际倍速 | `scene-route-1x`、`scene-route-8x`（以及 2x、4x）、`scene-follow-8x`；聚居地和战斗用重负载存档 | `Core/`、`Scenes/`、`Rendering/`、`Ui/`、`App/` | 同上，`-Scenario scene-route-1x,scene-route-8x,scene-follow-8x` | 帧耗时 p50、p95、p99、最大；实际倍速 | #824 | Linux runner，只报告 |
+| 内存 | `scene-memory`、`scene-soak` | `Scenes/`、`Rendering/`、`Content/`、`Core/` 的存档和状态 | 同上，`-Scenario scene-memory`；两小时长测用 workflow 的 `window-soak` 选项 | 节点稳态私有字节增量、缓冲区加纹理增量、整个游戏稳态私有字节和工作集、离开节点后强制 GC 的存活堆、每小时增长 | #824 | Linux runner，只报告 |
 
 重复的旧场景（`map-*`、`follow-*`、`node-*`、`sdfgi-*`、`taa-*`）由 #821 删除，不再使用；报告按设计 00 阈值判定由 #822 完成。
 

@@ -1,5 +1,5 @@
 name: Windows checks
-run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak' || inputs.selection == 'measure') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
       selection:
         description: Check selection
         type: choice
-        options: [routine, correctness, nightly, long-example, window-soak]
+        options: [routine, correctness, nightly, long-example, window-soak, measure]
         default: routine
       example:
         description: Long example (used only by long-example)
@@ -29,6 +29,22 @@ on:
         description: 要测试的完整 40 位提交 SHA，留空则测试触发的 ref
         type: string
         required: false
+      measure_scenarios:
+        description: 测量场景，逗号分隔（仅 measure）
+        type: string
+        default: scene-reference
+      measure_input:
+        description: examples/ 下的输入存档（仅 measure）
+        type: string
+        default: examples/standard-world/save.json
+      measure_repeat:
+        description: 每场景轮数（仅 measure）
+        type: string
+        default: '3'
+      measure_seconds:
+        description: 每轮秒数，0 使用场景默认值（仅 measure）
+        type: string
+        default: '0'
 
 permissions:
   contents: read
@@ -186,21 +202,40 @@ jobs:
 
   nightly:
     name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak'))
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak' || inputs.selection == 'measure'))
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || inputs.selection == 'window-soak' && 200 || 153 }}
+    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || inputs.selection == 'window-soak' && 200 || inputs.selection == 'measure' && 720 || 153 }}
     permissions:
       contents: read
     env:
       CI_SELECTION: ${{ inputs.selection || 'nightly' }}
       LONG_EXAMPLE: ${{ inputs.example }}
     steps:
+      - name: Mask measurement host identity
+        if: inputs.selection == 'measure' || inputs.selection == 'window-soak'
+        shell: pwsh
+        run: |
+          @($HOME, [Environment]::UserName, [Environment]::MachineName, $env:GITHUB_WORKSPACE,
+            $env:RUNNER_TEMP, $env:RUNNER_TOOL_CACHE, (Split-Path (Split-Path $env:RUNNER_WORKSPACE -Parent) -Parent),
+            (Split-Path $env:GODOT -Parent)) | Where-Object { $_ } | ForEach-Object { Write-Host "::add-mask::$_" }
+
       - name: Checkout tested head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Prepare measurement scripts from workflow commit
+        if: inputs.selection == 'measure' || inputs.selection == 'window-soak'
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'measure-tools'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          git archive --format=tar --output="$directory/scripts.tar" $env:GITHUB_SHA scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          tar -xf "$directory/scripts.tar" -C $directory
+          exit $LASTEXITCODE
 
       - name: Prepare locked .NET SDK
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
@@ -264,19 +299,32 @@ jobs:
           exit $LASTEXITCODE
 
       # The test machine's live desktop session provides the real 1080p window; see docs/ci.md.
-      - name: Window soak
-        if: env.CI_SELECTION == 'window-soak'
+      - name: Window measurement
+        if: env.CI_SELECTION == 'window-soak' || env.CI_SELECTION == 'measure'
         shell: pwsh
         env:
           SOAK_SECONDS: ${{ inputs.soak_seconds }}
+          MEASURE_SCENARIOS: ${{ inputs.measure_scenarios }}
+          MEASURE_INPUT: ${{ inputs.measure_input }}
+          MEASURE_REPEAT: ${{ inputs.measure_repeat }}
+          MEASURE_SECONDS: ${{ inputs.measure_seconds }}
         run: |
-          pwsh -NoProfile -File scripts/checks/run-window-soak.ps1 -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable') -SoakSeconds $env:SOAK_SECONDS
+          $parameters = @{ Scenario = $env:MEASURE_SCENARIOS; InputPath = $env:MEASURE_INPUT; Repeat = $env:MEASURE_REPEAT; DurationSeconds = $env:MEASURE_SECONDS }
+          if ($env:CI_SELECTION -eq 'window-soak') {
+            $parameters = @{ Scenario = 'scene-soak'; InputPath = 'examples/standard-world/save.json'; Repeat = 1; DurationSeconds = $env:SOAK_SECONDS }
+          }
+          & "$env:RUNNER_TEMP/measure-tools/scripts/measure/run-measurement.ps1" @parameters -Root $env:GITHUB_WORKSPACE -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable')
           exit $LASTEXITCODE
 
       - name: Publish available reports
+        id: publish
         if: always()
         shell: pwsh
         run: |
+          if ($env:CI_SELECTION -in 'measure', 'window-soak') {
+            & "$env:RUNNER_TEMP/measure-tools/scripts/measure/publish-measurement.ps1" -Directory TestResults
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           Get-ChildItem TestResults -Directory -ErrorAction SilentlyContinue |
             Where-Object Name -Match '^[a-z-]+-\d{8}T\d{9}-[0-9a-f]{7}$' |
             ForEach-Object {
@@ -290,7 +338,7 @@ jobs:
             }
 
       - name: Upload available evidence
-        if: always()
+        if: always() && ((env.CI_SELECTION != 'measure' && env.CI_SELECTION != 'window-soak') || steps.publish.outcome == 'success')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: linux-${{ github.event_name == 'push' && 'post-merge' || env.CI_SELECTION }}${{ inputs.selection == 'long-example' && format('-{0}', inputs.example) || '' }}-${{ github.run_id }}-${{ github.run_attempt }}

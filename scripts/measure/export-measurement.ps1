@@ -2,14 +2,14 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string] $OutputDirectory,
-    [string] $SourceDirectory = (Split-Path $PSScriptRoot -Parent),
+    [string] $SourceDirectory = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
     # 默认取已安装的 Release 模板；Linux 测试机器传入已核对的模板文件。
     [string] $TemplatePath
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-. (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
+. (Join-Path $PSScriptRoot '../checks/Invoke-HiddenProcess.ps1')
 
 $userDirectories = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } }
 else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
@@ -83,7 +83,7 @@ try {
     Invoke-MeasurementBuildStep 'export' $env:GODOT @('--headless', '--path', $repo,
         '--log-file', (Join-Path $OutputDirectory 'export-godot.log'), '--export-release', $(if ($IsWindows) { 'Windows Desktop' } else { 'Linux' }), $binary)
     Invoke-MeasurementBuildStep 'optimizations' (Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })) @('-NoProfile', '-File',
-        (Join-Path $PSScriptRoot 'checks/check-export-optimizations.ps1'), '-ExportDirectory', $OutputDirectory)
+        (Join-Path $PSScriptRoot '../checks/check-export-optimizations.ps1'), '-ExportDirectory', $OutputDirectory)
     $afterCommit = & git -C $repo rev-parse HEAD
     if ($LASTEXITCODE -ne 0 -or $commit -ne $afterCommit) { throw '导出期间 HEAD 发生变化；此构建不能用于测量。' }
     $status = @(& git -C $repo status --porcelain)

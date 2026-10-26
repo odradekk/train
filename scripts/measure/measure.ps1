@@ -26,7 +26,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-. (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
+. (Join-Path $PSScriptRoot '../checks/Invoke-HiddenProcess.ps1')
 
 function Get-FileIdentity([string] $Path) {
     @{ path = $Path; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -36,7 +36,6 @@ function Write-Json([string] $Path, $Value) {
     $Value | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $Path -Encoding utf8
 }
 
-$repo = Split-Path $PSScriptRoot -Parent
 $runs = [System.Collections.Generic.List[object]]::new()
 $summaryPath = $null
 $failure = $null
@@ -153,7 +152,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
     if ($LASTEXITCODE -ne 0) { throw '无法读取 Train.dll 构建版本。' }
     if ($build -notmatch '\+([0-9a-f]{40})$') { throw "程序集版本未包含完整 Git 提交：$build" }
     $commit = $Matches[1]
-    $apiBlob = & git -C $repo rev-parse "${commit}:docs/contracts/public-api.txt"
+    $apiBlob = & git rev-parse "${commit}:docs/contracts/public-api.txt"
     if ($LASTEXITCODE -ne 0) { throw '无法读取构建提交的 public-api Git blob。' }
     $identity = @{
         build_commit = $commit
