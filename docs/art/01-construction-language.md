@@ -53,7 +53,7 @@
 
 ### 形状
 
-七种标准形状的精确几何、朝向、贴图与完全覆盖遮面规则见[Scenes 契约](../contracts/scenes.md#显示更新与资源)。
+七种标准形状的精确几何、朝向、贴图与完全覆盖遮面规则见[Scenes 契约](../contracts/scenes-display.md#显示更新与资源)。
 
 - 形状是游戏内置的几何外形。体素定义的立方体表现用 `shapes` 列出允许的形状和标准变体，设计的每一格放置时从中选一种，不选时用列表的第一项（[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)，2026-10-10），格式见设计文档 [02](../design/02-definitions-and-content.md#表现资产校验)，渲染见 [07](../design/07-rendering.md#cube-voxel-rendering)。新增形状要改代码；Mod 需要新外形时用自定义模型。
 - 基础几何由开发工具按参数生成，游戏只发布有限、经过校验的标准变体（美术 Q209、Q235）。

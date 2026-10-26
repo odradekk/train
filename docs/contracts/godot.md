@@ -10,7 +10,7 @@ Godot 消费其他三个模块的契约，并实现内容要求的宿主端口�
 
 只有 `App/Composition/` 引用和调用真实创建工厂，取得 `ICoreFactory`、`IContentFactory`、`IScenesFactory`。其余 App、Rendering、Ui 代码接收这些接口及会话，不调用实现静态入口。测试只替换这处装配和实现项目引用，仍执行同一份宿主生产代码；不增加依赖注入容器或反射扫描。
 
-流式测量在这处装配调用 `ScenesFactory.Create(ISceneStreamingObserver? observer = null)` 注入观察器，正常游戏传 null。`PresentCandidate` 候选更新帧同样通过 `SceneStreamingScope.Frame` 记录，角色为 `Candidate`；晋升以同一场景身份记录 `Activated`，取消记录 `Closed`。观察器接收线程、场景／尝试身份和覆盖查询的约定见[体素流式记录](scenes.md#可选流式记录)。回调入口读取单调时钟并写入线程安全内存队列，测量结束后由宿主写文件；回调不阻塞、不抛异常、不重入模块。
+流式测量在这处装配调用 `ScenesFactory.Create(ISceneStreamingObserver? observer = null)` 注入观察器，正常游戏传 null。`PresentCandidate` 候选更新帧同样通过 `SceneStreamingScope.Frame` 记录，角色为 `Candidate`；晋升以同一场景身份记录 `Activated`，取消记录 `Closed`。观察器接收线程、场景／尝试身份和覆盖查询的约定见[体素流式记录](scenes-session.md#可选流式记录)。回调入口读取单调时钟并写入线程安全内存队列，测量结束后由宿主写文件；回调不阻塞、不抛异常、不重入模块。
 
 | 调用场景 | 使用的声明与适配 |
 | --- | --- |
@@ -76,7 +76,7 @@ Godot 消费其他三个模块的契约，并实现内容要求的宿主端口�
 
 浮动原点变化同步作用于现存根、相机焦点和跟随状态；新 Upserts 已在新坐标中，不重复平移。以 D 为基准的准备期间每帧更新相机，焦点只加整帧前后显示坐标之间的平移差，包含 C 提交重设基准和重施 P 姿态的效果，不能再次累加根节点重设的平移；下一次 `Present` 传 `SceneCameraSample(P, focusInP, terrainViewRadiusCells)`，网格基准仍为 D。无跟随且无 `NodePanBounds` 的新空间首帧，焦点取本帧根零点。相机跟随取 P 的 `FindPose`，节点自由环绕用 P 的 `NodePanBounds` 限制水平焦点；节点范围尚不可用时不平移。宿主按相机实际投影、环绕距离及抖动计算保守水平地形显示半径，窗口尺寸、宽高比或投影变化时重算，不能直接使用轴向远裁剪距离。防穿地形查询用同帧 P 的 `DisplayTerrainHeight`，只在返回 Found 时调整净空。首次打开仍等待首次完整提交后才进入可操作状态。
 
-坐标与[体素契约](scenes.md#坐标与身份)一致：一格为一个 Godot 单位，物理意义是 0.5 米。SceneMesh 和 Pose 不再乘 0.5；GLB 原始米坐标统一乘 2，随后使用体素给定的格放置及朝向，不重新适配尺寸。保持 +X 右、+Y 上、+Z 为内容正面；Godot 相机自身的朝前轴不改写内容约定。体素三角形从外侧看逆时针，转换 Godot 网格时交换两个索引，法线保持外向。引擎绕序依据 [ArrayMesh](https://docs.godotengine.org/en/4.7/classes/class_arraymesh.html)。
+坐标与[体素契约](scenes-session.md#坐标与身份)一致：一格为一个 Godot 单位，物理意义是 0.5 米。SceneMesh 和 Pose 不再乘 0.5；GLB 原始米坐标统一乘 2，随后使用体素给定的格放置及朝向，不重新适配尺寸。保持 +X 右、+Y 上、+Z 为内容正面；Godot 相机自身的朝前轴不改写内容约定。体素三角形从外侧看逆时针，转换 Godot 网格时交换两个索引，法线保持外向。引擎绕序依据 [ArrayMesh](https://docs.godotengine.org/en/4.7/classes/class_arraymesh.html)。
 
 鼠标射线从当前相机换入所用帧的根空间后调用 `Pick`：以 D 请求 `Present` 时使用 P，传 null 时仍使用 D。原始命中再由 `Resolve` 核对当前目标。完整替换准备期间不产生新选择，按未就绪处理。同空间增量准备期间，仅当 `hit.Object` 非 null、为已显示的同 ID 同父对象且该对象没有待准备的视觉资源时才调用 `Resolve`；其余命中按未就绪处理，不穿透选择后方对象。新对象、新区块尚未显示时不能选中；Removed 对象虽暂留旧画面，P 没有命中就不产生选择。UI 遮挡处不发世界选择，NotReady 不能当作空地穿透。铁路、水面和粒子不新增引擎物理拾取旁路。编辑命中另外核对编辑会话及修订；模板预览按固定表单修订使用返回下标。按住拖动时，UI 将明确采样到的格交给体素编辑操作，不在 Godot 重写占格、锁定或撤销规则。
 
@@ -92,7 +92,7 @@ Godot 消费其他三个模块的契约，并实现内容要求的宿主端口�
 
 涂装及面贴图 Alpha 的目标规则统一见[美术 03](../art/03-color-and-paint.md#玩家涂装)，当前差距与实施分工见[美术 03 的本阶段](../art/03-color-and-paint.md#本阶段)；不新增公开类型或资产字段。
 
-`SceneVertex` 的值类型与贴图坐标约定见[体素契约](scenes.md#网格模型与效果数据)。宿主保留合并矩形的单位格边界分段及中心扇形三角形，不将其重建为仅四角的矩形；1×1 面仍为四顶点、两三角形。`TextureUv`、`FaceUv` 和相对高度沿用矩形内仿射插值，对可超出 `[0,1]` 的 `TextureUv` 使用重复采样；关闭磨损时，四角 `FaceUv` 为 0／1、外露边为 None，这两个通道不参与着色。
+`SceneVertex` 的值类型与贴图坐标约定见[体素契约](scenes-display.md#网格模型与效果数据)。宿主保留合并矩形的单位格边界分段及中心扇形三角形，不将其重建为仅四角的矩形；1×1 面仍为四顶点、两三角形。`TextureUv`、`FaceUv` 和相对高度沿用矩形内仿射插值，对可超出 `[0,1]` 的 `TextureUv` 使用重复采样；关闭磨损时，四角 `FaceUv` 为 0／1、外露边为 None，这两个通道不参与着色。
 
 体素网格及帧是普通不可变值，Godot 可保留引用；上传后不要求体素归还或复用缓冲。运动只改姿态，浮动原点只移根，尽量复用已有几何。旧显示组失去交互资格后，从场景树分离并释放它独占的运行资源；共享资源等所有使用者结束再释放。异步关闭必须被宿主观察其完成与异常，但不能阻止新活动组继续模拟。
 
