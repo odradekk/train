@@ -1,6 +1,6 @@
 # 设计文档集：列车放置经营游戏
 
-本目录是玩法与系统规则的权威来源，模块调用契约见[四模块契约规范](../contracts/README.md)，各种资料的权威范围见[公共约定](../contracts/conventions.md#各种资料的权威范围)。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。2026-10 的架构调整由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)推进，此后的决定引用该地图中对应票的名称和链接；仍然有效的旧规则保留原来的转录出处。被废弃的规则直接从文档删除，历史只保留在 git、已关闭的票和 `docs/research` 的转录中；ADR 不删除，被取代时在末尾注明。
+本目录是玩法与系统规则的权威来源，模块调用契约见[四模块契约规范](../contracts/README.md)，各种资料的权威范围见[公共约定](../contracts/conventions.md#各种资料的权威范围)。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。2026-10 的架构调整由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)推进，此后的决定引用该地图中对应票的名称和链接；仍然有效的旧规则保留原来的转录出处。被废弃的规则直接从文档删除，历史只保留在 git、已关闭的票和 `docs/research` 的转录中；决策笔记放在 `.agents/notes/`，按 ID 引用，被取代时不删除，标注取代它的笔记。
 
 **文档内明确为规则的内容是当前设计基线。** 未定项在各篇“开放问题”小节标明状态，已登记的候选方向与未冻结参数不构成实施承诺；基于实现验证修订设计时，同步受影响章节。
 
@@ -72,10 +72,10 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 - **体素引擎层只构建局部场景。** 玩家进入某个地点时，体素引擎层构建线路场景或节点场景，离开时销毁；设计编辑器也由它构建。场景只由该地点的核心状态快照、内容定义，以及由 WorldSeed 和地点身份派生的无状态随机键生成，所以同一地点每次生成的结果相同。场景不保存状态，也不影响任何结果。同一时间只显示一个场景；跟随列车时最多在后台预建一个下一场景，使切换无缝。
 - **Godot 负责表现与宿主服务。** 它负责渲染、相机、输入、音频、窗口和界面，以及装配、诊断日志、控制台文本分发、完整存档和复现包组织。宏观地图和管理界面直接使用核心查询，不经过体素引擎层；宿主只通过公开契约组合工作，不复制核心或内容规则。Godot 节点、网格、碰撞形状和界面都不是游戏事实。
 - **接口与信息隐藏。** 各模块依赖其他模块的契约，不引用其实现。Godot 仅在 `App/Composition/` 调用真实创建工厂，其他代码接收契约接口；下层所需的宿主接口由下层声明，Godot 实现。玩家和调试工具改变核心状态的操作都作为核心命令提交，查询、场景和编辑会话的其他工作按各自公开接口执行。
-- **内容层按读取方投影。** 内容层解析定义，检查引用和资产，算出设计属性和建造合法性，再按读取方拆开交给各层；核心只得到 `simulation` 一节和设计属性（ADR-0011）。设计属性的类型归核心契约，计算仍归内容实现。定义不直接依赖 Godot Resource，而是使用资产身份，由宿主按公开契约接入。
+- **内容层按读取方投影。** 内容层解析定义，检查引用和资产，算出设计属性和建造合法性，再按读取方拆开交给各层；核心只得到 `simulation` 一节和设计属性（决策笔记 `2026-10-09-content-project-and-split-by-reader`）。设计属性的类型归核心契约，计算仍归内容实现。定义不直接依赖 Godot Resource，而是使用资产身份，由宿主按公开契约接入。
 - **领域事件与 Godot Signal。** 核心模拟层使用普通 C# 领域事件；适配层可以把它们转换为 Godot Signal，领域类型不为此继承 GodotObject。
 
-权威状态和场景职责记录为 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)，它取代了 [ADR-0004](../adr/0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 对游戏状态范围的描述，出处为[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)。契约拆分与宿主职责由 [ADR-0016](../adr/0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)修订；原架构的出处为转录 Q17、Q34、Q49、Q50、Q147。
+权威状态和场景职责记录为决策笔记 `2026-10-05-voxel-free-core-and-presentation-scenes`，它取代了决策笔记 `2026-09-04-world-model-as-single-source-of-truth` 对游戏状态范围的描述，出处为[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)。契约拆分与宿主职责由决策笔记 `2026-10-10-separate-module-contracts` 修订；原架构的出处为转录 Q17、Q34、Q49、Q50、Q147。
 
 ## 核心不变量汇总
 

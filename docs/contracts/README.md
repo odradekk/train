@@ -1,6 +1,6 @@
 # 四模块公开契约
 
-本目录记录完整 Demo 的模块接口，不记录模块内部类图。[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)已确认以下规范，取舍见 [ADR-0016](../adr/0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)。接口的公共语义和变更流程见[公共约定](conventions.md)，玩法规则仍以[设计文档](../design/README.md)为准。
+本目录记录完整 Demo 的模块接口，不记录模块内部类图。[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)已确认以下规范，取舍见决策笔记 `2026-10-10-separate-module-contracts`。接口的公共语义和变更流程见[公共约定](conventions.md)，玩法规则仍以[设计文档](../design/README.md)为准。
 本页的命令提交、业务输入身份与创作写入边界按[契约审计修订：设计输入、同步提交与公开面收缩](https://github.com/odradekk/train/issues/296)调整；保留上述历史决策出处，以下协议为当前约定。
 
 ## 状态与后续交付
@@ -102,7 +102,7 @@ Godot 只有 `App/Composition/` 可以调用真实创建工厂；其他宿主流
 
 ## 表现资产的交接
 
-由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)确认，取舍见 [ADR-0017](../adr/0017-hand-off-presentation-assets-as-raw-bytes-keyed-by-asset-revision.md)。资产的身份、校验和失败规则见[设计 02 的资产的交接](../design/02-definitions-and-content.md#资产的交接)，代码自带和程序生成的表现资源归属见[设计 07 的总体策略](../design/07-rendering.md#总体策略)。具体声明由内容、体素和 Godot 的契约票写进各自的接口文档。
+由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)确认，取舍见决策笔记 `2026-10-10-raw-asset-bytes-by-revision`。资产的身份、校验和失败规则见[设计 02 的资产的交接](../design/02-definitions-and-content.md#资产的交接)，代码自带和程序生成的表现资源归属见[设计 07 的总体策略](../design/07-rendering.md#总体策略)。具体声明由内容、体素和 Godot 的契约票写进各自的接口文档。
 
 | 数据 | 所有者与生命周期 |
 | --- | --- |

@@ -10,7 +10,7 @@
 
 相关内容见：
 - 时钟、倍速和暂停的规则：[04](04-deterministic-simulation.md#时钟与倍速)
-- 局部场景的种类与生命周期：[ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)
+- 局部场景的种类与生命周期：决策笔记 `2026-10-05-voxel-free-core-and-presentation-scenes`
 - 场景中破损的表现：[01](01-voxel-engine-and-scenes.md#场景中的结构破损)
 - 节点场景展示的内容：[16](16-settlements.md#节点场景)
 - 渲染与显示插值：[07](07-rendering.md)
