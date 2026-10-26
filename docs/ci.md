@@ -11,6 +11,8 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine
 
 工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。选中 MSTest 或契约检查时构建一次 `Train.sln`，使用 SDK 的 `dotnet test --test-modules` 运行所选项目的已构建测试程序集；Schema 单独运行时不构建。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规两个步骤分别生成运行目录和摘要。引擎步骤始终调用统一入口；引擎被选中时构建一次解决方案并运行当前 App 的真实 Godot 集成用例，未选中时明确报告、写摘要并成功退出，不构建或运行测试。该步骤使用 `continue-on-error: true`，暂不阻断 PR；本地失败仍返回 1，摘要保留实际 JUnit 用例计数。引擎是否受影响由统一入口按项目依赖与引擎路径规则选择，选中后执行全部引擎用例；用户于 2026-10-13 决定该步骤保持非阻断，不再计划转为阻断。Core/Content/Scenes 隔离重建按项目文件、构建配置、解决方案、边界矩阵和检查工具变更进入默认选择，`-All` 也会执行；选中后在集成队列结束后独立运行，使用 1290 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。普通 .NET 宿主用例不提供真实引擎证据。
 
+测试前先运行 `python .agents/scripts/check_file_size.py --all`，检查全部跟踪文件不超过 5,000 token，规则和例外见 AGENTS.md 的 Agent workflow 节；它失败时本次检查失败。
+
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
 
 手动触发的可选 `commit` 输入为完整 40 位提交 SHA，所有选择均检出该提交，留空则检出触发的 ref；固定提交的运行与身份核对方法见[远端检查](run-tests.md#远端检查)。

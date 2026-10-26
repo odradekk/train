@@ -10,7 +10,7 @@ You decide design choices the docs leave open when they are reversible and chang
 
 ## 0. Prepare
 
-Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, and the design docs, ADRs, contracts and `CONTEXT.md` terms the Issue references. Verify that the worktree path, branch and MCP assignment match the dispatch comment.
+Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, and the design docs, decision notes in `.agents/notes/`, contracts and `CONTEXT.md` terms the Issue references. Verify that the worktree path, branch and MCP assignment match the dispatch comment.
 
 ## 1. Create the worker
 
@@ -35,7 +35,7 @@ The worker is your subagent, so you are notified when each of its turns ends. Re
 
 Before any code, the worker sends a plan ending with `WORKER: plan`. Check:
 
-- **Direction:** the approach follows the design docs, ADRs, contracts, `CONTEXT.md` terms and the current stage scope.
+- **Direction:** the approach follows the design docs, decision notes, contracts, `CONTEXT.md` terms and the current stage scope.
 - **Scope:** it covers every Acceptance criterion and adds nothing the Issue and recorded decisions do not ask for, even if it looks useful.
 - **Code taste:** it uses the fewest files, types and concepts, reuses existing code, the standard library or Godot features, and adds no speculative abstraction, setting or extension point, per `AGENTS.md` code taste.
 - **Tests:** the selected checks match the changed risks under the [Testing standard](implement-sop.md#testing-standard).
@@ -51,7 +51,7 @@ When the worker reports `WORKER: delivered <PR> <SHA>`, read its completion comm
 | Area | What to check |
 | --- | --- |
 | Correctness | Every Acceptance criterion is implemented as specified. Logic, edge cases, error handling, state and determinism are right. The tests can detect realistic defects and claim only the boundaries they exercise. |
-| Direction | The change matches the design docs, ADRs, contracts and `CONTEXT.md`; it stays within the Issue, the recorded decisions and the approved plan; module boundaries and dependency directions follow `AGENTS.md` source layout and the [contract index](contracts/README.md). |
+| Direction | The change matches the design docs, decision notes, contracts and `CONTEXT.md`; it stays within the Issue, the recorded decisions and the approved plan; module boundaries and dependency directions follow `AGENTS.md` source layout and the [contract index](contracts/README.md). |
 | Code taste | The code is plain and readable without comments; it has no unneeded helpers, layers, interfaces, settings or compatibility code; comments appear only where the code cannot show the reason. |
 
 You may run each area in its own subagent so that one area's findings do not narrow attention on another. Run the key risk-appropriate checks yourself rather than in subagents, following [Review tests and evidence](implement-sop.md#review-tests-and-evidence). For Godot changes, inspect saved scene and resource diffs and runtime evidence, not tool success messages. For art Issues, review the screenshots against docs/art 00–07 and the [inspection checklist](art/08-asset-pipeline-and-review.md#检查清单); you may use Blender MCP to inspect models.

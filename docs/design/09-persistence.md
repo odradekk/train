@@ -2,13 +2,13 @@
 
 > **所属层**：核心模拟层、内容层与 Godot 宿主；数据归各模块，完整容器与流程组织归宿主。
 
-> 决策出处：存档组成、不保存的状态、存档中的内容、文件与身份、自动存档、导入与导出、恢复流程、示例存档与存档兼容，由[存档：核心状态的保存、恢复与兼容](https://github.com/odradekk/train/issues/209)于 2026-10-05 确认。它取代了生成基底加 Runtime Delta、基底指纹与候选基底重建、视觉驻留与渲染原点的存档规则。保存边界由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)、列车状态恢复由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)、聚居地与建筑状态恢复由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)、战斗与世界生物状态恢复由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)确定；离开保护、删除世界编辑器存档工作流由[编辑器的去向](https://github.com/odradekk/train/issues/211)确定。格式版本字段、ID 计数与浮点往返沿用转录 Q29、Q42 和 #34；外部定义绑定沿用 [#35](https://github.com/odradekk/train/issues/35) 与 [ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见 ADR-0012。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
+> 决策出处：存档组成、不保存的状态、存档中的内容、文件与身份、自动存档、导入与导出、恢复流程、示例存档与存档兼容，由[存档：核心状态的保存、恢复与兼容](https://github.com/odradekk/train/issues/209)于 2026-10-05 确认。它取代了生成基底加 Runtime Delta、基底指纹与候选基底重建、视觉驻留与渲染原点的存档规则。保存边界由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)、列车状态恢复由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)、聚居地与建筑状态恢复由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)、战斗与世界生物状态恢复由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)确定；离开保护、删除世界编辑器存档工作流由[编辑器的去向](https://github.com/odradekk/train/issues/211)确定。格式版本字段、ID 计数与浮点往返沿用转录 Q29、Q42 和 #34；外部定义绑定沿用 [#35](https://github.com/odradekk/train/issues/35) 与决策笔记 `2026-09-05-resolve-current-definitions-separate-versions`。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见决策笔记 `2026-10-09-instance-designs-and-blueprint-templates`。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
 
 ## 边界
 
 本文定义存档保存什么、怎样写入和恢复、存档身份、自动存档、导入与导出、示例存档和兼容策略。存档中的内容来源规则见 [02](02-definitions-and-content.md)；命令、运行时 ID 以及录制与复现见 [04](04-deterministic-simulation.md)；世界生成的输入见 [05](05-world-graph-and-generation.md#复现输入与输出)；资源与生产系统各 Job 的语义见 [10](10-resources-and-extraction.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md)。
 
-模块责任由 [ADR-0016](../adr/0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)确定，统一见[跨层工作的责任](../contracts/README.md#跨层工作的责任)。宿主通过核心与内容的公开契约组合存档和切换会话，不读取内部结构或重算设计属性；准备、提交、取消、写盘及资源退役遵循[跨层协议](../contracts/transactions.md)。这些是目标契约，代码尚未迁移，不能当作持久化验证已经通过。
+模块责任由决策笔记 `2026-10-10-separate-module-contracts` 确定，统一见[跨层工作的责任](../contracts/README.md#跨层工作的责任)。宿主通过核心与内容的公开契约组合存档和切换会话，不读取内部结构或重算设计属性；准备、提交、取消、写盘及资源退役遵循[跨层协议](../contracts/transactions.md)。这些是目标契约，代码尚未迁移，不能当作持久化验证已经通过。
 
 ## 不变量
 
@@ -50,11 +50,11 @@ Save
 
 ### 存档中的内容
 
-- 存档中引用到的设计全部内嵌，相同内容只存一份。宿主设计中被引用的功能复合体只存引用（蓝图标识），不内嵌它的内容。存档还为每个构成哈希记一份显示名称和说明，取自第一次引入它的设计，之后不变；库存和市场显示这份名称，装在宿主上的设备则用宿主设计自己的副本（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。引用方包括实例、进行中任务的目标设计、委托和改装草稿。内容包和用户内容库中的蓝图不嵌入，它们被修改或删除后存档照常读取（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)，ADR-0012）。
+- 存档中引用到的设计全部内嵌，相同内容只存一份。宿主设计中被引用的功能复合体只存引用（蓝图标识），不内嵌它的内容。存档还为每个构成哈希记一份显示名称和说明，取自第一次引入它的设计，之后不变；库存和市场显示这份名称，装在宿主上的设备则用宿主设计自己的副本（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。引用方包括实例、进行中任务的目标设计、委托和改装草稿。内容包和用户内容库中的蓝图不嵌入，它们被修改或删除后存档照常读取（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)，决策笔记 `2026-10-09-instance-designs-and-blueprint-templates`）。
 - 本局蓝图库、已明确保存的改装草稿和本局蓝图库草稿内嵌保存。编辑器里尚未点“保存草稿”的修改、选取和撤销栈不进入手动存档或自动存档；用户内容库和创作模式的草稿另存，见 [15](15-design-editor-and-tools.md#草稿与保存)。
 - 每个聚居地直接持有并内嵌保存自己的模板副本，不增加模板哈希或共享模板副本目录；进行中的建城任务按预留的最终聚居地身份保存同一副本。场景模型设计也一起内嵌，设计本身仍按既有设计哈希去重。读档后不重新选择模板，也不按新发布的模板或蓝图调整地块和场景；节点场景使用这些副本（[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)）。
-- 其他内容，例如体素定义、生物的蓝图、生物聚落类型、聚居地类型、生产流程，只保存 DefinitionId 和上次使用的 Revision，后者用于识别变化。读档时按 ID 解析为当前安装的定义，不嵌入旧副本。生物个体只引用所属物种（生物蓝图），读档和热重载时使用当前定义，不复制设计；这是“每个复合体实例有自己的设计”（ADR-0012）的例外。严格复现使用复现包中的原内容，见 [04](04-deterministic-simulation.md#录制与复现)。
-- 设计只固定形状和对体素定义的引用，体素定义仍解析为当前值，所以 Mod 的平衡更新对已有车辆生效。当前规格变化时保留状态绝对值：耐久上限升高不自动修复；上限降低时不改写存档里的值，计算时取存档值和当前上限中较小的一个；相关能力重新计算。具体规则见 [02](02-definitions-and-content.md) 和 ADR-0005。
+- 其他内容，例如体素定义、生物的蓝图、生物聚落类型、聚居地类型、生产流程，只保存 DefinitionId 和上次使用的 Revision，后者用于识别变化。读档时按 ID 解析为当前安装的定义，不嵌入旧副本。生物个体只引用所属物种（生物蓝图），读档和热重载时使用当前定义，不复制设计；这是“每个复合体实例有自己的设计”（决策笔记 `2026-10-09-instance-designs-and-blueprint-templates`）的例外。严格复现使用复现包中的原内容，见 [04](04-deterministic-simulation.md#录制与复现)。
+- 设计只固定形状和对体素定义的引用，体素定义仍解析为当前值，所以 Mod 的平衡更新对已有车辆生效。当前规格变化时保留状态绝对值：耐久上限升高不自动修复；上限降低时不改写存档里的值，计算时取存档值和当前上限中较小的一个；相关能力重新计算。具体规则见 [02](02-definitions-and-content.md) 和决策笔记 `2026-09-05-resolve-current-definitions-separate-versions`。
 - 缺失定义时，包括缺失 Mod 或必需资产导致内容包无法通过校验的情况，读档前列出缺失的包和定义，由玩家选择取消或继续；继续时用占位保留原来的标识，规则见 [02](02-definitions-and-content.md#候选内容与运行中引用校验)（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)）。无法解释保存的状态时，加载明确失败。不删除状态，也不回退到旧定义。
 - 占位保留状态，不丢失任何记录：部件耐久记录按部件编号保存，定义缺失的部件的记录不删除、不改写，存档时原样写回。计算时，缺失的体素和功能复合体没有能力、质量和价值，不计入结构耐久上限，也不受伤害。占位的格不能改装或修理，整辆车或整座建筑可以拆解，占位的格什么也不返还；已保存的草稿允许保留缺失引用，编辑时锁定缺失部分，合法蓝图和改装目标仍不得缺少定义。重新安装 Mod 后按当前定义重算，部件编号对得上的记录原样恢复；游戏界面和控制台明确提示缺失内容与被阻止的操作，见 [03](03-vehicles-buildings-and-designs.md#缺失的内容)。
 - Mod 数值更新后模拟结果不同，是预期行为，不属于无损往返失败。
@@ -198,8 +198,8 @@ Save
 
 ## Demo 范围
 
-完整核心状态存档与格式版本 6；内嵌设计、本局蓝图库与聚居地模板，外部定义按当前内容解析；读档缺内容时用占位继续（ADR-0015）；恢复流程与一致性检查；`double` 无损往返；存档身份与另存为；自动存档；导入与导出；示例存档；Save → Quit → Load → Continue 及跨进程对照。录制与复现见 [04](04-deterministic-simulation.md#录制与复现)。
+完整核心状态存档与格式版本 6；内嵌设计、本局蓝图库与聚居地模板，外部定义按当前内容解析；读档缺内容时用占位继续（决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）；恢复流程与一致性检查；`double` 无损往返；存档身份与另存为；自动存档；导入与导出；示例存档；Save → Quit → Load → Continue 及跨进程对照。录制与复现见 [04](04-deterministic-simulation.md#录制与复现)。
 
 ## Demo 之后
 
-正式发行后的存档迁移（转录 Q42）；定义改名的迁移表（ADR-0015）；云同步与分享。
+正式发行后的存档迁移（转录 Q42）；定义改名的迁移表（决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）；云同步与分享。

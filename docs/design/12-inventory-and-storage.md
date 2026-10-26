@@ -64,7 +64,7 @@
 
 ### 只有 Stack
 
-- 库存只有 Stack { 货物种类, 数量 }，没有 ItemInstance。货物种类有三种：体素定义标识、功能复合体标识，或组装体（可编辑的大型设备，例如炮塔）的构成哈希（ADR-0013，[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。构成哈希是去掉名称、说明和涂装后的设计哈希，改名或重涂不改变货物种类，见 [02](02-definitions-and-content.md#语义哈希字段与规范化)。库存和市场显示存档为这个哈希记的名称。库存里缺失的货物保留为缺失货物，不能使用和交易。拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还（[03](03-vehicles-buildings-and-designs.md#建造改装与修理)、[14](14-construction-refit-and-deconstruction.md)），所以库存中不会出现受损或带状态的件。大型设备整体拆下时同样先修好再入库。
+- 库存只有 Stack { 货物种类, 数量 }，没有 ItemInstance。货物种类有三种：体素定义标识、功能复合体标识，或组装体（可编辑的大型设备，例如炮塔）的构成哈希（决策笔记 `2026-10-09-nest-composites-by-copying-designs`，[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。构成哈希是去掉名称、说明和涂装后的设计哈希，改名或重涂不改变货物种类，见 [02](02-definitions-and-content.md#语义哈希字段与规范化)。库存和市场显示存档为这个哈希记的名称。库存里缺失的货物保留为缺失货物，不能使用和交易。拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还（[03](03-vehicles-buildings-and-designs.md#建造改装与修理)、[14](14-construction-refit-and-deconstruction.md)），所以库存中不会出现受损或带状态的件。大型设备整体拆下时同样先修好再入库。
 - 建造、改装与修理按 BOM 自动消费 Stack，不需要玩家挑选具体的件。
 
 ## Demo 范围

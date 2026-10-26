@@ -61,7 +61,7 @@
 
 ### 允许的形状
 
-形状在设计中逐格选择，不影响货物种类，见 [ADR-0018](../adr/0018-choose-voxel-shapes-per-placement-so-shapes-never-create-goods.md)。
+形状在设计中逐格选择，不影响货物种类，见决策笔记 `2026-10-10-voxel-shapes-per-placement`。
 
 | 货物 | 允许的形状 |
 | --- | --- |

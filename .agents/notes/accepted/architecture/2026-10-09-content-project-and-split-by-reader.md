@@ -1,5 +1,15 @@
 # Move the content layer into its own project and split definitions by reader
 
+Status: accepted
+Superseded in part by: 2026-10-10-separate-module-contracts — 项目引用与日志、控制台的归属
+Supersedes in part: 2026-10-06-godot-free-libraries-and-core-rewrite — 内容层的位置
+
+## Problem
+
+需要确定核心模拟层、体素引擎层和界面各读定义里的哪些数据，以及怎样保证核心模拟层看不到布局、朝向、外观和显示文本。
+
+## Proposal
+
 2026-10-09 经[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)确认，属于地图[内容定义标准：体素、复合体与聚居地模板的格式和样例](https://github.com/odradekk/train/issues/256)。
 
 内容层把磁盘上的内容文件变成各层直接使用的只读数据：
@@ -32,17 +42,13 @@
 
 行为的参数同样分成核心参数和表现参数。
 
-我们放弃了这几种做法：
+### 对其他决策的影响
 
-- **内容层留在 `Train.Core`**：这是 ADR-0009 的做法，靠只暴露核心字段的接口限制核心模拟层能读什么。这只能靠代码审查保证，核心所在的项目里仍有表现类型和 PNG 校验。
-- **内容层并进 `Train.Scenes`**：体素引擎层会同时负责内容加载和场景构建。
-- **各层各自读取定义文件中自己的那一节**：设计属性要把布局和体素的核心数据合起来算，交给核心算，核心就看得到布局。跨包引用检查和热重载的整轮替换也需要一个统一处理的地方。
+- 本决定取代 `2026-10-06-godot-free-libraries-and-core-rewrite` 中“内容层不单独成为一个项目”和“`Train.Core` 包含内容层”的部分。
+- `2026-10-05-voxel-free-core-and-presentation-scenes` 中“内容是核心模拟层和体素引擎层共用的只读数据”改为：内容层分别向各层提供各自的部分。
 
-## Consequences
+### 规则与推论
 
-- **对其他 ADR 的影响**：
-  - 本决定取代 ADR-0009 中“内容层不单独成为一个项目”和“`Train.Core` 包含内容层”的部分。
-  - ADR-0008 中“内容是核心模拟层和体素引擎层共用的只读数据”改为：内容层分别向各层提供各自的部分。
 - **核心模拟层得到的数据**：
   - 货物的身份、价值、质量和标签。货物就是带 `simulation` 一节的体素定义。
   - 每份设计的设计属性：
@@ -58,11 +64,29 @@
 - **存档**：
   - 存档由核心状态和内嵌内容（设计等）组成。核心状态中的实例只记三样：设计的引用、按部件编号记录的部件耐久、结构耐久。
   - 把两部分合成存档文件的代码放在 `Train.Content` 或 Godot 项目，具体位置随层间接口的设计确定。
-- **过渡**：代码搬迁由实施工单完成。在此之前，现有代码仍按 ADR-0009 的结构。
-- **修订**：2026-10-09，[ADR-0013](0013-nest-composites-by-copying-designs-and-treat-storable-composites-as-goods.md) 让能入库的复合体也成为货物，并规定了嵌套复合体的部件编号顺序；[ADR-0014](0014-use-code-provided-behavior-types-and-sealed-functional-composites.md) 规定一件功能复合体是一个部件，只占一个编号。
+
+### 修订
+
+- **修订**：2026-10-09，`2026-10-09-nest-composites-by-copying-designs` 让能入库的复合体也成为货物，并规定了嵌套复合体的部件编号顺序；`2026-10-09-code-behavior-types-and-sealed-composites` 规定一件功能复合体是一个部件，只占一个编号。
 - **修订**：2026-10-09，[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)确认聚居地模板不按读取方拆分：一块地块既有核心字段（标识、尺寸、建筑），也有场景字段（位置、朝向），所以模板是一个整体，各层读取自己需要的字段。
 - **修订**：2026-10-09，[内容定义标准的整体一致性检查](https://github.com/odradekk/train/issues/267)补充设计属性：车辆长度（单位为格，由内容层根据布局算出），以及建筑的地块尺寸、建筑类型和设施标签。核心要用它们计算跟车距离，检查地块和工序。
 - **修订**：2026-10-09，[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)规定部件表里的定义可以是体素定义，也可以是功能复合体标识；结构耐久上限还包括各部件自身耐久上限的一部分。
 - **修订**：2026-10-09，聚居地模板文件虽然不按读取方拆分，但内容层交给核心的数据里仍然不含坐标、朝向、场景模型和显示字段。
-- **修订**：2026-10-09，[ADR-0016](0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)保留按读取方投影，取代上文的实现项目引用和日志、控制台归属。核心需要的输入类型归核心契约，由内容实现计算；完整存档与复现包组装确定归 Godot 宿主。具体项目布局、依赖、类型及职责见[契约索引](../contracts/README.md)，代码迁移和隔离验证仍待后续任务。
-- **修订**：2026-10-10，[ADR-0017](0017-hand-off-presentation-assets-as-raw-bytes-keyed-by-asset-revision.md)把 Godot 向内容层提供的 PNG 解码改为资产检查（PNG 和 `.glb`），只返回元数据；内容层保存原始字节，不再保存解码后的像素。
+- **修订**：2026-10-09，`2026-10-10-separate-module-contracts` 保留按读取方投影，取代上文的实现项目引用和日志、控制台归属。核心需要的输入类型归核心契约，由内容实现计算；完整存档与复现包组装确定归 Godot 宿主。具体项目布局、依赖、类型及职责见[契约索引](../../../../docs/contracts/README.md)，代码迁移和隔离验证仍待后续任务。
+- **修订**：2026-10-10，`2026-10-10-raw-asset-bytes-by-revision` 把 Godot 向内容层提供的 PNG 解码改为资产检查（PNG 和 `.glb`），只返回元数据；内容层保存原始字节，不再保存解码后的像素。
+
+## Alternatives considered
+
+**内容层留在 `Train.Core`**：这是 `2026-10-06-godot-free-libraries-and-core-rewrite` 的做法，靠只暴露核心字段的接口限制核心模拟层能读什么。这只能靠代码审查保证，核心所在的项目里仍有表现类型和 PNG 校验。
+
+**内容层并进 `Train.Scenes`**：体素引擎层会同时负责内容加载和场景构建。
+
+**各层各自读取定义文件中自己的那一节**：设计属性要把布局和体素的核心数据合起来算，交给核心算，核心就看得到布局。跨包引用检查和热重载的整轮替换也需要一个统一处理的地方。
+
+## Acceptance criteria
+
+核心模拟层只收到内容层按读取方拆出的 `simulation` 数据和设计属性，在编译时看不到布局、朝向、外观和显示文本。没有 `simulation` 一节的体素定义是场景体素。
+
+## Risks
+
+- **过渡**：代码搬迁由实施工单完成。在此之前，现有代码仍按 `2026-10-06-godot-free-libraries-and-core-rewrite` 的结构。
