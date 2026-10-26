@@ -204,4 +204,4 @@ Restore、Reload、Capture 及 CaptureReplay 使用本内容实现产生的视�
 
 ## 施工能力输入（#501）
 
-`construction` 使用 `work_rate`、必填 `max_plot_size` 与可选 `max_size_class`。建筑上限仅普通小、中、大、巨型四档，站点取值拒绝；车辆档位缺省表示不能造车。体素与功能复合体复用同一解析、规范写回及语义数据，voxel／blueprint Schema 保持 v3。建筑蓝图加载时按自身 `plot_size` 包络检查所有施工部件的最高车辆档位（含嵌套功能复合体），高度须容纳，水平允许旋转 90°；不满足则拒绝。内容层不在本票执行施工命令，运行期档位检查交接见 [Core 契约](core.md)。
+`construction` 使用 `work_rate`、必填 `max_plot_size` 与可选 `max_size_class`。建筑上限仅普通小、中、大、巨型四档，站点取值拒绝；车辆档位缺省表示不能造车。体素与功能复合体复用同一解析、规范写回及语义数据，voxel／blueprint Schema 保持 v3。建筑蓝图加载时按自身 `plot_size` 包络检查所有施工部件的最高车辆档位（含嵌套功能复合体），高度须容纳，水平允许旋转 90°；不满足则拒绝。内容层不在本票执行施工命令，运行期档位检查交接见 [Core 契约](core-construction.md#施工能力输入与执行交接501)。

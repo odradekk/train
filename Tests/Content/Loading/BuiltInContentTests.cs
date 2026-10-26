@@ -96,7 +96,7 @@ public sealed class BuiltInContentTests
         Assert.AreEqual(K.PlotSize.LargeStation, stationKind.PlotSize);
         var platforms = largeStation.Core.Design.Parts.Where(part => part.Capabilities.OfType<K.PartCapability.Platform>().Any()).ToArray();
         Assert.AreEqual(4, platforms.Length);
-        // 槽位与最近规则见 docs/contracts/scenes.md：large_station 为 −80/−40/40/80，等距取较小 LocalZ。
+        // 槽位规则见 docs/contracts/scenes-status.md：large_station 为 −80/−40/40/80，等距取较小 LocalZ。
         var slots = new[] { -80, -40, 40, 80 };
         var assigned = platforms.Select(part =>
         {
