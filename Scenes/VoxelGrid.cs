@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -136,6 +137,98 @@ internal sealed class VoxelGrid
             maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
         }
         entries = properties.ToImmutable();
+        if (!cells.IsEmpty)
+            Bounds = new(new(minimum.X, minimum.Y, minimum.Z), new(maximum.X + 1f, maximum.Y + 1f, maximum.Z + 1f));
+    }
+
+    internal VoxelGrid(ImmutableArray<SceneCell> cells, VoxelGrid previous, out ImmutableArray<GridPosition> changes)
+    {
+        if (cells.IsDefault) throw new ArgumentException("Cells must be initialized.", nameof(cells));
+        // 旧区块里的编号保持有效；属性表只追加，不重排或删去旧条目。
+        var properties = previous.entries.ToBuilder();
+        var ids = new Dictionary<CellProperties, int>(properties.Count - 1);
+        for (var i = 1; i < properties.Count; i++) ids.Add(properties[i]!, i);
+        var minimum = new GridPosition(int.MaxValue, int.MaxValue, int.MaxValue);
+        var maximum = new GridPosition(int.MinValue, int.MinValue, int.MinValue);
+        Dictionary<GridPosition, (int Start, int Count)> groups = [];
+        var previousChunk = default(GridPosition);
+        ref var previousGroup = ref CollectionsMarshal.GetValueRefOrNullRef(groups, default);
+        for (var i = 0; i < cells.Length; i++)
+        {
+            var cell = cells[i];
+            var key = Chunk(cell.At);
+            if (i == 0 || key != previousChunk)
+            {
+                // 新键可能使字典扩容；每次新增键都重新取得引用，随后只复用当前区块。
+                previousGroup = ref CollectionsMarshal.GetValueRefOrAddDefault(groups, key, out _);
+                previousChunk = key;
+            }
+            previousGroup.Count++;
+            minimum = new(Math.Min(minimum.X, cell.At.X), Math.Min(minimum.Y, cell.At.Y), Math.Min(minimum.Z, cell.At.Z));
+            maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
+        }
+        var start = 0;
+        foreach (var key in groups.Keys)
+        {
+            ref var group = ref CollectionsMarshal.GetValueRefOrNullRef(groups, key);
+            var count = group.Count;
+            group = (start, 0);
+            start += count;
+        }
+        var indices = new int[cells.Length];
+        for (var i = 0; i < cells.Length; i++)
+        {
+            var key = Chunk(cells[i].At);
+            if (i == 0 || key != previousChunk)
+            {
+                previousGroup = ref CollectionsMarshal.GetValueRefOrNullRef(groups, key);
+                previousChunk = key;
+            }
+            indices[previousGroup.Start + previousGroup.Count++] = i;
+        }
+        var buffer = cells.IsEmpty ? Array.Empty<int>() : new int[HalfSize * 2];
+        var changed = ImmutableArray.CreateBuilder<GridPosition>();
+        CellProperties? previousProperties = null;
+        var previousId = 0;
+        foreach (var (key, group) in groups)
+        {
+            Array.Clear(buffer);
+            foreach (var cellIndex in indices.AsSpan(group.Start, group.Count))
+            {
+                var cell = cells[cellIndex];
+                var index = Index(cell.At);
+                if (buffer[index] != 0) throw new ArgumentException("Cells overlap.", nameof(cells));
+                var id = previousId;
+                if (id == 0 || !ReferenceEquals(previousProperties, cell.Properties))
+                {
+                    if (!ids.TryGetValue(cell.Properties, out id))
+                    {
+                        id = properties.Count;
+                        ids.Add(cell.Properties, id);
+                        properties.Add(cell.Properties);
+                    }
+                    previousProperties = cell.Properties;
+                    previousId = id;
+                }
+                buffer[index] = id;
+            }
+            previous.chunks.TryGetValue(key, out var old);
+            if (old is not null && buffer.AsSpan(0, HalfSize).SequenceEqual(old[0]) &&
+                buffer.AsSpan(HalfSize).SequenceEqual(old[1]))
+                chunks.Add(key, old);
+            else
+            {
+                chunks.Add(key, [buffer[..HalfSize], buffer[HalfSize..]]);
+                for (var i = 0; i < buffer.Length; i++)
+                    if (buffer[i] != (old is null ? 0 : old[i / HalfSize][i % HalfSize]))
+                        changed.Add(new((key.X << 5) + (i & 31), (key.Y << 5) + ((i >> 5) & 31), (key.Z << 5) + (i >> 10)));
+            }
+        }
+        foreach (var key in previous.chunks.Keys)
+            if (!groups.ContainsKey(key))
+                foreach (var cell in previous.CellsInChunk(key)) changed.Add(cell.At);
+        entries = properties.DrainToImmutable();
+        changes = changed.DrainToImmutable();
         if (!cells.IsEmpty)
             Bounds = new(new(minimum.X, minimum.Y, minimum.Z), new(maximum.X + 1f, maximum.Y + 1f, maximum.Z + 1f));
     }
