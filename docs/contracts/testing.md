@@ -4,7 +4,7 @@
 本页的命令提交、业务输入身份与创作写入边界按[契约审计修订 #296](https://github.com/odradekk/train/issues/296)调整；保留上述历史决策出处，以下协议为当前约定。
 
 
-本页规定目标方案。现有测试已拆分为 Core、Content、Scenes、Godot 宿主四个项目，另有独立的真实 Godot 引擎测试项目。统一入口已接入分层和项目选择；Scenes 当前行为覆盖与证据边界见[统一测试入口](../run-tests.md#选择)，具体待实现范围见[体素契约的当前状态](scenes.md)。Core/Content/Scenes/Godot 隔离重建已接入统一入口。26 个已登记项目的依赖与初始公开面基线可检查。Godot 隔离装配已接入，整组契约基线提交仍待确认。[契约原型](https://github.com/odradekk/train/issues/292)验证过声明、调用方式、替身和检查机制，其证据范围见下文。
+本页规定目标方案。现有测试已拆分为 Core、Content、Scenes、Godot 宿主和 CLI 五个项目，另有独立的真实 Godot 引擎测试项目。统一入口已接入分层和项目选择；Scenes 当前行为覆盖与证据边界见[统一测试入口](../run-tests.md#选择)，具体待实现范围见[体素契约的当前状态](scenes.md)。Core/Content/Scenes/Godot 隔离重建已接入统一入口。26 个已登记项目的依赖与公开面基线可检查。Godot 隔离装配已接入，当前整组契约基线为 `39975587`。[契约原型](https://github.com/odradekk/train/issues/292)验证过声明、调用方式、替身和检查机制，其证据范围见下文。
 
 已归档的[运行原型](../../archive/prototypes/contract-probe/README.md)提供上述机制的最小实证入口，分别报告有限情景、真实文件与 Godot 检查，并用故意违规证明检查有效。它没有接入生产测试入口；真实模块尚未实现的项目仍记为待验证，具体运行结果与输入身份保存在忽略目录的单次摘要中。
 
@@ -21,7 +21,7 @@
 
 ## 模块测试的组织与入口
 
-当前统一入口为 `scripts/test.ps1`，默认沿项目依赖选择受影响的 MSTest 项目；共享文件改动选择全部。用 `-Layer fast|integration|engine|stage|all` 分层，`-All` 强制全部项目和独立检查，`-Project core|content|scenes|godot|contract-support|contract-checks` 显式选择 MSTest 项目，支持多选。`-Project` 不包含全仓结构、隔离、Schema、引擎或阶段检查；默认集成层按改动选择结构、公开面、调用样例、Core/Content/Scenes/Godot 隔离和 Schema 检查。具体规则、命令与覆盖见[统一测试入口](../run-tests.md#按改动选择)。
+当前统一入口为 `scripts/test.ps1`，默认沿项目依赖选择受影响的 MSTest 项目；共享文件改动选择全部。用 `-Layer fast|integration|engine|stage|all` 分层，`-All` 强制全部项目和独立检查，`-Project core|content|scenes|godot|contract-support|contract-checks|cli` 显式选择 MSTest 项目，支持多选。`-Project` 不包含全仓结构、隔离、Schema、引擎或阶段检查；默认集成层按改动选择结构、公开面、调用样例、Core/Content/Scenes/Godot 隔离和 Schema 检查。具体规则、命令与覆盖见[统一测试入口](../run-tests.md#按改动选择)。
 
 模块仍表示被验证的责任，层表示实际执行边界，不能混用。Scenes 的快速层与集成层责任及命令见[统一测试入口](../run-tests.md#选择)。Core/Content/Scenes/Godot 隔离重建由 C# 检查工具执行；Godot 隔离装配已接入；单次是否通过以日志与摘要为准。下文的独立构建、依赖闭包和真实契约验证是目标责任，当前项目选择及普通测试通过不能替代这些证据。共享契约变化须按受影响生产方、消费方和替身确定验证范围，不能仅按修改文件所属项目缩小。
 
@@ -37,7 +37,7 @@ Scenes 隔离检查额外复制 `builtin/core/resources/settlement-templates` �
 | 体素引擎层 | `Scenes/Train.Scenes.csproj` 与独立的 `Train.Scenes.Tests` | 体素、内容、核心契约 | 用核心查询和内容访问替身供给情景；真实体素实现生成场景数据、拾取及编辑结果，不依赖 Godot |
 | Godot 层 | 根 `Train.csproj` 的隔离装配与 `Train.Godot.Tests`；正常构建另跑真实引擎 runner | 三个契约 | 替换核心、内容和体素实现；真实宿主执行启动、交互、资源及文件适配。普通 .NET 测试可补充纯逻辑检查，不能替代引擎 runner |
 
-Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已按责任归位，具体用例数和运行结果记录在 Issue 评论与单次摘要中。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台、物理存档和磁盘内容端口，不提供真实引擎证据；只有独立 `isolate` 运行提供隔离装配证据。Scenes 独立测试只引用 Scenes 实现及允许的契约支持库，使用 Core／Content 固定读视图；未配置的替身调用明确失败。线路与节点场景数据生成已实现；战斗表现已由 #353 实现；线路与节点铁轨数及线路断点的增量更新已由 #345 实现，节点站台数按当前实例每帧核对；立方体 UV 已实现，真实 Godot 纹理采样待 #298 联调；其他形状／模型待 #388；编辑待 #333；模板预览待 #389。`Tests/Engine/Train.Engine.Tests.csproj` 在真实 Godot 中验证当前 App 集成行为及[资产端口](../godot-assets.md)，与普通 .NET 宿主测试分开；它不代替 Godot 隔离装配检查或完整工厂契约验证。资产导出探针的隔离构建与 PCK／Windows 导出验证范围见[统一测试入口](../run-tests.md#选择)；它不替代完整宿主隔离或阶段联调。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
+Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已按责任归位，具体用例数和运行结果记录在 Issue 评论与单次摘要中。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台、物理存档和磁盘内容端口，不提供真实引擎证据；只有独立 `isolate` 运行提供隔离装配证据。Scenes 独立测试只引用 Scenes 实现及允许的契约支持库，使用 Core／Content 固定读视图；未配置的替身调用明确失败。线路与节点场景数据生成已实现；战斗表现已由 #353 实现；线路与节点铁轨数及线路断点的增量更新已由 #345 实现，节点站台数按当前实例每帧核对；立方体 UV 已实现，真实 Godot 纹理采样待 #298 联调；标准形状与模型格投影、设计编辑会话和只读模板预览已实现。`Tests/Engine/Train.Engine.Tests.csproj` 在真实 Godot 中验证当前 App 集成行为及[资产端口](../godot-assets.md)，与普通 .NET 宿主测试分开；它不代替 Godot 隔离装配检查或完整工厂契约验证。资产导出探针的隔离构建与 PCK／Windows 导出验证范围见[统一测试入口](../run-tests.md#选择)；它不替代完整宿主隔离或阶段联调。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
 
 ## 共享用例、样例与替身
 
@@ -67,7 +67,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 边界矩阵 `scripts/checks/project-boundaries.json` 在顶层、与 `projects` 同级登记 `isolationTests`，其元素是 `projects` 中的隔离根测试项目名。`isolate` 只选择此列表中的项目，沿矩阵声明的允许引用生成各自的依赖闭包；空列表判失败，不回退到固定项目名。工具夹具可以只登记一个模块；真实仓库登记 `["Train.Core.Tests", "Train.Content.Tests", "Train.Scenes.Tests", "Train.Godot.Tests"]`，串行复制独立输入、冷构建四个模块、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；单次是否通过以运行日志与摘要为准。
 
-资产导出项目 `Train.AssetExport` 在矩阵中只允许 Core／Content 契约引用；C# 源码归属检查仅为该项目允许链接 `App/Assets/**`。精确的纯 .NET 夹具 `Tests/Engine/Assets/GlbFixture.cs` 允许由 `Train.AssetExport` 和 `Train.Cli.Tests` 链接，其他项目不获得此例外。该 Godot 项目的 Release 配置映射为 ExportRelease，资产实际隔离构建仍由 `-ExportWindows` 的探针完成，不加入 Core/Content/Scenes 的 `isolationTests`。
+资产导出项目 `Train.AssetExport` 在矩阵中只允许 Core／Content 契约引用；C# 源码归属检查仅为该项目允许链接 `App/Assets/**`。精确的纯 .NET 夹具 `Tests/Engine/Assets/GlbFixture.cs` 允许由 `Train.AssetExport` 和 `Train.Cli.Tests` 链接，其他项目不获得此例外。该 Godot 项目的 Release 配置映射为 ExportRelease，资产实际隔离构建仍由 `-ExportWindows` 的探针完成，不加入 `isolationTests`。
 
 隔离运行在本次验证拥有的临时目录中进行。按上述依赖闭包生成输入清单，只放该模块生产源码、允许的契约、必要测试支持、测试资源，以及构建所需的配置和工具；不提供其他三个模块的实现源码或程序集。
 
@@ -86,7 +86,7 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 
 公开面不变不能证明语义兼容。行为变化仍按[受控变更流程](conventions.md#契约基线与受控变更)更新文档、用例及受影响调用方，经用户确认后才记录整组新基线。提取器和构建脚本是检查工具，不在生产契约中引入检查框架。
 
-当前 `structure` 检查 23 个已登记项目的求值引用、解析路径、输出程序集、源码归属和友元声明，发现未登记的新项目会失败，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的程序集检查跨契约类型归属与枚举实际值。用户于 2026-10-11 确认这 1,163 条声明为 #304 的初始公开面基线；文件身份为提交 `152e29f1b1828d59b55d49f4959a1727541fa4a5` 中的 Git blob `fd242242187e4a8e1124befcdc1cc4705789d681`，不使用受工作区换行转换影响的文件散列。声明、文档、样例、共享情景与检查入口组成的整组语义基线仍待确认并记录提交；真实工厂建立后再把其公开面纳入检查。当前公开声明提取只扫描契约项目源码；ScenesFactory 的创建签名已写入体素文档，但其公开面尚未纳入检查，不改变这 1,163 条声明。Core/Content/Scenes 的隔离重建已接入，单次是否通过以运行日志与摘要为准；Godot 隔离装配已接入，结果同样以单次日志与摘要为准。
+当前 `structure` 检查 26 个已登记项目的求值引用、解析路径、输出程序集、源码归属和友元声明，发现未登记的新项目会失败，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的程序集检查跨契约类型归属与枚举实际值。当前已确认整组契约基线为 `39975587`（`public-api.txt` blob `c257593b`）。真实工厂已建立，但当前公开声明提取仍只扫描契约项目源码，尚未纳入实现工厂的公开面。Core/Content/Scenes/Godot 的隔离重建已接入，单次是否通过以运行日志与摘要为准。
 
 ### 公开面基线更新
 
@@ -152,7 +152,7 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 | 时机 | 目标检查 |
 | --- | --- |
 | 日常开发 | 所改模块的相关用例；范围不确定或失败超出所选范围时扩大验证 |
-| 常规 CI | 运行 `-Layer fast,integration`，按改动选择受影响 MSTest 和独立检查；选中 MSTest 或契约检查时构建一次解决方案，Schema 单独运行不构建；集成队列以最多 4 个任务共用 2070 秒预算，按上述触发规则在队列结束后独立执行 Core/Content/Scenes/Godot 隔离重建和全部非阶段自身用例，使用 1290 秒上限，队列失败也执行且不计入集成层耗时，收到停止请求时不启动尚未开始的独立隔离检查；Scenes 已有上述行为用例，后续生成、编辑等责任仍待实现；另以非阻断步骤调用引擎入口，按同一次改动分析选择当前 App 的真实 Godot 集成用例，未选中时写摘要并成功退出 |
+| 常规 CI | 运行 `-Layer fast,integration`，按改动选择受影响 MSTest 和独立检查；选中 MSTest 或契约检查时构建一次解决方案，Schema 单独运行不构建；集成队列以最多 4 个任务共用 2070 秒预算，按上述触发规则在队列结束后独立执行 Core/Content/Scenes/Godot 隔离重建和全部非阶段自身用例，使用 1290 秒上限，队列失败也执行且不计入集成层耗时，收到停止请求时不启动尚未开始的独立隔离检查；Scenes 当前实现与覆盖见上述说明及[体素契约](scenes.md)；另以非阻断步骤调用引擎入口，按同一次改动分析选择当前 App 的真实 Godot 集成用例，未选中时写摘要并成功退出 |
 | 显式较重检查 | 运行 `-All -Layer all`，执行全部已实现的非导出正确性检查；包含 Godot 纯宿主隔离及正常构建的真实引擎检查 |
 | 相关变更交付前 | 取得受影响模块及消费者的适用证据；影响 Godot 行为或其所消费契约时须有真实引擎证据，常规 CI 通过不能代替 |
 | 契约原型及整组基线确认 | 完成规定调用矩阵和相关故意破坏验证；初始基线先交候选，再由检查工具任务完成适用证据并取得用户确认，候选交付不提前确认基线；缺少真实实现的验证单列待办，不冒充生产模块通过 |
