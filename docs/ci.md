@@ -73,4 +73,6 @@ Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error
 
 Windows job 上限为 115 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；入口预算合计与 job 上限的关系见[执行与边界](run-tests.md#执行与边界)，Linux 上限见[Linux runner](#linux-夜间运行)。当前检查的实际耗时以各次运行摘要为准。
 
+测试预算和单项等待上限都按本机多 pair 常态负载下实测的最坏值留出余量（通常乘 1.5 后取整），项目增长后按新的实测上调，不按安静时的当前耗时压缩；各项依据见[执行与边界](run-tests.md#执行与边界)。
+
 私有仓库的 Windows 托管运行消耗付费 Actions 分钟，包含全层的 correctness 路径要求显式请求。测试证据与复用规则见 [Testing standard](implement-sop.md#testing-standard)。
