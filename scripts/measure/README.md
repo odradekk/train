@@ -1,6 +1,6 @@
 # 测量辅助脚本
 
-游戏测量入口是 `measure.ps1`，导出入口是 `export-measurement.ps1`。它们的场景和报告见 [测试手册](../../docs/run-tests.md#性能测量)。本目录的辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，不需要 Pester 或额外包。
+游戏测量入口是 `measure.ps1`，导出入口是 `export-measurement.ps1`。它们的场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。本目录的辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，不需要 Pester 或额外包。
 
 ## 开发机交替对照
 
@@ -40,7 +40,27 @@ Windows 每个采样进程只创建一次 `System.Diagnostics.PerformanceCounter
 pwsh -NoProfile -File scripts/measure/keep-display.ps1 -Seconds 300
 ```
 
-脚本使用与 `measure.ps1` 相同的专用线程持有显示请求，到时、异常和 Ctrl+C 都通过 `finally` 释放；不用全局键盘或鼠标操作。手动验证时，在持有期间和结束后各执行一次管理员终端里的 `powercfg /requests`，确认该 PowerShell 进程的显示请求出现后消失。输出分别为 `display acquired seconds=300` 和 `display released`。
+脚本使用与 `measure.ps1` 相同的专用线程持有显示请求，到时、异常和 Ctrl+C 都通过 `finally` 释放；不用全局键盘或鼠标操作。输出分别为 `display acquired seconds=300` 和 `display released`。
+
+手动验证不用管理员权限：在 PowerShell 中定义下面的只读查询，分别在持有前、持有期间和释放后调用 `Read-ExecutionState`；另一终端运行 `keep-display.ps1 -Seconds 8`。
+
+```powershell
+Add-Type -Namespace MeasurementValidation -Name Power -MemberDefinition @'
+[DllImport("powrprof.dll")]
+public static extern uint CallNtPowerInformation(int level, IntPtr input,
+    uint inputSize, out uint output, uint outputSize);
+'@
+function Read-ExecutionState {
+    [uint32] $state = 0
+    $status = [MeasurementValidation.Power]::CallNtPowerInformation(
+        16, [IntPtr]::Zero, 0, [ref] $state, 4)
+    if ($status -ne 0) { throw "CallNtPowerInformation failed: $status" }
+    '0x{0:X8}' -f $state
+}
+Read-ExecutionState
+```
+
+`16` 是 `SystemExecutionState`，结果中的 `0x2` 位是 `ES_DISPLAY_REQUIRED`。查询的是整机合并状态；其他进程也持有显示请求时，该位不会因本脚本结束而清除。reviewer 在 `5d07cf90` 上实测：持有前 `0x00000001`，持有期间 `0x00000003`，释放后回到 `0x00000001`。
 
 ## 离线汇总
 
@@ -65,7 +85,7 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 | 同上内存计数器的 `.peak` | 本轮所有内存样本的最大值 | 字节 |
 | `operations.<name>.duration_seconds` | 同名操作在本轮的时长中位数 | 秒 |
 
-再对上述每轮值计算跨轮中位数和范围，不拼接多轮原始帧。同名操作只要有一次失败或时长不可用，该轮这个操作就是未知；新增操作名自动参与汇总。内存 `peak` 需要全部样本有效；较早样本不可用不影响最后一个已知的 `final`。这些内存值不表示节点稳态增量。
+再对上述每轮值计算跨轮中位数和范围，不拼接多轮原始帧。同名操作只要有一次失败或时长不可用，该轮这个操作就是未知；新增操作名自动参与汇总。内存 `peak` 需要全部样本有效；较早样本不可用不影响有效的末尾样本，末尾样本不可用时 `final` 为未知。这些内存值不表示节点稳态增量。
 
 失败的运行、失败报告、缺失或截断的 JSON、非零退出、超时和清理未确认都作未知；报告旁必须有有效的 `process.json`。缺字段、`null`、`"unavailable"`、布尔值和非有限数也作未知，不补 0。JSON 中未知数值为 `null`，状态为 `unknown`；部分轮次未知时仍显示其余有效轮次的统计及未知数量。
 
@@ -80,6 +100,17 @@ python -m unittest discover -s scripts/measure/tests -p "test_*.py" -v
 
 不启动游戏的拒绝路径检查：给比较命令传 `-CpuMeanThresholdPercent 0 -Repeat 2`，在 CPU 均值实际大于零的情况下应有 8 次预检（4 次主序列、4 次补跑）、全部 `measurement_started=false`，并返回 1。查看 `comparison.json` 确认每个计划项只有两次尝试。
 
-完整冒烟须在已批准的安静窗口里，以同一导出作为 A 和 B，各跑两轮短场景，再汇总；检查顺序、报告、退出状态、负载日志和每侧有效轮数。Linux 的采样加载还需在获准后运行一次 runner `measure`，确认 `external-load.jsonl` 正常。不能用这些冒烟结果报告性能收益。
+完整冒烟须在已批准的安静窗口里，以同一导出作为 A 和 B，各跑两轮短场景，再汇总；检查顺序、报告、退出状态、负载日志和每侧有效轮数。Linux runner 的一次 `measure` 实跑尚未执行，待协调者放行后验证 `external-load.jsonl`。
 
-2026-10-27 Windows 实际输出（证据在 Issue #820 的交付评论）：预检测试输出 `PASS 23 CPU precheck cases`，汇总测试 20 项通过。预检的 4 处和汇总的 30 处故意错误均被检出，之后恢复源码。真实采样写出 CPU、可用内存和分页速率；手动把计数器类别改为不存在的名称后，首个失败仍写 ready，随后连续写出 4 条错误记录。均值门槛设为 0 的实跑记录了 8 次拒绝，每个计划项只补一次，未启动测量进程。只读汇总归档中两轮 `scene-route-1x` 报告时，帧耗时 p50 显示有效轮数 2；没有内存样本的指标显示 `median: null`、`unknown_runs: 2`。
+2026-10-27 Windows 实际输出：预检测试输出 `PASS 23 CPU precheck cases`，汇总测试 20 项通过。预检的 4 处和汇总的 30 处故意错误均被检出，之后恢复源码。真实采样写出 CPU、可用内存和分页速率；手动把计数器类别改为不存在的名称后，首个失败仍写 ready，随后连续写出 4 条错误记录。均值门槛设为 0 的实跑记录了 8 次拒绝，每个计划项只补一次，未启动测量进程。只读汇总归档中两轮 `scene-route-1x` 报告时，帧耗时 p50 显示有效轮数 2；没有内存样本的指标显示 `median: null`、`unknown_runs: 2`。
+
+同日安静窗口中，用干净基线 `b03e4afe` 的同一导出作 A/B，输入为 `examples/basic-through/save.json`；先运行 `scene-reference`，再使用提交 `5d07cf90` 中的脚本运行 `scene-follow-8x -Repeat 2 -DurationSeconds 2`。门槛保持 25%/40%，实际输出如下：
+
+```text
+A/scene-follow-8x/1 attempt=1 precheck=passed started=True succeeded=True
+B/scene-follow-8x/1 attempt=1 precheck=passed started=True succeeded=True
+A/scene-follow-8x/2 attempt=1 precheck=passed started=True succeeded=True
+B/scene-follow-8x/2 attempt=1 precheck=passed started=True succeeded=True
+```
+
+没有补跑；汇总中两侧帧耗时 p50 都为 `valid_runs: 2`、`unknown_runs: 0`。四轮分别写出 35、35、35、36 条有效负载记录，无采样错误。原始输出在 `TestResults/issue-820/windows-reference/`、`windows-comparison/`，汇总在 `windows-summary.json`，验证摘要在 `windows-evidence.json`。这些证据验证编排和采样，不代表性能收益。
