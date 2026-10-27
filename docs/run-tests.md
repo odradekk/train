@@ -108,7 +108,7 @@ Linux 全量结果可承担同份代码的完整回归，但不替代真实窗�
 
 标准世界变体读取 `examples/standard-world/save.json`，那里节点战斗、线路战斗、施工、生产和站台排队都在进行。参考结果不经过宿主帧驱动：同一进程直接用核心和内容工厂恢复同一存档，每 100 步推进并捕获检查点，共 600 步。三个 App 经生产 `SaveService.StartExample` 打开同一份文档，分别以 1×／60 Hz、8× 不规则帧间隔加暂停帧、8× 下依次打开节点战斗场景、线路战斗场景和跟随场景再返回地图，在相同位置与参考结果逐个比较；所有宿主变体共有的驱动错误也会因此暴露。
 
-`scripts/measure/export-measurement.ps1` 生成并保留 Windows／Linux Release 导出，环境要求见[本地 Windows 验证](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，结束时核对 HEAD 未变且仍干净。用户目录隔离为 Windows 的 `APPDATA`／`LOCALAPPDATA` 或 Linux 的 XDG 目录；只复制 Release 模板，结束时删除副本。默认用已安装模板，`-TemplatePath` 可指定已核对的模板；Linux 使用 `Linux` 预设，输出 `train.x86_64`。输出须为新目录或空目录；仓库内须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除导出二进制，测量须保留完整导出。
+`scripts/measure/export-measurement.ps1` 生成并保留 Windows／Linux Release 导出，环境要求见[本地 Windows 验证](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，结束时核对 HEAD 未变且仍干净。用户目录隔离为 Windows 的 `APPDATA`／`LOCALAPPDATA` 或 Linux 的 XDG 目录；只复制 Release 模板，结束时删除副本。默认用已安装模板，`-TemplatePath` 可指定已核对的模板；Linux 使用 `Linux` 预设，输出 `train.x86_64`。构建和测量的输出均须为新目录或空目录；仓库内须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制，测量须保留完整导出。
 
 测量导出同样执行共享的程序集优化检查，结果记入 `export-summary.json` 的 `optimizations` 步骤；检查失败时拒绝该构建。
 
@@ -132,7 +132,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 `timing.actual_speed` 保留整段实际倍速；`speed_windows` 按从采样起点开始的连续目标秒，取每个目标秒后的首个绘制帧作为边界，记录实际耗时及完成步数，不插值、不重叠计算步数。`window_median_actual_speed` 和 `window_minimum_actual_speed` 分别报告各窗口倍速的中位数与最小值；120 秒样本形成 120 个窗口，末尾超出最后目标秒的部分仅计入整段。单帧跨越多个目标秒而无法形成非零窗口时测量失败。帧间隔 p50／p99／maximum 使用全部绘制帧，不丢弃卡顿帧。跟随情景的原始 `frames` 追加 `follow`，包含列车编号、`Edge`／`Node` 位置种类与编号、已显示帧的空间编号；这些字段读取已有状态，不额外调用核心查询。
 
-原输入不变。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。首次进程读档、场景首个实际绘制帧、Ready 帧和保存的耗时及成败分别记录，OS 文件缓存和驱动着色器缓存未清空。
+输入存档不变。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。首次进程读档、场景首个实际绘制帧、Ready 帧和保存的耗时及成败分别记录，OS 文件缓存和驱动着色器缓存未清空。
 
 内存只在帧采样结束后读取一次，`Process.Refresh()` 与属性读取的开销不计入帧间隔。`working_set_bytes`、`private_bytes`、Godot 静态内存和显存是此时的当前值；`peak_working_set_bytes` 是从进程启动至读数时的工作集峰值，包含读档、场景准备和暖机，不是采样窗口内的峰值。Release 不可用的 Godot 静态内存或显存指标写 `unavailable`。报告的 `identity.memory_scope` 记录这个范围。
 
@@ -181,8 +181,8 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 | 文件 | 内容 |
 | --- | --- |
-| `identity.json`、`report.json` | 构建／输入身份、游戏报告；编排不改写报告。`timing`：`scene-follow-8x` 为 8× 采样窗，`scene-memory` 为初始地图窗，其余非参考情景为最后地图保持窗；打开过程看操作记录 |
-| `process.json`、`process.log`、`godot.log` | 进程结果与日志。Linux：`exit_code` 为游戏返回值（信号终止 `-N`，状态未知 `null`），`signal` 为信号名和编号（正常 `null`），`launcher_exit_code` 为外层退出码。`process_diagnostics` 保留两份原始日志匹配 WASAPI／AUDCLNT_E_DEVICE_INVALIDATED 的行 |
+| `identity.json`、`report.json` | 构建／输入身份、游戏报告；编排不改写报告。`timing`：`scene-follow-8x` 为 8× 采样窗口，`scene-memory` 为初始地图窗口，其余非参考情景为最后地图保持窗口；打开过程看操作记录 |
+| `process.json`、`process.log`、`godot.log` | 结果与日志。Linux：`exit_code` 为游戏退出码（信号终止 `-N`，未知 `null`），`signal` 含名称和编号，`launcher_exit_code` 为外层退出码。`process_diagnostics` 分别保留日志的 WASAPI／AUDCLNT_E_DEVICE_INVALIDATED 原始行 |
 | `game-process.json` | 仅 Linux；gamescope 内的 Python 记录器写出的游戏退出码及信号 |
 | `external-load.jsonl` | 外部系统负载采样 |
 | `scene-frames.jsonl`、`scene-operations.jsonl`、`scene-collections.jsonl`、`scene-probe-costs.jsonl` | 逐帧状态、打开操作、GC 和全过程探针耗时记录（含读档）；路径由报告 `identity.scene_budget` 引用 |
