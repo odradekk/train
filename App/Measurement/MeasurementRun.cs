@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Godot;
+using Train.App.Notifications;
 using Train.Core.Contracts;
 
 namespace Train.App.Measurement;
@@ -39,6 +40,7 @@ internal sealed partial class MeasurementRun : IDisposable
     private int SampleSeconds => _sceneDuration > 0 ? _sceneDuration : 30;
     private static readonly Vector2I WindowSize = new(1920, 1080);
     private static readonly string[] SoftwareAdapters = ["llvmpipe", "lavapipe", "softpipe", "swiftshader"];
+    private static readonly JsonSerializerOptions SceneJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     internal MeasurementRun(App app, IReadOnlyList<string> arguments, StreamingRecorder? streaming = null)
     {
@@ -93,6 +95,20 @@ internal sealed partial class MeasurementRun : IDisposable
 
     internal void Start() => _ = Run();
     internal void OnSimulationFrame(double seconds) => _simulationWork += seconds;
+
+    internal static Dictionary<string, string> ConfigureEncounterAction(string scenario, NotificationPolicy policy)
+    {
+        var disabled = scenario is "scene-route-8x" or "scene-follow-8x" or "scene-soak";
+        if (disabled) policy.SetAction(NotificationCategory.Encounter, NotificationAction.None);
+        var action = new Dictionary<string, string>
+        {
+            ["value"] = policy.Action(NotificationCategory.Encounter).ToString(),
+            ["default_value"] = NotificationPolicy.DefaultAction(NotificationCategory.Encounter).ToString()
+        };
+        if (disabled)
+            action["reason"] = "设计 00 允许性能测试关闭遇敌自动降速并记录；否则新战斗会把 8× 采样降到 1×";
+        return action;
+    }
 
     private async Task Run()
     {

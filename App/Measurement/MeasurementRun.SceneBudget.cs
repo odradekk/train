@@ -40,7 +40,6 @@ internal sealed partial class MeasurementRun
     private bool _sceneCapturedPartial;
     private object? _scenePresented;
     private SceneFrameStamp? _scenePresentedStamp;
-    private static readonly JsonSerializerOptions SceneJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     private sealed record SceneSample(double At, string Phase, double FrameSeconds, ulong Steps,
         string Speed, bool Paused, string? Request, string? Space, string? Readiness,
@@ -51,6 +50,7 @@ internal sealed partial class MeasurementRun
 
     private async Task RunSceneBudget()
     {
+        _identity["encounter_action"] = ConfigureEncounterAction(_scenario, _app.Notifications);
         var directory = Path.GetDirectoryName(_output)!;
         using var frames = new StreamWriter(Path.Combine(directory, "scene-frames.jsonl"));
         using var operations = new StreamWriter(Path.Combine(directory, "scene-operations.jsonl"));

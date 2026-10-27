@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Godot;
-using Train.App.Notifications;
 using Train.App.Recording;
 using Train.App.Saves;
 using Train.Content.Contracts;
@@ -88,12 +87,8 @@ internal sealed partial class MeasurementRun
         var duration = _sceneDuration > 0 ? _sceneDuration : 7200;
         ReadSoakExpectations();
         _soakSaveId = SaveHeaderId();
-        _app.Notifications.SetAction(NotificationCategory.Encounter, NotificationAction.None);
         // 产品默认 1 小时；每段主体约 12 分钟，改用 5 分钟才能在同一会话里观察到 3 槽轮换。
         _app.Saves!.SetAutoSaveInterval(TimeSpan.FromMinutes(5));
-        _identity["encounter_action"] = new { value = NotificationAction.None.ToString(),
-            default_value = NotificationPolicy.DefaultAction(NotificationCategory.Encounter).ToString(),
-            reason = "设计 00 允许性能测试关闭遇敌自动降速并记录；否则新战斗会把 8× 采样降到 1×" };
         host.BoundaryCompleted += CountSoakEncounters;
         host.OperationEnded += CaptureSoakRestore;
         try
