@@ -47,7 +47,7 @@ class MeasurementSummaryTests(unittest.TestCase):
              "click_to_operable_seconds": 1000},
             {"kind": "open", "name": "reload-node", "sample_valid": True,
              "click_to_operable_seconds": 0.2, "operable_to_ready_seconds": 0,
-             "load_button_to_operable_seconds": 3.5},
+             "load_button": 1, "load_button_to_operable_seconds": 3.5},
             {"kind": "natural-map", "name": "not-an-opening", "sample_valid": True}])
         result = self.result()
         self.assertIn("openings", result)
@@ -59,7 +59,8 @@ class MeasurementSummaryTests(unittest.TestCase):
         self.assertEqual((30, 0.15, 0.29, 0.3, 0.3), tuple(
             latency[key] for key in ("samples", "p50", "p95", "p99", "maximum")))
         self.assertEqual(30, openings["map-node"]["operable_to_ready_seconds"]["maximum"])
-        self.assertEqual(0, openings["map-node"]["load_button_to_operable_seconds"]["samples"])
+        self.assertEqual((0, 0), tuple(openings["map-node"]["load_button_to_operable_seconds"][key]
+                                     for key in ("samples", "unknown_samples")))
         self.assertEqual(3.5, openings["reload-node"]["load_button_to_operable_seconds"]["maximum"])
         self.assertEqual(0, openings["reload-node"]["operable_to_ready_seconds"]["maximum"])
 
@@ -70,14 +71,14 @@ class MeasurementSummaryTests(unittest.TestCase):
                  "memory": {"samples": 3, "private_bytes": value,
                             "working_set_bytes": 2 * value, "video_bytes": 3 * value}}
                 for at, value in ((100, 1000), (1900, 1000 + increment),
-                                  (3700, 2000), (5500, 2000 + 2 * increment),
-                                  (7300, 2000 + 4 * increment))], scenario="scene-soak")
+                                  (3700, 1000 + 2 * increment), (5500, 1000 + 4 * increment),
+                                  (7300, 1000 + 6 * increment))], scenario="scene-soak")
         result = self.result("scene-soak")
         self.assertIn("hourly_memory", result)
         memory = result["hourly_memory"]["A"]
         self.assertEqual("first_natural_map", memory["origin"])
         first, second = memory["runs"][0]["hours"]
-        self.assertEqual((1, 2, 1800, 200), tuple(
+        self.assertEqual((1, 3, 3600, 200), tuple(
             first[key] for key in ("hour", "samples", "observed_seconds", "private_bytes_per_hour")))
         self.assertEqual((2, 3, 3600, 400), tuple(
             second[key] for key in ("hour", "samples", "observed_seconds", "private_bytes_per_hour")))
@@ -86,6 +87,58 @@ class MeasurementSummaryTests(unittest.TestCase):
                                               for key in ("median", "min", "max")))
         self.assertEqual((500, 400, 600), tuple(memory["by_hour"]["2"]["private_bytes_per_hour"][key]
                                               for key in ("median", "min", "max")))
+
+    def test_partial_hour_is_retained_but_unknown_across_runs(self):
+        self.add_run([
+            {"kind": "natural-map", "at": at,
+             "memory": {"samples": 1, "private_bytes": value,
+                        "working_set_bytes": value, "video_bytes": value}}
+            for at, value in ((250, 0), (3850, 1), (7450, 2), (7630, 50_000_002))],
+            scenario="scene-soak")
+        memory = self.result("scene-soak")["hourly_memory"]["A"]
+        partial = memory["runs"][0]["hours"][2]
+        self.assertEqual((2, 180, "partial_hour", None), tuple(partial[key] for key in (
+            "samples", "observed_seconds", "reason", "private_bytes_per_hour")))
+        metric = memory["by_hour"]["3"]["private_bytes_per_hour"]
+        self.assertEqual(("unknown", 0, 1, {"partial_hour": 1}), tuple(metric[key] for key in (
+            "status", "valid_runs", "unknown_runs", "unknown_reasons")))
+
+    def test_complete_hours_share_boundary_samples_at_regular_cadence(self):
+        records = [{"kind": "natural-map", "at": at,
+                    "memory": {"samples": 1, "private_bytes": at,
+                               "working_set_bytes": at, "video_bytes": at}}
+                   for at in range(250, 7451, 180)]
+        self.add_run(records, scenario="scene-soak")
+        memory = self.result("scene-soak")["hourly_memory"]["A"]
+        for hour in memory["runs"][0]["hours"]:
+            self.assertEqual((21, 3600, None), tuple(hour[key] for key in (
+                "samples", "observed_seconds", "reason")))
+            self.assertAlmostEqual(3600, hour["private_bytes_per_hour"])
+            self.assertEqual(1, memory["by_hour"][str(hour["hour"])]["private_bytes_per_hour"]["valid_runs"])
+
+    def test_hourly_coverage_uses_original_samples_bracketing_jittered_boundaries(self):
+        self.add_run([
+            {"kind": "natural-map", "at": at,
+             "memory": {"samples": 1, "private_bytes": at,
+                        "working_set_bytes": at, "video_bytes": at}}
+            for at in (0, 1801, 3602, 5403, 7204)], scenario="scene-soak")
+        memory = self.result("scene-soak")["hourly_memory"]["A"]
+        first, second, partial = memory["runs"][0]["hours"]
+        self.assertEqual((0, 3600, 0, 3602, 3602, None), tuple(first[key] for key in (
+            "start_at", "end_at", "observed_start_at", "observed_end_at", "observed_seconds", "reason")))
+        self.assertEqual((3600, 7200, 1801, 7204, None), tuple(second[key] for key in (
+            "start_at", "end_at", "observed_start_at", "observed_end_at", "reason")))
+        self.assertAlmostEqual(3600, memory["by_hour"]["2"]["private_bytes_per_hour"]["median"])
+        self.assertEqual("partial_hour", partial["reason"])
+
+    def test_hourly_slope_uses_least_squares_for_non_collinear_points(self):
+        self.add_run([
+            {"kind": "natural-map", "at": at,
+             "memory": {"samples": 1, "private_bytes": value,
+                        "working_set_bytes": value, "video_bytes": value}}
+            for at, value in ((100, 0), (1000, 3), (3700, 3))], scenario="scene-soak")
+        memory = self.result("scene-soak")["hourly_memory"]["A"]
+        self.assertAlmostEqual(30 / 13, memory["by_hour"]["1"]["private_bytes_per_hour"]["median"])
 
     def test_failed_missing_and_truncated_sidecars_never_contribute_partial_openings(self):
         opening = {"kind": "open", "name": "map-node", "sample_valid": True,
@@ -116,17 +169,17 @@ class MeasurementSummaryTests(unittest.TestCase):
         self.add_run([
             {"kind": "natural-map", "at": at, "memory": {"samples": 2, "private_bytes": private,
                                                           "working_set_bytes": 10, "video_bytes": None}}
-            for at, private in ((100, 4), (3700, 3), (5500, 1), (10900, 0))], scenario="scene-soak")
+            for at, private in ((100, 4), (3700, 3), (5500, 1), (7300, 0), (10900, None))], scenario="scene-soak")
         self.add_run([], scenario="scene-soak")
         memory = self.result("scene-soak")["hourly_memory"]["A"]
         first, second, third = memory["runs"][0]["hours"]
-        self.assertIsNone(first["private_bytes_per_hour"])
-        self.assertEqual(-4, second["private_bytes_per_hour"])
+        self.assertEqual(-1, first["private_bytes_per_hour"])
+        self.assertEqual(-3, second["private_bytes_per_hour"])
         self.assertIsNone(third["private_bytes_per_hour"])
         self.assertIsNone(second["video_bytes_per_hour"])
         self.assertEqual(0, second["working_set_bytes_per_hour"])
         self.assertEqual("map_samples_missing", memory["runs"][1]["reason"])
-        self.assertEqual((-4, 1, 1), tuple(memory["by_hour"]["2"]["private_bytes_per_hour"][key]
+        self.assertEqual((-3, 1, 1), tuple(memory["by_hour"]["2"]["private_bytes_per_hour"][key]
                                           for key in ("median", "valid_runs", "unknown_runs")))
 
 

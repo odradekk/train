@@ -115,7 +115,8 @@ def summarize_openings(runs):
     for name, records in sorted(groups.items()):
         valid = [record for record in records if record.get("sample_valid") is True]
         operations[name] = {"valid_samples": len(valid), "invalid_samples": len(records) - len(valid),
-                            **{metric: distribution([record.get(metric) for record in valid]) for metric in (
+                            **{metric: distribution([record.get(metric) for record in valid
+                                if metric != "load_button_to_operable_seconds" or record.get("load_button") is not None]) for metric in (
                                 "click_to_operable_seconds", "operable_to_ready_seconds",
                                 "load_button_to_operable_seconds")}}
     return {"unknown_runs": sum(problems.values()), "unknown_reasons": dict(problems),
@@ -137,13 +138,17 @@ def hourly_memory(records):
     hours = []
     for index in range(max(1, ceil((end - origin) / 3600))):
         start, stop = origin + index * 3600, origin + (index + 1) * 3600
-        points = [record for record in maps if start <= record["at"] < stop or record["at"] == stop == end]
+        observed_start = max(record["at"] for record in maps if record["at"] <= start)
+        observed_end = next((record["at"] for record in maps if record["at"] >= stop), end)
+        points = [record for record in maps if observed_start <= record["at"] <= observed_end]
         result = {"hour": index + 1, "start_at": start, "end_at": stop, "samples": len(points),
-                  "observed_seconds": points[-1]["at"] - points[0]["at"] if points else 0}
+                  "observed_start_at": observed_start, "observed_end_at": observed_end,
+                  "observed_seconds": observed_end - observed_start}
+        result["reason"] = "partial_hour" if end < stop else None
         for counter in MEMORY_COUNTERS:
             values = [record["memory"].get(counter) for record in points]
             slope = None
-            if len(points) >= 2 and all(is_number(value) and value >= 0 for value in values):
+            if result["reason"] is None and len(points) >= 2 and all(is_number(value) and value >= 0 for value in values):
                 times = [(record["at"] - start) / 3600 for record in points]
                 mean_time, mean_value = sum(times) / len(times), sum(values) / len(values)
                 denominator = sum((time - mean_time) ** 2 for time in times)
@@ -165,7 +170,8 @@ def summarize_hourly_memory(runs):
     return {"origin": "first_natural_map", "runs": results,
             "by_hour": {hour: {counter + "_per_hour": summarize_values([
                 (values.get(result["run"], {}).get(counter + "_per_hour"),
-                 result["reason"] or "hour_missing_or_insufficient_samples") for result in results])
+                 result["reason"] or values.get(result["run"], {}).get("reason") or
+                 "hour_missing_or_insufficient_samples") for result in results])
                 for counter in MEMORY_COUNTERS} for hour, values in groups.items()}}
 
 
