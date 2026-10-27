@@ -25,7 +25,7 @@ function Get-TestSelection {
     $sharedPatterns = @(
         'Contracts/*', 'Directory.Build.*', '*/Directory.Build.*', 'global.json',
         'docs/content/schemas/*', 'Tests/ContractSupport/*', 'Train.sln',
-        '.config/dotnet-tools.json', 'scripts/test.ps1', 'scripts/Prepare-TestReports.ps1', 'scripts/checks/*'
+        '.config/dotnet-tools.json', 'scripts/test.ps1', 'scripts/checks/*'
     )
     $contractPatterns = @(
         'Contracts/*', '*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln',
