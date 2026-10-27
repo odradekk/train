@@ -550,26 +550,6 @@ internal sealed partial class MeasurementRun
             peak_private_bytes = _scenePeakPrivate, peak_working_set_bytes = _scenePeakWorking };
     }
 
-    private long CollectSceneHeap(int cycle, string phase)
-    {
-        ResetSceneProbe();
-        _sceneProbeDetail = _sceneFirstNearDetail = null;
-        _sceneRecent.Clear();
-        var natural = new { private_bytes = _scenePrivate, working_set_bytes = _sceneWorking };
-        var started = Seconds();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        GC.WaitForPendingFinalizers();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        var heap = GC.GetGCMemoryInfo();
-        var live = GC.GetTotalMemory(false);
-        _sceneCollectionTrace!.WriteLine(JsonSerializer.Serialize(new { cycle, phase, at = Seconds(),
-            seconds = Seconds() - started, natural, managed_live_bytes = live,
-            heap_bytes = heap.HeapSizeBytes, fragmented_bytes = heap.FragmentedBytes,
-            committed_bytes = heap.TotalCommittedBytes }, SceneJson));
-        _sceneCollectionTrace.Flush();
-        return live;
-    }
-
     private static string Location(WorldLocation location) => location switch
     {
         WorldLocation.Node node => "node:" + node.Id.Value,

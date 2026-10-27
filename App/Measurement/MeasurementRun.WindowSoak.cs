@@ -56,14 +56,6 @@ internal sealed partial class MeasurementRun
         double? ReadySeconds, double PrivatePeakOverMap, double WorkingPeakOverMap, double VideoPeakOverMap,
         double PrivatePeakOverBefore, double WorkingPeakOverBefore, double VideoPeakOverBefore);
 
-    private sealed class SoakSample(string view, SimulationSpeed speed, double started, ulong steps)
-    {
-        internal string View { get; } = view;
-        internal SimulationSpeed Speed { get; } = speed;
-        internal FrameMeasurements Frames { get; } = new(started, steps);
-        internal Dictionary<string, int> Classes { get; } = new(StringComparer.Ordinal);
-    }
-
     private sealed class SoakTotals
     {
         internal List<double> Intervals { get; } = [];
@@ -337,35 +329,6 @@ internal sealed partial class MeasurementRun
         _soakMapSteady = SoakSteady();
     }
 
-    private async Task SampleSoakView(string view, SimulationSpeed speed, Func<bool>? ended = null, bool setSpeed = true)
-    {
-        var host = _app.Host!;
-        if (setSpeed && (host.SetSpeed(speed) is not null || host.SetPaused(false) is not null))
-            throw new InvalidOperationException("不能设置长测倍速。");
-        _scenePhase = $"{view}-{(int)speed}x";
-        var started = _sceneLastDraw;
-        var sample = new SoakSample(view, speed, started, host.GetStatus()!.View.Position.CompletedSteps);
-        _soakSample = sample;
-        await Wait(() => _sceneLastDraw >= started + SoakSampleSeconds || ended?.Invoke() == true && sample.Classes.Count > 0);
-        _soakSample = null;
-        var timing = sample.Frames.Summarize();
-        var key = $"{view}/{(int)speed}x";
-        if (!_soakTotals.TryGetValue(key, out var totals)) _soakTotals[key] = totals = new();
-        totals.Intervals.AddRange(timing.Frames.Select(frame => frame.IntervalSeconds));
-        foreach (var (name, count) in sample.Classes) totals.Classes[name] = totals.Classes.GetValueOrDefault(name) + count;
-        totals.Seconds += timing.ElapsedSeconds;
-        totals.Steps += timing.CompletedSteps;
-        _soakSamples.Add(new
-        {
-            segment = _soakSegment, view, speed = (int)speed, started, seconds = timing.ElapsedSeconds,
-            frames = timing.Frames.Length, frame_seconds = timing.FrameSeconds,
-            over_16_7_ms_share = timing.Frames.Count(frame => frame.IntervalSeconds > 1d / 60) / (double)timing.Frames.Length,
-            steps_per_second = timing.CompletedSteps / timing.ElapsedSeconds, target_steps_per_second = (int)speed * SimulationTime.StepsPerSecond,
-            paused_frames = timing.Frames.Count(frame => frame.Paused),
-            simulation_budget_frames = timing.SimulationBudgetReachedFrames, load_classes = sample.Classes
-        });
-    }
-
     // 由场景绘制回调调用：负载计数每秒最多启动一次。标准世界一次计数约 50 ms，放在主线程会形成每秒一次的长帧；
     // 核心读视图和内容世代不可变，可在后台线程读取，帧按最近一次完成的计数分类。
     private void ObserveSoakFrame(double now, HostStatus status, double interval)
@@ -480,6 +443,7 @@ internal sealed partial class MeasurementRun
         {
             seconds, segments = _soakSegment, body_seconds = body, round_trips_per_segment = SoakRoundTrips,
             sample_seconds = SoakSampleSeconds,
+            gc_method = "Process-local GC.GetTotalPauseDuration and GC.CollectionCount deltas per sample. Read immediately before waiting and after the final draw; seconds retains the original previous-draw to final-draw span. Collection counts are not pause-event counts. Measurement-forced collections outside samples are recorded in scene-collections.jsonl and excluded.",
             load_classes = new { full = "配方保存点的全部期望成立", all_but_line_battle = "armed_line_combats 不成立，其余不成立的只有 armed_combats",
                 below_recipe = "其他期望不成立；这些帧不是标准负载证据", frame_rule = "每帧按最近一次（每秒最多一次）计数分类" },
             views = _soakTotals.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new
