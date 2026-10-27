@@ -70,9 +70,9 @@ internal static partial class MeasurementAssessment
                 items.Add(item with { Status = known ? status : "unknown",
                     Reason = known ? null : "路线补齐未知或缺少时间：" + At(startup, "reason") });
             }
-            if (MeasurementEvidence.UsesSidecars(scenario)) AddOpenings(items, scenario, evidence);
-            AddMemory(items, scenario, budget, evidence);
         }
+        if (MeasurementEvidence.UsesSidecars(scenario) && scenario != "scene-memory") AddOpenings(items, scenario, evidence);
+        AddMemory(items, scenario, budget, evidence);
         var problem = failure is not null ? "运行失败：" + failure :
             route && At(budget, "route", "route_completed").ValueKind != JsonValueKind.True ? "路线未完成或缺少完成标记" : null;
         return problem is null ? items : items.Select(item => item with { Status = "unknown", Reason = problem }).ToList();
@@ -102,12 +102,6 @@ internal static partial class MeasurementAssessment
             items.Add(Check("actual_speed", window,
                 Number(At(view, "steps_per_second")) / SimulationTime.StepsPerSecond, reason));
         }
-        foreach (var metric in new[] { "node_private_delta", "node_render_delta", "game_private", "game_working_set", "game_render", "retired_heap_delta" })
-            items.Add(Check(metric, "长测内嵌汇总", null, "内嵌汇总没有所需稳态或节点进出配对读数；不使用峰值和重置堆替代"));
-        foreach (var operation in Array(At(soak, "operations")).Where(operation => At(operation, "ready_seconds").ValueKind == JsonValueKind.Object))
-            foreach (var metric in new[] { "opening_p95", "opening_maximum", "far_ready" })
-                items.Add(Check(metric, "长测操作：" + At(operation, "type"), null,
-                    "内嵌操作没有 sample_valid 的逐次打开读数；点击到 Ready 不能代替可操作到 Ready"));
         AddGrowth(items, At(soak, "memory"), Number(At(soak, "seconds")));
     }
 

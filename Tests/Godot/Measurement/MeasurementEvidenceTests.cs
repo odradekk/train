@@ -106,10 +106,10 @@ public sealed class MeasurementEvidenceTests
     });
 
     [TestMethod]
-    public void MissingEvidenceCannotBecomeZeroMemoryOrOpeningTime() => InDirectory(directory =>
+    public void MissingEvidenceCannotBecomeZeroMemory() => InDirectory(directory =>
     {
         using var report = ReadReport("scene-memory", directory);
-        foreach (var metric in new[] { "opening_p95", "opening_maximum", "far_ready", "node_private_delta",
+        foreach (var metric in new[] { "node_private_delta",
             "node_render_delta", "retired_heap_delta", "game_private", "game_working_set", "game_render" })
             Unknown(Item(report, metric));
     });
@@ -129,22 +129,33 @@ public sealed class MeasurementEvidenceTests
     [TestMethod]
     [DataRow("scene-frames.jsonl", "node_private_delta")]
     [DataRow("scene-collections.jsonl", "retired_heap_delta")]
-    public void DamagedMemoryEvidenceDoesNotInvalidateOpeningTime(string file, string metric) => InDirectory(directory =>
+    public void DamagedPairingEvidenceDoesNotInvalidateWholeGameSteadyMemory(string file, string metric) => InDirectory(directory =>
     {
         Write(directory, "scene-operations.jsonl", [Open("memory-node", 6, 1, 5)]);
         File.WriteAllText(Path.Combine(directory, file), "{\"at\":");
         using var report = ReadReport("scene-memory", directory);
         Unknown(Item(report, metric));
-        Assert.AreEqual("passed", Item(report, "opening_maximum").GetProperty("status").GetString());
+        Measured(report, "game_private", 1000, "passed");
     });
 
     [TestMethod]
     public void ATruncatedTailCannotPassFromEarlierCompleteOpenRecords() => InDirectory(directory =>
     {
-        Write(directory, "scene-operations.jsonl", [Open("memory-node", 6, .2, 1)]);
+        Write(directory, "scene-operations.jsonl", [Open("map-node", 6, .2, 1)]);
         File.AppendAllText(Path.Combine(directory, "scene-operations.jsonl"), "{\"kind\":");
-        using var report = ReadReport("scene-memory", directory);
+        using var report = ReadReport("scene-node", directory);
         Assert.AreEqual("unknown", Item(report, "opening_maximum").GetProperty("status").GetString());
+    });
+
+    [TestMethod]
+    public void MemoryKeepsSteadyReadingsWithoutJudgingDiagnosticOpeningTimes() => InDirectory(directory =>
+    {
+        Write(directory, "scene-operations.jsonl", [Open("memory-node", 6, 100, 100)]);
+        using var report = ReadReport("scene-memory", directory);
+        var metrics = report.RootElement.GetProperty("assessment").GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("metric").GetString()).ToArray();
+        Assert.IsFalse(metrics.Intersect(new[] { "opening_p95", "opening_maximum", "far_ready" }).Any());
+        Measured(report, "game_private", 1000, "passed");
     });
 
     [TestMethod]

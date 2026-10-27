@@ -29,7 +29,6 @@ internal static class MeasurementReport
                 machine = testMachine ? "test" : "development",
                 content = "formal-assets-at-tested-commit",
                 art_review = "美术 Issue #358–#363、#393–#396 的 PR 已合并，正式外观仍待用户目视确认",
-                thresholds = MeasurementAssessment.Source,
                 composition = nested ? "游戏在 gamescope 嵌套合成器中以 1920×1080 输出运行，画面先经 gamescope 合成再交给主机合成器；参数见 identity.system.display_wrapper" : null,
                 final_performance = false,
                 unmeasured = Unmeasured(scenario, testMachine) },

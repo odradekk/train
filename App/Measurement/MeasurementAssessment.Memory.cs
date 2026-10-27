@@ -39,17 +39,17 @@ internal static partial class MeasurementAssessment
         items.Add(Check("game_private", window, Maximum(steady.Select(value => value.Private)), evidence?.OpeningProblem));
         items.Add(Check("game_working_set", window, Maximum(steady.Select(value => value.Working)), evidence?.OpeningProblem));
         items.Add(Check("game_render", window, Maximum(steady.Select(value => value.Render)), evidence?.OpeningProblem));
-        if (scenario is not ("scene-node" or "scene-node-first" or "scene-memory")) return;
+        if (scenario is not ("scene-node" or "scene-node-first" or "scene-memory" or "scene-soak")) return;
 
         var noBaseline = scenario != "scene-memory" ? "场景没有进入前的地图稳态读数或强制 GC 配对" : null;
         var nodes = evidence?.Openings.Where(open => open.Node && open.Valid).ToArray() ?? [];
-        var map = evidence?.InitialMap;
+        var pairs = nodes.Select(open => (Node: open.Steady, Map: evidence?.MapBefore(open.Click))).ToArray();
         var reason = noBaseline ?? evidence?.OpeningProblem ?? evidence?.MapProblem;
-        const string paired = "同进程节点稳态 − 首次进入前地图末 1 秒中位数";
+        const string paired = "同进程节点稳态 − 点击前最近一次地图稳态中位数";
         items.Add(Check("node_private_delta", paired,
-            Maximum(nodes.Select(open => open.Steady.Private - map?.Private)), reason));
+            Maximum(pairs.Select(pair => pair.Node.Private - pair.Map?.Private)), reason));
         items.Add(Check("node_render_delta", paired,
-            Maximum(nodes.Select(open => open.Steady.Buffer + open.Steady.Texture - map?.Buffer - map?.Texture)), reason));
+            Maximum(pairs.Select(pair => pair.Node.Buffer + pair.Node.Texture - pair.Map?.Buffer - pair.Map?.Texture)), reason));
         items.Add(Check("retired_heap_delta", "同进程返回地图后强制 GC − cycle 0 初始地图强制 GC",
             Maximum(evidence?.RetiredHeaps.Select(heap => heap - evidence.InitialHeap) ?? []),
             noBaseline ?? evidence?.OpeningProblem ?? evidence?.HeapProblem));

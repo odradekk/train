@@ -20,22 +20,32 @@ internal sealed record MeasuredOpening(string Type, bool Node, bool Valid, doubl
 /// <summary>只在计时结束后流式读取报告所需的旁车；各文件的缺失和截断分别保留为未知原因。</summary>
 internal sealed class MeasurementEvidence
 {
+    private readonly List<(double At, SteadyMemory Memory)> _maps = [];
     internal List<MeasuredOpening> Openings { get; } = [];
     internal string? OpeningProblem { get; private set; }
-    internal SteadyMemory? InitialMap { get; private set; }
     internal string? MapProblem { get; private set; }
     internal double? InitialHeap { get; private set; }
     internal List<double?> RetiredHeaps { get; } = [];
     internal string? HeapProblem { get; private set; }
 
     internal static bool UsesSidecars(string scenario) => scenario is
-        "scene-node" or "scene-node-first" or "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory";
+        "scene-node" or "scene-node-first" or "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-soak";
+
+    internal SteadyMemory? MapBefore(double? click) => _maps
+        .Where(map => map.At < click).OrderByDescending(map => map.At)
+        .Select(map => map.Memory).FirstOrDefault();
 
     internal static MeasurementEvidence Read(string scenario, string directory)
     {
         var result = new MeasurementEvidence();
         result.OpeningProblem = ReadRecords(Path.Combine(directory, "scene-operations.jsonl"), record =>
         {
+            if (scenario == "scene-memory" && At(record, "kind").ToString() == "natural-map")
+            {
+                if (Number(At(record, "at")) is not { } at) throw new JsonException("地图稳态记录缺少时间");
+                result._maps.Add((at, SteadyMemory.Read(At(record, "memory"))));
+                return;
+            }
             if (At(record, "kind").ToString() != "open") return;
             var name = At(record, "name").ToString();
             result.Openings.Add(new(name, At(record, "target").ToString().StartsWith("Node", StringComparison.Ordinal),
@@ -63,8 +73,9 @@ internal sealed class MeasurementEvidence
             return values.Length == 0 || values.Any(value => value is null) ? null :
                 FrameMeasurements.Distribution(values.Select(value => value!.Value)).P50;
         }
-        result.InitialMap = new(Median(value => value.Private), Median(value => value.Working),
-            Median(value => value.Buffer), Median(value => value.Texture), Median(value => value.Render));
+        if (map.Count > 0)
+            result._maps.Add((map.Last().At, new(Median(value => value.Private), Median(value => value.Working),
+                Median(value => value.Buffer), Median(value => value.Texture), Median(value => value.Render))));
         var firstNode = result.Openings.Where(open => open.Node && open.Click.HasValue).MinBy(open => open.Click);
         result.HeapProblem = ReadRecords(Path.Combine(directory, "scene-collections.jsonl"), record =>
         {
