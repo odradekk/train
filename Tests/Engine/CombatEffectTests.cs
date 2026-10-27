@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Chickensoft.GoDotTest;
 using Godot;
 using Train.App.Assets;
+using Train.App.Measurement;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -923,26 +924,20 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         process.Refresh();
         marks.Add(Snapshot("end"));
         var cpu = (process.TotalProcessorTime - cpuStart).TotalSeconds / Math.Max(wall.Elapsed.TotalSeconds, 0.001);
+        var distribution = FrameMeasurements.Distribution(times);
         var report = new
         {
             speed,
             frames = times.Count,
-            p50Seconds = Percentile(times, 50),
-            p95Seconds = Percentile(times, 95),
-            p99Seconds = Percentile(times, 99),
-            maxSeconds = times.Max(),
+            p50Seconds = distribution.P50,
+            p95Seconds = distribution.P95,
+            p99Seconds = distribution.P99,
+            maxSeconds = distribution.Maximum,
             processCpu = cpu,
             processorCount = System.Environment.ProcessorCount,
             samples = marks
         };
         return (shown, sim, report);
-    }
-
-    private static double Percentile(List<double> values, double percent)
-    {
-        var sorted = values.OrderBy(value => value).ToArray();
-        var rank = (int)Math.Ceiling(percent / 100d * sorted.Length);
-        return sorted[Math.Clamp(rank, 1, sorted.Length) - 1];
     }
 
     private static float Alpha(MeshInstance3D node) => Alpha(node, hold: true);

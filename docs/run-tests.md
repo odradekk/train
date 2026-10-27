@@ -117,28 +117,19 @@ Linux 全量结果可承担同份代码的完整回归，但不替代真实窗�
 ```powershell
 # 构建一次，后续测量复用此固定二进制；保留完整目录与构建日志
 pwsh -NoProfile -File scripts/measure/export-measurement.ps1 -OutputDirectory TestResults/measurement-build
-pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-small-world
-# 单独复测一组情景，仍执行三个独立进程
-pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-follow -Scenario follow-8x
+# 默认运行 scene-route-1x 和 scene-route-8x；两者都不需要参考文件
+pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/standard-world/save.json -OutputDirectory TestResults/measure-route
+# 单独复测一组场景，仍执行三个独立进程
+pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/standard-world/save.json -OutputDirectory TestResults/measure-route-8x -Scenario scene-route-8x
 # 在 PowerShell 中多选；不把逗号列表作为 -File 的单个参数传入
-& ./scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-selected -Scenario @('sdfgi-off', 'sdfgi-on')
+& ./scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/standard-world/save.json -OutputDirectory TestResults/measure-selected -Scenario @('scene-route-1x', 'scene-route-8x')
 ```
 
 报告的 `identity.game_build` 和 `identity.build_commit` 来自实际加载程序集的 `AssemblyInformationalVersion`。脚本从该构建提交计算 `git rev-parse <commit>:docs/contracts/public-api.txt`，记录为 `identity.public_api_git_blob`；提交须存在于本地仓库。脚本同时记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以当前工作树 HEAD 代替二进制来源。
 
-默认情景为 `map-1x`、`map-8x`、`follow-1x`、`follow-8x`、`node-1x`、`node-8x`、`sdfgi-off`、`sdfgi-on`、`taa-off`、`taa-on`。每组串行启动三个进程，各暖机 5 秒、采样至少 30 秒。脚本将输入、报告和身份路径传给生产 `--measure=<情景>`，不使用测试 Bootstrap、控制台命令或新增 UI。测量加载普通存档、启动其第一列非空编组列车并保留已有计划；节点情景观察首个节点，其他局部情景跟随该列车首车。SDFGI／TAA 情景均以 8× 运行，只切换对应效果，其余使用当前游戏画质。
+输入存档不变。每个场景通过生产 `--measure=<场景>` 入口运行，不使用测试 Bootstrap。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间，不丢弃卡顿帧。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。
 
-所有非 `scene-*` 情景（地图、跟随、节点及 SDFGI／TAA）都可通过 `-DurationSeconds` 指定 1–120 秒采样时长（应用参数 `--measure-duration`），例如 `-DurationSeconds 120`；省略或设为 0 时仍为 30 秒。非 scene 进程超时按采样时长加 40 秒估算启动和收尾成本，取 1.5 倍并向上取整到 30 秒，且不低于 180 秒；120 秒样本的进程超时为 240 秒。
-
-`timing.actual_speed` 保留整段实际倍速；`speed_windows` 按从采样起点开始的连续目标秒，取每个目标秒后的首个绘制帧作为边界，记录实际耗时及完成步数，不插值、不重叠计算步数。`window_median_actual_speed` 和 `window_minimum_actual_speed` 分别报告各窗口倍速的中位数与最小值；120 秒样本形成 120 个窗口，末尾超出最后目标秒的部分仅计入整段。单帧跨越多个目标秒而无法形成非零窗口时测量失败。帧间隔 p50／p99／maximum 使用全部绘制帧，不丢弃卡顿帧。跟随情景的原始 `frames` 追加 `follow`，包含列车编号、`Edge`／`Node` 位置种类与编号、已显示帧的空间编号；这些字段读取已有状态，不额外调用核心查询。
-
-输入存档不变。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。首次进程读档、场景首个实际绘制帧、Ready 帧和保存的耗时及成败分别记录，OS 文件缓存和驱动着色器缓存未清空。
-
-内存只在帧采样结束后读取一次，`Process.Refresh()` 与属性读取的开销不计入帧间隔。`working_set_bytes`、`private_bytes`、Godot 静态内存和显存是此时的当前值；`peak_working_set_bytes` 是从进程启动至读数时的工作集峰值，包含读档、场景准备和暖机，不是采样窗口内的峰值。Release 不可用的 Godot 静态内存或显存指标写 `unavailable`。报告的 `identity.memory_scope` 记录这个范围。
-
-SDFGI 情景必须在采样窗口观察到原点变化，跟随／TAA 情景必须观察到车辆运动；否则明确失败。专项在采样结束后保留连续实际绘制帧 PNG，SDFGI 额外等待下一次原点变化再采图。截图回读及 PNG 编码不计入帧统计。图像仅提供复核材料，GI 重建表现和拖影的视觉判断与数值报告分开。
-
-这些结果只对应阶段一小世界、开发机和当前占位内容。外部采样每秒记录总 CPU 占用与其他 Godot／dotnet 进程，不要求暂停同机任务；并发负载可能影响数值，不能作为可比性能基线。5 ms／8× 与尾部、内存、等待数值交用户阶段试玩确认；完整混合负载、目标实机和两项完整长测仍由后续阶段承担。
+使用 1920×1080 真实窗口。外部每秒记录总 CPU 占用及 Godot／dotnet 进程。正式测量用 [Linux runner](ci.md#linux-夜间运行)；开发机在协调者安排的安静窗口串行交替对照，记录电源与外部负载。OS 文件缓存和 Windows 驱动着色器缓存不清空；Linux 每轮隔离 `XDG_CACHE_HOME`，Mesa 着色器缓存初始为空。截图另跑，回读与 PNG 编码不作性能证据。
 
 ### 场景打开、离开节点与规模测量
 
@@ -167,7 +158,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
 | `scene-editor` | 地图稳态 5 秒并强制 GC 后，经蓝图库「复制到本局…」打开泰坦样机 `core:titan-armed-vehicle`，记录点击到会话就绪和首个 Ready 编辑帧绘制的时间、样机格数、部件数与编辑帧几何量；保持编辑器 30 秒采样帧时间与内存（`DurationSeconds` 可改为 1–120 秒）；再执行与 `Tests/Engine/TitanEditingTests.cs` 相同的编辑序列：样机内一块空长方体整块加入 5,000 格（确认），49 次单格删除凑满 50 步，连续撤销 50 步、重做 50 步，每步等新修订实际绘制后才做下一步，`editor-step` 记录调用耗时、调用到新修订绘制的时延、新修订首次 `session.Present` 耗时（含几何构建与帧差分，并非纯几何）、首个 Present 至首次提交的 process 帧数（两端包含，同帧提交为 1）与该帧区间的实际绘制最长帧（含 Present 阻塞帧）、行文本生成及 `ShowElements` 列表更新耗时；编辑器自身 `SceneDisplay` 的准备与提交耗时沿用 `scene-resource-frames.jsonl`，格数、步数或撤销重做结果不符时测量失败；最后经「退出」「放弃本次修改」回到地图，地图稳态 5 秒后再强制 GC |
 
-`-TrainId`、`-NodeId`（应用参数 `--measure-train`、`--measure-node`）只用于 `scene-*` 情景，分别替换上表的列车 1 和节点 2，线路仍为 11；跟随对象与地图点击相同，是该列车参考中心所在的车辆（见[设计 01](design/01-voxel-engine-and-scenes.md#跟随列车时的场景切换)）。目标列车不存在或编组为空、目标节点不存在时测量失败。参考运行按同样的目标打开，因此每个列车或节点目标各需一份参考。`ready-geometry` 的 `followed_train` 按成员记录已发布车体及其子对象的网格、顶点和三角形数；`active-load` 的列车状态带编组车辆数和位置。负载计数还记录战斗（地点和参战方数）、生物群（地点、活动、数量和存活数）及生物总数；打开记录在点击时（`load_at_click`）和观察结束时（`load`）各记一次，`scene-follow-8x` 在采样窗口开始和结束各写一条 `sample-load`。
+`-TrainId`、`-NodeId`（应用参数 `--measure-train`、`--measure-node`）分别替换上表的列车 1 和节点 2，线路仍为 11；跟随对象与地图点击相同，是该列车参考中心所在的车辆（见[设计 01](design/01-voxel-engine-and-scenes.md#跟随列车时的场景切换)）。目标列车不存在或编组为空、目标节点不存在时测量失败。参考运行按同样的目标打开，因此每个列车或节点目标各需一份参考。`ready-geometry` 的 `followed_train` 按成员记录已发布车体及其子对象的网格、顶点和三角形数；`active-load` 的列车状态带编组车辆数和位置。负载计数还记录战斗（地点和参战方数）、生物群（地点、活动、数量和存活数）及生物总数；打开记录在点击时（`load_at_click`）和观察结束时（`load`）各记一次，`scene-follow-8x` 在采样窗口开始和结束各写一条 `sample-load`。
 
 `Repeat` 控制每情景的新进程数量，默认是 3；`DurationSeconds=0` 使用情景默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短默认的 120 秒采样窗口。输入规模及测量、探针和判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
 
@@ -188,7 +179,9 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `scene-frames.jsonl`、`scene-operations.jsonl`、`scene-collections.jsonl`、`scene-probe-costs.jsonl` | 逐帧状态、打开操作、GC 和全过程探针耗时记录（含读档）；路径由报告 `identity.scene_budget` 引用 |
 | `scene-reference.json` | 仅参考情景生成的参考数据 |
 | `route-frames.jsonl`、`route-ranges.jsonl`、`route-analysis.json` | 整路逐帧轨迹、范围变化及离线覆盖结果；不能把未知或观察不足当作通过 |
-| `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
+| 截图 | 对应截图情景生成的画面 |
+
+场景内存写在 `scene-frames.jsonl`、操作记录及 `identity.scene_budget` 的稳态值中。设计 00「私有字节」在 Windows 上读取 `PrivateUsage`，峰值读取 `PeakPagefileUsage`；Linux 上读取 `/proc/self/status` 的 `RssAnon + VmSwap`（缺少 `VmSwap` 时为 0），私有峰值取 0.2 秒采样的最大值。所有场景共用这一处读法；两个平台的计数并非完全相同。工作集及峰值工作集分别使用 Windows 的 `WorkingSet`／`PeakWorkingSet` 和 Linux 的 `VmRSS`／`VmHWM`，单位都是字节。
 
 ### 流式宿主记录
 

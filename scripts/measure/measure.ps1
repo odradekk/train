@@ -4,12 +4,10 @@ param(
     [Parameter(Mandatory)][string] $ExecutablePath,
     [Parameter(Mandatory)][string] $InputPath,
     [Parameter(Mandatory)][string] $OutputDirectory,
-    [ValidateSet('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
-        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on', 'scene-node', 'scene-node-first',
+    [ValidateSet('scene-node', 'scene-node-first',
         'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-soak', 'scene-capture', 'scene-map', 'scene-reference', 'scene-editor',
         'scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x', 'scene-route-capture-1x', 'scene-route-capture-8x')]
-    [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
-        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
+    [string[]] $Scenario = @('scene-route-1x', 'scene-route-8x'),
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     [switch] $StreamingDiagnostics,
     [ValidateSet('default', 'farthest', 'default-low-orbit', 'farthest-low-orbit')][string[]] $RouteCamera = @('default'),
@@ -157,18 +155,13 @@ try {
     })
     foreach ($selection in $selections) {
         $name = $selection.scenario
-        $isScene = $name.StartsWith('scene-', [StringComparison]::Ordinal)
         $timeout = if ($name -eq 'scene-memory') {
             if ($DurationSeconds -eq 0) { 7800 } else { $DurationSeconds + 600 }
         } elseif ($name -eq 'scene-soak') {
             # 长测在到时后跑完当前一段（最长约 15 分钟），再加读档与退出余量。
             $(if ($DurationSeconds -eq 0) { 7200 } else { $DurationSeconds }) + 1800
         } elseif ($name.StartsWith('scene-route-', [StringComparison]::Ordinal)) { 3600 }
-        elseif ($isScene) { 600 } else {
-            # 实测采样外耗时最多 39.5 秒；总耗时取 1.5 倍并向上取整到 30 秒，不降低原有预算。
-            $sampleSeconds = if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }
-            [Math]::Max(180, [Math]::Ceiling(($sampleSeconds + 40) * 1.5 / 30) * 30)
-        }
+        else { 600 }
         for ($iteration = 1; $iteration -le $Repeat; $iteration++) {
             $runName = if ($StreamingDiagnostics -or $lowOrbit) { "$name-$($selection.camera)-$iteration" } else { "$name-$iteration" }
             $runDirectory = Join-Path $OutputDirectory $runName
@@ -212,7 +205,7 @@ try {
                 $arguments = @(
                     '--windowed', '--resolution', '1920x1080', '--log-file', (Join-Path $runDirectory 'godot.log'), '--',
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
-                if ($isScene -or $DurationSeconds -gt 0) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture))
                 if ($StreamingDiagnostics) { $arguments += '--measure-streaming' }
                 if ($StreamingDiagnostics -or $lowOrbit) { $arguments += @('--measure-route-camera', $selection.camera) }
                 if ($NodeReadyHold) { $arguments += '--measure-node-ready-hold' }
@@ -261,9 +254,9 @@ finally {
             display_wrapper = $wrapper
             scope = @{
                 final_performance = $false
-                warmup_seconds = 5; sample_seconds = $(if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }); repetitions = $Repeat
+                repetitions = $Repeat
                 scene_duration_seconds_argument = $DurationSeconds
-                scene_timing = '新 scene 情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
+                scene_timing = '情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
                 external_load = $(if ($IsWindows) { '每秒通过性能计数器记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。' }
                     else { '每秒记录 /proc/stat 总 CPU 占用、MemAvailable、最高温区温度、交流电状态及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载。' })
                 limitation = $(if ($Machine -eq 'test') { '用户 2026-10-22 指定的测试机器上的真实窗口测量；阈值待用户确认，不判定通过。' }

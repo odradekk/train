@@ -1,6 +1,6 @@
 # 测量辅助脚本
 
-游戏测量入口是 `measure.ps1`，导出入口是 `export-measurement.ps1`。它们的场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。本目录的辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，不需要 Pester 或额外包。
+游戏测量入口是 `measure.ps1`，导出入口是 `export-measurement.ps1`。`measure.ps1` 默认运行无需参考文件的 `scene-route-1x`、`scene-route-8x`；其余场景按需显式选择。它们的场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。本目录的辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，不需要 Pester 或额外包。
 
 ## 开发机交替对照
 
@@ -85,13 +85,10 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 | --- | --- | --- |
 | `timing.frame_seconds.{p50,p95,p99,maximum}` | 报告已有分布值 | 秒 |
 | `timing.simulation_seconds.{p50,p95,p99,maximum}` | 报告已有分布值 | 秒 |
-| `timing.{actual_speed,window_median_actual_speed,window_minimum_actual_speed}` | 报告已有倍速值 | 倍 |
+| `timing.actual_speed` | 报告已有倍速值 | 倍 |
 | `timing.elapsed_seconds` | 报告已有采样时长 | 秒 |
-| `memory.{working_set_bytes,private_bytes,peak_working_set_bytes,godot_static_bytes,video_memory_bytes}.final` | 最后一个内存样本 | 字节 |
-| 同上内存计数器的 `.peak` | 本轮所有内存样本的最大值 | 字节 |
-| `operations.<name>.duration_seconds` | 同名操作在本轮的时长中位数 | 秒 |
 
-再对上述每轮值计算跨轮中位数和范围，不拼接多轮原始帧。同名操作只要有一次失败或时长不可用，该轮这个操作就是未知；新增操作名自动参与汇总。内存 `peak` 需要全部样本有效；较早样本不可用不影响有效的末尾样本，末尾样本不可用时 `final` 为未知。这些内存值不表示节点稳态增量。
+再对上述每轮值计算跨轮中位数和范围，不拼接多轮原始帧。
 
 失败的运行、失败报告、缺失或截断的 JSON、非零退出、超时和清理未确认都作未知；报告旁必须有有效的 `process.json`。缺字段、`null`、`"unavailable"`、布尔值和非有限数也作未知，不补 0。JSON 中未知数值为 `null`，状态为 `unknown`；部分轮次未知时仍显示其余有效轮次的统计及未知数量。
 
