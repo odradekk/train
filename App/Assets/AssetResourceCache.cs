@@ -104,39 +104,38 @@ internal sealed class AssetResourceCache(GodotMainThreadDispatcher dispatcher) :
                 for (var surface = 0; surface < source.GetSurfaceCount(); surface++)
                 {
                     using var sourceArrays = source.GetSurfaceArrays(surface);
-                    using var arrays = sourceArrays.Duplicate();
-                    var vertices = arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
+                    var vertices = sourceArrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
                     for (var i = 0; i < vertices.Length; i++) vertices[i] = (transform * vertices[i]) * 2;
-                    arrays[(int)Godot.Mesh.ArrayType.Vertex] = vertices;
-                    if (arrays[(int)Godot.Mesh.ArrayType.Normal].VariantType != Variant.Type.Nil)
+                    Vector3[]? normals = null;
+                    if (sourceArrays[(int)Godot.Mesh.ArrayType.Normal].VariantType != Variant.Type.Nil)
                     {
-                        var normals = arrays[(int)Godot.Mesh.ArrayType.Normal].AsVector3Array();
+                        normals = sourceArrays[(int)Godot.Mesh.ArrayType.Normal].AsVector3Array();
                         for (var i = 0; i < normals.Length; i++) normals[i] = (normalBasis * normals[i]).Normalized();
-                        arrays[(int)Godot.Mesh.ArrayType.Normal] = normals;
                     }
-                    if (arrays[(int)Godot.Mesh.ArrayType.Tangent].VariantType != Variant.Type.Nil)
+                    float[]? tangents = null;
+                    if (sourceArrays[(int)Godot.Mesh.ArrayType.Tangent].VariantType != Variant.Type.Nil)
                     {
-                        var tangents = arrays[(int)Godot.Mesh.ArrayType.Tangent].AsFloat32Array();
+                        tangents = sourceArrays[(int)Godot.Mesh.ArrayType.Tangent].AsFloat32Array();
                         for (var i = 0; i < tangents.Length; i += 4)
                         {
                             var tangent = (transform.Basis * new Vector3(tangents[i], tangents[i + 1], tangents[i + 2])).Normalized();
                             tangents[i] = tangent.X; tangents[i + 1] = tangent.Y; tangents[i + 2] = tangent.Z;
                             if (mirrored) tangents[i + 3] = -tangents[i + 3];
                         }
-                        arrays[(int)Godot.Mesh.ArrayType.Tangent] = tangents;
                     }
                     var primitive = source.GetSurfacePrimitiveType(surface);
+                    int[]? indices = null;
                     if (mirrored && primitive is Godot.Mesh.PrimitiveType.Triangles or Godot.Mesh.PrimitiveType.TriangleStrip)
                     {
-                        var indices = arrays[(int)Godot.Mesh.ArrayType.Index].VariantType == Variant.Type.Nil
-                            ? Enumerable.Range(0, vertices.Length).ToArray() : arrays[(int)Godot.Mesh.ArrayType.Index].AsInt32Array();
+                        indices = sourceArrays[(int)Godot.Mesh.ArrayType.Index].VariantType == Variant.Type.Nil
+                            ? Enumerable.Range(0, vertices.Length).ToArray() : sourceArrays[(int)Godot.Mesh.ArrayType.Index].AsInt32Array();
                         if (primitive == Godot.Mesh.PrimitiveType.Triangles)
                             for (var i = 0; i < indices.Length; i += 3) (indices[i + 1], indices[i + 2]) = (indices[i + 2], indices[i + 1]);
                         // 首个退化三角形翻转 strip 后续的奇偶绕序，不改变可见几何。
                         else indices = [indices[0], .. indices];
-                        arrays[(int)Godot.Mesh.ArrayType.Index] = indices;
                     }
-                    mesh.AddSurfaceFromArrays(primitive, arrays);
+                    MeshSurfaces.Add(mesh, primitive, source: sourceArrays, vertices: vertices, normals: normals,
+                        tangents: tangents, indices: indices);
                     if (mesh.GetSurfaceCount() != surfaces.Count + 1)
                         throw new InvalidOperationException("模型网格表面创建失败。");
                     var material = input.Material(meshIndex, surface);
