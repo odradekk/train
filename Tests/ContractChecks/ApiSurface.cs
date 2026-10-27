@@ -93,8 +93,10 @@ internal static class ApiSurface
                             _ => default
                         };
                         if (type is not InterfaceDeclarationSyntax && !Visible(modifiers)) continue;
-                        var text = member is BaseMethodDeclarationSyntax methodNode && methodNode.Body is not null
-                            ? member.ToString()[..(methodNode.Body.SpanStart - member.SpanStart)]
+                        var body = member is BaseMethodDeclarationSyntax methodNode
+                            ? (SyntaxNode?)methodNode.Body ?? methodNode.ExpressionBody : null;
+                        var text = body is not null
+                            ? member.ToString()[..(body.SpanStart - member.SpanStart)]
                             : member.ToString();
                         lines.Add($"{owner}|member|{scope}|{Normalize(text)}");
                     }

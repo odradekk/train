@@ -176,6 +176,11 @@ public sealed class CliTests
                 "\npublic sealed class Implementation { public int Value => 1; }");
             File.WriteAllText(implementation, originalImplementation.Replace("int Value", "long Replacement", StringComparison.Ordinal));
             RequireSuccess(Check("verify", "baseline.txt"));
+            var constructingFactory = File.ReadAllText(factory).Replace("new object()", "new Implementation()", StringComparison.Ordinal);
+            File.WriteAllText(factory, constructingFactory);
+            RequireSuccess(Check("verify", "baseline.txt"));
+            File.WriteAllText(factory, constructingFactory.Replace("Implementation", "RenamedImplementation", StringComparison.Ordinal));
+            RequireSuccess(Check("verify", "baseline.txt"));
         }
         finally
         {

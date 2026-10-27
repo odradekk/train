@@ -92,7 +92,7 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 
 先按[受控变更流程](conventions.md#契约基线与受控变更)确认接口和行为变更，更新受影响文档、共享用例及调用样例，取得用户对整组新基线的确认。然后先在仓库根目录运行 `dotnet build Train.sln -c Debug` 构建契约程序集，再运行 `dotnet Tests/ContractChecks/bin/Debug/net10.0/Train.ContractChecks.dll snapshot . Debug docs/contracts/public-api.txt` 生成 `docs/contracts/public-api.txt`，逐项审查 diff，再运行 `pwsh -NoProfile -File scripts/test.ps1 -Layer integration`。`snapshot` 会直接覆盖文件，不能把生成成功当成用户确认。记录承载新基线的提交和 `git rev-parse <提交>:docs/contracts/public-api.txt` 返回的 blob 身份，并在 Issue 中保留确认与验证结果。
 
-当前提取器保留契约源码中的 `using` 指令，以及纳入基线的声明中的表达式体和初始值文本，因此这些文本变化也会产生差异；审查时需判断其是否改变可观察契约，不把所有差异自动视为签名变化。
+当前提取器不记录方法的块状方法体或表达式体；契约源码中的 `using` 指令、其他声明的表达式体和初始值文本仍保留，因此这些文本变化也会产生差异。审查时需判断其是否改变可观察契约，不把所有差异自动视为签名变化。
 
 ## 最小调用原型的验证矩阵
 
