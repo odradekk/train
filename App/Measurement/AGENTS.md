@@ -22,7 +22,7 @@
 - **先找再加。** 加场景前，先找测量同一个用户操作的场景，给它加负载，而不是另起一个。新场景要在决策笔记 `2026-10-26-performance-measurement-system` 里有目标；新目标要用户批准并更新笔记。
 - **写明计划。** 每个场景按 `measure-performance` 技能的字段写明计划，放在场景分部文件开头的说明里，包括反向验证时在哪里注入了开销。
 - **只共享真正共用的。** 支撑代码先放在用到它的场景旁边；第二个场景需要同样的行为时，再移到共用的支撑文件，两边都用它。
-- **测真实的东西。** 通过真实入口调用产品代码，测发布的构建。不为测量新增产品接口，不复制产品算法，功能断言留给功能测试。产品代码只能带这些不改变行为的观测钩子：`SceneDisplay` 的 `Measure`／`Observe`、`DesignEditorPanel.ElementsUpdated`、`EditorSceneController.FirstPresented`、`DeveloperInspector`。新增钩子要不改变行为，并经 reviewer 批准。
+- **测真实的东西。** 通过真实入口调用产品代码，测发布的构建。不为测量新增产品接口，不复制产品算法，功能断言留给功能测试。产品代码只能带这些不改变行为的观测钩子：`SceneDisplay` 的 `Measure`／`Observe`、`WorldSceneView.SdfgiEnabled`、`DesignEditorPanel.ElementsUpdated`、`EditorSceneController.FirstPresented`、`DeveloperInspector`。新增钩子要不改变行为，并经 reviewer 批准。
 - **数据。** 用户和生产数据不进夹具、日志或报告。已提交的示例存档（`examples/`）原样使用；规模点存档由已提交的 CLI 配方生成。不从网络或仓库外读文件。
 - **基线**放在 `scripts/measure/baselines/`，提交进仓库；两个导出预设都排除了 `scripts/**`，基线不会进入游戏导出包（#824 建立）。每份基线记录：提交号；工作树有没有未提交改动；内容版本（示例存档的提交号）；机器、电源模式和运行时的外部负载；Godot 和 .NET 版本；轮数、中位数和范围。忙碌时采到的基线重采，或标明。存下的基线用来看长期漂移；判断一次改动用改前改后交替运行。
 - **保持数字可比。** 改了场景测什么（负载、计时边界、完成点），新旧数字就不能比。这种改动和优化分开提交，同一改动里记录新基线，提交说明写明原因。

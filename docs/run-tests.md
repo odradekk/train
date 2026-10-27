@@ -129,7 +129,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 输入存档不变。每个场景通过生产 `--measure=<场景>` 入口运行，不使用测试 Bootstrap。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间，不丢弃卡顿帧。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。
 
-测量需要真实的 1920×1080 窗口。外部采样每秒记录总 CPU 占用与其他 Godot／dotnet 进程；正式对照在协调者安排的安静窗口内串行运行，并记录电源和外部负载。OS 文件缓存不清空；Linux 的隔离 `XDG_CACHE_HOME` 为每轮提供空 Mesa 着色器缓存，Windows 驱动着色器缓存不清空。截图场景独立运行，截图回读与 PNG 编码的开销不作性能证据。
+使用 1920×1080 真实窗口。外部每秒记录总 CPU 占用及 Godot／dotnet 进程。正式测量用 [Linux runner](ci.md#linux-夜间运行)；开发机在协调者安排的安静窗口串行交替对照，记录电源与外部负载。OS 文件缓存和 Windows 驱动着色器缓存不清空；Linux 每轮隔离 `XDG_CACHE_HOME`，Mesa 着色器缓存初始为空。截图另跑，回读与 PNG 编码不作性能证据。
 
 ### 场景打开、离开节点与规模测量
 

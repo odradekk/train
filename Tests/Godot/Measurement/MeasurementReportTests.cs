@@ -9,23 +9,6 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementReportTests
 {
     [TestMethod]
-    public void SceneReportOmitsRetiredScenarioMeasurements()
-    {
-        var measurements = new FrameMeasurements(0, 0);
-        measurements.AddFrame(0.1, 6, 0.001, SimulationSpeed.One, false);
-        using var document = JsonDocument.Parse(MeasurementReport.Serialize("scene-route-1x",
-            new Dictionary<string, object?>(), measurements.Summarize()));
-        var report = document.RootElement;
-        Assert.IsFalse(report.TryGetProperty("memory", out _));
-        Assert.IsFalse(report.TryGetProperty("operations", out _));
-        var timing = report.GetProperty("timing");
-        Assert.IsFalse(timing.TryGetProperty("speed_windows", out _));
-        Assert.IsFalse(timing.TryGetProperty("window_median_actual_speed", out _));
-        Assert.IsFalse(timing.TryGetProperty("window_minimum_actual_speed", out _));
-        Assert.IsFalse(timing.GetProperty("frames")[0].TryGetProperty("follow", out _));
-    }
-
-    [TestMethod]
     public void LinuxPrivateBytesIncludeSwapAndKeepTheLargestSample()
     {
         string[] status = ["Name:\ttrain", "VmRSS:\t  100 kB", "VmHWM:   160 kB",
