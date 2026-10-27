@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。体素定义和 manifest 的格式、`cargo` 并入 `storage`，由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。蓝图和设计对象的格式、设计包含名称和说明、嵌套不再单独要求贴着宿主，由[蓝图的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/265)于 2026-10-09 确认，格式写在 [docs/content/blueprint.md](../content/blueprint.md)。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见决策笔记 `2026-08-27-namespaced-identities-and-versioned-schema`、`2026-08-27-limit-mods-to-data-packages`、`2026-09-05-resolve-current-definitions-separate-versions`。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见决策笔记 `2026-10-09-content-project-and-split-by-reader`。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见决策笔记 `2026-10-09-nest-composites-by-copying-designs`。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`。体素定义和 manifest 的格式、`cargo` 并入 `storage`，由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。蓝图和设计对象的格式、设计包含名称和说明、嵌套不再单独要求贴着宿主，由[蓝图的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/265)于 2026-10-09 确认，格式写在 [docs/content/blueprint.md](../content/blueprint.md)。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
 
 ## 边界
 
@@ -22,7 +22,7 @@
 
 ### 体素定义
 
-- 带 `simulation` 一节的体素定义都是货物。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义（转录 Q176）。能入库的复合体，例如大型设备，也是货物，按构成哈希计数，见 [03 的复合体嵌套](03-vehicles-buildings-and-designs.md#复合体嵌套)（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。货物种类有三种：体素定义标识、功能复合体标识，或组装体（可编辑的大型设备，例如炮塔）的构成哈希。货物、库存、市场和贸易引用这三种标识（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。交易所需的内容投影依据 [19](19-markets-and-trading.md)，具体类型由核心与内容契约共同确定，不预设独立的 TradeMetadata 实现。
+- 带 `simulation` 一节的体素定义都是货物。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义（转录 Q176）。能入库的复合体，例如大型设备，也是货物，按构成哈希计数，见 [03 的复合体嵌套](03-vehicles-buildings-and-designs.md#复合体嵌套)（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，决策笔记 `2026-10-09-nest-composites-by-copying-designs`）。货物种类有三种：体素定义标识、功能复合体标识，或组装体（可编辑的大型设备，例如炮塔）的构成哈希。货物、库存、市场和贸易引用这三种标识（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。交易所需的内容投影依据 [19](19-markets-and-trading.md)，具体类型由核心与内容契约共同确定，不预设独立的 TradeMetadata 实现。
 - 定义文件按读取方分节，身份等共用字段写在顶层（[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)，2026-10-09）：
 
   | 节 | 读取方 | 字段 |
@@ -31,7 +31,7 @@
   | `appearance` | 体素引擎层与渲染层 | 允许朝向、允许形状、表现、碰撞 |
   | `display` | 界面 | 名称、说明、图标 |
 
-- 内容层读取各节，只把 `simulation` 一节和由它算出的数据交给核心模拟层，沿用 [ADR-0011](../adr/0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)。核心所需的输入类型归核心契约，由内容实现填充；核心不引用内容契约或实现，看不到其他各节，依赖规则见[契约索引](../contracts/README.md#依赖与装配)。各节的字段见[体素定义的格式](../content/voxel.md)。
+- 内容层读取各节，只把 `simulation` 一节和由它算出的数据交给核心模拟层，沿用决策笔记 `2026-10-09-content-project-and-split-by-reader`。核心所需的输入类型归核心契约，由内容实现填充；核心不引用内容契约或实现，看不到其他各节，依赖规则见[契约索引](../contracts/README.md#依赖与装配)。各节的字段见[体素定义的格式](../content/voxel.md)。
 - 允许朝向默认只有默认朝向，碰撞默认是整格方块；不放进设计的货物（例如矿石）不必填写这两项。表现必须填写；物品图标属于 `display` 一节，是单独绘制的一张图，只画物品本身，外框、底色、数量和状态由界面统一绘制，见[美术 07](../art/07-icons-and-ui.md#物品图标)。
 - 没有 `simulation` 一节的体素定义是场景体素，只供场景使用，例如地形和装饰。它们不是货物，核心模拟层看不到它们，不能库存、交易，也不能放进车辆、建筑和大型设备的设计；具体内容见 [01](01-voxel-engine-and-scenes.md#场景中的内容)。其余体素定义都是货物，可以库存和交易；设计中每放一格消耗一个单位的该货物，见 [14](14-construction-refit-and-deconstruction.md)。
 - **Value** 即术语表的基本货币价值：定义中的固定基础价值，不随世界经济变化，但可随内容更新改变，是市场计算实际价格的基础。例如 Ferrous Ore 的 Value = 100。
@@ -90,7 +90,7 @@
 
 - 有效来源：Built-in、Mod、用户内容库；读档后还有存档中的本局蓝图库。草稿不是有效内容来源。
 - 本局蓝图库和用户内容库只保存玩家在设计编辑器中保存的蓝图。体素定义、聚居地模板，以及场景模型、生物等不由玩家设计的蓝图，由创作模式写入数据包：开发时写入 `core`，Mod 作者写入自己的 Mod 包，见 [15](15-design-editor-and-tools.md#创作模式)。
-- 蓝图只是模板，不分版本，修改时覆盖。建造（包括委托）或世界生成时，从蓝图复制一份设计给实例，之后二者无关（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)，ADR-0012）；[现车买卖](19-markets-and-trading.md#现车交易与估值)转移既有实例，不重新复制蓝图。设计不可变，以设计哈希识别，即对设计全部内容（含名称、说明和涂装）的规范化编码计算的 SHA-256；存档内嵌实例、任务、委托和改装草稿用到的设计，相同内容只存一份；已有聚居地使用的聚居地模板同样内嵌，见 [09](09-persistence.md#存档中的内容)。所以玩家可以随时修改或删除库中的蓝图，不检查引用，见 [15](15-design-editor-and-tools.md#草稿与保存)。
+- 蓝图只是模板，不分版本，修改时覆盖。建造（包括委托）或世界生成时，从蓝图复制一份设计给实例，之后二者无关（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)，决策笔记 `2026-10-09-instance-designs-and-blueprint-templates`）；[现车买卖](19-markets-and-trading.md#现车交易与估值)转移既有实例，不重新复制蓝图。设计不可变，以设计哈希识别，即对设计全部内容（含名称、说明和涂装）的规范化编码计算的 SHA-256；存档内嵌实例、任务、委托和改装草稿用到的设计，相同内容只存一份；已有聚居地使用的聚居地模板同样内嵌，见 [09](09-persistence.md#存档中的内容)。所以玩家可以随时修改或删除库中的蓝图，不检查引用，见 [15](15-design-editor-and-tools.md#草稿与保存)。
 - 体素定义等外部引用依赖当前安装的内容，保存时不会暗中嵌入外部旧定义以兜底。
 
 ### 内容目录与格式
@@ -103,18 +103,18 @@
 | 本局蓝图库 | 存档的内嵌内容 |
 | 草稿（非有效来源） | 已明确保存的改装草稿和本局蓝图库草稿存在存档里；用户内容库蓝图和创作模式的草稿在 `user://authoring-drafts/`；未保存的编辑修改不自动入档，都不参与有效内容扫描 |
 
-目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`processes/`、`settlement-types/`、`settlement-templates/`、`markets/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`。首切片临时 `.market-table.json` 只保留为格式记录，Demo 改用 [19 的共用市场规则](19-markets-and-trading.md#一局共用的市场规则)，具体字段与新增规则目录见[市场规则格式](../content/market-rule.md)及内容定义标准。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
+当前结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录，例如：`voxels/`、`blueprints/`、`processes/`、`settlement-types/`、`settlement-templates/`、`rules/`。各类目录、字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`。首切片临时 `.market-table.json` 只保留为格式记录，Demo 改用 [19 的共用市场规则](19-markets-and-trading.md#一局共用的市场规则)，当前文件为 `rules/<local id>.market-rule.json`，字段见[市场规则格式](../content/market-rule.md)及内容定义标准。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
-定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下，一个文件可以写多份定义，将由实施工单改成目标结构：
+定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。一个文件只写一份定义。下表列出部分当前格式，其余种类及版本见[内容定义标准](../content/README.md)。
 
 | 定义类型 | 文件后缀 | `schema_version` |
 | --- | --- | --- |
-| 体素定义 | `.voxels.json` | 2 |
-| 蓝图 | `.composites.json` | 2 |
-| 市场表 | `.market-tables.json` | 1 |
-| 聚居地类型 | `.settlement-types.json` | 1 |
+| 体素定义 | `.voxel.json` | 3 |
+| 蓝图 | `.blueprint.json` | 3 |
+| 市场规则 | `.market-rule.json` | 2 |
+| 聚居地类型 | `.settlement-type.json` | 3 |
 
-- 聚居地模板、场景模型和生物蓝图的格式见[内容定义标准](../content/README.md)；新内容工厂已支持聚居地模板的基础布局、无嵌套的场景模型蓝图、生物蓝图和生物聚落类型；生物聚落类型见 [17](17-combat.md#生物聚落)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
+- 聚居地模板、场景模型和生物蓝图的格式见[内容定义标准](../content/README.md)；新内容工厂已支持聚居地模板的基础布局、场景模型蓝图、生物蓝图和生物聚落类型；生物聚落类型见 [17](17-combat.md#生物聚落)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；设计编辑器与创作模式见 [15](15-design-editor-and-tools.md)。
 
@@ -123,18 +123,18 @@
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:ferrous-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
 - 不同领域保持强类型 ID，例如体素定义标识和蓝图标识。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
 - Behavior 类型只能由游戏代码提供，内容只选类型、填参数，不能自带脚本；内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。内容里写了未知类型，整个包无效。Demo 的类型清单见 [03](03-vehicles-buildings-and-designs.md#behavior-组合)。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
-- ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。定义声明的 `id` 和定义之间的引用都直接校验原文，首尾空白无效；强类型 ID 构造器仍按其公开契约规范化输入。
+- 决策笔记 `2026-08-27-namespaced-identities-and-versioned-schema` 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。定义声明的 `id` 和定义之间的引用都直接校验原文，首尾空白无效；强类型 ID 构造器仍按其公开契约规范化输入。
 - 用户蓝图的身份是系统分配的 UUID，写在 `id` 里，不由显示名推导，也不要求用户填写命名空间。修改自己的蓝图时覆盖内容，身份不变；“复制为新蓝图”和在本局蓝图库、用户内容库之间复制都建立新身份。存档中的本局蓝图库按各存档隔离解析，另存为或导入不重编身份。
 
 ### Mod 与热加载
 
-- **内容包与依赖**（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：
+- **内容包与依赖**（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）：
   - 内容包是发布、启用和依赖的单位，内容定义是引用和热重载的单位，属于且只属于一个包。
   - 包在 manifest 里声明依赖：包的 UUID 和最低版本；`core` 默认依赖。定义本身不声明依赖：引用了其他包的定义，那个包必须写在依赖里，否则这个包无效。
   - 加载按依赖排序；处在依赖循环里的包都不加载。缺依赖、依赖版本太低或包内任何定义有错，整个包都不加载，依赖它的包也跟着不加载。
   - 本局蓝图库和用户内容库的蓝图记下保存时用到的包（UUID、名称、版本），只用于显示；缺依赖时显示为不可用并列出缺了哪些包，不删除，也不能建造。
   - 玩家构建在主菜单里启用或停用 Mod，下次读档时生效。定义改名用的迁移表放到 Demo 之后。
-- **第一阶段 Data Mod**：支持新增体素定义、蓝图、流程、聚居地类型、聚居地模板、人口/市场/施工/铁路/战斗规则、生物聚落类型、地貌和世界生成配置，修改自有定义的数值和资产，选用已有行为类型并填参数。格式、Schema、示例与投影已由[内容契约](../contracts/content.md)交付；加载器与模拟的接入仍待实施，不能直接套用临时市场表。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
+- **第一阶段 Data Mod**：支持新增体素定义、蓝图、流程、聚居地类型、聚居地模板、人口/市场/施工/铁路/战斗规则、生物聚落类型、地貌和世界生成配置，修改自有定义的数值和资产，选用已有行为类型并填参数。格式、Schema、示例与投影已由[内容契约](../contracts/content.md)交付；加载器与模拟的接入仍待实施，不能直接套用临时市场表。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（决策笔记 `2026-08-27-limit-mods-to-data-packages`）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
 - **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior 或引擎牵引力产生新的 Semantic Revision。修改 Texture、Mesh、Material 或 Sound 的文件字节更新相应的 Asset Revision；修改碰撞、资产绑定或纯表现配置不改变 Asset Revision。这两类有效变化都触发 Catalog 发布，不改变 Semantic Revision。蓝图更新不改变已有实例的设计。
 
@@ -152,7 +152,7 @@
 - 新加载的定义必须引用有效内容，非法 Mod 整包排除；内置内容出错则拒绝发布。排除后的候选内容仍必须自洽，不能留下未解析引用。
 - 必须基于候选当前定义校验全部受影响的运行中引用与状态适配，包括人口本期执行参数仍需使用的引用。原有效的必需定义变为缺失或无法解释旧状态时，拒绝整次热重载，保留原定义、Catalog Generation 和业务状态；不能发布部分更新或留下部分修正后的实例。已进入核心入口的拒绝仍消耗命令编号并录制，不能把业务不变解释成计数和记录也不变。
 - 已由读档确认的占位可原样保留或部分恢复，不要求一次补齐全部缺失；但不能让原有效的运行引用变成缺失，也不能借占位新增非法运行状态。缺 A、B 时仅补回 A 可发布，若同时移除原有效的 C 则整次拒绝。未使用蓝图和草稿的保存合法性与运行必需引用分开；候选包自身仍须自洽。
-- 读档遇到缺失的定义时，先列出缺失的包和定义，由玩家选择取消或继续。继续时缺失的东西用占位代替并保留原来的标识：设计里缺失的体素和功能复合体变成占位，没有能力、质量和价值，不计入结构耐久上限，也不受伤害；存档里它们的耐久记录按部件编号原样保留；库存里缺失的货物保留为缺失货物，不能使用和交易；其他缺失的定义同样保留标识、功能失效。存档时写回原来的标识，内容装回后恢复（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）。不回退到存档中的旧定义，也不删除状态。
+- 读档遇到缺失的定义时，先列出缺失的包和定义，由玩家选择取消或继续。继续时缺失的东西用占位代替并保留原来的标识：设计里缺失的体素和功能复合体变成占位，没有能力、质量和价值，不计入结构耐久上限，也不受伤害；存档里它们的耐久记录按部件编号原样保留；库存里缺失的货物保留为缺失货物，不能使用和交易；其他缺失的定义同样保留标识、功能失效。存档时写回原来的标识，内容装回后恢复（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）。不回退到存档中的旧定义，也不删除状态。
 - 全部校验与状态适配成功后再原子发布内容及相关实例更新。这替代 #31 曾确定的“保留旧 Revision 即可接受目录删除”规则。
 
 候选固定定义与资产字节，缺内容确认只针对该候选及缺失清单。准备、统一提交、取消、失败分类、资源退役及录制由[跨层协议](../contracts/transactions.md)规定。外部定义的核心输入身份改变才提交核心内容发布命令；保存蓝图不改变该身份，设计随建造、改装或立即应用命令进入核心并录制。纯表现更新只发布内容世代及观察记录，不改变核心检查点；有效内容完全不变则不发布。混合变更仍整体成功或失败，不由各模块各自切换。
@@ -163,13 +163,13 @@ Cube、CustomStaticMesh 与领域专用表现共存（[07](07-rendering.md#总�
 
 Cube 表现绑定顶面、侧面、底面三张 PNG，可选正面图，物品图标写在 `display` 一节，字段写法见[体素定义的格式](../content/voxel.md#presentation立方体)；另可声明平铺跨度 `tile_span`（1、2、4、8，默认 1）和表现材质类别 `material`（7 种，默认 `painted_metal`，取值见[美术 02](../art/02-materials-and-textures.md#材质类别)）。图标为正方形；顶面、侧面、底面为边长相同的 2 的幂正方形；正面图为 2 的幂正方形，尺寸可以与其他面不同。贴图方向与平铺坐标见 [07](07-rendering.md#cube-voxel-rendering)。这些字段都是表现配置，修改时只触发 Catalog 发布，不改变 Semantic Revision。由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)于 2026-10-09 确认。
 
-Demo 中 Cube 表现可以再声明 `shapes`，列出这种体素允许的形状，取自游戏内置的形状目录（含标准变体），不能为空、不能重复，默认只有立方体；它同样是表现配置。放置时由设计的每一格选其中一种，不选就用 `shapes` 的第一项；选了不在列表里的形状是校验错误。所有放置体素的布局（车辆、建筑、大型设备、场景模型、生物）都这样，自定义模型没有形状，格子也不能写形状。形状只是外观：不参与语义哈希，核心模拟层不读取，不影响货物身份、价值、质量、耐久、能力和 BOM，每一格仍算一件该货物，所以楔形的结构块和立方体的结构块是同一种货物。表现不提供缩放和剪切参数，模型按原尺寸使用；要不同大小，就用不同的标准变体或不同的体素定义。加载 CustomStaticMesh 时检查模型的包围盒，超出所在的格（允许极小的容差）就明确诊断并拒绝。由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)于 2026-10-09 确认；形状由放置时选择、不再写在定义上，由[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)（2026-10-10）确认。取舍见 [ADR-0018](../adr/0018-choose-voxel-shapes-per-placement-so-shapes-never-create-goods.md)。
+Demo 中 Cube 表现可以再声明 `shapes`，列出这种体素允许的形状，取自游戏内置的形状目录（含标准变体），不能为空、不能重复，默认只有立方体；它同样是表现配置。放置时由设计的每一格选其中一种，不选就用 `shapes` 的第一项；选了不在列表里的形状是校验错误。所有放置体素的布局（车辆、建筑、大型设备、场景模型、生物）都这样，自定义模型没有形状，格子也不能写形状。形状只是外观：不参与语义哈希，核心模拟层不读取，不影响货物身份、价值、质量、耐久、能力和 BOM，每一格仍算一件该货物，所以楔形的结构块和立方体的结构块是同一种货物。表现不提供缩放和剪切参数，模型按原尺寸使用；要不同大小，就用不同的标准变体或不同的体素定义。加载 CustomStaticMesh 时检查模型的包围盒，超出所在的格（允许极小的容差）就明确诊断并拒绝。由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)于 2026-10-09 确认；形状由放置时选择、不再写在定义上，由[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)（2026-10-10）确认。取舍见决策笔记 `2026-10-10-voxel-shapes-per-placement`。
 
 模型、材质等必需资产缺失、损坏或不支持，以及专用渲染绑定不存在或不适用，均须明确诊断。首次加载沿用上文内容包校验与候选自洽规则；热重载失败保留旧 Catalog、世界及有效表现，不部分发布，也不以静默替换 Cube 或隐藏对象冒充成功。合法纯表现变化采用 Asset Revision/表现绑定及 Catalog 发布机制，更新受影响视觉，不改变 Semantic Revision、碰撞、身份、铁路连接或模拟结果。场景未打开不妨碍内容有效性校验，再次构建场景时使用当前有效内容。
 
 ### 资产的交接
 
-以下规则由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)于 2026-10-10 确认，取舍见 [ADR-0017](../adr/0017-hand-off-presentation-assets-as-raw-bytes-keyed-by-asset-revision.md)，各模块的责任见[契约索引](../contracts/README.md#表现资产的交接)。
+以下规则由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)于 2026-10-10 确认，取舍见决策笔记 `2026-10-10-raw-asset-bytes-by-revision`，各模块的责任见[契约索引](../contracts/README.md#表现资产的交接)。
 
 - **身份**：Asset Revision 是各层引用资产的身份。内容层把定义里的资产路径解析成包和包内路径，读取文件字节并计算 Asset Revision；体素引擎层和 Godot 只按 Asset Revision 引用贴图和模型。相同字节只有一份运行资源，改文件名或几个定义共用一张图都不重复上传。路径只用于诊断，内容层提供从 Asset Revision 到来源（包和路径，可以有多个）的查询。
 - **原始字节**：内容层保存资产的原始字节，随发布的 Catalog 一起不可变。Godot 上传时取这份字节自己解码，不按路径重新读文件，所以画面用的始终是通过校验的那一份。
@@ -184,8 +184,8 @@ Demo 中 Cube 表现可以再声明 `shapes`，列出这种体素允许的形状
 
 ## Demo 之后
 
-Code Mod API、通用 Material System；跨包覆盖与 patch、加载顺序覆盖（ADR-0002）；定义改名用的迁移表（ADR-0015）。
+Code Mod API、通用 Material System；跨包覆盖与 patch、加载顺序覆盖（决策笔记 `2026-08-27-limit-mods-to-data-packages`）；定义改名用的迁移表（决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`）。
 
 ## 开放问题
 
-- [内容契约](../contracts/content.md)与[核心契约](../contracts/core.md)已明确规则格式、投影和金额边界；独立行为验证、生产代码迁移与正式内容制作仍待后续任务，不能以 Schema 或声明编译通过代替加载、模拟和完整 Demo 验收。
+- [内容契约](../contracts/content.md)与[核心契约](../contracts/core-values.md)已明确规则格式、投影和金额边界；独立行为验证、生产代码迁移与正式内容制作仍待后续任务，不能以 Schema 或声明编译通过代替加载、模拟和完整 Demo 验收。

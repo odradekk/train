@@ -53,7 +53,7 @@ public sealed class SettlementPrebuildTests
         var basis = (FixedCoreReadView)snapshot.Core;
         snapshot = snapshot with { Core = new FixedCoreReadView
         {
-            InputIdentity = basis.InputIdentity, Position = basis.Position,
+            InputIdentity = basis.InputIdentity, Position = basis.Position, Revision = new(basis.Position.CompletedSteps + basis.Position.Sequence),
             World = basis.World with { Nodes = basis.World.Nodes.Add(other) },
             Nodes = basis.World.Nodes.ToDictionary(item => item.Id, item => basis.FindNode(item.Id))
                 .Append(new(other.Id, new Lookup<NodeView>.Found(new(other, [], 80, 0, 80)))).ToDictionary(),
@@ -294,7 +294,7 @@ public sealed class SettlementPrebuildTests
             .Select(id => RailwayFixtures.Instance((ulong)id) with { Location = NodeFixtures.Location }));
         return snapshot with { Core = new FixedCoreReadView
         {
-            InputIdentity = basis.InputIdentity, Position = basis.Position,
+            InputIdentity = basis.InputIdentity, Position = basis.Position, Revision = new(basis.Position.CompletedSteps + basis.Position.Sequence),
             World = basis.World with { Nodes = [node], Edges = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) },

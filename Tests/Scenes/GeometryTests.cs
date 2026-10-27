@@ -85,11 +85,116 @@ public sealed class GeometryTests
     {
         var first = new SceneCell(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null,
             null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []));
-        ImmutableArray<SceneCell> cells = [first, first with { At = new(32, 0, 0) }, first with { At = new(1, 0, 0) }];
+        ImmutableArray<SceneCell> cells = [first, first with { At = new(32, 0, 0) }, first with { At = new(1, 0, 0) },
+            first with { At = new(0, 0, 15) }, first with { At = new(0, 0, 16) },
+            first with { At = new(-1, -1, -17) }, first with { At = new(-1, -1, -16) }];
         var grid = new VoxelGrid(cells);
         Assert.AreEqual(cells.Length, grid.Cells.Count());
         foreach (var cell in cells) Assert.AreEqual(cell, grid.Find(cell.At));
+        Assert.AreEqual(new SceneBounds(new(-1, -1, -17), new(33, 1, 17)), grid.Bounds);
         Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([.. cells, first]));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MultiChunkInputOrdersPreserveIncrementalCellValuesAndRejectDuplicates(bool interleaved)
+    {
+        var first = new SceneCell(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null,
+            null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []));
+        var grouped = Enumerable.Range(-12, 24).SelectMany(chunk => new[]
+        {
+            first with { At = new(chunk * 32, 0, 0) },
+            first with { At = new(chunk * 32 + 1, 0, 0) }
+        }).ToImmutableArray();
+        var cells = interleaved
+            ? grouped.Where((_, index) => index % 2 == 0).Concat(grouped.Where((_, index) => index % 2 != 0)).ToImmutableArray()
+            : grouped;
+        ImmutableArray<SceneCell> previousCells = [cells[0], cells[^1]];
+        var previous = new VoxelGrid(previousCells);
+        var grid = new VoxelGrid(cells, previous, out var changes);
+        var cold = new VoxelGrid(cells);
+        CollectionAssert.AreEquivalent(cells.Where(cell => !previousCells.Contains(cell)).Select(cell => cell.At).ToArray(),
+            changes.ToArray());
+        CollectionAssert.AreEqual(cold.Cells.ToArray(), grid.Cells.ToArray());
+        Assert.AreEqual(cold.Bounds, grid.Bounds);
+        foreach (var cell in cells) Assert.AreEqual(cold.Find(cell.At), grid.Find(cell.At));
+        Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([.. cells, cells[0]], previous, out _));
+        var oldCold = new VoxelGrid(previousCells);
+        CollectionAssert.AreEqual(oldCold.Cells.ToArray(), previous.Cells.ToArray());
+        Assert.AreEqual(oldCold.Bounds, previous.Bounds);
+        foreach (var cell in cells) Assert.AreEqual(oldCold.Find(cell.At), previous.Find(cell.At));
+    }
+
+    [TestMethod]
+    public void IncrementalGridsMatchColdValuesAcrossChunkAndPropertyChangesWithoutMutatingPreviousGrids()
+    {
+        var subject = new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(1));
+        SceneCell Cell(GridPosition at, PaintColor? paint = null, VoxelShape? shape = null,
+            PickSubject? picked = null, ImmutableArray<int> path = default) => new(at,
+                new(VoxelOrientation.PxPy, SceneFixtures.Cube, shape, paint, picked ?? subject,
+                    path.IsDefault ? [1] : path));
+
+        ImmutableArray<SceneCell> initial = [Cell(new(-33, -1, -17)), Cell(new(0, 0, 0)),
+            Cell(new(-32, -1, -16)), Cell(new(31, 0, 15)), Cell(new(1, 0, 16))];
+        (ImmutableArray<SceneCell> Cells, GridPosition[] Changes)[] steps =
+        [
+            // 全部属性重新分配，输入区块顺序也改变；按值仍未改动。
+            ([Cell(new(31, 0, 15)), Cell(new(1, 0, 16)), Cell(new(-33, -1, -17)),
+                Cell(new(-32, -1, -16)), Cell(new(0, 0, 0))], []),
+            // 删除整个负坐标区块，新增区块，并在已有区块内跨越半区边界。
+            ([Cell(new(64, 0, 0)), Cell(new(-32, -1, -16)), Cell(new(0, 0, 0)),
+                Cell(new(31, 0, 15)), Cell(new(1, 0, 15))],
+                [new(-33, -1, -17), new(64, 0, 0), new(1, 0, 16), new(1, 0, 15)]),
+            // 外观相同的 Path 和 Subject 改动也必须报告，并更新拾取结果。
+            ([Cell(new(64, 0, 0)), Cell(new(-32, -1, -16)), Cell(new(0, 0, 0), path: [2, 3]),
+                Cell(new(31, 0, 15), picked: new PickSubject.Terrain(new WorldLocation.Node(new(2)))),
+                Cell(new(1, 0, 15))], [new(0, 0, 0), new(31, 0, 15)]),
+            ([Cell(new(64, 0, 0), paint: new("#ff0000")), Cell(new(-32, -1, -16), shape: new("wedge")),
+                Cell(new(0, 0, 0), path: [2, 3]),
+                Cell(new(31, 0, 15), picked: new PickSubject.Terrain(new WorldLocation.Node(new(2)))),
+                Cell(new(1, 0, 15))], [new(64, 0, 0), new(-32, -1, -16)]),
+            // 同时收缩三个轴的边界。
+            ([Cell(new(0, 0, 0), path: [2, 3]), Cell(new(1, 0, 15))],
+                [new(64, 0, 0), new(-32, -1, -16), new(31, 0, 15)]),
+            ([], [new(0, 0, 0), new(1, 0, 15)]),
+            ([], []),
+            ([Cell(new(-1, -32, -33)), Cell(new(0, -32, -32))], [new(-1, -32, -33), new(0, -32, -32)])
+        ];
+        var probes = initial.Select(cell => cell.At).Concat(steps.SelectMany(step => step.Cells.Select(cell => cell.At)))
+            .Append(new(100, 100, 100)).Distinct().ToArray();
+        var grid = new VoxelGrid(initial);
+        var history = new List<(VoxelGrid Grid, VoxelGrid Cold)> { (grid, new(initial)) };
+        foreach (var step in steps)
+        {
+            grid = new VoxelGrid(step.Cells, grid, out var changes);
+            CollectionAssert.AreEquivalent(step.Changes, changes.ToArray());
+            history.Add((grid, new(step.Cells)));
+            foreach (var (actual, cold) in history) Equal(cold, actual);
+        }
+
+        Assert.AreEqual(new SceneBounds(new(0, 0, 0), new(2, 1, 16)), history[5].Grid.Bounds);
+        Assert.IsNull(history[6].Grid.Bounds);
+        var duplicate = Cell(new(-1, -32, -33));
+        Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([duplicate, duplicate], grid, out _));
+        foreach (var (actual, cold) in history) Equal(cold, actual);
+
+        void Equal(VoxelGrid expected, VoxelGrid actual)
+        {
+            CollectionAssert.AreEqual(expected.Cells.ToArray(), actual.Cells.ToArray());
+            Assert.AreEqual(expected.Bounds, actual.Bounds);
+            foreach (var at in probes)
+            {
+                Assert.AreEqual(expected.Find(at), actual.Find(at));
+                Assert.AreEqual(expected.Contains(at), actual.Contains(at));
+                foreach (var direction in new[] { Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ })
+                {
+                    var center = new Vector3(at.X + .5f, at.Y + .5f, at.Z + .5f);
+                    var ray = new SceneRay(center - direction * 2, direction, 4);
+                    Assert.AreEqual(expected.Pick(ray), actual.Pick(ray));
+                }
+            }
+        }
     }
 
     [TestMethod]

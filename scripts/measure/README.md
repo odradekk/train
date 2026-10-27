@@ -1,0 +1,143 @@
+# 测量辅助脚本
+
+游戏测量入口是 `measure.ps1`，导出入口是 `export-measurement.ps1`。`measure.ps1` 默认运行无需参考文件的 `scene-route-1x`、`scene-route-8x`；其余场景按需显式选择。它们的场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。本目录的辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，不需要 Pester 或额外包。
+
+## 开发机交替对照
+
+`compare-measurement.ps1` 用于 Windows 开发机上同一窗口里的快速对照，在协调者安排的安静窗口里运行。正式测量仍使用 Linux runner 的 `measure` workflow。
+
+准备两侧已有的 Release 导出，以及各自构建的 `scene-reference` 文件。只有需要参考的场景才传参考文件；对照入口不构建、不导出、不制作参考。示例：
+
+```powershell
+& ./scripts/measure/compare-measurement.ps1 `
+  -AExecutablePath <A构建>/train.exe -BExecutablePath <B构建>/train.exe `
+  -InputPath examples/basic-through/save.json -Scenario scene-follow-8x `
+  -AReferencePath <A参考>/scene-reference.json -BReferencePath <B参考>/scene-reference.json `
+  -OutputDirectory TestResults/comparison -Repeat 5 -DurationSeconds 30 `
+  -CpuMeanThresholdPercent 25 -CpuConsecutiveThresholdPercent 40
+python scripts/measure/summarize.py TestResults/comparison/A TestResults/comparison/B --output TestResults/comparison/result.json
+```
+
+输出目录须为新目录或空目录。`Repeat` 是每侧、每场景的计划轮数，默认 5；每个场景依次运行 A1、B1、A2、B2……，多个场景依参数顺序执行。两侧使用相同存档、场景和时长；`DurationSeconds=0` 沿用场景默认值。
+
+每次调用 `measure.ps1 -Repeat 1` 前，先观察完整 30 秒 CPU。均值不超过 `CpuMeanThresholdPercent`，且窗口内不存在任意相邻两次都严格超过 `CpuConsecutiveThresholdPercent` 的采样，才启动测量。默认门槛为 25% 和 40%；恰好等于门槛可通过。采样开头、结尾或相邻样本的缺口超过 2 秒，缺值、错误或无效值都使预检为 `unknown`。计数器的初始化读数不作空闲样本。
+
+预检为 `busy` 或 `unknown` 时，不启动该次测量，主序列结束后按原顺序补一次。补跑仍拒绝就保留未完成；已经启动但失败或超时的测量不补跑。任何计划项未完成，入口最终返回 1；全部完成返回 0，性能差值不决定退出码。参数或文件错误会直接失败。
+
+`comparison.json` 保留每次尝试、预检结果、启动与退出状态；每次尝试的 `precheck.json` 保留原始采样。`A/summary.json` 和 `B/summary.json` 使用 `measure.ps1` 的 `runs` 格式，每个计划项只保留最终尝试用于汇总；先前拒绝的记录仍在 `comparison.json` 中。补跑使用新目录，不覆盖原始证据。
+
+## 外部负载与常亮
+
+`measurement-host.ps1` 由三个 PowerShell 入口 dot-source 引入，集中维护常亮类型、负载采样和预检判定。
+
+Windows 每个采样进程只创建一次 `System.Diagnostics.PerformanceCounter`，使用英文名称：`Processor/% Processor Time/_Total`、`Memory/Available Bytes`、`Memory/Pages Input/sec`、`Memory/Page Reads/sec`。硬件身份的一次性 CIM 查询仍在 `measure.ps1`，不用于负载轮询。Linux 继续读取 `/proc/stat` 和 `/proc/meminfo`，记录温度、交流电状态。两者都记录 Godot、train 和 dotnet 进程的累计 CPU 秒及工作集。
+
+每秒向 `external-load.jsonl` 追加一条记录；单次采样失败时追加带 `error` 的记录并继续。第一次就失败也写 `sampler.ready`。采样进程无法启动或关闭时，`measure.ps1` 写 `sampler-errors.log`，不因此中止游戏测量。采样日志缺失不代表系统空闲，也不能当作性能可比的证据。
+
+在 Windows 单独保持显示器常亮：
+
+```powershell
+pwsh -NoProfile -File scripts/measure/keep-display.ps1 -Seconds 300
+```
+
+脚本使用与 `measure.ps1` 相同的专用线程持有显示请求，到时、异常和 Ctrl+C 都通过 `finally` 释放；不用全局键盘或鼠标操作。输出分别为 `display acquired seconds=300` 和 `display released`。
+
+手动验证不用管理员权限：在 PowerShell 中定义下面的只读查询，分别在持有前、持有期间和释放后调用 `Read-ExecutionState`；另一终端运行 `keep-display.ps1 -Seconds 8`。
+
+```powershell
+Add-Type -Namespace MeasurementValidation -Name Power -MemberDefinition @'
+[DllImport("powrprof.dll")]
+public static extern uint CallNtPowerInformation(int level, IntPtr input,
+    uint inputSize, out uint output, uint outputSize);
+'@
+function Read-ExecutionState {
+    [uint32] $state = 0
+    $status = [MeasurementValidation.Power]::CallNtPowerInformation(
+        16, [IntPtr]::Zero, 0, [ref] $state, 4)
+    if ($status -ne 0) { throw "CallNtPowerInformation failed: $status" }
+    '0x{0:X8}' -f $state
+}
+Read-ExecutionState
+```
+
+`16` 是 `SystemExecutionState`，结果中的 `0x2` 位是 `ES_DISPLAY_REQUIRED`。查询的是整机合并状态；其他进程也持有显示请求时，该位不会因本脚本结束而清除。没有其他显示请求时，预期输出为：
+
+```text
+持有前：0x00000001
+持有期间：0x00000003
+释放后：0x00000001
+```
+
+## 逐项性能判定
+
+每份 `report.json` 的 `assessment` 按[设计 00「本阶段性能目标」](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 保持“待验收”，`reason` 说明尚缺目标配置实机与完整覆盖，`source` 指向设计目标。各项 `items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，需要时附 `observed_seconds`。阈值数值由报告代码单处维护。
+
+`status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺少成对基线或观察截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 继续表示运行是否完成，原有 `timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
+
+路线场景的帧耗时 p95、p99、最大值只统计初始空间首个可操作时刻之后的帧。起点取 `identity.scene_budget.route.startup.first_operable_at`，与 `timing.frames[].elapsed_seconds` 共用起点；排除结束时刻小于或等于该时刻的帧，首个可操作帧本身的间隔仍属于打开过程。三项判定的 `window` 说明范围，`window_start_seconds` 记录相对 timing 起点的秒数，`excluded_frames` 记录排除的原始帧数。缺少可操作时刻或排除后没有帧时判为 `unknown`；缺少时刻时这两个字段为 null。
+
+只排除初始点击到可操作的打开段；可操作后的远处补齐和路线途中空间切换的帧照常计入。实际倍速仍用完整路线窗口。非路线场景沿用现有采样窗口，新字段为 null；其他判定项的新字段也为 null。`timing` 的逐帧数据、全窗分布和旁车记录保持完整，只有三项帧耗时判定使用筛选后的窗口。
+
+打开耗时按操作类别分别统计，p95 至少需要 30 次有效打开；最大值和补齐等待使用有效打开。补齐从首个可操作帧起，检查 5 秒内的 64 m 范围。`scene-memory` 的打开时延不作正式证据，不出这三项判定；打开记录仍提供节点稳态读数。每次节点打开按 `click` 配对同进程最近一次地图稳态：首次使用初始地图保持末 1 秒中位数，之后使用点击前最近的 `natural-map.memory`。存活堆使用返回地图后强制 GC 的读数减 `cycle 0` 初始读数。`scene-node`／`scene-node-first` 缺进入前基线时，增量为 `unknown`；整个游戏的稳态绝对值仍可判定。
+
+`scene-soak` 的打开判定和整个游戏稳态绝对值读取 `scene-operations.jsonl`，复用有效打开分组和稳态读数；帧耗时、8× 倍速和增长使用内嵌汇总。节点稳态增量和退出存活堆保持 `unknown`，不读帧和 GC 旁车，也不用峰值或重置堆替代。“两小时不得持续增长”尚未定义判定规则，即使斜率和时长齐全也为 `unknown`；报告保留已有斜率和实际时长，不把短测斜率外推成完整长测结论。
+
+## 离线汇总
+
+```powershell
+# 单侧多轮，也适用于 runner 的 scenarios 输出目录
+python scripts/measure/summarize.py <measure输出目录> --output <新汇总文件.json>
+# 两侧
+python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <新汇总文件.json>
+```
+
+脚本通过每个目录的 `summary.json.runs` 定位报告；`report` 必须是相对该目录的路径。绝对路径和解析后指向目录外的路径均为未知，原因分别为 `report_absolute_path` 和 `report_outside_directory`，不会读取这些文件。脚本不改原始 `report.json`、`process.json` 或 `summary.json`；汇总输出须为新文件。
+
+只按场景分组。调用者负责保证输入、构建设置和测量参数可比，不能把不同存档或不同时长的轮次混在同一个场景里作比较。每个指标报告 `valid_runs`、`unknown_runs`、`median`、`min`、`max` 和未知原因；两侧差值是 B 中位数减 A 中位数，百分比是差值除以 A 中位数再乘 100。A 为零时百分比未知。脚本只汇总下表的 `timing` 数值，不汇总 `assessment`，也不自动判断差值是否超过波动。
+
+| 指标 | 每轮取值 | 单位 |
+| --- | --- | --- |
+| `timing.frame_seconds.{p50,p95,p99,maximum}` | 报告已有分布值 | 秒 |
+| `timing.simulation_seconds.{p50,p95,p99,maximum}` | 报告已有分布值 | 秒 |
+| `timing.actual_speed` | 报告已有倍速值 | 倍 |
+| `timing.elapsed_seconds` | 报告已有采样时长 | 秒 |
+
+再对上述每轮值计算跨轮中位数和范围，不拼接多轮原始帧。
+
+失败的运行、失败报告、缺失或截断的 JSON、非零退出、超时和清理未确认都作未知；报告旁必须有有效的 `process.json`。缺字段、`null`、`"unavailable"`、布尔值和非有限数也作未知，不补 0。JSON 中未知数值为 `null`，状态为 `unknown`；部分轮次未知时仍显示其余有效轮次的统计及未知数量。
+
+## 测试与手动验证
+
+```powershell
+pwsh -NoProfile -File scripts/measure/tests/test-precheck.ps1
+pwsh -NoProfile -File scripts/measure/tests/test-run-outcome.ps1
+python -m unittest discover -s scripts/measure/tests -p "test_*.py" -v
+```
+
+测试不接入 CI。预检使用固定时间序列验证 30 秒覆盖、门槛边界、连续超限和缺失样本；汇总和运行判定测试使用临时目录里的真实 JSON 文件。运行判定覆盖包装器返回 0 而游戏异常退出、已完成报告之后的异常退出、游戏状态缺失和报告结束标记缺失，以及 Windows 原有条件。`test_game_process.py` 用受控子进程检查退出记录器的零退出、非零退出及信号终止；信号用例在 Windows 上跳过，Linux 上运行。编排通过真实游戏入口验证，不使用假游戏替身；记录器的子进程测试不证明 gamescope 的行为。
+
+Linux 测量需要 `gamescope` 和 `python3`。输出文件见[测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。
+
+不启动游戏的拒绝路径检查：沿用上面的单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。每次采样均有效且 CPU 均值大于零时，预期有 8 次预检（4 次主序列、4 次补跑）、全部 `measurement_started=false`，并返回 1。查看 `comparison.json` 确认每个计划项只有两次尝试。
+
+```text
+A/scene-follow-8x/1 attempt=1 precheck=busy started=False succeeded=False
+B/scene-follow-8x/1 attempt=1 precheck=busy started=False succeeded=False
+A/scene-follow-8x/2 attempt=1 precheck=busy started=False succeeded=False
+B/scene-follow-8x/2 attempt=1 precheck=busy started=False succeeded=False
+A/scene-follow-8x/1 attempt=2 precheck=busy started=False succeeded=False
+B/scene-follow-8x/1 attempt=2 precheck=busy started=False succeeded=False
+A/scene-follow-8x/2 attempt=2 precheck=busy started=False succeeded=False
+B/scene-follow-8x/2 attempt=2 precheck=busy started=False succeeded=False
+```
+
+完整冒烟在安静窗口里以同一导出作为 A 和 B，各跑两轮 `scene-follow-8x -DurationSeconds 2`，再汇总；检查顺序、报告、退出状态、负载日志和每侧有效轮数。预期成功输出如下：
+
+```text
+A/scene-follow-8x/1 attempt=1 precheck=passed started=True succeeded=True
+B/scene-follow-8x/1 attempt=1 precheck=passed started=True succeeded=True
+A/scene-follow-8x/2 attempt=1 precheck=passed started=True succeeded=True
+B/scene-follow-8x/2 attempt=1 precheck=passed started=True succeeded=True
+```
+
+汇总中两侧帧耗时 p50 都应为 `valid_runs: 2`、`unknown_runs: 0`；检查每轮的 `external-load.jsonl` 是否有有效计数。Linux 采样路径通过 runner 的 `measure` workflow 运行短场景验证，同样检查负载日志。这些冒烟验证编排和采样，不代表性能收益。

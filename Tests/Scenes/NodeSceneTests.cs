@@ -8,6 +8,7 @@ using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 
 namespace Train.Scenes.Tests;
 
@@ -333,7 +334,7 @@ public sealed class NodeSceneTests
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[1] with { Position = new(400.25, 400.125) });
         snapshot = snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Edges = [snapshot.Core.World.Edges[0]] },
             Nodes = snapshot.Core.World.Nodes.ToDictionary(node => node.Id, node => snapshot.Core.FindNode(node.Id)),
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) },
@@ -432,7 +433,7 @@ public sealed class NodeSceneTests
         var map = snapshot.Core.World.Nodes[0];
         snapshot = snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Edges = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = snapshot.Core.FindTrain(new(1)) },
@@ -469,7 +470,7 @@ public sealed class NodeSceneTests
         var map = snapshot.Core.World.Nodes[0] with { Occupant = new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile) };
         snapshot = snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Trains = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
@@ -492,9 +493,13 @@ public sealed class NodeSceneTests
         var founded = CopiedSettlement(1, terrain: false, train: train);
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
-        await using var session = Open(empty);
+        var observer = new RecordingStreamingObserver();
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(), observer: observer);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var before = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        var active = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Active);
+        Assert.AreEqual(active.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), before).Scene);
         session.Observe(founded, []);
         var held = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(new(1, null, SceneDebugLayer.None), before)).Value;
         Assert.AreEqual(before.NodePanBounds, held.NodePanBounds);
@@ -516,6 +521,16 @@ public sealed class NodeSceneTests
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch"));
+        var successor = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Successor);
+        Assert.AreNotEqual(active.Scene, successor.Scene);
+        Assert.AreEqual(successor.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), after).Scene);
+        Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Activated>()
+            .Any(value => value.Scene == successor.Scene));
+        await session.DisposeAsync();
+        var closed = observer.Snapshot().OfType<SceneStreamingEvent.Closed>().Select(value => value.Scene).ToArray();
+        Assert.IsTrue(closed.Contains(active.Scene));
+        Assert.IsTrue(closed.Contains(successor.Scene));
     }
 
     [TestMethod]
@@ -540,13 +555,19 @@ public sealed class NodeSceneTests
         session.Observe(founded, []);
         SceneFrame? swapped = null;
         var previous = displayed;
-        for (var attempt = 0; attempt < 40 && swapped is null; attempt++)
+        for (var attempt = 0; attempt < 256 && swapped is null; attempt++)
         {
             await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
             var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(
-                new(1, new(previous, aim), SceneDebugLayer.None), previous)).Value;
+                new(1, new(previous, aim, 1), SceneDebugLayer.None), previous)).Value;
             if (!SamePan(previous, next)) swapped = next;
-            else previous = next;
+            else
+            {
+                previous = next;
+                var successor = (NodeScene)typeof(WorldSceneSession).GetField("successor",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(session)!;
+                await SceneFixtures.AwaitPendingWork(successor.PendingFarWork);
+            }
         }
         Assert.IsNotNull(swapped);
         Assert.IsInstanceOfType<ScenePick.Hit>(swapped.Pick(new(aim, -Vector3.UnitY, 80)));
@@ -647,7 +668,7 @@ public sealed class NodeSceneTests
         {
             await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
             var request = aim is { } at
-                ? new SceneFrameRequest(1, new SceneCameraSample(displayed, at), SceneDebugLayer.None)
+                ? new SceneFrameRequest(1, new SceneCameraSample(displayed, at, 6656), SceneDebugLayer.None)
                 : new SceneFrameRequest(1, null, SceneDebugLayer.None);
             var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
             var stable = next.Readiness is not SceneReadiness.Loading && session.PendingNodeBuilds.Length == 0 &&
@@ -706,7 +727,7 @@ public sealed class NodeSceneTests
         {
             Core = new FixedCoreReadView
             {
-                Position = snapshot.Core.Position,
+                Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence),
                 InputIdentity = snapshot.Core.InputIdentity,
                 World = snapshot.Core.World with { Nodes = nodes },
                 Nodes = nodes.ToDictionary(item => item.Id, item => item.Id == neighbor.Id
@@ -767,7 +788,7 @@ public sealed class NodeSceneTests
         {
             Core = new FixedCoreReadView
             {
-                Position = snapshot.Core.Position,
+                Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence),
                 InputIdentity = snapshot.Core.InputIdentity,
                 World = snapshot.Core.World with { Edges = [kept] },
                 Nodes = snapshot.Core.World.Nodes.ToDictionary(item => item.Id, item => snapshot.Core.FindNode(item.Id)),
@@ -981,7 +1002,7 @@ public sealed class NodeSceneTests
     private static int ColumnHeight(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
         Dictionary<GridColumn, NodeScene.RailBed> bed, GridColumn column)
     {
-        var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
+        var raw = TerrainSurface.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
         if (bed.TryGetValue(column, out var rail))
         {
             var blend = Math.Clamp((rail.Distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
@@ -1080,7 +1101,7 @@ public sealed class NodeSceneTests
         }
         return snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Edges = [], Trains = trains },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
             Instances = instances,
@@ -1095,7 +1116,7 @@ public sealed class NodeSceneTests
         var map = snapshot.Core.World.Nodes[0];
         return snapshot with { Core = new FixedCoreReadView
         {
-            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            Position = snapshot.Core.Position, Revision = new(snapshot.Core.Position.CompletedSteps + snapshot.Core.Position.Sequence), InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Edges = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) }
         } };

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Pre-push hook: rejects outgoing commits that still credit an AI tool.
+# Installed by the setup-agent-workflow skill. On Windows, python3 may be a store
+# stub that fails, so try each name and use the first Python 3.10 or later.
+for python in python3 python; do
+  if "$python" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+    exec "$python" .agents/scripts/strip_attribution.py --pre-push
+  fi
+done
+echo "pre-push: the attribution check needs Python 3.10 or later on PATH" >&2
+exit 1

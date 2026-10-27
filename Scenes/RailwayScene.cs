@@ -9,7 +9,7 @@ namespace Train.Scenes;
 internal sealed class RailwayScene : IAsyncDisposable
 {
     private sealed record ConnectedSegment(RailwaySegment Source, RenderedDesign Geometry, ImmutableArray<SceneBounds> Footprint);
-    private sealed record SegmentWork(Task<RailwaySegment> Task, CancellationTokenSource Cancellation);
+    private sealed record SegmentWork(Task<RailwaySegment> Task, CancellationTokenSource Cancellation, SceneStreamingAttemptId? Attempt);
     private sealed record MemberPlacement(InstanceId Id, InstanceView Instance,
         ContentLookup<DesignEvaluation> Design, int? Length, double CenterArc, double TrackArc);
     private sealed record TrainPlacement(TrainView Train, bool Positive, double Offset,
@@ -45,25 +45,44 @@ internal sealed class RailwayScene : IAsyncDisposable
     private SceneProblem? failure;
     private bool waitingSegments;
     private bool fogDirty = true;
+    private FarTerrainView? fogFarView;
     private ImmutableArray<SceneFog> segmentFog = [];
     private ImmutableArray<SceneFog> translatedFog = [];
     private ScenePoint? fogOrigin;
     private readonly DisplayRate displayRate;
+    private readonly FarTerrain farTerrain;
+    private readonly FarTerrainWorker farBuilds;
+    private double terrainViewRadiusCells;
+    private ScenePoint? terrainFocus;
+    private (int Minimum, int Maximum) fogRange;
+    internal SceneStreamingScope? Streaming { get; }
+    private RailwayStreamingCoverage? streamingCoverage;
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
     internal bool Failed => failure is not null;
+    internal bool Ready { get; private set; }
     internal bool HasPendingBuilds => waitingSegments || PendingWork.Any(task => !task.IsCompleted) || vehicles.HasPendingBuilds;
     internal Task[] PendingWork => pendingSegments.Values.Select(item => (Task)item.Task).Concat(vehicles.PendingWork)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
+    internal Task[] PendingFarWork => farBuilds.PendingWork is { IsCompleted: false } work ? [work] : [];
+    internal bool HasPendingCoarseTerrain => terrainViewRadiusCells > 0 && farTerrain.HasPendingCoarse;
+    internal void SetTerrainViewRadius(double radius) { if (radius > 0) terrainViewRadiusCells = radius; }
+    internal void SetFineTerrainBuildAllowed(bool allowed) => farTerrain.SetFineBuildAllowed(allowed);
+    internal void SetFarBuildAllowed(bool allowed) => farBuilds.SetEnabled(allowed);
+
 
     internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
         Func<string, SceneObjectId?> findId,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
-        PresentationState? presentation = null)
+        PresentationState? presentation = null, SceneStreamingScope? streaming = null,
+        FarTerrain.Cache? farCache = null, FarTerrainPermission? farPermission = null)
     {
+        Streaming = streaming;
         this.cache = cache;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
+        farTerrain = new(farCache ?? new());
+        farBuilds = new(farTerrain.Advance, permission: farPermission);
         Edge = edge;
         owner = cache.OpenSession(edge);
         this.objectId = objectId;
@@ -79,9 +98,12 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         if (path is null)
+        {
+            Streaming?.Frame(stamp, [], null);
             return new(stamp, switchedOrigin ?? default, seconds, failure is null ? SceneReadiness.Loading : SceneReadiness.Failed,
                 [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed,
                 debugLayers: request.DebugLayers, pickRay: request.PickRay);
+        }
 
         RefreshPath(snapshot);
         var trains = PlaceTrains(snapshot, start, request.Interpolation);
@@ -94,6 +116,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         if (target is not WorldSceneTarget.Follow && hasSameSpaceCamera)
             focal = path.Locate(RailwayCoordinates.Add(camera!.Frame.Origin, camera.Focus));
         var focus = path.Sample(focal).Position;
+        terrainFocus = hasSameSpaceCamera ? RailwayCoordinates.Add(camera!.Frame.Origin, camera.Focus) : focus;
         var origin = focus;
         if (target is WorldSceneTarget.Follow || hasSameSpaceCamera)
         {
@@ -121,10 +144,12 @@ internal sealed class RailwayScene : IAsyncDisposable
         var waiting = false;
         try { waiting = RenderTrains(snapshot, trains, origin, frame, seconds); }
         catch (RailwayBuildException error) { Fail(error); }
+        var farView = farTerrain.View;
+        frame.Objects.AddRange(farTerrain.Objects(origin, objectId, farView));
         if (failure is not null) frame.Problems.Add(failure);
         RetireCompletedWork();
         var radius = RailwayCoordinates.ViewRadiusSegments;
-        var ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
+        Ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
             Math.Max(0, middle - radius) + 1).All(segments.ContainsKey) && !waiting;
         var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
         var terrainKeys = new HashSet<string>();
@@ -137,11 +162,18 @@ internal sealed class RailwayScene : IAsyncDisposable
         }
         terrainPatches.Retain(terrainKeys);
         var effects = Effects(snapshot, frame.Objects, seconds, origin, segments.Count > 0 && failure is null);
+        if (Streaming is { } streaming)
+        {
+            if (streamingCoverage is null || !ReferenceEquals(streamingCoverage.Path, path))
+                streamingCoverage = new(path, streaming.Id);
+            streaming.Frame(stamp, segments.Keys.Select(index => streaming.PartId(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index))),
+                streamingCoverage.At(origin));
+        }
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
-            ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
+            Ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
             segments.Values.Select(item => item.Source).ToImmutableArray(), debugLayers: request.DebugLayers, pickRay: request.PickRay,
-            effects: effects, terrain: terrain.DrainToImmutable());
+            effects: effects, terrain: terrain.DrainToImmutable(), farTerrain: farView);
     }
 
     internal void Pump(SceneWorldSnapshot snapshot, WorldLocation.Edge location, bool allowBuild = true)
@@ -149,6 +181,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         if (path is null) return;
         RefreshPath(snapshot);
         var focal = location.DistanceMeters * RailwayCoordinates.CellsPerMeter;
+        terrainFocus = path.Sample(focal).Position;
         ScheduleSegments(snapshot, focal, null, allowBuild);
         RetireCompletedWork();
     }
@@ -157,8 +190,30 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         var middle = Math.Clamp((int)(focal / RailwayCoordinates.SegmentLengthCells), 0, path!.SegmentCount - 1);
         var (minimum, maximum) = NeededRange(middle, followed);
-        ReconcileSegments(snapshot, middle, minimum, maximum, followed, allowBuild);
+        ReconcileSegments(snapshot, focal, middle, minimum, maximum, followed, allowBuild);
+        PumpFar(snapshot, focal, followed, allowBuild, minimum, maximum);
         return middle;
+    }
+
+    private void PumpFar(SceneWorldSnapshot snapshot, double focal, TrainView? followed,
+        bool allowBuild, int minimum, int maximum)
+    {
+        if (terrainViewRadiusCells > 0)
+        {
+            farTerrain.BindRailway(snapshot, path!);
+            var direction = followed?.Position is TrainPosition.Edge { Direction: TravelDirection.Reverse } ? -1 : 1;
+            var ahead = Math.Clamp(focal + direction * PrefetchSegments(followed?.SpeedMetersPerSecond ?? 0,
+                displayRate.Value) * RailwayCoordinates.SegmentLengthCells, 0, path!.LengthCells);
+            var sweep = followed is null ? null : path.Bounds(Math.Min(focal, ahead), Math.Max(focal, ahead), default, 0);
+            var focus = terrainFocus ?? path.Sample(focal).Position;
+            if (farTerrain.Demand(focus, terrainViewRadiusCells,
+                ahead: sweep is null ? null : [new(sweep.Minimum.X, 0, sweep.Minimum.Z), new(sweep.Maximum.X, 0, sweep.Maximum.Z)])) fogDirty = true;
+        }
+        var waitingL0 = Enumerable.Range(minimum, maximum - minimum + 1).Any(index =>
+            (!segments.ContainsKey(index) || staleSegments.Contains(index)) && !pendingSegments.ContainsKey(index));
+        var occupied = pendingSegments.Values.Count(work => !work.Task.IsCompleted) + retiredSegments.Count(work => !work.Task.IsCompleted);
+        farBuilds.Pump(occupied, !waitingL0 && allowBuild && failure is null && farTerrain.HasRunnableWork);
+        if (farBuilds.Failure is { } error) Fail(new RailwayBuildException(error.Message));
     }
 
     private void RefreshPath(SceneWorldSnapshot snapshot)
@@ -175,7 +230,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (!pair.Value.Source.Dependencies.Matches(snapshot, path, pair.Key)) staleSegments.Add(pair.Key);
     }
 
-    private static ImmutableArray<(ulong Job, int Track, ulong Break)> RepairIdentity(EdgeMapItem edge) =>
+    internal static ImmutableArray<(ulong Job, int Track, ulong Break)> RepairIdentity(EdgeMapItem edge) =>
         edge.Works.Where(RailwayCoordinates.IsBreakRepair)
             .OrderBy(work => work.Id.Value)
             .Select(work => (work.Id.Value, work.Track, work.RepairingBreak!.Value.Value))
@@ -206,14 +261,18 @@ internal sealed class RailwayScene : IAsyncDisposable
             ? new(position.Direction == TravelDirection.Forward ? edge.End : edge.Start) : null;
     }
 
-    private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
+    private void ReconcileSegments(SceneWorldSnapshot snapshot, double focal, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
     {
+        farBuilds.Pause();
+        if (fogRange != (minimum, maximum)) { fogRange = (minimum, maximum); fogDirty = true; }
+        Streaming?.Demand(SceneStreamingPartKind.RailwaySegment, Enumerable.Range(minimum, maximum - minimum + 1).Select(RailwayStreamingCoverage.SegmentKey));
         var (retainMinimum, retainMaximum) = NeededRange(middle, followed,
             followed is null ? 0 : RailwayCoordinates.MaxPrefetchSegments);
         foreach (var index in pendingSegments.Keys.Where(index => index < retainMinimum || index > retainMaximum).ToArray())
         {
             var work = pendingSegments[index];
             work.Cancellation.Cancel();
+            if (work.Attempt is { } cancelled) Streaming?.Cancel(cancelled);
             retiredSegments.Add(work);
             pendingSegments.Remove(index);
         }
@@ -225,7 +284,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             try
             {
                 var result = pair.Value.Task.GetAwaiter().GetResult();
-                if (result.Dependencies.Matches(snapshot, path!, result.Index)) Connect(result);
+                if (result.Dependencies.Matches(snapshot, path!, result.Index)) Connect(result, pair.Value.Attempt);
+                else if (pair.Value.Attempt is { } rejected) Streaming?.Cancel(rejected);
             }
             catch (RailwayBuildException error) { Fail(error); }
             catch (OperationCanceledException) { }
@@ -235,19 +295,29 @@ internal sealed class RailwayScene : IAsyncDisposable
         {
             if (segments.ContainsKey(index) && !staleSegments.Contains(index)) continue;
             if (pendingSegments.ContainsKey(index)) continue;
-            if (cache.Find(snapshot, path!, index) is { } cached) Connect(cached);
-            else if (allowBuild && failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
+            if (cache.Find(snapshot, path!, index) is { } cached)
+            {
+                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index));
+                if (attempt is { } hit) Streaming?.CacheHit(hit);
+                Connect(cached, attempt);
+            }
+            else if (allowBuild && failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) +
+                farBuilds.RunningCount < RailwayCoordinates.MaxConcurrentBuilds)
             {
                 var currentPath = path!;
                 var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-                pendingSegments.Add(index, new(Task.Run(() => build(snapshot, currentPath, index, stop.Token), stop.Token), stop));
+                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index));
+                if (attempt is { } queued) Streaming?.Queue(queued);
+                pendingSegments.Add(index, new(Task.Run(() => attempt is { } captured
+                    ? Streaming!.Build(captured, () => build(snapshot, currentPath, index, stop.Token))
+                    : build(snapshot, currentPath, index, stop.Token), stop.Token), stop, attempt));
             }
         }
         waitingSegments = Enumerable.Range(minimum, maximum - minimum + 1).Any(index => !segments.ContainsKey(index));
         cache.Publish(Edge, owner, segments.Values.Select(item => item.Source));
     }
 
-    private void Connect(RailwaySegment segment)
+    private void Connect(RailwaySegment segment, SceneStreamingAttemptId? attempt)
     {
         staleSegments.Remove(segment.Index);
         var keys = segment.Geometry.Objects.ToImmutableDictionary(item => item.Id, item => item.Id.Value.ToString());
@@ -261,11 +331,15 @@ internal sealed class RailwayScene : IAsyncDisposable
             .AddRange(RailwayMeshes.Footprint(arc => path.Sample(arc), start, end, path.Edge.Tracks, -128, 128));
         segments[segment.Index] = new(segment, WorldSceneSession.Attach(new(segment.Geometry, keys),
             "segment:" + segment.Index + ":", objectId).Geometry, footprint);
+        if (Streaming is { } streaming && attempt is { } admitted)
+            streaming.Admit(admitted, segments[segment.Index].Geometry.Objects.Select(item => item.Id).ToImmutableArray());
         fogDirty = true;
     }
 
     private void RenderSegments(ScenePoint origin, FrameContents frame)
     {
+        var farView = farTerrain.View;
+        if (!ReferenceEquals(fogFarView, farView)) { fogDirty = true; fogFarView = farView; }
         foreach (var pair in segments.OrderBy(item => item.Key))
         {
             var item = pair.Value;
@@ -275,22 +349,37 @@ internal sealed class RailwayScene : IAsyncDisposable
         {
             var fog = ImmutableArray.CreateBuilder<SceneFog>();
             var footprint = segments.Values.SelectMany(segment => segment.Footprint).ToArray();
-            var end = 0d;
-            foreach (var index in segments.Keys.Order())
+            var end = fogRange.Minimum * RailwayCoordinates.SegmentLengthCells;
+            var finish = Math.Min(path!.LengthCells, (fogRange.Maximum + 1) * RailwayCoordinates.SegmentLengthCells);
+            foreach (var index in segments.Keys.Where(index => index >= fogRange.Minimum && index <= fogRange.Maximum).Order())
             {
                 var start = index * RailwayCoordinates.SegmentLengthCells;
                 if (start > end) AddFog(end, start);
                 end = Math.Min(path!.LengthCells, (index + 1) * RailwayCoordinates.SegmentLengthCells);
             }
-            if (end < path!.LengthCells) AddFog(end, path.LengthCells);
+            if (end < finish) AddFog(end, finish);
+            for (var index = 0; index < path.SegmentCount; index++)
+            {
+                if (index >= fogRange.Minimum && index <= fogRange.Maximum || segments.ContainsKey(index)) continue;
+                var begin = index * RailwayCoordinates.SegmentLengthCells;
+                var endOfSegment = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
+                var area = path.Bounds(begin, endOfSegment, default, RailwayCoordinates.FogHalfWidth(path.Edge.Tracks));
+                if (terrainViewRadiusCells > 0 && !farTerrain.IntersectsDemand(area)) continue;
+                AddFog(begin, endOfSegment, allowFar: true);
+            }
             segmentFog = fog.ToImmutable();
             fogDirty = false;
             fogOrigin = null;
 
-            void AddFog(double begin, double finish)
+            void AddFog(double begin, double finish, bool allowFar = false)
             {
+                if (finish <= begin) return;
                 var width = RailwayCoordinates.FogHalfWidth(path!.Edge.Tracks);
-                foreach (var bounds in ConstructionFog.Clip([path.Bounds(begin, finish, default, width)], footprint))
+                var area = path.Bounds(begin, finish, default, width);
+                var cutters = allowFar ? footprint.Concat(farView.Coverage(area)) : footprint;
+                foreach (var bounds in ConstructionFog.Clip([area], cutters.Where(box =>
+                    box.Minimum.X < area.Maximum.X && box.Maximum.X > area.Minimum.X &&
+                    box.Minimum.Z < area.Maximum.Z && box.Maximum.Z > area.Minimum.Z)))
                     fog.Add(new(bounds, new(begin, finish, width)));
             }
         }
@@ -408,9 +497,12 @@ internal sealed class RailwayScene : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         cancellation.Cancel();
-        try { await Task.WhenAll(pendingSegments.Values.Concat(retiredSegments).Select(work => work.Task)); }
+        var closingFar = farBuilds.DisposeAsync().AsTask();
+        Streaming?.CancelPending();
+        try { await Task.WhenAll(pendingSegments.Values.Concat(retiredSegments).Select(work => work.Task).Append(closingFar)); }
         catch (Exception) { /* Closing observes owned build failures; they cannot publish after cancellation. */ }
         foreach (var work in pendingSegments.Values.Concat(retiredSegments)) work.Cancellation.Dispose();
         cancellation.Dispose();
+        Streaming?.Close();
     }
 }

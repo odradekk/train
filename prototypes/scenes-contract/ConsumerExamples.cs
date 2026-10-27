@@ -1,10 +1,37 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Numerics;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.ContractSamples;
+
+public sealed class StreamingConsumer : ISceneStreamingObserver
+{
+    private readonly ConcurrentQueue<(long Timestamp, SceneStreamingEvent Event)> events = new();
+
+    public void OnEvent(SceneStreamingEvent value)
+    {
+        var timestamp = Stopwatch.GetTimestamp();
+        events.Enqueue((timestamp, value));
+    }
+
+    public void Drain(Action<long, SceneStreamingEvent> consume)
+    {
+        while (events.TryDequeue(out var value))
+            consume(value.Timestamp, value.Event);
+    }
+
+    public static ImmutableArray<SceneStreamingPartId>? FindTerrainParts(
+        SceneStreamingEvent.Frame streamed, ISceneFrame displayedFrame, double x, double z)
+    {
+        if (streamed.Stamp != displayedFrame.Update.Frame)
+            throw new ArgumentException("覆盖查询必须对应实际提交帧。", nameof(streamed));
+        return streamed.Coverage?.FindTerrainParts(x, z);
+    }
+}
 
 public interface ISceneDisplay
 {
@@ -70,6 +97,7 @@ public sealed class TemplateConsumer(IScenesFactory factory, ISceneDisplay displ
 public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay display) : IAsyncDisposable
 {
     private ISceneFrame? displayedFrame;
+    private SceneFrameStamp? preparedStamp;
     private ScenePickRaySample? pickRay;
 
     public static SceneResult<IWorldSceneSession> Open(IScenesFactory factory,
@@ -106,7 +134,7 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
             return new SceneResult<ISceneFrame>.Failure(failure.Problems);
         if (observed is SceneResult<SimulationPosition>.Faulted faulted)
             return new SceneResult<ISceneFrame>.Faulted(faulted.Problem);
-        var camera = displayedFrame is null ? null : new SceneCameraSample(displayedFrame, cameraFocus);
+        var camera = displayedFrame is null ? null : new SceneCameraSample(displayedFrame, cameraFocus, 6656);
         var request = new SceneFrameRequest(interpolation, camera, debugLayers, pickRay);
         var presented = session.Present(request, displayedFrame);
         if (presented is SceneResult<ISceneFrame>.Success candidate
@@ -124,6 +152,28 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
             displayedFrame = success.Value;
         }
         return presented;
+    }
+
+    public SceneResult<SceneUpdate?> PrepareCandidate(Action<SceneVisual> prepareVisual)
+    {
+        var result = session.PresentCandidate(preparedStamp);
+        if (result is SceneResult<SceneUpdate?>.Success { Value.Base: { } basis } && basis != preparedStamp)
+            result = session.PresentCandidate(null);
+        if (result is not SceneResult<SceneUpdate?>.Success success)
+        {
+            preparedStamp = null;
+            return result;
+        }
+        if (success.Value is not { } update)
+        {
+            preparedStamp = null;
+            return result;
+        }
+        // 只准备候选视觉；回执不替代已接入的 displayedFrame，也不调用显示入口。
+        foreach (var item in update.Upserts)
+        foreach (var visual in item.Visuals) prepareVisual(visual);
+        preparedStamp = update.Frame;
+        return result;
     }
 
     public SceneResult<PickSubject>? PickCurrent(SceneRay ray, Action<ScenePick> showPick)

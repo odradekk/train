@@ -12,6 +12,36 @@ public sealed class SceneVehiclePoolTests
     private static SceneObjectId Id(string _) => new(1);
 
     [TestMethod]
+    public async Task Completed_build_revision_advances_while_another_instance_is_still_pending()
+    {
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var first = RailwayFixtures.Instance();
+        var second = first with { Id = new InstanceId.Vehicle(new(2)) };
+        using var releaseFirst = new ManualResetEventSlim();
+        using var releaseSecond = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles(build: (view, instance) =>
+        {
+            (instance.Id == first.Id ? releaseFirst : releaseSecond).Wait();
+            return RailwayVehicles.Build(view, instance);
+        });
+        try
+        {
+            vehicles.Prepare(content, first);
+            var firstWork = vehicles.PendingWork.Single();
+            vehicles.Prepare(content, second);
+            var before = vehicles.CompleteBuilds();
+            releaseFirst.Set();
+            await firstWork;
+            var after = vehicles.CompleteBuilds();
+            Assert.IsGreaterThan(before, after);
+            Assert.IsTrue(vehicles.HasPendingBuilds);
+            Assert.IsNotNull(vehicles.Prepare(content, first, allowBuild: false));
+            Assert.AreEqual(after, vehicles.CompleteBuilds(), "Unchanged pending work must not invalidate the candidate again.");
+        }
+        finally { releaseFirst.Set(); releaseSecond.Set(); }
+    }
+
+    [TestMethod]
     public async Task ClosingRailwayCandidateDoesNotWaitForSharedVehicleBuild()
     {
         using var release = new ManualResetEventSlim();
@@ -116,26 +146,32 @@ public sealed class SceneVehiclePoolTests
     }
 
     [TestMethod]
-    public async Task ReadyBodiesRemainAvailableAcrossSceneAndContentBindings()
+    public async Task EquivalentDesignValuesReuseTheBodyAcrossContentBindings()
     {
         var cache = new SceneVehicles.Cache();
-        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
         var instance = RailwayFixtures.Instance();
+        var diagnostic = new ContentDiagnostic("vehicle_warning", ContentDiagnosticSeverity.Warning, "evaluate",
+            new ContentReference.Design(instance.Design), new(new PackageId("vehicles"), "vehicles.json"), "design", null, "Vehicle warning.");
+        var original = RailwayFixtures.Vehicle() with { Diagnostics = [diagnostic] };
+        var equivalent = RailwayFixtures.Vehicle() with { Diagnostics = [diagnostic with { }] };
+        Assert.AreNotSame(original, equivalent);
+        Assert.AreNotSame(original.Scene, equivalent.Scene);
+        BuiltObject? ready;
         await using (var first = new SceneVehicles(cache))
         {
-            Assert.IsNull(first.Reconcile(content, instance, Id));
+            var content = RailwayFixtures.Content(design: original);
+            Assert.IsNull(first.Prepare(content, instance));
             await SceneFixtures.AwaitPendingWork(first.PendingWork);
-            var ready = first.Reconcile(content, instance, Id);
+            ready = first.Prepare(content, instance);
             Assert.IsNotNull(ready);
-            Assert.IsNotNull(first.Reconcile(content, instance, Id));
-            Assert.AreEqual(0, first.PendingWork.Length);
         }
-        await using var rebound = new SceneVehicles(cache, (_, _) => throw new AssertFailedException("Equal content must reuse the built body."));
-        var reboundContent = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), generation: 2);
-        Assert.IsNull(rebound.Reconcile(reboundContent, instance, Id));
+        await using var rebound = new SceneVehicles(cache);
+        var reboundContent = RailwayFixtures.Content(design: equivalent, generation: 2);
+        Assert.IsNull(rebound.Prepare(reboundContent, instance));
         await SceneFixtures.AwaitPendingWork(rebound.PendingWork);
-        Assert.IsNotNull(rebound.Reconcile(reboundContent, instance, Id));
-        Assert.AreEqual(0, rebound.PendingWork.Length);
+        var reused = rebound.Prepare(reboundContent, instance);
+        Assert.AreSame(ready, reused);
+        Assert.AreEqual(diagnostic.Message, reused!.Geometry.Geometry.Diagnostics.Single(problem => problem.Code == diagnostic.Code).Detail);
     }
 
     [TestMethod]
@@ -159,27 +195,60 @@ public sealed class SceneVehiclePoolTests
     }
 
     [TestMethod]
-    public async Task ChangedContentDoesNotReuseTheOldBindingBody()
+    public async Task ChangedProjectionWithTheSameDesignHashRebuildsTheBody()
     {
         var cache = new SceneVehicles.Cache();
         var instance = RailwayFixtures.Instance();
+        var original = RailwayFixtures.Vehicle();
+        var changed = RailwayFixtures.Vehicle(cells: [new(0, 0, 0), new(1, 0, 7)]);
+        Assert.AreEqual(original.Design, changed.Design);
+        BuiltObject? ready;
         await using (var first = new SceneVehicles(cache))
         {
-            first.Reconcile(RailwayFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 8)), instance, Id);
+            var content = RailwayFixtures.Content(design: original);
+            first.Prepare(content, instance);
             await SceneFixtures.AwaitPendingWork(first.PendingWork);
-            Assert.IsNotNull(first.Reconcile(RailwayFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 8)), instance, Id));
+            ready = first.Prepare(content, instance);
+            Assert.IsNotNull(ready);
         }
-        var builds = 0;
-        await using var rebound = new SceneVehicles(cache, (view, member) =>
-        {
-            builds++;
-            return RailwayVehicles.Build(view, member);
-        });
-        var changed = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 16));
-        Assert.IsNull(rebound.Reconcile(changed, instance, Id));
+        await using var rebound = new SceneVehicles(cache);
+        var changedContent = RailwayFixtures.Content(design: changed);
+        Assert.IsNull(rebound.Prepare(changedContent, instance));
         await SceneFixtures.AwaitPendingWork(rebound.PendingWork);
-        Assert.IsNotNull(rebound.Reconcile(changed, instance, Id));
-        Assert.AreEqual(1, builds, "A changed projection must rebuild even when the design hash remains the same.");
+        var rebuilt = rebound.Prepare(changedContent, instance);
+        Assert.IsNotNull(rebuilt);
+        Assert.AreNotSame(ready, rebuilt);
+        Assert.IsNotNull(rebuilt.Geometry.Geometry.Picking.Single().Grid.Find(new(1, 0, 7)));
+        Assert.IsNull(rebuilt.Geometry.Geometry.Picking.Single().Grid.Find(new(0, 0, 7)));
+        Assert.IsNotNull(ready!.Geometry.Geometry.Picking.Single().Grid.Find(new(0, 0, 7)));
+    }
+
+    [TestMethod]
+    public async Task ChangedVoxelAppearanceRebuildsTheBodyWithTheSameEvaluation()
+    {
+        var cache = new SceneVehicles.Cache();
+        var instance = RailwayFixtures.Instance();
+        var evaluation = RailwayFixtures.Vehicle();
+        var content = RailwayFixtures.Content(design: evaluation);
+        BuiltObject? ready;
+        await using (var first = new SceneVehicles(cache))
+        {
+            first.Prepare(content, instance);
+            await SceneFixtures.AwaitPendingWork(first.PendingWork);
+            ready = first.Prepare(content, instance);
+            Assert.IsNotNull(ready);
+        }
+        await using var rebound = new SceneVehicles(cache);
+        var changedContent = RailwayFixtures.Content(design: evaluation, wheelsetMarkers: true);
+        Assert.AreSame(((ContentLookup<DesignEvaluation>.Found)content.FindDesign(instance.Design)).Value,
+            ((ContentLookup<DesignEvaluation>.Found)changedContent.FindDesign(instance.Design)).Value);
+        Assert.IsNull(rebound.Prepare(changedContent, instance));
+        await SceneFixtures.AwaitPendingWork(rebound.PendingWork);
+        var rebuilt = rebound.Prepare(changedContent, instance);
+        Assert.IsNotNull(rebuilt);
+        Assert.AreNotSame(ready, rebuilt);
+        Assert.IsFalse(ready!.Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Wheelset>().Any());
+        Assert.AreEqual(2, rebuilt.Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Wheelset>().Count());
     }
 
     [TestMethod]

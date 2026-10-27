@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using Godot;
 using Train.App.Editing;
 using Train.App.Saves;
@@ -25,11 +26,15 @@ internal partial class DesignEditorPanel : Control
     private readonly List<VoxelCatalogEntry> _voxels = [];
     private VBoxContainer _equipment = null!;
     private readonly List<VoxelOrientation> _allowedOrientations = [];
-    private readonly List<EditElementId> _elementIds = [];
-    private readonly List<(EditElementId Id, string Text)> _elementRows = [];
+    private readonly record struct ElementRow(EditElementId Id, EditElementId? Parent, EditElementKind Kind, GridPosition At, bool Locked);
+    private ElementRow[] _elementRows = [];
+    private string[] _elementTexts = [];
+    private ImmutableArray<EditElementId> _selectionSource;
+    private HashSet<EditElementId> _selection = [];
     private SpinBox _x = null!, _y = null!, _z = null!, _endX = null!, _endY = null!, _endZ = null!, _width = null!, _plane = null!, _cut = null!;
     private IEditPreview? _preview;
     internal event Action? LibraryRequested;
+    internal event Action<EditStamp, TimeSpan>? ElementsUpdated;
     private EditStamp? _shown;
     private EditElementId? _shownEntered;
     private DesignEvaluation? _shownEvaluation;
@@ -112,17 +117,17 @@ internal partial class DesignEditorPanel : Control
         right.OffsetLeft = -310; right.OffsetRight = -8; right.OffsetTop = 64;
         _elements = new ItemList { CustomMinimumSize = new(260, 160), SelectMode = ItemList.SelectModeEnum.Multi }; inspector.AddChild(_elements);
         _elements.MultiSelected += (_, _) => _service.Select(new EditSelection.Elements(
-            [.. _elements.GetSelectedItems().Select(index => _elementIds[index])]));
+            [.. _elements.GetSelectedItems().Select(index => _elementRows[index].Id)]));
         Add(inspector, "EnterObject", "进入所选设备", () =>
         {
             var index = _elements.GetSelectedItems().FirstOrDefault(-1);
-            if (index >= 0) _service.Enter(_elementIds[index]);
+            if (index >= 0) _service.Enter(_elementRows[index].Id);
         });
         Add(inspector, "ExitObject", "返回上层", () => _service.Enter(null));
         Add(inspector, "ExtractObject", "将所选设备另存为蓝图…", () =>
         {
             if (_elements.GetSelectedItems().Length == 0) return;
-            if (_service.CaptureObject(_elementIds[_elements.GetSelectedItems()[0]]) is not { } captured) return;
+            if (_service.CaptureObject(_elementRows[_elements.GetSelectedItems()[0]].Id) is not { } captured) return;
             _service.RequestClose(() => _service.Open(captured, new DraftTarget.UserBlueprint(null),
                 new BlueprintSaveTarget.New(BlueprintLibrary.User), true));
         });
@@ -313,51 +318,70 @@ internal partial class DesignEditorPanel : Control
         _status.Text = string.Join(" · ", segments.Where(segment => !string.IsNullOrWhiteSpace(segment)));
         if (_service.State is not { } state) return;
         if (_paletteSession != state.Snapshot.Stamp.Session) { _paletteSession = state.Snapshot.Stamp.Session; RefreshPalette(); }
-        for (var index = 0; index < _elementIds.Count; index++)
+        var changed = _shown != state.Snapshot.Stamp || _shownEntered != state.EnteredObject;
+        if (changed)
         {
-            if (state.Selection.Contains(_elementIds[index])) _elements.Select(index, false);
-            else _elements.Deselect(index);
+            _shown = state.Snapshot.Stamp;
+            _shownEntered = state.EnteredObject;
+            _preview = null;
+            _previewText.Text = "";
+            var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
+            _name.Text = current.Display.Name; _description.Text = current.Display.Description;
+            var listStarted = ElementsUpdated is not null ? Stopwatch.GetTimestamp() : 0;
+            ShowElements([.. state.Elements.Select(item => new ElementRow(item.Id, item.Parent, item.Kind, item.At, item.Locked))]);
+            if (ElementsUpdated is not null) ElementsUpdated(state.Snapshot.Stamp, Stopwatch.GetElapsedTime(listStarted));
         }
-        if (_shown == state.Snapshot.Stamp && _shownEntered == state.EnteredObject)
+        if (_selectionSource != state.Selection)
         {
-            if (!ReferenceEquals(_shownEvaluation, state.CurrentEvaluation) ||
-                _shownFrameDiagnostics != _service.FrameDiagnostics) ShowEvaluation(state);
-            return;
+            _selectionSource = state.Selection;
+            _selection = state.Selection.ToHashSet();
         }
-        _shown = state.Snapshot.Stamp;
-        _shownEntered = state.EnteredObject;
-        _preview = null;
-        _previewText.Text = "";
-        var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
-        _name.Text = current.Display.Name; _description.Text = current.Display.Description;
-        ShowElements([.. state.Elements.Select(item => (item.Id, Text:
-            $"{(item.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{item.Id.Value} · {ElementKindText(item.Kind)} {PositionText(item.At)}{(item.Locked ? " [锁定]" : "")}"))]);
-        ShowEvaluation(state);
+        var selection = _selection;
+        var selected = _elements.GetSelectedItems();
+        if (selected.Length != selection.Count || selected.Any(index => !selection.Contains(_elementRows[index].Id)))
+        {
+            foreach (var index in selected)
+                if (!selection.Contains(_elementRows[index].Id)) _elements.Deselect(index);
+            for (var index = 0; index < _elementRows.Length; index++)
+                if (selection.Contains(_elementRows[index].Id)) _elements.Select(index, false);
+        }
+        if (changed || !ReferenceEquals(_shownEvaluation, state.CurrentEvaluation) ||
+            _shownFrameDiagnostics != _service.FrameDiagnostics) ShowEvaluation(state);
     }
-    // 泰坦约 2.8 万行；整表重建时引擎要重新排版全部行，一帧约 1.7 秒。只改变化的区间，变化太大才整表重建。
-    private void ShowElements((EditElementId Id, string Text)[] rows)
+    // Clear 会丢弃未变行的文字排版缓存；缩短列表前须清掉引擎不会平移的键盘焦点。
+    private void ShowElements(ElementRow[] rows)
     {
         var change = RowChange.Between(_elementRows, rows);
+        var texts = new string[rows.Length];
+        Array.Copy(_elementTexts, texts, change.Start);
+        var tail = rows.Length - change.Start - change.Inserted;
+        Array.Copy(_elementTexts, _elementRows.Length - tail, texts, rows.Length - tail, tail);
+        for (var index = change.Start; index < change.Start + change.Inserted; index++)
+        {
+            var row = rows[index];
+            texts[index] = $"{(row.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{row.Id.Value} · {ElementKindText(row.Kind)} {PositionText(row.At)}{(row.Locked ? " [锁定]" : "")}";
+        }
         if (change.Removed + change.Inserted > 256)
         {
-            _elements.Clear();
-            foreach (var row in rows) _elements.AddItem(row.Text);
+            _elements.DeselectAll();
+            _elements.ItemCount = rows.Length;
+            var end = _elementRows.Length == rows.Length ? change.Start + change.Inserted : rows.Length;
+            for (var index = change.Start; index < end; index++) _elements.SetItemText(index, texts[index]);
         }
         else
         {
             var replaced = Math.Min(change.Removed, change.Inserted);
-            for (var index = change.Start; index < change.Start + replaced; index++) _elements.SetItemText(index, rows[index].Text);
+            for (var index = change.Start; index < change.Start + replaced; index++) _elements.SetItemText(index, texts[index]);
+            if (change.Removed > replaced) _elements.DeselectAll();
             for (var index = change.Start + change.Removed - 1; index >= change.Start + replaced; index--) _elements.RemoveItem(index);
             for (var index = change.Start + replaced; index < change.Start + change.Inserted; index++)
             {
-                _elements.AddItem(rows[index].Text);
+                _elements.AddItem(texts[index]);
                 _elements.MoveItem(_elements.ItemCount - 1, index);
             }
         }
-        _elementRows.Clear();
-        _elementRows.AddRange(rows);
-        _elementIds.Clear();
-        _elementIds.AddRange(rows.Select(row => row.Id));
+        _elementRows = rows;
+        _elementTexts = texts;
     }
     private void RefreshPalette()
     {

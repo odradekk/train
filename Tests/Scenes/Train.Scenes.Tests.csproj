@@ -14,4 +14,8 @@
     <ProjectReference Include="../ContractSupport/Content/Train.Content.ContractSupport.csproj" />
     <ProjectReference Include="../ContractSupport/Scenes/Train.Scenes.ContractSupport.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../builtin/core/resources/settlement-templates/*.settlement-template.json" LinkBase="builtin/core/resources/settlement-templates" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../builtin/core/resources/blueprints/*-ground.blueprint.json" LinkBase="builtin/core/resources/blueprints" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

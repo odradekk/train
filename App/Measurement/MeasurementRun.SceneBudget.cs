@@ -25,16 +25,6 @@ internal sealed partial class MeasurementRun
     private ProbeState? _sceneLoggedProbeState;
     private readonly List<object> _sceneProbeEvents = [];
     private readonly List<SceneProbeCost> _sceneProbeCosts = [];
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessMemoryCounters
-    {
-        internal uint Size, PageFaultCount;
-        internal nuint PeakWorkingSet, WorkingSet, QuotaPeakPagedPool, QuotaPagedPool,
-            QuotaPeakNonPagedPool, QuotaNonPagedPool, PagefileUsage, PeakPagefileUsage, PrivateUsage;
-    }
-    [DllImport("kernel32.dll", EntryPoint = "K32GetProcessMemoryInfo", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetProcessMemoryInfo(IntPtr process, out ProcessMemoryCounters counters, uint size);
     private sealed record SceneProbeCost(string? Operation, long Draw, double Started, double Ended,
         double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds,
         int FogRegionCount);
@@ -50,7 +40,6 @@ internal sealed partial class MeasurementRun
     private bool _sceneCapturedPartial;
     private object? _scenePresented;
     private SceneFrameStamp? _scenePresentedStamp;
-    private static readonly JsonSerializerOptions SceneJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     private sealed record SceneSample(double At, string Phase, double FrameSeconds, ulong Steps,
         string Speed, bool Paused, string? Request, string? Space, string? Readiness,
@@ -61,11 +50,15 @@ internal sealed partial class MeasurementRun
 
     private async Task RunSceneBudget()
     {
+        _identity["encounter_action"] = ConfigureEncounterAction(_scenario, _app.Notifications);
         var directory = Path.GetDirectoryName(_output)!;
         using var frames = new StreamWriter(Path.Combine(directory, "scene-frames.jsonl"));
         using var operations = new StreamWriter(Path.Combine(directory, "scene-operations.jsonl"));
         using var collections = new StreamWriter(Path.Combine(directory, "scene-collections.jsonl"));
         using var costs = new StreamWriter(Path.Combine(directory, "scene-probe-costs.jsonl"));
+        using var orbit = IsLowOrbit && IsRouteMeasurement
+            ? new StreamWriter(Path.Combine(directory, "route-orbit.jsonl")) : null;
+        _lowOrbitRouteTrace = orbit;
         _sceneTrace = frames; _sceneOperationTrace = operations; _sceneCollectionTrace = collections;
         _sceneCostTrace = costs;
         _app.Saves!.Changed += OnSceneSaveChanged;
@@ -120,7 +113,7 @@ internal sealed partial class MeasurementRun
             else if (_scenario is "scene-node" or "scene-node-first" or "scene-capture")
             {
                 await OpenSceneMeasured("map-node", new WorldObjectId.Node(_node));
-                if (_scenario == "scene-node")
+                if (_scenario == "scene-node" && !IsLowOrbit)
                 {
                     await ReturnSceneMap();
                     await OpenSceneMeasured("node-reopen", new WorldObjectId.Node(_node));
@@ -134,11 +127,14 @@ internal sealed partial class MeasurementRun
             else if (_scenario == "scene-edge")
             {
                 await OpenSceneMeasured("map-edge", new WorldObjectId.Edge(new(11)));
-                await ReturnSceneMap();
-                await OpenSceneMeasured("edge-reopen", new WorldObjectId.Edge(new(11)));
-                await ReturnSceneMap();
-                await LoadSceneInput();
-                await OpenSceneMeasured("reload-edge", new WorldObjectId.Edge(new(11)), _sceneLoadButton);
+                if (!IsLowOrbit)
+                {
+                    await ReturnSceneMap();
+                    await OpenSceneMeasured("edge-reopen", new WorldObjectId.Edge(new(11)));
+                    await ReturnSceneMap();
+                    await LoadSceneInput();
+                    await OpenSceneMeasured("reload-edge", new WorldObjectId.Edge(new(11)), _sceneLoadButton);
+                }
             }
             else if (_scenario is "scene-follow" or "scene-follow-8x")
             {
@@ -206,9 +202,11 @@ internal sealed partial class MeasurementRun
         {
             FlushSceneProbeEvents();
             FlushSceneProbeCosts();
+            WriteSceneResourceTimings();
             _app.Saves!.Changed -= OnSceneSaveChanged;
             _app.WorldScenes!.FramePresented -= OnScenePresented;
             _sceneTrace = _sceneOperationTrace = _sceneCollectionTrace = _sceneCostTrace = null;
+            _lowOrbitRouteTrace = null;
             ResetSceneProbe();
         }
     }
@@ -264,6 +262,7 @@ internal sealed partial class MeasurementRun
     private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
     {
         ResetSceneProbe();
+        var observationSeconds = ReadyObservationSeconds(_scenario, target, _node, _nodeReadyHold, IsLowOrbit);
         _scenePhase = name;
         _sceneOperation = name;
         _sceneVisible = _sceneReady = _sceneOperable = 0;
@@ -287,6 +286,7 @@ internal sealed partial class MeasurementRun
         if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
         _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").RaiseObjectClicked(target);
         _sceneOpenedTargets.Add(target.ToString()!);
+        _lowOrbitStarted = 0;
         var referenceResumed = false;
         await Wait(() =>
         {
@@ -309,8 +309,8 @@ internal sealed partial class MeasurementRun
             }
             // The observation window ends after the same Ready hold used for memory.
             // Missing interaction remains a null observation, never a successful signal.
-            return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + (_scenario == "scene-reference" ? 10 : 5);
-        });
+            return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + observationSeconds;
+        }, observationSeconds == 60 ? 180 : 120);
         var end = Seconds();
         if (_app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } readyFrame)
             RecordReadyGeometry(readyFrame, _sceneLastDraw);
@@ -327,6 +327,10 @@ internal sealed partial class MeasurementRun
             first_visible = _sceneVisible > 0 ? (double?)_sceneVisible : null,
             first_operable = _sceneOperable > 0 ? (double?)_sceneOperable : null,
             ready = _sceneReady, observation_ended = end,
+            ready_hold_seconds_requested = observationSeconds,
+            low_orbit = IsLowOrbit ? new { camera = _streamingCamera, period_seconds = LowOrbitPeriodSeconds,
+                started = _lowOrbitStarted, observed_seconds = end - _lowOrbitStarted,
+                ending = "fixed 60 seconds after Ready; no claim of global terrain completion" } : null,
             click_to_operable_seconds = _sceneOperable > 0 ? (double?)(_sceneOperable - _sceneClick) : null,
             operable_to_ready_seconds = _sceneOperable > 0 ? (double?)Math.Max(0, _sceneReady - _sceneOperable) : null,
             load_button = loadButton,
@@ -420,6 +424,12 @@ internal sealed partial class MeasurementRun
             if (status.IsFrozen) throw new InvalidOperationException("测量期间核心冻结。");
             if (_app.GetWindow().Mode == Window.ModeEnum.Minimized) throw new InvalidOperationException("测量窗口被最小化。");
             var now = Seconds();
+            if (IsLowOrbit && _sceneOperation is not null && _app.WorldScenes!.View.Visible)
+            {
+                if (_lowOrbitStarted == 0) BeginLowOrbit();
+                AdvanceLowOrbit(now);
+                RecordFreeOrbit(now);
+            }
             var interval = _sceneLastDraw == 0 ? 0 : now - _sceneLastDraw;
             _sceneDrawCount++;
             var frameLookupStarted = Seconds();
@@ -462,9 +472,7 @@ internal sealed partial class MeasurementRun
                 _sceneLastProcessRead = now;
             }
             var view = _app.WorldScenes.View;
-            var blocking = SceneBlockingControls();
-            var modal = SceneUiDescendants(_app).OfType<Window>()
-                .Any(window => window != _app.GetWindow() && window.Visible && window.Exclusive);
+            var (blocking, modal) = ReadSceneUi(_app);
             var bufferBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.BufferMemUsed);
             var textureBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TextureMemUsed);
             var videoBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed);
@@ -531,6 +539,8 @@ internal sealed partial class MeasurementRun
 
     private void ReadSceneProcessMemory()
     {
+        // 设计 00「私有字节」的统一入口：Windows 为 PrivateUsage，Linux 为 RssAnon + VmSwap。
+        // Windows 私有峰值为 PeakPagefileUsage；Linux 私有峰值为 0.2 秒采样中的最大值。
         if (OperatingSystem.IsWindows())
         {
             if (!GetProcessMemoryInfo(_process.Handle, out var memory, (uint)Marshal.SizeOf<ProcessMemoryCounters>()))
@@ -539,9 +549,15 @@ internal sealed partial class MeasurementRun
             _scenePeakPrivate = (long)memory.PeakPagefileUsage; _scenePeakWorking = (long)memory.PeakWorkingSet;
             return;
         }
-        // Linux 没有私有字节计数：用常驻匿名页加交换页代替，峰值取 0.2 秒采样中的最大值而不是内核高水位。
+        (_scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking) =
+            ReadLinuxProcessMemory(File.ReadLines("/proc/self/status"), _scenePeakPrivate);
+    }
+
+    internal static (long Private, long Working, long PeakPrivate, long PeakWorking) ReadLinuxProcessMemory(
+        IEnumerable<string> lines, long previousPeakPrivate)
+    {
         long? working = null, peakWorking = null, anonymous = null, swapped = null;
-        foreach (var line in File.ReadLines("/proc/self/status"))
+        foreach (var line in lines)
         {
             // 字段名后是制表符和对齐空格，例如 "VmRSS:	  123456 kB"。
             var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -556,10 +572,8 @@ internal sealed partial class MeasurementRun
         }
         if (working is null || peakWorking is null || anonymous is null)
             throw new InvalidDataException("/proc/self/status 缺少 VmRSS、VmHWM 或 RssAnon。");
-        _sceneWorking = working.Value;
-        _scenePeakWorking = peakWorking.Value;
-        _scenePrivate = anonymous.Value + (swapped ?? 0);
-        _scenePeakPrivate = Math.Max(_scenePeakPrivate, _scenePrivate);
+        var privateBytes = anonymous.Value + (swapped ?? 0);
+        return (privateBytes, working.Value, Math.Max(previousPeakPrivate, privateBytes), peakWorking.Value);
     }
 
     private object SceneSteady()
@@ -644,14 +658,6 @@ internal sealed partial class MeasurementRun
             diagnostics = frame?.Diagnostics.Select(item => item.Code).ToArray() };
     }
 
-    private string[] SceneBlockingControls()
-    {
-        var size = _app.GetViewport().GetVisibleRect().Size;
-        return SceneUiDescendants(_app).OfType<Control>().Where(control => control.IsVisibleInTree() &&
-            control.MouseFilter != Control.MouseFilterEnum.Ignore && control.GetGlobalRect().Size.X >= size.X &&
-            control.GetGlobalRect().Size.Y >= size.Y && control is not MacroMap).Select(control => control.GetPath().ToString()).ToArray();
-    }
-
     private async Task CaptureSceneImage(string name)
     {
         await _app.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
@@ -671,6 +677,7 @@ internal sealed partial class MeasurementRun
 
     private void OnScenePresented(ISceneFrame frame)
     {
+        ObserveSceneResources();
         if (IsRouteMeasurement && _routeSampling) { RecordRoutePresented(frame); return; }
         _scenePresentedStamp = frame.Update.Frame;
         var followPose = _subject is not null && frame.FindPose(_subject) is Lookup<ScenePose>.Found pose

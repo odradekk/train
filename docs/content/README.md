@@ -1,8 +1,8 @@
 # 内容定义标准
 
-这里是内容包和各种内容定义的格式标准：字段说明、JSON Schema 和一个示例内容包。规则的来由见设计文档 [02](../design/02-definitions-and-content.md)、[03](../design/03-vehicles-buildings-and-designs.md) 和 ADR-0011 到 ADR-0015；字段怎样写，以这里为准。
+这里是内容包和各种内容定义的格式标准：字段说明、JSON Schema 和一个示例内容包。规则的来由见设计文档 [02](../design/02-definitions-and-content.md)、[03](../design/03-vehicles-buildings-and-designs.md) 和决策笔记 `2026-10-09-content-project-and-split-by-reader`、`2026-10-09-instance-designs-and-blueprint-templates`、`2026-10-09-nest-composites-by-copying-designs`、`2026-10-09-code-behavior-types-and-sealed-composites`、`2026-10-09-package-dependencies-and-missing-placeholders`；字段怎样写，以这里为准。
 
-`ContentFactory` 的 Initial 加载已支持 manifest v2、voxel v3、车辆／建筑／组装体／功能复合体／场景模型蓝图 v3、流程 v1（生产、开采、回收）、地貌 v2、聚居地类型 v3、聚居地模板 v2、五类规则和生成配置 v2（含 NPC 初始化参数），并使用宿主文件与资产检查端口提供的固定字节和事实。工厂提供新局输入、流程核心投影与显示查询、铁路表现参数及按最终所有者固定的模板副本和布局查询；租赁参数归市场规则。模板的 `founding`、`inventory`、`production_plans` 已支持解析、引用与约束校验及核心投影；特殊库存支持 voxel、功能复合体和组装体货物。NPC 初始化执行仍由核心负责。生物与生物聚落已可加载；市场和非空 founding 仍未接入，完整示例包尚不能加载。当前范围的捕获、恢复、重载和复现已接入，详见[内容契约](../contracts/content.md)；游戏宿主已通过 `App/Composition/` 接入真实工厂，旧内容加载路径在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前目标是完整 Demo；聚居地类型版本 3 已移除临时供需、恢复量和站台数，保留的临时市场表及其 Schema、样例仅是历史记录。实施按[工单重组](https://github.com/odradekk/train/issues/294)获准的六阶段方案推进，各阶段交付当期所需的真实内容与验证配方；全部正式内容在第六阶段核对，不能要求早期任务提前完成全目录。
+`ContentFactory` 的 Initial 加载已支持 manifest v2、voxel v3、车辆／建筑／组装体／功能复合体／场景模型蓝图 v3、流程 v1（生产、开采、回收）、地貌 v2、聚居地类型 v3、聚居地模板 v2、五类规则和生成配置 v2（含 NPC 初始化参数），并使用宿主文件与资产检查端口提供的固定字节和事实。工厂提供新局输入、流程核心投影与显示查询、铁路表现参数及按最终所有者固定的模板副本和布局查询；租赁参数归市场规则。模板的 `founding`、`inventory`、`production_plans` 已支持解析、引用与约束校验及核心投影；特殊库存支持 voxel、功能复合体和组装体货物。NPC 初始化执行仍由核心负责。生物与生物聚落已可加载；文档示例包已有整包加载测试。当前范围的捕获、恢复、重载和复现已接入，详见[内容契约](../contracts/content.md)；游戏宿主已通过 `App/Composition/` 接入真实工厂，旧内容加载路径在 [#452](https://github.com/odradekk/train/issues/452) 退役。聚居地类型版本 3 已移除临时供需、恢复量和站台数，保留的临时市场表格式说明和 Schema 仅作历史记录。
 
 当前 builtin 提供五类聚居地类型、模板及场景模型，每份模板至少八个地块和两个站点，并包含所需建筑与吊车。地貌包含 plains、hills、forest、desert、mountains，生成阈值为示例验证临时值；五种地貌分别绑定草地、干草地、林地、沙和碎石，荒漠下层为沙、岩层为砂岩，其他地貌复用土与灰岩。内置正式货物与流程、资源生成参数和模板生产计划由 #379 交付；模板特殊库存包含 #340 的一次性小型车辆材料和 #348 的一次性建设设备，NPC 初始化由 #528 的核心生成器执行，内置配置已启用，动态供应链验收归 #299；#390 已提供大型设备与规模样机的真实内置输入，设备制造入库仍待 #343 与 #300 验证。这些内容定义不表示四模块联调已通过。
 
@@ -112,8 +112,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
     ├── combat-rules/
     ├── lair-types/
     ├── generation-profiles/
-    ├── terrain-types/
-    └── markets/                历史临时市场表
+    └── terrain-types/
 ```
 
 - Mod 放在 `user://mods/<包目录>/`。内置的 `core` 包放在 `builtin/core/`，没有 `mod.json`，版本就是游戏版本。

@@ -13,14 +13,41 @@ internal static class RailwayTerrain
         ScenePoint Origin, ImmutableArray<SceneProblem> Problems);
     private const double BedTopBelowRailCells = 1;
     private const double TunnelPortalLookbackCells = 2;
-    private const ulong HeightNoisePurpose = 3;
     private const ulong EndpointMaterialPurpose = 9;
     private const ulong DecorationDensityPurpose = 10;
     private const ulong DecorationSelectionPurpose = 11;
-    private const ulong RiverPlacementPurpose = 20;
-    private const ulong LakePlacementPurpose = 21;
     private const int BridgeSpanCells = 16;
     private const int BridgeJointMargin = 4;
+
+    internal const int FlattenBlendRadiusCells = 8;
+
+    internal static long ColumnKey(double x, double z) =>
+        unchecked((long)x * 73856093 ^ (long)z * 19349663);
+
+    internal static TerrainAppearanceProjection? EndpointTerrain(RailwayPath path, double arc, long columnKey,
+        Func<TerrainTypeId, TerrainAppearanceProjection?> terrain)
+    {
+        var blend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
+        var random = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, columnKey, EndpointMaterialPurpose);
+        if (arc < blend && random >= arc / blend) return terrain(path.Start.Terrain.TypeId);
+        if (path.LengthCells - arc < blend && random >= (path.LengthCells - arc) / blend)
+            return terrain(path.End.Terrain.TypeId);
+        return terrain(path.Edge.Terrain.TypeId);
+    }
+
+    internal static int? DecorationSlot(RailwayPath path, TerrainAppearanceProjection? terrain, long columnKey)
+    {
+        if (terrain is null || terrain.Decorations.IsDefaultOrEmpty ||
+            RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, columnKey, DecorationDensityPurpose) >=
+            Math.Clamp(terrain.DecorationTargetPerSquareMeter / (RailwayCoordinates.CellsPerMeter * RailwayCoordinates.CellsPerMeter), 0, 1)) return null;
+        var total = terrain.Decorations.Sum(item => Math.Max(0, item.Weight));
+        if (total == 0) return null;
+        var selection = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, columnKey, DecorationSelectionPurpose) * total;
+        var slot = 0;
+        while (slot < terrain.Decorations.Length - 1 && selection >= Math.Max(0, terrain.Decorations[slot].Weight))
+            selection -= Math.Max(0, terrain.Decorations[slot++].Weight);
+        return slot;
+    }
 
     internal static double BedHeight(double railHeight, double distance) =>
         railHeight - BedTopBelowRailCells - (distance <= RailwayCoordinates.BedTopHalfWidth ? 1 : 2);
@@ -122,46 +149,49 @@ internal static class RailwayTerrain
         problems.DistinctBy(problem => problem.Code == "content_missing" && problem.Content is ContentReference.Core reference
             ? (object)reference : problem).ToImmutableArray();
 
-    internal static double NodeGround(SceneWorldSnapshot snapshot, NodeMapItem node, ScenePoint localPoint)
-        => NodeGround(snapshot, node, localPoint, NodeSettlement.Read(snapshot, node.Id));
-
-    internal static double NodeGround(SceneWorldSnapshot snapshot, NodeMapItem node, ScenePoint localPoint,
-        SettlementLayoutProjection? template)
-    {
-        var terrain = snapshot.Content.FindTerrain(node.Terrain.TypeId) is ContentLookup<TerrainAppearanceProjection>.Found found ? found.Value : null;
-        var origin = RailwayCoordinates.NodePoint(node);
-        var point = new ScenePoint(origin.X + localPoint.X, origin.Y + localPoint.Y, origin.Z + localPoint.Z);
-        var raw = Ground(snapshot.Core.World.WorldSeed, node.Id.Value, node.Terrain, terrain, point);
-        return template is not null ? NodeSettlement.FlattenGround(template, localPoint, raw) : raw;
-    }
-
-    private static double Ground(ulong seed, ulong key, TerrainView view, TerrainAppearanceProjection? terrain, ScenePoint point)
-    {
-        var height = -RailwayCoordinates.TerrainBaselineOffset;
-        if (terrain is null) return height;
-        foreach (var octave in terrain.LocalHeightNoise)
-        {
-            if (octave.ScaleMeters <= 0) continue;
-            var scale = octave.ScaleMeters * RailwayCoordinates.CellsPerMeter;
-            var x = point.X / scale; var z = point.Z / scale;
-            var ix = (long)Math.Floor(x); var iz = (long)Math.Floor(z);
-            var tx = x - ix; var tz = z - iz;
-            tx = tx * tx * (3 - 2 * tx); tz = tz * tz * (3 - 2 * tz);
-            double At(long a, long b) => RailwayRandom.Unit(seed, key, unchecked(a * 73856093 ^ b * 19349663), HeightNoisePurpose) * 2 - 1;
-            var noise = (At(ix, iz) * (1 - tx) + At(ix + 1, iz) * tx) * (1 - tz) +
-            (At(ix, iz + 1) * (1 - tx) + At(ix + 1, iz + 1) * tx) * tz;
-            height += noise * octave.Amplitude * view.Relief * RailwayCoordinates.CellsPerMeter;
-        }
-        return height;
-    }
-
     private sealed record TerrainColumn(double Arc, double Offset, double Height, TerrainAppearanceProjection? Terrain, bool Water, bool Tunnel);
 
     internal static RailwaySegment Build(SceneWorldSnapshot snapshot, RailwayPath path, int index, CancellationToken cancellation) =>
     new SegmentBuilder(snapshot, path, index, cancellation).Build();
 
+    internal sealed record FlattenPlacement(FlattenRegion Region, ScenePose Pose, ScenePoint Origin);
+
+    internal static ImmutableArray<FlattenPlacement> HeightFlattens(SceneWorldSnapshot snapshot,
+        RailwayPath path, int index, CancellationToken cancellation = default) =>
+        new SegmentBuilder(snapshot, path, index, cancellation).HeightFlattens();
+
     internal static BoundaryData NodeBoundary(SceneWorldSnapshot snapshot, RailwayPath path, NodeId node, NodeLayout.Entry entry, CancellationToken token) =>
         new SegmentBuilder(snapshot, path, node == path.Start.Id ? 0 : path.SegmentCount - 1, token).Boundary(node, entry);
+
+    internal static Dictionary<GridColumn, T> SampleColumns<T>(RailwayPath path, int index, ScenePoint origin,
+        Func<ScenePoint, GridColumn, double, double, T> create, CancellationToken cancellation = default)
+    {
+        var columns = new Dictionary<GridColumn, T>();
+        var begin = index * RailwayCoordinates.SegmentLengthCells;
+        var end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
+        var halfWidth = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
+        for (var arc = begin; arc <= end; arc = Math.Min(end, arc + 0.5))
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var sample = path.Sample(arc);
+            for (var offset = -halfWidth; offset <= halfWidth; offset += 0.5)
+            {
+                var point = path.Sample(arc, offset).Position;
+                var wx = Math.Floor(point.X); var wz = Math.Floor(point.Z);
+                var column = new GridColumn(checked((int)(wx - origin.X)), checked((int)(wz - origin.Z)));
+                if (columns.ContainsKey(column)) continue;
+                var center = new ScenePoint(wx + 0.5, sample.Position.Y, wz + 0.5);
+                var located = path.Locate(center);
+                if (located < begin || located >= end && index != path.SegmentCount - 1) continue;
+                var nearest = path.Sample(located);
+                var lateral = (center.X - nearest.Position.X) * nearest.Right.X + (center.Z - nearest.Position.Z) * nearest.Right.Z;
+                if (Math.Abs(lateral) > halfWidth) continue;
+                columns.Add(column, create(center, column, located, lateral));
+            }
+            if (arc == end) break;
+        }
+        return columns;
+    }
 
     private sealed class SegmentBuilder
     {
@@ -169,13 +199,11 @@ internal static class RailwayTerrain
         private readonly RailwayPath path;
         private readonly int index;
         private readonly CancellationToken cancellation;
+        private ImmutableArray<FlattenPlacement>.Builder? heightFlattens;
         private readonly double begin;
         private readonly double end;
         private readonly double endpointBlend;
-        private readonly ScenePoint startPoint;
-        private readonly ScenePoint endPoint;
-        private readonly ScenePoint startEntry;
-        private readonly ScenePoint endEntry;
+        private readonly TerrainSurface.Railway surface;
         private readonly (double Center, double First, double Last, double Level)[] waterRegions;
         private readonly ScenePoint origin;
         private readonly ImmutableArray<SceneObject>.Builder objects;
@@ -186,7 +214,7 @@ internal static class RailwayTerrain
         private readonly HashSet<DesignHash> models;
         private readonly HashSet<VoxelDefinitionId> voxelReads;
         private readonly Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> appearances;
-        private readonly Dictionary<TerrainTypeId, TerrainAppearanceProjection?> terrains;
+        private readonly Dictionary<TerrainTypeId, TerrainAppearanceProjection?> terrains = [];
         private readonly double halfWidth;
         private ulong nextId;
         private readonly bool readsStartTerrain;
@@ -203,23 +231,8 @@ internal static class RailwayTerrain
             begin = index * RailwayCoordinates.SegmentLengthCells;
             end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
             endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
-            startPoint = path.Sample(0).Position;
-            endPoint = path.Sample(path.LengthCells).Position;
-            startEntry = path.StartLayout.EntryPoint(path.Edge.Id);
-            endEntry = path.EndLayout.EntryPoint(path.Edge.Id);
-            waterRegions = WaterFeatures().Select(feature =>
-            {
-                var first = Math.Max(0, feature.Center - feature.HalfWidth);
-                var last = Math.Min(path.LengthCells, feature.Center + feature.HalfWidth);
-                var level = Math.Min(path.Sample(first).Position.Y, Math.Min(path.Sample(last).Position.Y,
-                path.Sample(Math.Clamp(path.LengthCells / 2, first, last)).Position.Y)) - RailwayCoordinates.WaterSurfaceOffset;
-                return (feature.Center, First: first, Last: last, Level: level);
-            }).ToArray();
-            if (waterRegions.Length == 2 && Math.Max(waterRegions[0].First, waterRegions[1].First) <= Math.Min(waterRegions[0].Last, waterRegions[1].Last))
-            {
-                var level = Math.Min(waterRegions[0].Level, waterRegions[1].Level);
-                waterRegions[0].Level = level; waterRegions[1].Level = level;
-            }
+            surface = new(path, id => terrains[id]);
+            waterRegions = surface.WaterRegions;
             var anchor = path.Sample(begin).Position;
             origin = new ScenePoint(Math.Floor(anchor.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
                 Math.Floor(anchor.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, Math.Floor(anchor.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
@@ -231,7 +244,6 @@ internal static class RailwayTerrain
             models = new HashSet<DesignHash>();
             voxelReads = new HashSet<VoxelDefinitionId>();
             appearances = new Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?>();
-            terrains = new Dictionary<TerrainTypeId, TerrainAppearanceProjection?>();
             halfWidth = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
             nextId = 1UL;
             // Inside a curve, adjacent columns differ in arc by about R/(R-lateral).
@@ -253,6 +265,18 @@ internal static class RailwayTerrain
             foreach (var portal in portals) PlacePortal(portal.Arc, portal.Exit, columns);
             PlaceModels(columns);
             return Render(columns, tunnels);
+        }
+
+        internal ImmutableArray<FlattenPlacement> HeightFlattens()
+        {
+            heightFlattens = ImmutableArray.CreateBuilder<FlattenPlacement>();
+            var (_, portals) = SampleTunnels();
+            var empty = new Dictionary<GridColumn, TerrainColumn>();
+            foreach (var portal in portals) PlacePortal(portal.Arc, portal.Exit, empty);
+            PlaceRepairs(empty);
+            foreach (var arc in waterRegions.Select(region => region.Center))
+                if (path.Edge.Tracks > 0) PlaceBridge(arc, empty);
+            return heightFlattens.ToImmutable();
         }
 
         private (ImmutableArray<(double Start, double End)> Intervals, List<(double Arc, bool Exit)> Portals) SampleTunnels()
@@ -284,54 +308,14 @@ internal static class RailwayTerrain
             return (tunnelIntervals.ToImmutable(), portals);
         }
 
-        private Dictionary<GridColumn, TerrainColumn> SampleColumns()
-        {
-            var columns = new Dictionary<GridColumn, TerrainColumn>();
-            for (var arc = begin; arc <= end; arc = Math.Min(end, arc + 0.5))
-            {
-                cancellation.ThrowIfCancellationRequested();
-                var sample = path.Sample(arc);
-                for (var offset = -(double)halfWidth; offset <= halfWidth; offset += 0.5)
-                {
-                    var point = path.Sample(arc, offset).Position;
-                    var wx = Math.Floor(point.X); var wz = Math.Floor(point.Z);
-                    var column = new GridColumn(checked((int)(wx - origin.X)), checked((int)(wz - origin.Z)));
-                    if (columns.ContainsKey(column)) continue;
-                    var center = new ScenePoint(wx + 0.5, sample.Position.Y, wz + 0.5);
-                    var located = path.Locate(center);
-                    if (located < begin || located >= end && index != path.SegmentCount - 1) continue;
-                    var nearest = path.Sample(located);
-                    var lateral = (center.X - nearest.Position.X) * nearest.Right.X + (center.Z - nearest.Position.Z) * nearest.Right.Z;
-                    if (Math.Abs(lateral) > halfWidth) continue;
-                    columns.Add(column, Column(center, column, located, lateral));
-                }
-                if (arc == end) break;
-            }
-            return columns;
-        }
+        private Dictionary<GridColumn, TerrainColumn> SampleColumns() =>
+            RailwayTerrain.SampleColumns(path, index, origin, Column, cancellation);
 
         private TerrainColumn Column(ScenePoint center, GridColumn column, double arc, double lateral)
         {
             var terrain = terrains[path.Edge.Terrain.TypeId];
-            var height = Height(arc, center, terrain);
-            var water = Water(arc);
-            if (water) height = Math.Min(height, WaterLevel(arc) - RailwayCoordinates.WaterDepth);
-            var distance = TrackDistance(lateral);
-            var tunnel = path.Edge.Tracks > 0 && TunnelAt(arc);
-            if (path.Edge.Tracks > 0 && !water && !tunnel)
-            {
-                var bed = BedHeight(path.Sample(arc).Position.Y, distance);
-                var cutting = height > bed;
-                var weight = Math.Clamp(Math.Min(arc, path.LengthCells - arc) / endpointBlend, 0, 1);
-                var flat = cutting
-                    ? RailwayCoordinates.BedBaseHalfWidth + (RailwayCoordinates.TrackSpacing / 2 - RailwayCoordinates.BedBaseHalfWidth) * weight
-                    : RailwayCoordinates.BedBaseHalfWidth;
-                var blend = Math.Clamp((distance - flat) / RailwayCoordinates.BedBlendWidth, 0, 1);
-                height = bed * (1 - blend) + height * blend;
-            }
-            var random = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, ColumnKey(column), EndpointMaterialPurpose);
-            if (arc < endpointBlend && random >= arc / endpointBlend) terrain = terrains[path.Start.Terrain.TypeId];
-            else if (path.LengthCells - arc < endpointBlend && random >= (path.LengthCells - arc) / endpointBlend) terrain = terrains[path.End.Terrain.TypeId];
+            var height = surface.ColumnHeight(arc, center, lateral, terrain, out var water, out var tunnel);
+            terrain = EndpointTerrain(path, arc, ColumnKey(column), id => terrains[id]);
             return new(arc, lateral, Math.Floor(height), terrain, water, tunnel);
         }
 
@@ -430,17 +414,10 @@ internal static class RailwayTerrain
                 cancellation.ThrowIfCancellationRequested();
                 var value = pair.Value;
                 var terrain = value.Terrain;
-                if (terrain is null || terrain.Decorations.IsDefaultOrEmpty || value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationRootClearance) continue;
-                var key = ColumnKey(pair.Key);
-                if (RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, key, DecorationDensityPurpose) >= Math.Clamp(terrain.DecorationTargetPerSquareMeter / (RailwayCoordinates.CellsPerMeter * RailwayCoordinates.CellsPerMeter), 0, 1)) continue;
-                var total = terrain.Decorations.Sum(item => Math.Max(0, item.Weight));
-                if (total == 0) continue;
-                var selection = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, key, DecorationSelectionPurpose) * total;
-                var slot = 0;
-                while (slot < terrain.Decorations.Length - 1 && selection >= Math.Max(0, terrain.Decorations[slot].Weight))
-                    selection -= Math.Max(0, terrain.Decorations[slot++].Weight);
-                modelReads.Add(new(terrain.Id, slot, RailwayModelRole.Decoration));
-                decorations.Add((pair.Key, terrain.Decorations[slot].SceneModel));
+                if (value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationRootClearance) continue;
+                if (DecorationSlot(path, terrain, ColumnKey(pair.Key)) is not { } slot) continue;
+                modelReads.Add(new(terrain!.Id, slot, RailwayModelRole.Decoration));
+                decorations.Add((pair.Key, terrain!.Decorations[slot].SceneModel));
             }
             foreach (var decoration in decorations)
             {
@@ -507,9 +484,8 @@ internal static class RailwayTerrain
 
         }
 
-        private long ColumnKey(GridColumn column) => unchecked(((long)(column.X + origin.X) * 73856093) ^ ((long)(column.Z + origin.Z) * 19349663));
-        private double TrackDistance(double offset) => path.Edge.Tracks == 0 ? double.PositiveInfinity :
-        Enumerable.Range(1, path.Edge.Tracks).Min(track => Math.Abs(offset - RailwayCoordinates.TrackOffset(track, path.Edge.Tracks)));
+        private long ColumnKey(GridColumn column) => RailwayTerrain.ColumnKey(column.X + origin.X, column.Z + origin.Z);
+        private double TrackDistance(double offset) => surface.TrackDistance(offset);
         private TerrainAppearanceProjection? GetTerrain(TerrainTypeId id)
         {
             terrainReads.Add(id);
@@ -533,46 +509,13 @@ internal static class RailwayTerrain
         private void ReportMissing(ContentReference reference, ImmutableArray<ContentDiagnostic> sourceDiagnostics, string detail) =>
             RailwayTerrain.ReportMissing(reference, sourceDiagnostics, detail, diagnostics);
 
-        private double Height(double arc, ScenePoint point, TerrainAppearanceProjection? terrain)
-        {
-            var railHeight = path.Sample(arc).Position.Y;
-            var height = Ground(path.Seed, path.Edge.Id.Value, path.Edge.Terrain, terrain, point);
-            if (arc < endpointBlend)
-            {
-                var weight = arc / endpointBlend;
-                height = NodeHeight(path.Start, startPoint, point) *
-                (1 - weight) + height * weight;
-            }
-            if (path.LengthCells - arc < endpointBlend)
-            {
-                var weight = (path.LengthCells - arc) / endpointBlend;
-                height = NodeHeight(path.End, endPoint, point) *
-                (1 - weight) + height * weight;
-            }
-            return railHeight + height;
-        }
         private bool TunnelAt(double arc)
         {
-            if (path.Edge.Tracks == 0 || Water(arc)) return false;
-            var rail = path.Sample(arc).Position.Y;
             var terrain = terrains[path.Edge.Terrain.TypeId];
-            var shoulder = RailwayCoordinates.TunnelShoulder(path.Edge.Tracks);
-            var floor = Math.Floor(Height(arc, path.Sample(arc).Position, terrain));
-            floor = Math.Min(floor, Math.Floor(Height(arc, path.Sample(arc, shoulder).Position, terrain)));
-            floor = Math.Min(floor, Math.Floor(Height(arc, path.Sample(arc, -shoulder).Position, terrain)));
-            for (var track = 1; track <= path.Edge.Tracks; track++)
-                floor = Math.Min(floor, Math.Floor(Height(arc, path.Sample(arc, RailwayCoordinates.TrackOffset(track, path.Edge.Tracks)).Position, terrain)));
-            return floor >= rail + RailwayCoordinates.TunnelCrownCells;
+            return surface.TunnelAt(arc, terrain);
         }
-        private bool Water(double arc) => waterRegions.Any(region => arc >= region.First && arc <= region.Last);
-        private double WaterLevel(double arc) => waterRegions.First(region => arc >= region.First && arc <= region.Last).Level;
-        private IEnumerable<(double Center, double HalfWidth)> WaterFeatures()
-        {
-            if (path.Edge.Terrain.FeatureIds.Contains("river")) yield return (path.LengthCells *
-            (0.5 + 0.2 * RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, 0, RiverPlacementPurpose)), 12);
-            if (path.Edge.Terrain.FeatureIds.Contains("lake")) yield return (path.LengthCells *
-            (0.3 + 0.5 * RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, 0, LakePlacementPurpose)), 48);
-        }
+        private bool Water(double arc) => surface.Water(arc);
+        private double WaterLevel(double arc) => surface.WaterLevel(arc);
         private void PlaceRepairs(Dictionary<GridColumn, TerrainColumn> columns)
         {
             if (path.Edge.Breaks.IsDefaultOrEmpty || path.Edge.Works.IsDefaultOrEmpty) return;
@@ -811,6 +754,11 @@ internal static class RailwayTerrain
             Dictionary<GridColumn, TerrainColumn> columns, ScenePoint? wearAt)
         {
             var projection = DesignGeometry.Projection(evaluation);
+            if (heightFlattens is not null)
+            {
+                if (projection.RootFlatten is { } region) heightFlattens.Add(new(region, pose, origin));
+                return;
+            }
             foreach (var voxel in projection.Voxels) Appearance(voxel.Voxel);
             if (projection.RootFlatten is { } flatten)
             {
@@ -825,7 +773,7 @@ internal static class RailwayTerrain
                     var local = Vector3.Transform(new Vector3(column.X + 0.5f - pose.Position.X, 0, column.Z + 0.5f - pose.Position.Z), inverse);
                     var distance = Math.Max(Math.Max(flatten.From.X - local.X, local.X - flatten.To.X - 1),
                         Math.Max(flatten.From.Z - local.Z, local.Z - flatten.To.Z - 1));
-                    var blend = Math.Clamp(distance / 8, 0, 1);
+                    var blend = Math.Clamp(distance / FlattenBlendRadiusCells, 0, 1);
                     if (blend < 1)
                         columns[column] = value with { Height = Math.Floor((pose.Position.Y + origin.Y + flatten.Height - 1) * (1 - blend) + value.Height * blend) };
                 }
@@ -837,16 +785,6 @@ internal static class RailwayTerrain
                 terrainLocation: new WorldLocation.Edge(path.Edge.Id, modelArc / RailwayCoordinates.CellsPerMeter),
                 wearSeed: DesignGeometry.PlacementWearSeed(path.Edge.Id, wearPoint));
             objects.AddRange(rendered.Objects); picking.AddRange(rendered.Picking); diagnostics.AddRange(rendered.Diagnostics);
-        }
-        private double NodeHeight(NodeMapItem node, ScenePoint endpoint, ScenePoint point)
-        {
-            var mapOrigin = RailwayCoordinates.NodePoint(node);
-            var entry = node.Id == path.Start.Id ? startEntry : endEntry;
-            var local = new ScenePoint(entry.X + point.X - endpoint.X, entry.Y + point.Y - endpoint.Y, entry.Z + point.Z - endpoint.Z);
-            var raw = Ground(path.Seed, node.Id.Value, node.Terrain, terrains[node.Terrain.TypeId],
-                new(mapOrigin.X + local.X, mapOrigin.Y + local.Y, mapOrigin.Z + local.Z));
-            var template = node.Id == path.Start.Id ? path.StartLayout.Template : path.EndLayout.Template;
-            return template is not null ? NodeSettlement.FlattenGround(template, local, raw) : raw;
         }
     }
 }

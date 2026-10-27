@@ -28,7 +28,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     private readonly Stack<EditObject> undo = new();
     private readonly Stack<EditObject> redo = new();
     private readonly Dictionary<EditElementId, ElementLock> locks = [];
-    private readonly Dictionary<ulong, DesignDraft> captures = [];
+    private readonly Dictionary<ulong, EditObject> captures = [];
     private readonly Dictionary<EditElementId, SceneObjectId> objectIds = [];
     private readonly Dictionary<(SceneObjectId Parent, GridPosition Cell), SceneObjectId> modelIds = [];
     private readonly SceneSessionId frameSession = new(Guid.NewGuid());
@@ -43,7 +43,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     public EditSessionId Id { get; } = new(Guid.NewGuid());
     public ContentGeneration Content { get; }
     // 宿主每帧 Read／Present；EditObject 不可变，派生值按同一棵树、同一保存基准和同一锁表复用，大设计不再逐帧遍历。
-    // 几何按修订号复用：拾取对象带修订号，撤销回到同一棵树也要换新修订号。
+    // 拾取对象带修订号；网格生成器只保留上一帧各对象的区块几何。
+    private readonly EditGeometry editGeometry = new();
     private EditObject? derivedRoot;
     private ulong? renderedRevision;
     private ImmutableArray<EditElement> elements, lockedElements;
@@ -61,11 +62,12 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         }
     }
 
-    private void Derive()
+    private void Derive(DesignDraft? draft = null)
     {
         if (ReferenceEquals(derivedRoot, root)) return;
-        elements = EditLayout.Elements(root).ToImmutableArray();
-        exported = root.Export();
+        elements = derivedRoot is null ? EditLayout.Elements(root).ToImmutableArray()
+            : EditLayout.Elements(root, derivedRoot, elements);
+        exported = draft ?? (derivedRoot is null ? root.Export() : root.Export(derivedRoot, exported!));
         lockedElements = default;
         dirtySaved = null;
         derivedRoot = root;
@@ -90,7 +92,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     {
         CheckOpen();
         Derive();
-        captures[revision] = exported!;
+        captures[revision] = root;
         return new(Stamp, exported!);
     }
     public EditState Read()
@@ -103,7 +105,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             dirtySaved = saved;
         }
         if (lockedElements.IsDefault)
-            lockedElements = elements.Select(element => element with { Locked = locks.ContainsKey(element.Id) }).ToImmutableArray();
+            lockedElements = locks.Count == 0 ? elements
+                : elements.Select(element => element with { Locked = locks.ContainsKey(element.Id) }).ToImmutableArray();
         return new(snapshot, dirty, undo.Count > 0, redo.Count > 0, entered, selection, lockedElements,
             evaluation, evaluation is null ? [] : EditContent.Diagnostics(evaluation));
     }
@@ -209,7 +212,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         var affected = 0;
         int? covered = null;
         var skipped = 0;
-        var occupied = Occupied(current);
+        var occupancyComplete = false;
         var elements = Elements;
         var lockProblems = LockProblems(elements);
         switch (operation)
@@ -229,8 +232,23 @@ internal sealed partial class DesignEditSession : IDesignEditSession
                     var invalid = ValidateValue(value);
                     if (!invalid.IsEmpty) return Failure<IEditPreview>(invalid);
                 }
-                var own = current.Cells.ToLookup(cell => cell.At);
-                var all = Occupied(root).Cells.Select(cell => (At: EditLayout.ToLocal(root, path, cell.At), cell.Id)).ToLookup(cell => cell.At);
+                var own = current.Cells.Where(cell => footprint.Contains(cell.At)).ToLookup(cell => cell.At);
+                var occupied = Occupied(root);
+                var rootCells = occupied.Cells;
+                occupancyComplete = occupied.Complete;
+                var rootFootprint = footprint;
+                if (!path.IsEmpty)
+                {
+                    rootFootprint = [];
+                    foreach (var at in footprint)
+                    {
+                        try { rootFootprint.Add(EditLayout.ToRoot(root, path, at)); }
+                        // 根坐标不可表示的位置没有已有占格；实际新增仍由 FinishPreview 检查溢出。
+                        catch (OverflowException) { }
+                    }
+                }
+                var all = rootCells.Where(cell => rootFootprint.Contains(cell.At))
+                    .Select(cell => (At: EditLayout.ToLocal(root, path, cell.At), cell.Id)).ToLookup(cell => cell.At);
                 var changed = current.Cells.ToDictionary(cell => cell.Id);
                 var palette = new EditPalette(current.Palette);
                 foreach (var at in footprint)
@@ -280,6 +298,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             }
             case EditOperation.RemoveSelection:
             {
+                var occupied = Occupied(current);
                 var ids = selection.ToHashSet();
                 foreach (var id in ids)
                     if (CheckLock(id, LockedDesignOperation.Remove) is { } problem) conflicts.Add(new(null, id, problem));
@@ -336,9 +355,15 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             }
             default: throw new ArgumentException("Invalid edit operation.", nameof(operation));
         }
-        return FinishPreview(new(Stamp, EditLayout.Update(root, path, _ => next), covered ?? highlight.Count, affected, skipped,
+        var candidate = new PreviewValue(Stamp, EditLayout.Update(root, path, _ => next), covered ?? highlight.Count, affected, skipped,
             operation is EditOperation.Cells && affected > VoxelRegionLimits.ConfirmationThreshold,
-            conflicts.ToImmutable(), Ordered(highlight), lockChecks.ToImmutable()), path);
+            conflicts.ToImmutable(), Ordered(highlight), lockChecks.ToImmutable());
+        if (operation is EditOperation.Cells { Action: not CellEdit.Add })
+        {
+            preview = candidate with { OccupancyComplete = occupancyComplete };
+            return Success<IEditPreview>(preview);
+        }
+        return FinishPreview(candidate, path);
 
         SceneProblem? CheckLock(EditElementId id, LockedDesignOperation action)
         {
@@ -356,9 +381,10 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     {
         var previousCells = Occupied(root).Cells.ToHashSet();
         var resultOccupied = Occupied(candidate.Result);
+        var addedPositions = resultOccupied.Cells.Where(cell => !previousCells.Contains(cell)).Select(cell => cell.At).ToHashSet();
         var conflicts = candidate.Conflicts.ToBuilder();
         var conflictCells = conflicts.Where(value => value.Cell.HasValue).Select(value => value.Cell!.Value).ToHashSet();
-        foreach (var group in resultOccupied.Cells.GroupBy(cell => cell.At))
+        foreach (var group in resultOccupied.Cells.Where(cell => addedPositions.Contains(cell.At)).GroupBy(cell => cell.At))
             if (group.Count() > 1 && group.Any(cell => !previousCells.Contains(cell)))
             {
                 var at = EditLayout.ToLocal(root, path, group.Key);
@@ -387,11 +413,14 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (preview.RequiresConfirmation && !confirmed) return Fail<EditState>("confirmation_required", "Confirm the brush operation first.");
         var next = preview.Result;
         preview = null;
-        if (!EditLayout.Same(root.Export(), next.Export()))
+        Derive();
+        var nextExport = next.Export(root, exported!);
+        if (!EditLayout.Same(exported!, nextExport))
         {
             undo.Push(root);
             redo.Clear();
             root = next;
+            Derive(nextExport);
             Changed();
         }
         return Success(Read());
@@ -413,6 +442,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         revision++;
         evaluation = null;
         preview = null;
+        if (selection.IsEmpty && entered is null) return;
         var ids = Elements.Select(element => element.Id).ToHashSet();
         selection = selection.Where(ids.Contains).ToImmutableArray();
         if (entered is { } id && !ids.Contains(id)) { entered = null; space++; }
@@ -425,7 +455,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (disposed || requested != Stamp || result is DesignEvaluation.Failed) return false;
         var projection = EditContent.ValidateEvaluation(result);
         var draft = EditContent.Definition(result);
-        if (!EditLayout.Same(root.Export(), draft)) return false;
+        Derive();
+        if (!EditLayout.Same(exported!, draft)) return false;
         evaluation = result;
         RegisterLocks(projection);
         return true;
@@ -437,8 +468,9 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (disposed || value.Stamp.Session != Id || value.Stamp.Content != Content ||
             !captures.TryGetValue(value.Stamp.Revision.Value, out var captured)) return false;
         EditLayout.Validate(value.Draft);
-        if (!EditLayout.Same(captured, value.Draft)) return false;
-        saved = captured;
+        var draft = captured.Export();
+        if (!EditLayout.Same(draft, value.Draft)) return false;
+        saved = draft;
         return true;
     }
 
@@ -454,7 +486,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         var path = EnteredPath;
         if (renderedRevision != revision || renderedView != (entered, options.HighestVisibleY))
         {
-            rendered = EditGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY, ObjectId, ModelId, path);
+            rendered = editGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY,
+                ObjectId, ModelId, path, entered ?? default);
             renderedRevision = revision;
             renderedView = (entered, options.HighestVisibleY);
         }
@@ -535,7 +568,8 @@ internal sealed partial class DesignEditSession : IDesignEditSession
 
     private (ImmutableArray<(GridPosition At, EditElementId Id)> Cells, bool Complete) Occupied(EditObject node)
     {
-        var cells = node.Cells.Select(cell => (cell.At, cell.Id)).ToImmutableArray().ToBuilder();
+        var cells = ImmutableArray.CreateBuilder<(GridPosition At, EditElementId Id)>(node.Cells.Length);
+        foreach (var cell in node.Cells) cells.Add((cell.At, cell.Id));
         var complete = true;
         foreach (var child in node.Children)
         {

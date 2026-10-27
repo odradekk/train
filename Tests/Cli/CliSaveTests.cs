@@ -14,12 +14,24 @@ public sealed partial class CliProcessTests
         try
         {
             var recipe = JsonNode.Parse(await File.ReadAllTextAsync(RecipePath))!.AsObject();
-            // 基础贯通的两列起始列车各为 4 辆车。
-            recipe["expectations"] = JsonNode.Parse("""[{"at":200,"key":"largest_train_vehicles","minimum":4,"maximum":4}]""");
+            // 基础贯通的两列起始列车各为 4 辆车，节点 2、5 各有一个聚居地及两个站台。
+            recipe["expectations"] = JsonNode.Parse("""
+                [{"at":200,"key":"largest_train_vehicles","minimum":4,"maximum":4},
+                 {"at":200,"node":2,"key":"nodes","minimum":1,"maximum":1},
+                 {"at":200,"node":5,"key":"platforms","minimum":2,"maximum":2},
+                 {"at":200,"node":2,"key":"settlements","minimum":1,"maximum":1},
+                 {"at":200,"key":"nodes","minimum":2}]
+                """);
             await Make("holding", 0);
             recipe["expectations"]![0]!["minimum"] = 5;
             await Make("unreachable", 1);
             StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "unreachable.stderr.log")), "实际 4");
+            recipe["expectations"]![0]!["minimum"] = 4;
+            recipe["expectations"]![2]!["minimum"] = 3;
+            recipe["expectations"]![3]!["minimum"] = 2;
+            await Make("unreachable-node", 1);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "unreachable-node.stderr.log")),
+                "platforms（节点 5）");
             recipe["expectations"]![0]!["key"] = "unknown";
             await Make("unknown", 1);
             StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "unknown.stderr.log")), "key");

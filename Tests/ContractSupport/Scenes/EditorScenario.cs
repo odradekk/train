@@ -60,6 +60,7 @@ public sealed class EditorSession : IDesignEditSession
     public Func<SceneResult<EditState>>? RedoCall { get; set; }
     public Func<EditViewOptions, ISceneFrame?, SceneResult<ISceneFrame>>? PresentCall { get; set; }
     public Func<EditStamp, DesignElementPath, SceneResult<EditElementId>>? LocateCall { get; set; }
+    public Func<EditSelection, SceneResult<EditState>>? SelectCall { get; set; }
     public List<EditSnapshot> Saved { get; } = [];
     public List<EditStamp> Evaluations { get; } = [];
     public void SetState(Func<EditState, EditState> update) => _state = update(_state);
@@ -119,6 +120,7 @@ public sealed class EditorSession : IDesignEditSession
     }
     public SceneResult<EditState> Select(EditSelection selection)
     {
+        if (SelectCall is { } call) return call(selection);
         _state = _state with { Selection = ((EditSelection.Elements)selection).Ids };
         return new SceneResult<EditState>.Success(_state);
     }
@@ -154,6 +156,7 @@ public sealed class EditorSession : IDesignEditSession
         public Lookup<ScenePose> FindPose(WorldObjectId subject) => frame.FindPose(subject);
         public Lookup<WorldLocation> Locate(NVector3 point) => frame.Locate(point);
         public Lookup<double> TerrainHeight(double x, double z) => frame.TerrainHeight(x, z);
+        public Lookup<double> DisplayTerrainHeight(double x, double z) => frame.DisplayTerrainHeight(x, z);
     }
 
 }

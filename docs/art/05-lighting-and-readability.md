@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文规定局部场景的光照、天空与雾、后处理效果、色调映射和画面可读性。渲染器为 Forward+，理由见 [ADR-0010](../adr/0010-render-with-forward-plus.md)。材质参数与贴图见 [02](02-materials-and-textures.md)，色彩见 [03](03-color-and-paint.md)，渲染路径见 [07](../design/07-rendering.md)，性能目标见 [00 的本阶段性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。宏观地图和界面的视觉见 [07](07-icons-and-ui.md)。
+本文规定局部场景的光照、天空与雾、后处理效果、色调映射和画面可读性。渲染器为 Forward+，理由见决策笔记 `2026-10-09-render-with-forward-plus`。材质参数与贴图见 [02](02-materials-and-textures.md)，色彩见 [03](03-color-and-paint.md)，渲染路径见 [07](../design/07-rendering.md)，性能目标见 [00 的本阶段性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。宏观地图和界面的视觉见 [07](07-icons-and-ui.md)。
 
 ## 不变量
 
@@ -26,7 +26,7 @@
 | SSIL | 画质选项 | 间接光更自然，开销中等 |
 | SDFGI | 不默认开 | 开销最大；按世界坐标分区，浮动原点平移时可能整片重算，实测后再定 |
 | 辉光 | 开，只作用于发光体 | 灯具、屏幕等；不做全屏泛光 |
-| 深度雾 | 开 | 远处和尚未建好的分段用雾收住（[01](../design/01-voxel-engine-and-scenes.md)、[07](../design/07-rendering.md)） |
+| 深度雾 | 开 | 环境雾用于距离融合；构建雾覆盖当前要求构建窗口内缺失的 L0；窗口外静态 L0 生成域内，精确地形和远景均未显示时保留构建雾，远景显示后移除；窗口外以远景呈现，不以雾代替远景（[01](../design/01-voxel-engine-and-scenes.md)、[07](../design/07-rendering.md)） |
 | 体积雾 | 不用 | 天气在 Demo 之后 |
 | 景深 | 不用 | 会遮住状态 |
 | 自动曝光 | 不用 | 时段固定，曝光固定 |

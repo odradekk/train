@@ -67,9 +67,10 @@ internal static class ProductionFixture
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) AdvanceProduction(WorldState world,
         CoreContentProjection content, SettlementId id, double availableLabor, ulong step)
     {
-        var requests = ProductionOperations.Requests(world, content, id);
-        var resolution = SettlementResources.Resolve(world, content, id, availableLabor, [], requests, _ => []);
-        return ProductionOperations.Complete(world, content, id, requests, resolution, step);
+        var prepared = ProductionOperations.Prepare(world, content, id);
+        var resolution = SettlementResources.Resolve(world, content, id, availableLabor, [], prepared.Requests, _ => [],
+            SettlementResources.Fuels(world, content).ToImmutableArray());
+        return ProductionOperations.Complete(content, id, prepared.Facilities, prepared.Requests, resolution, step);
     }
 
     internal static FacilityView Read(ICoreReadView view) => ((Lookup<FacilityView>.Found)view.FindFacility(Facility)).Value;

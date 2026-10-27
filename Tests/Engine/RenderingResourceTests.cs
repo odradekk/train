@@ -5,9 +5,11 @@ using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
+using Train.Core.Contracts;
 using Train.Engine.Tests.Assets;
 using Train.Rendering;
 using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 using static Train.Engine.Tests.Assertions;
 using NVector2 = System.Numerics.Vector2;
 using NVector3 = System.Numerics.Vector3;
@@ -16,6 +18,141 @@ namespace Train.Engine.Tests;
 
 public class RenderingResourceTests(Node testScene) : TestClass(testScene)
 {
+    [Test]
+    public async Task Display_delta_preserves_children_on_reparent_and_updates_inherited_fog_after_parent_changes()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = new SceneDisplay(cache, new FixedContentView());
+        TestScene.AddChild(display.Root);
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => 0;
+        var visual = new SceneVisual.Geometry(Triangle(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel)),
+            new(false, 0, 0, false));
+        var vehicle = new WorldObjectId.Instance(new InstanceId.Vehicle(new(7)));
+        var parent = Object(1, null) with { Subject = vehicle, Lights = [new(new("#ffffff"), 3, 0, 1)] };
+        var child = Object(2, new(1));
+        var other = Object(3, null);
+        var first = Frame(1, null, [parent, child, other]);
+        using (var prepared = Prepare(display, first)) prepared.Commit();
+        display.UpdateConstructionFog([new(7)]);
+        var childRoot = display.Objects[new(2)].Root;
+        var childVisual = display.Objects[new(2)].Visuals[0];
+        var followedShader = Material(childVisual).Shader;
+        var oldParent = display.Objects[new(1)].Root;
+        var light = oldParent.GetChildren().OfType<OmniLight3D>().Single();
+        Require(ReferenceEquals(display.FindRoot(vehicle)?.Root, oldParent), "车辆根查询必须返回实际显示对象。");
+        using (var abandoned = display.Prepare(Frame(2, first.Update.Frame, [parent with { Subject = null }]))!) { }
+        display.UpdateConstructionFog([new(7)]);
+        Require(ReferenceEquals(display.DisplayedFrame, first) && Material(childVisual).Shader == followedShader &&
+            ReferenceEquals(childRoot.GetParent(), oldParent) && ReferenceEquals(display.FindRoot(vehicle)?.Root, oldParent),
+            "放弃已准备帧不能提前改变对象索引、层级或雾状态。");
+
+        var invalid = Frame(2, first.Update.Frame, [], [new(1)]);
+        var rejected = false;
+        try { using var unexpected = display.Prepare(invalid); }
+        catch (InvalidOperationException) { rejected = true; }
+        Require(rejected && ReferenceEquals(display.DisplayedFrame, first) &&
+            ReferenceEquals(childRoot.GetParent(), oldParent) && GodotObject.IsInstanceValid(light),
+            "删除仍有旧子对象的父必须在准备阶段失败，不能改变显示层级或释放旧灯光。");
+
+        var changedParent = Frame(3, first.Update.Frame, [parent with { Subject = null }]);
+        using (var prepared = display.Prepare(changedParent)!) prepared.Commit();
+        display.UpdateConstructionFog([new(7)]);
+        var normalShader = Material(childVisual).Shader;
+        Require(normalShader != followedShader && ReferenceEquals(childRoot.GetParent(), oldParent) &&
+            display.FindRoot(vehicle) is null,
+            "父Subject改变时，即使子对象未Upsert也必须更新根查询和继承的雾状态。");
+
+        var reparented = Frame(4, changedParent.Update.Frame, [child with { Parent = new(3) },
+            other with { Subject = vehicle }], [new(1)]);
+        using (var prepared = display.Prepare(reparented)!) prepared.Commit();
+        display.UpdateConstructionFog([new(7)]);
+        Require(ReferenceEquals(display.Objects[new(2)].Root, childRoot) &&
+            ReferenceEquals(childRoot.GetParent(), display.Objects[new(3)].Root) &&
+            ReferenceEquals(display.FindRoot(vehicle)?.Root, display.Objects[new(3)].Root) &&
+            Material(childVisual).Shader == followedShader && !GodotObject.IsInstanceValid(oldParent) &&
+            !GodotObject.IsInstanceValid(light),
+            "删除旧父并换父必须复用存活子对象，更新雾继承，并释放旧父和灯光。");
+        display.UpdateConstructionFog([]);
+        Require(Material(childVisual).Shader == normalShader, "跟随集合变化必须重算未Upsert的子对象。");
+        var beforeObjects = display.Objects;
+        var idle = Frame(5, reparented.Update.Frame, []);
+        using (var prepared = display.Prepare(idle)!) prepared.Commit();
+        Require(ReferenceEquals(beforeObjects, display.Objects) &&
+            ReferenceEquals(display.Objects[new(2)].Root, childRoot),
+            "没有对象变更或原点平移的增量必须复用对象表和节点，不能复制全部对象。");
+
+        SceneObject Object(ulong id, SceneObjectId? parentId) => new(new(id), parentId,
+            new(NVector3.Zero, System.Numerics.Quaternion.Identity), null, [visual], [], []);
+        static FixedSceneFrame Frame(ulong revision, SceneFrameStamp? baseline, ImmutableArray<SceneObject> objects,
+            ImmutableArray<SceneObjectId> removed = default) => new()
+        {
+            Update = new(baseline, new(new(Guid.Empty), new(1), new(2), revision),
+                NVector3.Zero, objects, removed.IsDefault ? [] : removed, new([], []), []), Readiness = SceneReadiness.Ready
+        };
+    }
+
+    [Test]
+    public async Task Candidate_pending_work_tracks_latest_sources_without_accumulating_replacements()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = new SceneDisplay(cache, new FixedContentView());
+        var visual = new SceneVisual.Geometry(Triangle(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel)),
+            new(false, 0, 0, false));
+        var unavailable = new SceneVisual.Model(new("unavailable-replaced-candidate"), [], null,
+            new(false, 0, 0, false), default);
+        var first = Update(1, Enumerable.Range(1, 10).Select(id => Object((ulong)id,
+            id == 10 ? unavailable : visual)).ToImmutableArray());
+        display.ReceiveCandidate(first);
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => (display.CandidateProgress(first.Frame)?.Prepared ?? 0) *
+            (System.Diagnostics.Stopwatch.Frequency / 1000);
+        display.PrepareCandidate(TimeSpan.Zero);
+        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        Require(display.CandidateProgress(first.Frame) is (4, 10) && display.PendingCandidateVisuals == 6,
+            "预算中断后，待准备项必须与剩余来源一一对应。");
+        display.ReceiveCandidate(first);
+        Require(display.PendingCandidateVisuals == 6, "重复帧不能重复排队。");
+
+        SceneUpdate latest = first;
+        for (ulong revision = 2; revision <= 20; revision++)
+        {
+            latest = Update(revision, [Object(1, visual), Object(2, visual), Object(10, visual)]);
+            display.ReceiveCandidate(latest);
+            Require(display.CandidateProgress(latest.Frame) is (2, 3) && display.PendingCandidateVisuals == 1,
+                "全量替换应删除撤销项、复用兼容资源，并只保留一次尚未准备的同键来源。");
+        }
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => 0;
+        display.PrepareCandidate(TimeSpan.Zero);
+        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        Require(display.PreparedCandidate == latest.Frame && display.PendingCandidateVisuals == 0 &&
+            display.CandidateProgress(latest.Frame) is (3, 3),
+            "队列必须准备同键的最新来源，不能读取已被替换的不可用模型。");
+
+        var delta = Update(21, [Object(11, visual)]) with { Base = latest.Frame, Removed = [new(10)] };
+        display.ReceiveCandidate(delta);
+        Require(display.CandidateProgress(delta.Frame) is (2, 3) && display.PendingCandidateVisuals == 1,
+            "增量必须只撤销指定对象并排入新增视觉。");
+        display.PrepareCandidate(TimeSpan.Zero);
+        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        Require(display.PreparedCandidate == delta.Frame && display.PendingCandidateVisuals == 0,
+            "增量完成后待准备队列必须为空。");
+        display.CancelCandidate();
+        Require(display.PendingCandidateVisuals == 0 && display.CandidateProgress(delta.Frame) is null,
+            "取消候选必须清除全部待准备来源。");
+
+        SceneObject Object(ulong id, SceneVisual source) => new(new(id), null,
+            new(NVector3.Zero, System.Numerics.Quaternion.Identity), null, [source], [], []);
+        static SceneUpdate Update(ulong revision, ImmutableArray<SceneObject> objects) =>
+            new(null, new(new(Guid.Empty), new(1), new(2), revision), NVector3.Zero, objects, [], new([], []), []);
+    }
+
     [Test]
     public void Followed_vehicle_fog_exemption_preserves_material_state_and_mesh_and_can_be_removed()
     {
@@ -30,7 +167,10 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var mesh = instance.Mesh;
         var material = Material(followed);
         var originalShader = material.Shader;
-        var damageMask = material.GetShaderParameter("damage_mask").AsGodotObject() as Texture2D;
+        Texture2D? damageMask;
+        using (var parameter = material.GetShaderParameter("damage_mask"))
+            damageMask = parameter.AsGodotObject() as Texture2D;
+        var damageMaskId = damageMask!.GetInstanceId();
         using var damageImage = damageMask?.GetImage();
         Require(damageMask is not null && damageMask.GetWidth() == 128 && damageMask.GetHeight() == 128 && damageImage?.HasMipmaps() == true,
             "场景材质必须加载带 Mipmap 的正式损伤遮罩。");
@@ -45,9 +185,10 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(ReferenceEquals(instance.Mesh, mesh), "雾豁免不应重建车辆网格。");
         AssertSurface(material, source.Surface);
         Require(material.GetShaderParameter("rail_steel").AsBool(), "切换着色器不能丢失材质参数。");
-        Require(material.GetShaderParameter("damage_mask").AsGodotObject() == damageMask &&
-            Material(other).GetShaderParameter("damage_mask").AsGodotObject() == damageMask,
-            "普通和跟随材质必须共享同一份损伤遮罩。");
+        using (var materialMask = material.GetShaderParameter("damage_mask"))
+        using (var otherMask = Material(other).GetShaderParameter("damage_mask"))
+            Require(materialMask.AsGodotObject() == damageMask && otherMask.AsGodotObject() == damageMask,
+                "普通和跟随材质必须共享同一份损伤遮罩。");
         var next = source with { Surface = new(false, 31, 0.75f, true) };
         followed.Update(next);
         AssertSurface(material, next.Surface);
@@ -57,14 +198,19 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(material.Shader == originalShader, "离开跟随目标后必须恢复普通构建雾遮挡。");
         AssertSurface(material, next.Surface);
         Require(ReferenceEquals(instance.Mesh, mesh), "移除豁免不应重建车辆网格。");
+        var shader = material.Shader;
+        var shaderId = shader.GetInstanceId();
         followed.Dispose();
         other.Dispose();
         resources.Dispose();
-        Require(!GodotObject.IsInstanceValid(damageMask), "释放场景资源必须释放损伤遮罩。");
+        Require(!GodotObject.IsInstanceValid(damageMask) && !GodotObject.IsInstanceIdValid(damageMaskId),
+            "释放场景资源必须在主线程销毁损伤遮罩。");
+        Require(!GodotObject.IsInstanceValid(shader) && !GodotObject.IsInstanceIdValid(shaderId),
+            "释放场景资源必须在主线程销毁共享着色器。");
     }
 
     [Test]
-    public void Geometry_uploads_outward_faces_and_all_vertex_and_surface_channels()
+    public async Task Geometry_uploads_outward_faces_and_all_vertex_and_surface_channels()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
@@ -72,7 +218,8 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         using var resources = new SceneResources(cache, Content(asset));
         var source = Triangle(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.PaintedMetal, new("#80a0c0")));
         var surface = new SurfaceState(true, 0xfedcba9876543210UL, 0.375f, true);
-        using var visual = resources.Prepare(new SceneVisual.Geometry(source, surface));
+        var packed = await Task.Run(() => PackedSceneMesh.Create(source, CancellationToken.None));
+        using var visual = resources.Prepare(new SceneVisual.Geometry(source, surface), packed);
         var instance = Instance(visual);
         var mesh = (ArrayMesh)instance.Mesh;
         using var arrays = mesh.SurfaceGetArrays(0);
@@ -82,6 +229,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var faceUv = arrays[(int)Mesh.ArrayType.TexUV2].AsVector2Array();
         var custom = arrays[(int)Mesh.ArrayType.Custom0].AsFloat32Array();
         var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
+        Require(vertices.Length == source.Vertices.Length && normals.Length == vertices.Length &&
+            uv.Length == vertices.Length && faceUv.Length == vertices.Length && custom.Length == vertices.Length * 4 &&
+            indices.Length == source.TriangleIndices.Length, "后台打包必须保留全部顶点、索引与表现通道。");
         var customFormat = ((ulong)mesh.SurfaceGetFormat(0) >> (int)Mesh.ArrayFormat.FormatCustom0Shift)
             & (ulong)Mesh.ArrayFormat.FormatCustomMask;
         Require(customFormat == (ulong)Mesh.ArrayCustomFormat.RgbaFloat, "表现通道需要完整 float 精度。");
@@ -97,7 +247,12 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             Near(custom[index * 4], (int)expected.ExposedEdges);
             Near(custom[index * 4 + 1], expected.RelativeHeight);
             Near(custom[index * 4 + 2], expected.Damage);
+            Near(custom[index * 4 + 3], 0);
         }
+        for (var index = 0; index < indices.Length; index += 3)
+            Require(indices[index] == source.TriangleIndices[index] &&
+                indices[index + 1] == source.TriangleIndices[index + 2] &&
+                indices[index + 2] == source.TriangleIndices[index + 1], "后台打包必须完整保留三角形顺序并转换绕序。");
         var material = Material(visual);
         AssertSurface(material, surface);
         Require(material.GetShaderParameter("has_paint").AsBool(), "几何涂装开关未上传。");
@@ -134,6 +289,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         using var second = resources.Prepare(source with { RelativeHeightPlane = new(0, 1, 0, -1) });
         var instance = Instance(first);
         var mesh = instance.Mesh;
+        var meshId = mesh.GetInstanceId();
         Require(mesh.GetInstanceId() == Instance(second).Mesh.GetInstanceId(), "显示实例绕过了模型缓存。");
         for (var index = 0; index < 3; index++)
         {
@@ -147,11 +303,18 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             Require(material.GetShaderParameter("alpha_cutout").AsBool() == (index == 1), "模型 alpha mask 与表面次序不对应。");
         }
         var mask = (ShaderMaterial)instance.GetSurfaceOverrideMaterial(1);
+        var maskId = mask.GetInstanceId();
         Near(mask.GetShaderParameter("alpha_cutoff").AsSingle(), 0.5f);
         Require(mask.GetShaderParameter("base_color").AsColor().IsEqualApprox(new Color(0.25f, 0.5f, 0.75f, 0.8f)), "模型基础色系数丢失。");
-        var texture = mask.GetShaderParameter("base_texture").As<Texture2D>();
+        Texture2D texture;
+        using (var parameter = mask.GetShaderParameter("base_texture"))
+            texture = parameter.As<Texture2D>();
+        var textureId = texture.GetInstanceId();
         using (var mipmapped = texture.GetImage()) Require(mipmapped.HasMipmaps(), "模型内嵌纹理没有 mipmap。");
-        Require(texture.GetInstanceId() == ((ShaderMaterial)instance.GetSurfaceOverrideMaterial(2)).GetShaderParameter("base_texture").As<Texture2D>().GetInstanceId(), "同模型内嵌图片没有共享。");
+        using (var secondTexture = ((ShaderMaterial)instance.GetSurfaceOverrideMaterial(2)).GetShaderParameter("base_texture"))
+            Require(textureId == secondTexture.As<Texture2D>().GetInstanceId(), "同模型内嵌图片没有共享。");
+        var modelShader = mask.Shader;
+        var modelShaderId = modelShader.GetInstanceId();
         Require(!first.CanUpdate(source with { Paint = null }) &&
             !first.CanUpdate(source with { Surface = new(false, ulong.MaxValue, 0.5f, false) }),
             "涂装或表面状态变化必须重新准备共享材质。");
@@ -180,8 +343,15 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture) && GodotObject.IsInstanceValid(mask),
             "释放一个模型实例销毁了另一实例的资源。");
         second.Dispose();
-        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceValid(mask),
-            "最后模型显示实例没有释放共享材质、模型网格和内嵌纹理。");
+        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceIdValid(meshId),
+            "最后模型显示实例必须在主线程释放模型网格。");
+        Require(!GodotObject.IsInstanceValid(mask) && !GodotObject.IsInstanceIdValid(maskId),
+            "最后模型显示实例必须在主线程释放共享材质。");
+        Require(!GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceIdValid(textureId),
+            "最后模型显示实例必须在主线程释放内嵌纹理。");
+        resources.Dispose();
+        Require(!GodotObject.IsInstanceValid(modelShader) && !GodotObject.IsInstanceIdValid(modelShaderId),
+            "释放场景资源必须在主线程销毁共享着色器。");
     }
 
     [Test]
@@ -246,18 +416,26 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         using var first = resources.Prepare(source);
         using var second = resources.Prepare(source);
         var mesh = Instance(first).Mesh;
-        var texture = Material(first).GetShaderParameter("base_texture").As<ImageTexture>();
-        Require(mesh.GetInstanceId() == Instance(second).Mesh.GetInstanceId(), "同不可变几何没有共享 ArrayMesh。");
-        Require(texture.GetInstanceId() == Material(second).GetShaderParameter("base_texture").As<ImageTexture>().GetInstanceId(), "显示实例没有共享面纹理。");
+        var meshId = mesh.GetInstanceId();
+        ImageTexture texture;
+        using (var parameter = Material(first).GetShaderParameter("base_texture"))
+            texture = parameter.As<ImageTexture>();
+        var textureId = texture.GetInstanceId();
+        Require(meshId == Instance(second).Mesh.GetInstanceId(), "同不可变几何没有共享 ArrayMesh。");
+        using (var secondTexture = Material(second).GetShaderParameter("base_texture"))
+            Require(textureId == secondTexture.As<ImageTexture>().GetInstanceId(), "显示实例没有共享面纹理。");
         using (var image = texture.GetImage()) Require(image.HasMipmaps(), "显示器使用了无 mipmap 的面纹理。");
         first.Node.Position = new(100, 200, -300);
         Require(first.CanUpdate(source), "对象移动破坏了几何复用。");
         first.Update(source with { Surface = new(true, 17, 0.1f, false) });
-        Require(mesh.GetInstanceId() == Instance(first).Mesh.GetInstanceId(), "平移或状态更新重建了 ArrayMesh。");
+        Require(meshId == Instance(first).Mesh.GetInstanceId(), "平移或状态更新重建了 ArrayMesh。");
         first.Dispose();
         Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture), "共享资源在最后使用者结束前被释放。");
         second.Dispose();
-        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(texture), "最后显示租约没有释放共享资源。");
+        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceIdValid(meshId),
+            "最后显示租约没有在主线程释放共享网格。");
+        Require(!GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceIdValid(textureId),
+            "最后显示租约没有在主线程释放面纹理。");
     }
 
     [Test]
@@ -410,6 +588,17 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         [new(NVector3.Zero, NVector3.UnitZ, new NVector2(0.1f, 0.2f), NVector2.Zero, ExposedFaceEdges.MinimumU, 0.125f, 0.25f),
          new(NVector3.UnitX, NVector3.UnitZ, new NVector2(0.4f, 0.3f), NVector2.UnitX, ExposedFaceEdges.MaximumU, 0.5f, 0.375f),
          new(NVector3.UnitY, NVector3.UnitZ, new NVector2(3.3f, -2.2f), NVector2.UnitY, ExposedFaceEdges.MinimumV | ExposedFaceEdges.MaximumV, 0.875f, 0.75f)], [0, 1, 2]);
+
+    private static SceneDisplay.PreparedFrame Prepare(SceneDisplay display, ISceneFrame frame)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (watch.Elapsed < TimeSpan.FromSeconds(30))
+        {
+            if (display.Prepare(frame) is { } prepared) return prepared;
+            display.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        }
+        throw new InvalidOperationException("显示准备超时。");
+    }
 
     private static MeshInstance3D Instance(PreparedVisual visual) => visual.Node.GetChildren().OfType<MeshInstance3D>().Single();
     private static string[] InstanceUniforms(GeometryInstance3D instance) =>

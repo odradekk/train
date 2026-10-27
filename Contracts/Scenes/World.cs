@@ -21,7 +21,7 @@ public abstract record WorldSceneTarget
     public sealed record Follow(TrainId Train, VehicleId Vehicle) : WorldSceneTarget;
     public sealed record Combat(CombatId Id) : WorldSceneTarget;
 }
-public sealed record SceneCameraSample(ISceneFrame Frame, Vector3 Focus);
+public sealed record SceneCameraSample(ISceneFrame Frame, Vector3 Focus, double TerrainViewRadiusCells);
 public sealed record ScenePickRaySample(ISceneFrame Frame, SceneRay Ray);
 public sealed record SceneFrameRequest(double Interpolation, SceneCameraSample? Camera,
     SceneDebugLayer DebugLayers, ScenePickRaySample? PickRay = null);
@@ -32,6 +32,7 @@ public interface IWorldSceneSession : IAsyncDisposable
     SceneResult<SceneRequestId> RequestView(WorldSceneTarget target);
     SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events);
     SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame);
+    SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared);
     SceneResult<PickSubject> Resolve(SceneHit hit);
     new ValueTask DisposeAsync();
 }

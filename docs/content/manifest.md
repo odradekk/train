@@ -1,6 +1,6 @@
 # 内容包 manifest
 
-每个 Mod 的包目录下有一个 `mod.json`，声明包的身份、版本和依赖。Schema 见 [schemas/manifest.schema.json](schemas/manifest.schema.json)，示例见 [examples/example-pack/mod.json](examples/example-pack/mod.json)。规则的来由见 [ADR-0015](../adr/0015-declare-package-dependencies-and-keep-missing-content-as-placeholders.md)。
+每个 Mod 的包目录下有一个 `mod.json`，声明包的身份、版本和依赖。Schema 见 [schemas/manifest.schema.json](schemas/manifest.schema.json)，示例见 [examples/example-pack/mod.json](examples/example-pack/mod.json)。规则的来由见决策笔记 `2026-10-09-package-dependencies-and-missing-placeholders`。
 
 内置的 `core` 包没有 manifest。
 

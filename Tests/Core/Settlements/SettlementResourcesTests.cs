@@ -10,6 +10,21 @@ namespace Train.Core.Tests.Settlements;
 public sealed class SettlementResourcesTests
 {
     [TestMethod]
+    public void Arbitration_keeps_goods_order_and_removes_only_exhausted_items()
+    {
+        var state = State([new(OtherFuel, 3), new(Material, 2), new(Fuel, 2)]);
+        var inventory = state.World.Settlements.Single().Inventory;
+        GoodsQuantity[] original = [new(Fuel, 2), new(Material, 2), new(OtherFuel, 3)];
+        var unchanged = Resolve(state, [Work(power: 0, labor: 0)]);
+        CollectionAssert.AreEqual(original, unchanged.World.Inventories.Single(i => i.Id == inventory).Goods.ToArray());
+
+        var result = Resolve(state, [Work(rate: 30)], basic: [new(Material, 2)], improvement: [new(OtherFuel, 1)]);
+        CollectionAssert.AreEqual(new GoodsQuantity[] { new(Fuel, 1), new(OtherFuel, 2) },
+            result.World.Inventories.Single(i => i.Id == inventory).Goods.ToArray());
+        CollectionAssert.AreEqual(original, state.World.Inventories.Single(i => i.Id == inventory).Goods.ToArray());
+    }
+
+    [TestMethod]
     public void Shuffled_facilities_resolve_by_priority_then_building_then_capability()
     {
         var state = State([new(Fuel, 1)], power: 60);

@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层。
 
-> 决策出处：列车位置、铁轨的通行规则、节点与站台、换向与牵引、速度模型、选轨、运行计划、选路、断轨、线路的修建与修复、编组地点，由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)于 2026-10-05 确认。它取代了物理轨道、连续几何、道岔、通行区段与完整授权、多接触点约束、单向牵引与双车头换端等规则，见 [ADR-0006](../adr/0006-preserve-physical-rail-geometry-and-local-breaks.md)、[ADR-0007](../adr/0007-drive-connected-assemblies-from-physical-rail-positions.md) 的取代说明。等待按先后、平局按稳定编组 ID 仲裁，沿用[分支道岔、选路与多列车冲突防护](https://github.com/odradekk/train/issues/94)。战斗中的停车与撤退、敌对聚居地的停靠与选路避让、断点的来源，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。
+> 决策出处：列车位置、铁轨的通行规则、节点与站台、换向与牵引、速度模型、选轨、运行计划、选路、断轨、线路的修建与修复、编组地点，由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)于 2026-10-05 确认。它取代了物理轨道、连续几何、道岔、通行区段与完整授权、多接触点约束、单向牵引与双车头换端等规则，见决策笔记 `2026-09-05-preserve-physical-rail-geometry`、`2026-09-05-drive-assemblies-from-rail-positions` 的取代说明。等待按先后、平局按稳定编组 ID 仲裁，沿用[分支道岔、选路与多列车冲突防护](https://github.com/odradekk/train/issues/94)。战斗中的停车与撤退、敌对聚居地的停靠与选路避让、断点的来源，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。
 
 > 节点进出铁轨、计入其他已定出轨的提前选轨、按固定铁轨交让及失效重选，由 [#541 用户决定](https://github.com/odradekk/train/issues/541#issuecomment-6246042359)于 2026-10-18 确认；失效重选导致节点内路径瞬时切换是已知例外。无开放铁轨时的空值规则与保持原有出站转换时机，见 [#541 批准计划的决定 4–6](https://github.com/odradekk/train/issues/541#issuecomment-6245910548)。
 
@@ -147,7 +147,7 @@
 
 ### 场景中的线路与列车
 
-线路场景按列车在核心中的位置摆放列车，在相邻两个模拟步之间插值，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。铁轨的尺度见 [01](01-voxel-engine-and-scenes.md#线路场景中的铁轨)。线路的中心线、弯道、坡道、桥梁和隧道见 [01](01-voxel-engine-and-scenes.md#线路场景)；道岔只出现在节点场景的进站区域。
+线路场景按列车在核心中的位置摆放列车，在相邻两个模拟步之间插值，见决策笔记 `2026-10-05-voxel-free-core-and-presentation-scenes`。铁轨的尺度见 [01](01-voxel-engine-and-scenes.md#线路场景中的铁轨)。线路的中心线、弯道、坡道、桥梁和隧道见 [01](01-voxel-engine-and-scenes.md#线路场景)；道岔只出现在节点场景的进站区域。
 
 ## Demo 范围
 

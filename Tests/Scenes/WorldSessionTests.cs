@@ -53,8 +53,8 @@ public sealed class WorldSessionTests
         Assert.IsNull(combatFrame.NodePanBounds);
         Assert.AreEqual(locatedFrame.Origin, combatFrame.Origin);
         Assert.AreEqual(locatedFrame.Locate(Vector3.Zero), combatFrame.Locate(Vector3.Zero));
-        var combatCamera = Present(combat, combatFrame, new SceneCameraSample(combatFrame, Vector3.Zero));
-        var locatedCamera = Present(located, locatedFrame, new SceneCameraSample(locatedFrame, Vector3.Zero));
+        var combatCamera = Present(combat, combatFrame, new SceneCameraSample(combatFrame, Vector3.Zero, 6656));
+        var locatedCamera = Present(located, locatedFrame, new SceneCameraSample(locatedFrame, Vector3.Zero, 6656));
         Assert.AreEqual(locatedCamera.Origin, combatCamera.Origin);
     }
 
@@ -164,7 +164,11 @@ public sealed class WorldSessionTests
         var foreign = Present(other);
         Assert.ThrowsExactly<ArgumentException>(() => session.Present(Request, foreign));
         Assert.ThrowsExactly<ArgumentException>(() => session.Present(Request with { Interpolation = double.NaN }, frame));
-        Assert.AreEqual(frame.Update.Frame, Present(session, frame).Update.Base);
+        foreach (var radius in new[] { 0d, -1d, double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+            Assert.ThrowsExactly<ArgumentException>(() => session.Present(
+                Request with { Camera = new(frame, Vector3.Zero, radius) }, frame));
+        Assert.AreEqual(frame.Update.Frame,
+            Present(session, frame, new(frame, Vector3.Zero, 1)).Update.Base);
     }
 
     [TestMethod]
@@ -263,7 +267,9 @@ public sealed class WorldSessionTests
     }
 
     [TestMethod]
-    public async Task DestroyedCompositeGetsANewObjectIdWhenRepaired()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task DestroyedCompositeGetsANewObjectIdWhenRepaired(bool acknowledgeProducedFrame)
     {
         var evaluation = RailwayFixtures.Vehicle() with
         {
@@ -283,8 +289,8 @@ public sealed class WorldSessionTests
         var nested = first.Objects.Single(item => item.Parent == root.Id);
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, steps: 1, content: content, trains: [RailwayFixtures.Train(1)],
             instances: [healthy with { Parts = [new(new(9), new(0, 10), false, true)] }]), []);
-        var destroyed = await RailwayFixtures.Settled(session, Request, first);
-        Assert.IsTrue(destroyed.Update.Removed.Contains(nested.Id));
+        var destroyed = await RailwayFixtures.Settled(session, Request, acknowledgeProducedFrame ? first : null);
+        Assert.AreEqual(acknowledgeProducedFrame, destroyed.Update.Removed.Contains(nested.Id));
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, steps: 2, content: content,
             trains: [RailwayFixtures.Train(1)], instances: [healthy]), []);
         var repaired = await RailwayFixtures.Settled(session, Request, destroyed);

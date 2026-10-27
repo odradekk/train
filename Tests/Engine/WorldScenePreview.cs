@@ -262,6 +262,7 @@ public partial class WorldScenePreview : Node
             return new SceneResult<ISceneFrame>.Success(frame);
         }
 
+        public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared) => new SceneResult<SceneUpdate?>.Success(null);
         public SceneResult<PickSubject> Resolve(SceneHit hit) => hit == _hit
             ? new SceneResult<PickSubject>.Success(hit.Subject)
             : throw new InvalidOperationException("UNCONFIGURED: 预览命中核对。");

@@ -225,7 +225,7 @@ internal static class InventoryCommands
             var quantity = checked((inventory.Goods.FirstOrDefault(g => g.Good == request.Good)?.Quantity ?? 0) + difference);
             var goods = inventory.Goods.Where(g => g.Good != request.Good);
             if (quantity > 0) goods = goods.Append(new(request.Good, quantity));
-            return inventory with { Goods = goods.OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray() };
+            return inventory with { Goods = goods.OrderBy(g => g.Good, WorldReferences.GoodComparer).ToImmutableArray() };
         }
     }
 }

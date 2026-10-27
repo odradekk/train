@@ -91,6 +91,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             long timestamp = 0;
             world.Display!.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+            Prime(world.Display, candidates[0]);
             var root = world.Display.Objects[new(1)].Root;
             for (var i = 0; i < 2; i++)
             {
@@ -130,6 +131,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 ReferenceEquals(session.PresentCalls[3].Request.Camera!.Frame, candidates[1]),
                 "Present网格基准必须保持完整提交帧，相机样本则跟随实际最新姿态帧。");
             world.Display.Timestamp = () => 0;
+            Prime(world.Display, next);
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display.DisplayedFrame, next) &&
                 ReferenceEquals(session.PresentCalls[^1].DisplayedFrame, candidates[0]) &&
@@ -969,6 +971,378 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); }
     }
 
+    [Test]
+    public async Task Failed_candidate_resource_preparation_keeps_the_active_scene_interactive()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var second = Frame(2, first.Update.Frame, objects: []);
+        var third = Frame(3, second.Update.Frame, objects: []);
+        var unavailable = new SceneVisual.Model(new("unavailable-candidate-model"), [], null,
+            new(false, 0, 0, false), default);
+        var candidate = Frame(10, space: 2, objects: [Object(20, unavailable)]).Update;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                [Success(first), Success(second), Success(third)], candidates:
+                [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate),
+                    new SceneResult<SceneUpdate?>.Success(candidate)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            var root = world.Display.Objects[new(1)].Root;
+            world.ProcessFrame(0, false);
+            world.ProcessFrame(0, false);
+            Require(world.View.Interactive && ReferenceEquals(world.Display.DisplayedFrame, third) &&
+                ReferenceEquals(world.Display.Objects[new(1)].Root, root) && world.Display.PreparedCandidate is null &&
+                !world.Display.IsPreparingCandidate,
+                "候选资源失败只能放弃该候选，当前显示和交互必须继续。");
+            Require(app.GetChildren().OfType<Train.Ui.GameConsole>().Single().LogEvents.Count(log =>
+                log.EventId == "scene_problem" && log.Attributes["code"]?.ToString() == "candidate_prepare_failed") == 1,
+                "同一目标的候选准备失败应报告一次，不能每帧重试。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Promoted_partial_candidate_reuses_later_batches_and_retains_the_remainder_until_space_changes()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var idle = Frame(2, first.Update.Frame, objects: []);
+        var candidate = Frame(10, space: 2,
+            objects: Enumerable.Range(20, 10).Select(id => Object((ulong)id)).ToImmutableArray()).Update;
+        var promoted = Frame(11, space: 2, objects: [Object(20)]);
+        var batch = Frame(12, promoted.Update.Frame, space: 2, objects: [Object(21)]);
+        var moved = Frame(13, space: 3, objects: []);
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                [Success(first), Success(idle), Success(promoted), Success(batch), Success(moved)], candidates:
+                [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate),
+                    new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(null),
+                    new SceneResult<SceneUpdate?>.Success(null)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            var display = world.Display!;
+            display.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            display.ReceiveCandidate(candidate);
+            display.PrepareCandidate(TimeSpan.Zero);
+            display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            var before = OrphanRoots();
+            display.Timestamp = () => (display.CandidateProgress(candidate.Frame)?.Prepared ?? 0) *
+                (System.Diagnostics.Stopwatch.Frequency / 1000);
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            var candidateNodes = OrphanRoots().Except(before).Select(GodotObject.InstanceFromId).OfType<Node3D>().ToArray();
+            Require(display.CandidateProgress(candidate.Frame) is (4, 10) && candidateNodes.Length == 4,
+                "切换前必须只准备部分候选视觉，并保留未准备的来源。");
+            var candidateIds = candidateNodes.Select(node => node.GetInstanceId()).ToHashSet();
+            var seen = new HashSet<ulong>();
+            display.Timestamp = () =>
+            {
+                seen.UnionWith(OrphanRoots().Except(before));
+                return 0;
+            };
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            var active = display.Objects[new(20)];
+            Require(ReferenceEquals(display.DisplayedFrame, promoted) && world.View.Interactive &&
+                candidateNodes.Any(node => ReferenceEquals(node, active.Visuals[0].Node)),
+                "切换帧必须直接复用已准备的候选视觉。");
+            Require(seen.Except(candidateIds).All(id => id == active.Root.GetInstanceId()),
+                "正式准备后不得再次创建候选视觉；只允许新增正式对象根节点。");
+            Require(candidateNodes.Where(node => !ReferenceEquals(node, active.Visuals[0].Node))
+                .All(GodotObject.IsInstanceValid) && display.CandidateProgress(candidate.Frame) is (3, 10) &&
+                display.PendingCandidateVisuals == 6,
+                "晋升首帧提交后必须保留未取用的视觉；未完成的候选准备不能继续派工。");
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            var later = display.Objects[new(21)];
+            Require(ReferenceEquals(display.DisplayedFrame, batch) &&
+                candidateNodes.Any(node => ReferenceEquals(node, later.Visuals[0].Node)) &&
+                display.CandidateProgress(candidate.Frame) is (2, 10) && display.PendingCandidateVisuals == 6,
+                "后续接入批次必须复用候选视觉，并继续保留尚未取用的资源。");
+            Require(seen.Except(candidateIds).All(id => id == active.Root.GetInstanceId() || id == later.Root.GetInstanceId()),
+                "后续批次也只能新增正式对象根，不能重做候选资源准备。");
+            var unused = candidateNodes.Where(node => node.GetParent() is null).ToArray();
+            Require(unused.Length == 2, "未接入的两个已准备视觉必须继续留在树外。");
+            world.ProcessFrame(0, false);
+            Require(ReferenceEquals(display.DisplayedFrame, moved) && unused.All(node => !GodotObject.IsInstanceValid(node)) &&
+                !display.IsPreparingCandidate && display.CandidateProgress(candidate.Frame) is null,
+                "Space 改变时必须释放全部尚未取用的候选视觉和来源。");
+        }
+        finally { await fixture.Cleanup(); }
+
+        static HashSet<ulong> OrphanRoots()
+        {
+            using var nodes = (Godot.Collections.Array)Node.GetOrphanNodeIds();
+            return nodes.Select(id => id.AsUInt64()).Where(id =>
+                GodotObject.InstanceFromId(id) is Node3D node && node.GetParent() is null).ToHashSet();
+        }
+    }
+
+    [Test]
+    public async Task Candidate_waiting_for_packing_lends_its_remaining_budget_to_active_uploads() =>
+        await Waiting_packing_lends_remaining_budget(candidateFirst: true);
+
+    [Test]
+    public async Task Active_waiting_for_packing_lends_its_remaining_budget_to_candidate_uploads() =>
+        await Waiting_packing_lends_remaining_budget(candidateFirst: false);
+
+    private async Task Waiting_packing_lends_remaining_budget(bool candidateFirst)
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var idle = Frame(2, first.Update.Frame, objects: []);
+        var activeMesh = Mesh with { };
+        var candidateMesh = Mesh with { };
+        var active = Frame(3, candidateFirst ? first.Update.Frame : idle.Update.Frame,
+            objects: Enumerable.Range(2, 6).Select(id => Object((ulong)id,
+                new SceneVisual.Geometry(activeMesh, new(false, 0, 0, false)))).ToImmutableArray());
+        var candidate = Frame(10, space: 2,
+            objects: Enumerable.Range(20, 10).Select(id => Object((ulong)id,
+                new SceneVisual.Geometry(candidateMesh, new(false, 0, 0, false)))).ToImmutableArray()).Update;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task packing = Task.CompletedTask;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                candidateFirst ? [Success(first), Success(active)] : [Success(first), Success(idle), Success(active)],
+                candidates: candidateFirst
+                    ? [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate)]
+                    : [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate),
+                        new SceneResult<SceneUpdate?>.Success(candidate)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            var display = world.Display!;
+            display.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            if (candidateFirst) Prime(display, active);
+            else
+            {
+                display.ReceiveCandidate(candidate);
+                display.PrepareCandidate(TimeSpan.Zero);
+                display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+                long timestamp = 0;
+                display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+                await new UiTestInput(TestScene).Frames(1);
+                world.ProcessFrame(0, false);
+                Require(ReferenceEquals(display.DisplayedFrame, idle) &&
+                    display.CandidateProgress(candidate.Frame) is (0, 10),
+                    "先执行一次候选优先调度而不上传资源，使下一帧正式侧先执行。");
+                display.Timestamp = () => 0;
+            }
+            var packMesh = display.PackMesh;
+            display.PackMesh = (mesh, cancellation) =>
+            {
+                entered.TrySetResult();
+                release.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellation).GetAwaiter().GetResult();
+                return packMesh(mesh, cancellation);
+            };
+            if (candidateFirst)
+            {
+                display.ReceiveCandidate(candidate);
+                display.PrepareCandidate(TimeSpan.Zero);
+                packing = display.CandidatePacking;
+            }
+            else
+            {
+                using var prepared = display.Prepare(active, TimeSpan.Zero);
+                Require(prepared is null, "零预算只能启动正式侧后台打包。");
+                packing = display.PreparationPacking;
+            }
+            entered.Task.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            var activePrepared = 0;
+            display.Observe = item =>
+            {
+                if (item.Stage == Train.Rendering.SceneDisplayStage.ResourcesPrepared && item.Frame == active.Update.Frame)
+                    activePrepared++;
+            };
+            // 只有后执行侧的每次资源准备计费1ms，先执行侧始终停在后台打包入口。
+            display.Timestamp = () => (candidateFirst ? activePrepared :
+                display.CandidateProgress(candidate.Frame)!.Value.Prepared) *
+                (System.Diagnostics.Stopwatch.Frequency / 1000);
+            await new UiTestInput(TestScene).Frames(1);
+            Require(world.View.Interactive, "共享预算测试必须从已可操作的正式场景进入交替调度。");
+            world.ProcessFrame(0, false);
+            Require(!packing.IsCompleted && display.IsPreparing && display.IsPreparingCandidate &&
+                ReferenceEquals(display.DisplayedFrame, candidateFirst ? first : idle),
+                "先执行侧必须仍在等待后台数组，两侧均未提交，旧正式帧保持显示。");
+            Require(candidateFirst ? activePrepared == 4 && display.CandidateProgress(candidate.Frame) is (0, 10)
+                    : activePrepared == 0 && display.CandidateProgress(candidate.Frame) is (4, 10),
+                $"先执行侧等待打包时，后执行侧必须借用共享4ms预算，超过2ms后仍继续准备资源；正式已准备{activePrepared}，候选进度{display.CandidateProgress(candidate.Frame)}。");
+        }
+        finally
+        {
+            release.TrySetResult();
+            try { packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult(); }
+            finally { await fixture.Cleanup(); }
+        }
+    }
+
+    [Test]
+    public async Task Candidate_without_resource_work_lends_its_budget_to_the_active_update()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var idle = Frame(2, first.Update.Frame, objects: []);
+        var active = Frame(3, idle.Update.Frame,
+            objects: Enumerable.Range(2, 4).Select(id => Object((ulong)id)).ToImmutableArray());
+        var full = Frame(10, space: 2, objects: [Object(20) with { Visuals = [] }]).Update;
+        var delta = Frame(11, full.Frame, space: 2, objects: [Object(21) with { Visuals = [] }]).Update;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                [Success(first), Success(idle), Success(active)], candidates:
+                [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(full),
+                    new SceneResult<SceneUpdate?>.Success(delta)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            long timestamp = 0;
+            world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 4000;
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            Require(world.Display.PreparedCandidate == full.Frame, "先完成无视觉的候选，并进入活动侧先执行的下一帧。");
+            Prime(world.Display, active);
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            Require(world.Display.PreparedCandidate == delta.Frame && ReferenceEquals(world.Display.DisplayedFrame, active),
+                "候选无需创建资源时，活动侧即使先执行也应借用剩余4ms预算完成更新。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Idle_active_update_lends_its_budget_to_the_prebuilt_candidate()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var active = Frame(2, first.Update.Frame, objects: []);
+        var candidate = Frame(10, space: 2,
+            objects: Enumerable.Range(20, 10).Select(id => Object((ulong)id)).ToImmutableArray()).Update;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                [Success(first), Success(active)], candidates:
+                [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            world.Display.ReceiveCandidate(candidate);
+            world.Display.PrepareCandidate(TimeSpan.Zero);
+            world.Display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            // 每完成一个候选视觉收取1ms，活动空更新不消耗资源时间。
+            world.Display.Timestamp = () => (world.Display.CandidateProgress(candidate.Frame)?.Prepared ?? 0) *
+                (System.Diagnostics.Stopwatch.Frequency / 1000);
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            Require(world.Display.CandidateProgress(candidate.Frame) is (4, 10) &&
+                ReferenceEquals(world.Display.DisplayedFrame, active),
+                "活动侧空闲时，候选即使先执行也应借用完整4ms，而非停在2ms配额。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Active_uploads_and_prebuilt_candidate_both_progress_under_the_shared_budget()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var active = Frame(2, first.Update.Frame,
+            objects: Enumerable.Range(2, 6).Select(id => Object((ulong)id)).ToImmutableArray());
+        var candidate = Frame(10, space: 2,
+            objects: Enumerable.Range(20, 40).Select(id => Object((ulong)id)).ToImmutableArray()).Update;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                [Success(first), Success(active), Success(active)], candidates:
+                [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate),
+                    new SceneResult<SceneUpdate?>.Success(candidate)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            world.Display.ReceiveCandidate(candidate);
+            world.Display.PrepareCandidate(TimeSpan.Zero);
+            world.Display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            Prime(world.Display, active);
+            long timestamp = 0;
+            world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 4000;
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            var prepared = world.Display.CandidateProgress(candidate.Frame)!.Value.Prepared;
+            Require(prepared > 0 && prepared < 40 && world.Display.IsPreparing &&
+                ReferenceEquals(world.Display.DisplayedFrame, first),
+                "活动上传仍未完成时，候选也必须获得准备配额。");
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            Require(world.Display.CandidateProgress(candidate.Frame)!.Value.Prepared > prepared &&
+                world.Display.IsPreparingCandidate && ReferenceEquals(world.Display.DisplayedFrame, active),
+                "交替先后后两方必须继续推进，活动更新可在候选尚未完成时提交。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Pending_candidate_preparation_does_not_block_simulation_or_commands()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup();
+        var first = Frame(1);
+        var second = Frame(2, first.Update.Frame, objects: []);
+        var third = Frame(3, second.Update.Frame, objects: []);
+        var candidate = Frame(10, space: 2, objects: [Object(20), Object(21)]).Update;
+        FixedDisplaySession? session = null;
+        try
+        {
+            var app = await Ready(fixture, setup, Factory(binding => session = Session(binding,
+                [Success(first), Success(second), Success(third)],
+                observe: [new SceneResult<SimulationPosition>.Success(new(1, 0)),
+                    new SceneResult<SimulationPosition>.Success(new(1, 1))],
+                candidates: [new SceneResult<SceneUpdate?>.Success(null),
+                    new SceneResult<SceneUpdate?>.Success(candidate), new SceneResult<SceneUpdate?>.Success(candidate)])));
+            var world = app.WorldScenes!;
+            var host = app.Host!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            long timestamp = 0;
+            // 受控耗尽准备预算，使候选保持未完成；不通过等待时间判断成功。
+            world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+            world.ProcessFrame(0, false);
+            Require(world.Display.IsPreparingCandidate && world.Display.PreparedCandidate is null,
+                "测试必须先建立候选准备未完成的状态。");
+            var advanced = WorldSceneFixture.EmptyWorld(new(1, 0));
+            var submitted = WorldSceneFixture.EmptyWorld(new(1, 1));
+            setup.Session.QueueAdvance(new(1, advanced.Position, [], null, null), advanced);
+            var command = new CoreCommand.Retreat(new(1));
+            setup.Session.QueueSubmit(command, CommandSource.Console,
+                new SubmissionResult.Completed(new(1, advanced.Position, submitted.Position,
+                    new CommandDecision.Accepted([], [])), [], null), submitted);
+            host.SetPaused(false);
+            host.ProcessFrame(0);
+            host.ProcessFrame(SimulationTime.StepSeconds);
+            var result = host.Submit(host.GetStatus()!.Binding, command, CommandSource.Console);
+            Require(result is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted } &&
+                setup.Session.AdvanceCount == 1 && setup.Session.SubmitCount == 1 &&
+                host.GetStatus()!.View.Position == submitted.Position,
+                "候选准备未完成时，模拟步和命令必须照常通过宿主边界执行。");
+            world.ProcessFrame(0, false);
+            Require(world.Display.IsPreparingCandidate && world.Display.PreparedCandidate is null &&
+                world.View.Interactive && session!.ObserveCalls.Count == 2 &&
+                session.CandidateCalls.All(receipt => receipt is null),
+                "模拟和命令不能替候选产生回执，当前场景仍应可操作。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup, FixedDisplayFactory factory)
     {
         var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -979,6 +1353,13 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         app.SetProcess(false);
         return app;
     }
+    private static void Prime(Train.Rendering.SceneDisplay display, ISceneFrame frame)
+    {
+        using var prepared = display.Prepare(frame, TimeSpan.Zero);
+        Require(prepared is null, "零预算只能启动后台打包。");
+        display.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+    }
+
     private async Task Until(Func<bool> complete)
     {
         var limit = System.Diagnostics.Stopwatch.StartNew();
@@ -995,9 +1376,10 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     private static FixedDisplaySession Session(SceneBinding binding, ImmutableArray<SceneResult<ISceneFrame>> frames,
         Task? close = null, ImmutableDictionary<SceneHit, SceneResult<PickSubject>>? resolve = null,
         ImmutableArray<SceneResult<SimulationPosition>> observe = default, SceneSessionId? id = null,
-        WorldSceneTarget? target = null) => new()
+        WorldSceneTarget? target = null, ImmutableArray<SceneResult<SceneUpdate?>> candidates = default) => new()
     {
         Id = id ?? SceneId, Binding = binding, PresentResults = frames, DisposeGate = close,
+        CandidateResults = candidates.IsDefault ? [] : candidates,
         RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(target ?? Target,
             new SceneResult<SceneRequestId>.Success(new(1))),
         ResolveResults = resolve ?? ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty,

@@ -52,9 +52,10 @@ internal static class ConstructionJobs
     internal static CoreProblem? Qualification(WorldState world, CoreContentProjection content,
         SettlementId settlementId, FacilityKey facility, DesignKind? target, JobFunding funding = JobFunding.OwnInventory)
     {
-        var subject = new WorldObjectId.Instance(new InstanceId.Building(facility.Building));
+        var id = new InstanceId.Building(facility.Building);
+        var subject = new WorldObjectId.Instance(id);
         var settlement = world.Settlements.SingleOrDefault(s => s.Id == settlementId);
-        var instance = world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Building(facility.Building));
+        var instance = world.Instances.SingleOrDefault(i => i.Id == id);
         if (settlement is null || instance is null || !settlement.Plots.Any(p => p.Building == facility.Building))
             return new("object_missing", "Facility", subject, []);
         var owner = funding == JobFunding.NpcCommission ? SettlementRelation.NonHostile : SettlementRelation.PlayerOwned;
@@ -63,7 +64,7 @@ internal static class ConstructionJobs
         var design = world.Designs.Single(d => d.Design == instance.Design);
         if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0)
             return new("instance_destroyed", "Facility", subject, []);
-        if (InstanceLocked(world, new InstanceId.Building(facility.Building)))
+        if (InstanceLocked(world, id))
             return new("conditions_not_met", "Facility", subject, []);
         if (!design.Parts.Where(p => !InstanceCapabilities.DefinitionMissing(world, content, design.Design, p))
             .SelectMany(p => p.Capabilities).OfType<PartCapability.Construction>().Any(c => Allows(c, target)))
@@ -73,11 +74,20 @@ internal static class ConstructionJobs
 
     internal static double WorkRate(WorldState world, CoreContentProjection content, FacilityKey facility, DesignKind? target)
     {
-        if (InstanceLocked(world, new InstanceId.Building(facility.Building))) return 0;
-        var instance = world.Instances.Single(i => i.Id == new InstanceId.Building(facility.Building));
-        var capabilities = InstanceCapabilities.EffectiveParts(world, content, instance)
-            .SelectMany(p => p.Capabilities).OfType<PartCapability.Construction>().ToArray();
-        return capabilities.Any(c => Allows(c, target)) ? capabilities.Sum(c => c.WorkPerSecond) : 0;
+        var id = new InstanceId.Building(facility.Building);
+        if (InstanceLocked(world, id)) return 0;
+        var instance = world.GetInstance(id);
+        double rate = 0;
+        var allowed = false;
+        foreach (var part in InstanceCapabilities.EffectiveParts(world, content, instance,
+            static part => part.Capabilities.Any(c => c is PartCapability.Construction)))
+            foreach (var capability in part.Capabilities)
+                if (capability is PartCapability.Construction construction)
+                {
+                    rate += construction.WorkPerSecond;
+                    allowed |= Allows(construction, target);
+                }
+        return allowed ? rate : 0;
     }
 
     internal static PlotSize Archive(PlotSize size) => size switch

@@ -111,7 +111,7 @@ Construction Material → Construction Block
 Structural Metal      → Rail
 ```
 
-Functional Equipment：Demo 包含七种功能设备。前五种是 Facility 通用能力设备；Propulsion Equipment 与 Control Equipment 为车辆提供动力与控制能力，二者在带 `assembly` Facility Tag 的设施中生产（2026-10-01 设计讨论）。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。这七种功能设备都是单格体素，由生产流程制造，能力通过数量叠加或不同 Definition 表达。内容包还可以提供功能复合体（例如大型柴油机）：它是宿主的一个部件，在建造设施中按蓝图建造，见 [14](14-construction-refit-and-deconstruction.md)（ADR-0014；原资源转录 Q284“功能设备严格是单格体素”由此取消）。每个功能体素在车辆或建筑中是一个部件，见 [03 的部件与结构](03-vehicles-buildings-and-designs.md#部件与结构)。
+Functional Equipment：Demo 包含七种功能设备。前五种是 Facility 通用能力设备；Propulsion Equipment 与 Control Equipment 为车辆提供动力与控制能力，二者在带 `assembly` Facility Tag 的设施中生产（2026-10-01 设计讨论）。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。这七种功能设备都是单格体素，由生产流程制造，能力通过数量叠加或不同 Definition 表达。内容包还可以提供功能复合体（例如大型柴油机）：它是宿主的一个部件，在建造设施中按蓝图建造，见 [14](14-construction-refit-and-deconstruction.md)（决策笔记 `2026-10-09-code-behavior-types-and-sealed-composites`；原资源转录 Q284“功能设备严格是单格体素”由此取消）。每个功能体素在车辆或建筑中是一个部件，见 [03 的部件与结构](03-vehicles-buildings-and-designs.md#部件与结构)。
 
 ```text
 Structural Metal + Mechanical Components + Electrical Components → Industrial Machinery

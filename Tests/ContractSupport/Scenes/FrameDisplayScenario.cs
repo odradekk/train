@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -22,6 +23,7 @@ public sealed class FixedSceneFrame : ISceneFrame
     public ImmutableDictionary<Vector3, Lookup<WorldLocation>> Locations { get; init; } = ImmutableDictionary<Vector3, Lookup<WorldLocation>>.Empty;
     public ImmutableDictionary<(double X, double Z), Lookup<double>> Heights { get; init; } = ImmutableDictionary<(double, double), Lookup<double>>.Empty;
     public Lookup<double>? TerrainHeightResult { get; init; }
+    public Lookup<double>? DisplayTerrainHeightResult { get; init; }
     public SceneRay? LastPickRay { get; private set; }
 
     public ScenePick Pick(SceneRay ray)
@@ -34,6 +36,8 @@ public sealed class FixedSceneFrame : ISceneFrame
         ? value : throw FrameDisplayScenario.Unconfigured("对象姿态");
     public Lookup<WorldLocation> Locate(Vector3 point) => Locations.TryGetValue(point, out var value)
         ? value : throw FrameDisplayScenario.Unconfigured("位置映射");
+    public Lookup<double> DisplayTerrainHeight(double x, double z) =>
+        TerrainHeight(x, z) is Lookup<double>.Found found ? found : DisplayTerrainHeightResult ?? new Lookup<double>.Missing();
     public Lookup<double> TerrainHeight(double x, double z) => Heights.TryGetValue((x, z), out var value)
         ? value : TerrainHeightResult ?? throw FrameDisplayScenario.Unconfigured("地形高度");
 }
@@ -47,16 +51,19 @@ public sealed class FixedDisplaySession : IWorldSceneSession
 {
     private int presentIndex;
     private int observeIndex;
+    private int candidateIndex;
     private readonly HashSet<WorldSceneTarget> requestedTargets = [];
     private bool disposed;
     public required SceneSessionId Id { get; init; }
     public required SceneBinding Binding { get; init; }
     public ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>> RequestResults { get; init; } = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty;
     public ImmutableArray<SceneResult<ISceneFrame>> PresentResults { get; init; } = [];
+    public ImmutableArray<SceneResult<SceneUpdate?>> CandidateResults { get; init; } = [];
     public ImmutableArray<SceneResult<SimulationPosition>> ObserveResults { get; init; } = [];
     public ImmutableDictionary<SceneHit, SceneResult<PickSubject>> ResolveResults { get; init; } = ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty;
     public Task? DisposeGate { get; init; }
     public List<DisplayPresentCall> PresentCalls { get; } = [];
+    public List<SceneFrameStamp?> CandidateCalls { get; } = [];
     public List<DisplayObserveCall> ObserveCalls { get; } = [];
     public List<WorldSceneTarget> RequestCalls { get; } = [];
     public List<SceneHit> ResolveCalls { get; } = [];
@@ -84,6 +91,13 @@ public sealed class FixedDisplaySession : IWorldSceneSession
         ObjectDisposedException.ThrowIf(disposed, this);
         PresentCalls.Add(new(request, displayedFrame));
         return presentIndex < PresentResults.Length ? PresentResults[presentIndex++] : throw FrameDisplayScenario.Unconfigured("显示帧");
+    }
+
+    public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        CandidateCalls.Add(prepared);
+        return candidateIndex < CandidateResults.Length ? CandidateResults[candidateIndex++] : new SceneResult<SceneUpdate?>.Success(null);
     }
 
     public SceneResult<PickSubject> Resolve(SceneHit hit)
@@ -130,5 +144,11 @@ public sealed class FixedDisplayFactory : IScenesFactory
 
 public static class FrameDisplayScenario
 {
+    public static void AssertPreciseDisplayHeight(ISceneFrame frame, double x, double z)
+    {
+        if (frame.TerrainHeight(x, z) is Lookup<double>.Found found)
+            Assert.AreEqual(found, frame.DisplayTerrainHeight(x, z));
+    }
+
     internal static InvalidOperationException Unconfigured(string operation) => new($"UNCONFIGURED: {operation}未配置。");
 }

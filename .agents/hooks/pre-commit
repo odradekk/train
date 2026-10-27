@@ -1,0 +1,11 @@
+#!/bin/sh
+# Pre-commit hook: rejects staged files over the token budget in .agents/file-size.json.
+# Installed by the setup-agent-workflow skill. On Windows, python3 may be a store
+# stub that fails, so try each name and use the first Python 3.10 or later.
+for python in python3 python; do
+  if "$python" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+    exec "$python" .agents/scripts/check_file_size.py
+  fi
+done
+echo "pre-commit: the file size check needs Python 3.10 or later on PATH" >&2
+exit 1

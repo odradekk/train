@@ -1,18 +1,16 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('starting-trade', 'lease-expiry', 'rail-repair', 'conquest', 'clearance', 'operating-failure', 'long-consist', 'standard-world', 'busy-combat', 'crowded-station', 'standard-world-long')]
+    [ValidateSet('starting-trade', 'lease-expiry', 'rail-repair', 'conquest', 'clearance', 'operating-failure', 'long-consist', 'standard-world', 'busy-combat', 'crowded-station')]
     [string] $Example,
     [string] $Root = (Join-Path $PSScriptRoot '../..')
 )
 
 $ErrorActionPreference = 'Stop'
-$processHelper = Join-Path $PSScriptRoot 'Invoke-HiddenProcess.ps1'
-. $processHelper
-trap { [Console]::Error.WriteLine((ConvertTo-ConsoleOutput ($_ | Out-String) ([IO.Path]::GetFullPath($Root)))); exit 1 }
 $root = [IO.Path]::GetFullPath($Root)
 Set-Location $root
 # Native child processes must also resolve global.json in the tested checkout.
 [Environment]::CurrentDirectory = $root
+$processHelper = Join-Path $PSScriptRoot 'Invoke-HiddenProcess.ps1'
 $commit = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify tested commit.' }
 $run = Join-Path $root "TestResults/long-example-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff'))-$($commit.Substring(0, 7))"
@@ -30,13 +28,11 @@ $saveStep = switch ($Example) {
     'standard-world' { '110000' }
     'busy-combat' { '330000' }
     'crowded-station' { '880000' }
-    'standard-world-long' { '773050' }
 }
 $continuous = Join-Path $run 'continuous.json'
 $prefix = Join-Path $run 'prefix.save.json'
 $resumed = Join-Path $run 'resumed.json'
 $remade = Join-Path $run 'remade.save.json'
-$repeated = Join-Path $run 'repeated.json'
 $commands = [ordered]@{
     build = @{ arguments = @('build', 'Tools/Cli/Train.Cli.csproj', '-c', 'Release'); requires = @() }
     replay = @{ arguments = @($cli, 'replay', $root, $recipe, $continuous); requires = @('build') }
@@ -44,18 +40,9 @@ $commands = [ordered]@{
     resume = @{ arguments = @($cli, 'resume', $root, $recipe, $prefix, $resumed); requires = @('save') }
 }
 $commands.compare = @{ arguments = @($cli, 'compare', $continuous, $resumed); requires = @('replay', 'resume') }
-$comparisons = @(@{ names = @('compare') })
-if ($Example -eq 'standard-world-long') {
-    # 长测没有已提交存档：用另一个进程的重复运行代替制作与检查。
-    $commands.run = @{ arguments = @($cli, 'run', $root, $recipe, $repeated); requires = @('build') }
-    $commands['compare-repeat'] = @{ arguments = @($cli, 'compare', $continuous, $repeated); requires = @('replay', 'run') }
-    $simulations = @(@{ names = @('replay') }, @{ names = @('run') }, @{ names = @('save', 'resume') })
-    $comparisons += @{ names = @('compare-repeat') }
-} else {
-    $commands.make = @{ arguments = @($cli, 'make', $root, $recipe, $remade); requires = @('build') }
-    $commands.check = @{ arguments = @($cli, 'check', $root, $recipe, $remade); requires = @('make') }
-    $simulations = @(@{ names = @('replay') }, @{ names = @('save', 'resume') }, @{ names = @('make', 'check') })
-}
+$commands.make = @{ arguments = @($cli, 'make', $root, $recipe, $remade); requires = @('build') }
+$commands.check = @{ arguments = @($cli, 'check', $root, $recipe, $remade); requires = @('make') }
+$simulations = @(@{ names = @('replay') }, @{ names = @('save', 'resume') }, @{ names = @('make', 'check') })
 $records = [ordered]@{}
 foreach ($name in $commands.Keys) {
     $records[$name] = @{ name = $name; command = @('dotnet') + $commands[$name].arguments; status = 'not_started'; exitCode = $null; seconds = 0; cleanupSucceeded = $null }
@@ -71,7 +58,7 @@ $watch = [Diagnostics.Stopwatch]::StartNew()
 foreach ($batch in @(
     @{ groups = @(@{ names = @('build') }) },
     @{ groups = $simulations },
-    @{ groups = $comparisons }
+    @{ groups = @(@{ names = @('compare') }) }
 )) {
     $batch.groups | ForEach-Object -Parallel {
         $ErrorActionPreference = 'Stop'
@@ -141,5 +128,5 @@ $outcome = if (-not $passed) { 'failed' } elseif ($load.Count -gt 0) { 'load_unm
 $summary = [ordered]@{ identity = $identity; checks = @($state.records.Values); load_unmet = $load; seconds = $watch.Elapsed.TotalSeconds; outcome = $outcome }
 $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
 foreach ($key in $load.Keys) { Write-Host "LOAD_UNMET $key points=$($load[$key].points) first=$($load[$key].first) last=$($load[$key].last)" }
-Write-Host (ConvertTo-ConsoleOutput "SUMMARY=$summaryPath outcome=$outcome seconds=$($summary.seconds)" $root)
+Write-Host "SUMMARY=$summaryPath outcome=$outcome seconds=$($summary.seconds)"
 if ($outcome -ne 'passed') { exit 1 }

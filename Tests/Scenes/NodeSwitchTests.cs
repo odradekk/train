@@ -7,6 +7,7 @@ using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 
 namespace Train.Scenes.Tests;
 
@@ -14,6 +15,41 @@ namespace Train.Scenes.Tests;
 public sealed class NodeSwitchTests
 {
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
+
+    [TestMethod]
+    public async Task Node_candidate_waits_for_a_displayed_ready_frame_in_the_current_railway_scope()
+    {
+        var snapshot = RailwayFixtures.Snapshot(content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()),
+            trains: [RailwayFixtures.Train()], instances: [RailwayFixtures.Instance()]);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new(), RailwayFixtures.EmptyNode);
+        var follow = new WorldSceneTarget.Follow(new(1), new(1));
+        session.RequestView(follow);
+        var loading = Present(session, null);
+        Assert.AreNotEqual(SceneReadiness.Ready, loading.Readiness);
+        var ready = await ReadyWithReceipt(loading);
+        Present(session, null);
+        Assert.IsNull(session.PrebuiltLocation, "Computing Ready without a displayed receipt must not start a node candidate.");
+        Present(session, ready);
+        Assert.IsInstanceOfType<WorldLocation.Node>(session.PrebuiltLocation);
+
+        session.RequestView(follow);
+        var current = await ReadyWithReceipt(ready);
+        Present(session, current);
+        Assert.IsInstanceOfType<WorldLocation.Node>(session.PrebuiltLocation,
+            "Only a Ready receipt from the new request and space may start its candidate.");
+
+        async Task<SceneFrame> ReadyWithReceipt(SceneFrame receipt)
+        {
+            for (var attempt = 0; attempt < 1000; attempt++)
+            {
+                await SceneFixtures.AwaitPendingWork(session.PendingRailwayBuilds.Concat(session.PendingObjectBuilds).ToArray());
+                var frame = Present(session, receipt);
+                Assert.IsNull(session.PrebuiltLocation, "Loading or an old scope's Ready receipt must not start prebuilding.");
+                if (frame.Readiness == SceneReadiness.Ready) return frame;
+            }
+            throw new AssertFailedException("The active railway did not reach Ready.");
+        }
+    }
 
     [TestMethod]
     [DataRow(0d, 8d, 0d)]
@@ -28,7 +64,7 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
-    public async Task Follow_candidate_prebuilds_the_head_path_within_the_handover_range()
+    public async Task Follow_candidate_prebuilds_the_finite_corridor_and_head_path_before_handover()
     {
         var source = NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 52),
             rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
@@ -38,7 +74,7 @@ public sealed class NodeSwitchTests
             SceneModel = NodeFixtures.Layout.SceneModel with
             {
                 Scene = SceneFixtures.Projection([SceneFixtures.Cell(new(-96, 0, -96)), SceneFixtures.Cell(new(95, 0, 95), 2)]) with
-                { OccupiedBounds = new(new(-96, 0, -96), new(95, 0, 95)) }
+                { OccupiedBounds = new(new(-320, 0, -320), new(319, 0, 319)) }
             }
         };
         var content = new FixedContentView
@@ -58,61 +94,114 @@ public sealed class NodeSwitchTests
         var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse) with { LengthMeters = 26 }], content: content,
             tracks: 2, trackLimit: 2, platformLengthMeters: 0);
         var cache = new NodeScene.Cache();
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), cache);
+        var observer = new RecordingStreamingObserver();
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), cache, observer: observer);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         var displayed = await RailwayFixtures.Settled(session, Request);
+        var active = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Active);
+        var candidate = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Candidate);
+        Assert.AreNotEqual(active.Scene, candidate.Scene);
+        Assert.AreEqual(active.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), displayed).Scene);
         Assert.AreEqual(new WorldLocation.Node(NodeFixtures.NodeId), session.PrebuiltLocation);
-        do
-        {
-            await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
-            displayed = Present(session, displayed);
-        } while (session.PendingPrebuilds.Length > 0);
         var expectedLayout = NodeLayout.Build(initial, NodeFixtures.NodeId);
         var inlet = expectedLayout.EntryFor(new(1));
         var entry = expectedLayout.TrainBoundary(inlet).Position;
+        var train = ((Lookup<TrainView>.Found)initial.Core.FindTrain(new(1))).Value;
+        var approach = expectedLayout.Approach(inlet, expectedLayout.Bypass);
+        var route = NodeRailPath.Join(approach.Inlet, approach.Branch);
+        var entryRange = new NodeRange(entry, NodeStreaming.PrefetchCells);
+        var headRange = new NodeRange(route.Sample(26).Position, NodeStreaming.PrefetchCells);
+        var corridor = new NodeCorridor(expectedLayout,
+            ((Lookup<NodeView>.Found)initial.Core.FindNode(NodeFixtures.NodeId)).Value,
+            new(NodeFixtures.NodeId, inlet.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null),
+            train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        var expectedTerrain = entryRange.Chunks(expectedLayout).Concat(headRange.Chunks(expectedLayout))
+            .Concat(corridor.Chunks).Distinct().Select(NodeScene.ChunkKey).ToArray();
+        var railSegments = NodeScene.Prepare(initial, expectedLayout).Rails;
+        var expectedRails = railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds) ||
+            headRange.Intersects(segment.Bounds) || corridor.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray();
+        SceneFrameStamp? preparedCandidate = null;
+        for (var attempt = 0; ; attempt++)
+        {
+            Assert.IsTrue(attempt < 1000, "The finite candidate corridor must finish after its preparation receipts.");
+            await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+            var update = ((SceneResult<SceneUpdate?>.Success)session.PresentCandidate(preparedCandidate)).Value;
+            Assert.IsNotNull(update);
+            preparedCandidate = update.Frame;
+            displayed = Present(session, displayed);
+            var parts = cache.Read(NodeFixtures.NodeId)?.Parts;
+            if (parts is not null && expectedTerrain.All(parts.ContainsKey) && expectedRails.All(parts.ContainsKey)) break;
+        }
         var near = new NodeRange(entry, NodeStreaming.NearCells);
         var expectedNear = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Where(near.Intersects).Select(NodeScene.ChunkKey).ToArray();
         var actualNear = cache.Read(NodeFixtures.NodeId)!.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray();
         Assert.IsTrue(expectedNear.All(actualNear.Contains), "Prefetch from the head must keep the boundary near circle built.");
-        var approach = expectedLayout.Approach(inlet, expectedLayout.Bypass);
-        var route = NodeRailPath.Join(approach.Inlet, approach.Branch);
+        Assert.IsTrue(actualNear.All(expectedTerrain.Contains),
+            "Candidate terrain must stay inside the two prefetch circles and the finite path corridor.");
+        Assert.IsTrue(corridor.Chunks.Any(from => !entryRange.Intersects(from) && !headRange.Intersects(from)),
+            "This fixture must exercise corridor work beyond the old prefetch circles.");
         var front = route.Sample(26 + 64 * RailwayCoordinates.CellsPerMeter).Position;
         var forwardChunks = new NodeRange(front, 0).Chunks(expectedLayout).Select(NodeScene.ChunkKey).ToArray();
         Assert.IsTrue(forwardChunks.Length > 0 && Math.Pow(front.X - entry.X, 2) + Math.Pow(front.Z - entry.Z, 2) > NodeStreaming.NearCells * NodeStreaming.NearCells,
             "The first displayed path ahead must reach beyond the boundary near circle.");
         Assert.IsTrue(forwardChunks.All(actualNear.Contains), "The candidate must admit the first train head's 64m path before switching.");
-        var railSegments = NodeScene.Prepare(initial, expectedLayout).Rails;
         Assert.IsTrue(railSegments.Values.Where(segment => near.Intersects(segment.Bounds))
             .All(segment => cache.Read(NodeFixtures.NodeId)!.Parts.ContainsKey(segment.Key)));
 
-        var train = ((Lookup<TrainView>.Found)initial.Core.FindTrain(new(1))).Value;
+        var loadingEnvelope = new NodeRange(route.Sample(26).Position,
+            NodeStreaming.ViewCells + 2 * NodeStreaming.PathSampleCells);
+        var deferredChunk = corridor.Chunks.First(from => !loadingEnvelope.Intersects(from) && !near.Intersects(from));
+        var deferredKey = NodeScene.ChunkKey(deferredChunk);
+        var fullCandidate = ((SceneResult<SceneUpdate?>.Success)session.PresentCandidate(null)).Value!;
+        var candidateFrame = observer.Snapshot().OfType<SceneStreamingEvent.Frame>()
+            .Single(value => value.Stamp == fullCandidate.Frame);
+        Assert.IsTrue(candidateFrame.Parts.Any(part => part.Part.Key == deferredKey));
+        var deferredIds = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+            .Last(value => value.Stage == SceneStreamingStage.Admitted && value.Attempt.Part.Key == deferredKey).Objects;
+        Assert.IsTrue(deferredIds.Length > 0 && deferredIds.All(id => fullCandidate.Upserts.Any(item => item.Id == id)));
+        Assert.AreSame(fullCandidate, ((SceneResult<SceneUpdate?>.Success)session.PresentCandidate(null)).Value);
+        session.PresentCandidate(fullCandidate.Frame);
+        Assert.AreEqual(1, observer.Snapshot().OfType<SceneStreamingEvent.Frame>().Count(value => value.Stamp == fullCandidate.Frame),
+            "Returning a held offer or its unchanged acknowledgement must not duplicate a streaming Frame stamp.");
+        var buildsBefore = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+            .Count(value => value.Stage == SceneStreamingStage.Started && value.Attempt.Part.Key == deferredKey);
+
         session.Observe(NodeFixtures.Snapshot(platforms: 0, trains: [train with
         { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null) }],
             content: content, steps: 1, tracks: 2, trackLimit: 2, platformLengthMeters: 0), []);
         var first = Present(session, displayed);
+        Assert.AreEqual(candidate.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), first).Scene);
+        Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Activated>()
+            .Any(value => value.Scene == candidate.Scene));
         Assert.AreNotEqual(SceneReadiness.Loading, first.Readiness,
             "The candidate must supply the near zone before handover; the train head may extend the forward demand.");
-        await RailwayFixtures.Settled(session, Request, first);
+        Assert.IsFalse(deferredIds.Any(first.ContainsObject), "The first promoted frame must leave the far corridor queued.");
+        Assert.IsFalse(StreamingScenario.AssertFrameMatches(observer.Snapshot(), first).Parts.Any(part => part.Part.Key == deferredKey));
+        var settled = await RailwayFixtures.Settled(session, Request, first);
+        Assert.IsTrue(deferredIds.All(settled.ContainsObject), "Later admitted batches must keep the exact candidate object identities.");
+        Assert.AreEqual(buildsBefore, observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+            .Count(value => value.Stage == SceneStreamingStage.Started && value.Attempt.Part.Key == deferredKey),
+            "Moving a prebuilt part back to the admission queue must not build it again.");
         var retained = cache.Read(NodeFixtures.NodeId)!;
         var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Select(NodeScene.ChunkKey).ToArray();
         var terrain = retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray();
         Assert.IsTrue(expected.All(terrain.Contains));
-        var maximumRange = new NodeRange(entry, NodeStreaming.PrefetchCells + train.LengthMeters * RailwayCoordinates.CellsPerMeter / 2);
-        Assert.IsTrue(terrain.All(key =>
-        {
-            var parts = key.Split(':');
-            return maximumRange.Intersects(new GridColumn(int.Parse(parts[1]), int.Parse(parts[2])));
-        }), "The follow head may extend the handover circle only by half the train length.");
-        var entryRange = new NodeRange(entry, NodeStreaming.PrefetchCells);
+        Assert.IsTrue(corridor.Chunks.Select(NodeScene.ChunkKey).All(terrain.Contains),
+            "The promoted node must keep its prebuilt finite corridor, including parts outside the handover circles.");
         Assert.IsTrue(railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds))
             .All(segment => retained.Parts.ContainsKey(segment.Key)));
-        Assert.IsTrue(retained.Parts.Keys.Where(railSegments.ContainsKey)
-            .All(key => maximumRange.Intersects(railSegments[key].Bounds)));
+        Assert.IsTrue(expectedRails.All(retained.Parts.ContainsKey));
         var wholeCount = (expectedLayout.Bounds.Maximum.X - expectedLayout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
             (expectedLayout.Bounds.Maximum.Y - expectedLayout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
-        Assert.IsTrue(expected.Length < wholeCount, "The candidate must leave distant node chunks unbuilt.");
+        Assert.IsTrue(terrain.Length < wholeCount, "The corridor must leave distant node chunks unbuilt.");
+        await session.DisposeAsync();
+        var closed = observer.Snapshot().OfType<SceneStreamingEvent.Closed>().Select(value => value.Scene).ToArray();
+        Assert.IsTrue(closed.Contains(active.Scene));
+        Assert.IsTrue(closed.Contains(candidate.Scene));
     }
 
     [TestMethod]
@@ -215,7 +304,7 @@ public sealed class NodeSwitchTests
         var expectedNodeOrigin = new ScenePoint(entryA.Point.X - boundaryA.X + lineA.Origin.X,
             entryA.Point.Y - boundaryA.Y + lineA.Origin.Y, entryA.Point.Z - boundaryA.Z + lineA.Origin.Z);
         Assert.AreEqual(expectedNodeOrigin, firstNode.Origin);
-        Assert.AreEqual(lineA.Update.Frame.Space.Value + 1, firstNode.Update.Frame.Space.Value);
+        Assert.AreNotEqual(lineA.Update.Frame.Space, firstNode.Update.Frame.Space);
         var node = await RailwayFixtures.Settled(session, Request, firstNode);
         Assert.AreEqual(SceneReadiness.Ready, node.Readiness);
         Assert.IsFalse(node.Diagnostics.Any(problem => problem.Code == "content_missing"), "An empty node needs no concrete or settlement content.");
@@ -256,7 +345,7 @@ public sealed class NodeSwitchTests
         var expectedLineOrigin = new ScenePoint(boundaryB.X - entryB.X + servicing.Origin.X,
             boundaryB.Y - entryB.Y + servicing.Origin.Y, boundaryB.Z - entryB.Z + servicing.Origin.Z);
         Assert.AreEqual(expectedLineOrigin, firstLineB.Origin);
-        Assert.AreEqual(servicing.Update.Frame.Space.Value + 1, firstLineB.Update.Frame.Space.Value);
+        Assert.AreNotEqual(servicing.Update.Frame.Space, firstLineB.Update.Frame.Space);
         AssertVehicleBody(firstLineB);
         var lineB = await RailwayFixtures.Settled(session, Request, firstLineB);
         Assert.AreEqual(SceneReadiness.Ready, lineB.Readiness);
@@ -320,7 +409,7 @@ public sealed class NodeSwitchTests
             }).ToImmutableArray();
             value = value with { Core = new FixedCoreReadView
             {
-                Position = core.Position, InputIdentity = core.InputIdentity, World = core.World with { Nodes = nodes },
+                Position = core.Position, Revision = new(core.Position.CompletedSteps + core.Position.Sequence), InputIdentity = core.InputIdentity, World = core.World with { Nodes = nodes },
                 Nodes = nodes.ToDictionary(map => map.Id, map => (Lookup<NodeView>)new Lookup<NodeView>.Found(
                     ((Lookup<NodeView>.Found)core.FindNode(map.Id)).Value with { Map = map })),
                 Edges = core.World.Edges.ToDictionary(edge => edge.Id, edge => core.FindEdge(edge.Id)),
@@ -372,7 +461,7 @@ public sealed class NodeSwitchTests
         release.TrySetResult();
         var node = await RailwayFixtures.Settled(session, Request, firstNode);
         Assert.AreEqual(line.Update.Frame.Request, node.Update.Frame.Request);
-        Assert.AreEqual(line.Update.Frame.Space.Value + 1, node.Update.Frame.Space.Value);
+        Assert.AreNotEqual(line.Update.Frame.Space, node.Update.Frame.Space);
         Assert.IsNull(firstNode.Update.Base);
         Assert.AreEqual("stale_hit", ((SceneResult<PickSubject>.Failure)session.Resolve(hit.Value)).Problems.Single().Code);
         var entry = node.Node!.EntryFor(RailwayFixtures.Edge);
@@ -417,7 +506,7 @@ public sealed class NodeSwitchTests
         var origin = SceneFrame.SwitchOrigin(line, layout, null)!.Value;
         var empty = WorldSceneSession.BuildGeometry(_ => new([], [], []));
         var node = new SceneFrame(stamp with { Space = new(2) }, origin, 0, SceneReadiness.Ready, [], [], [], [],
-            node: layout, nodeParts: [new("", empty, boundary.Heights, boundary.Origin)]);
+            node: layout, nodeHeights: NodeHeights.Empty.WithPart((0, 0, 0, "boundary"), new("", empty, boundary.Heights, boundary.Origin)));
         var endpoint = path.Sample(reverse ? 0 : path.LengthCells).Position;
         var point = RailwayCoordinates.Relative(new(Math.Floor(endpoint.X) + 40.5, 0, Math.Floor(endpoint.Z) + .5), line.Origin);
         AssertHeight(line, node, point);
@@ -426,7 +515,7 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
-    public async Task CandidateUsesPrefetchRangeAndUnknownNextEdgeDoesNotGuessARoute()
+    public async Task KnownFrontNodeStartsAtZeroSpeedAndUnknownNextEdgeDoesNotGuessAnOutgoingRoute()
     {
         var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
         SceneWorldSnapshot Snapshot(double distance, double speed, ulong step) => RailwayFixtures.Snapshot(4, 4, 0,
@@ -434,7 +523,7 @@ public sealed class NodeSwitchTests
         await using var session = Open(Snapshot(0, 0, 0), RailwayFixtures.EmptyNode);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         await RailwayFixtures.Settled(session, Request);
-        Assert.IsNull(session.PrebuiltLocation);
+        Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation);
         session.Observe(Snapshot(3, 10, 1), []);
         await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation);
@@ -451,7 +540,7 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
-    public async Task CandidateSurvivesLossOfTheStartThresholdButDirectionChangeCancelsIt()
+    public async Task CandidateSurvivesStoppingAndDirectionChangePreparesTheNewFrontNode()
     {
         var calls = 0;
         var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
@@ -472,12 +561,14 @@ public sealed class NodeSwitchTests
         session.Observe(Snapshot(0, TravelDirection.Forward, 1), []);
         displayed = Present(session, displayed);
         Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation,
-            "Zero speed withdraws the start threshold, not the semantic next node.");
+            "Zero speed does not change the known front node.");
         Assert.AreEqual(1, calls);
         session.Observe(Snapshot(0, TravelDirection.Reverse, 2), []);
         Present(session, displayed);
-        Assert.IsNull(session.PrebuiltLocation, "Reversal invalidates the old destination even below the new start threshold.");
         await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+        await RailwayFixtures.Settled(session, Request, displayed);
+        Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation,
+            "Reversal must replace the old destination with the newly known front node even at zero speed.");
     }
 
     [TestMethod]

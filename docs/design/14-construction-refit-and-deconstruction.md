@@ -3,7 +3,7 @@
 > **所属层**：核心模拟层。
 
 
-> 决策出处：资源转录 Q252–Q254、Q256–Q260、Q263–Q265、Q268、Q336–Q342、Q347–Q356、Q398–Q405、Q420–Q422、Q425（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）；Demo 只为 Deconstruction 提供主动 Pause / Resume、Construction / Refit 主动暂停延后，依据 [#85](https://github.com/odradekk/train/issues/85)。实例引用固定的蓝图版本、部件不在实例之外保留个体身份、新增修理任务，由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确认。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见 ADR-0012。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。施工规则与工作量的计算分工、按 BOM 件数计数、受损部件的修理工作量、工作量在启动时冻结、施工设施的选择与能力边界，由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)于 2026-10-10 确认。
+> 决策出处：资源转录 Q252–Q254、Q256–Q260、Q263–Q265、Q268、Q336–Q342、Q347–Q356、Q398–Q405、Q420–Q422、Q425（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）；Demo 只为 Deconstruction 提供主动 Pause / Resume、Construction / Refit 主动暂停延后，依据 [#85](https://github.com/odradekk/train/issues/85)。实例引用固定的蓝图版本、部件不在实例之外保留个体身份、新增修理任务，由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确认。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见决策笔记 `2026-10-09-instance-designs-and-blueprint-templates`。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见决策笔记 `2026-10-09-nest-composites-by-copying-designs`。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。施工规则与工作量的计算分工、按 BOM 件数计数、受损部件的修理工作量、工作量在启动时冻结、施工设施的选择与能力边界，由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)于 2026-10-10 确认。
 
 ## 边界
 
@@ -31,7 +31,7 @@
 ### BOM
 
 - BOM 完全从设计的体素布局派生。例如某车头的布局含 Structural Block ×120、Engine X ×2、Storage Equipment ×4，BOM 就是这些实际的 VoxelDefinitionId 和数量；不另设 `construction_cost` 作为第二份权威数据。
-- 设计中装着大型设备时，BOM 列出整件设备，不展开成其中的体素：组装体（例如炮塔）按构成哈希列出，功能复合体按它的标识列出。这与“不自动展开配方”一致（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。
+- 设计中装着大型设备时，BOM 列出整件设备，不展开成其中的体素：组装体（例如炮塔）按构成哈希列出，功能复合体按它的标识列出。这与“不自动展开配方”一致（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，决策笔记 `2026-10-09-nest-composites-by-copying-designs`）。
 - 档位等非体素信息不产生物料成本。
 - 官方预置型号与玩家自定义设计严格使用同一套成本规则。预置型号只是官方提供的蓝图，不享受隐藏折扣或手写成本；玩家把官方型号改动几格，成本随实际体素变化（资源转录 Q265）。
 - 车辆和建筑共用同一套建造规则与 BOM 派生，不分别设置车辆建造系统和建筑建造系统。玩家可以设计车辆和建筑（[00](00-product-and-core-loop.md#demo-范围)），资源规则相同（资源转录 Q254）。

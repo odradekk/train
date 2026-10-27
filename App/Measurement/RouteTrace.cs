@@ -12,7 +12,8 @@ internal sealed record RouteRanges(long Id, SceneFrameStamp Frame, SceneSpaceId 
 internal sealed record RouteRangeChange(long Id, long? Base, SceneFrameStamp Frame, SceneSpaceId Coordinates,
     RouteRange[] Terrain, RouteRange[] Rails, RouteRangeKey[] Removed, RouteBounds[]? Fog);
 internal sealed record RouteTransition(SceneFrameStamp From, ScenePoint FromOrigin,
-    SceneFrameStamp To, ScenePoint ToOrigin, bool MultipleTracks);
+    SceneFrameStamp To, ScenePoint ToOrigin, bool MultipleTracks,
+    int? CandidatePreparedVisuals = null, int? CandidateReceivedVisuals = null);
 // At and Steps support per-frame gap durations and alignment with profiling traces.
 internal sealed record RouteFrame(long Draw, double At, ulong Steps,
     SceneFrameStamp? Latest, SceneFrameStamp? Displayed,

@@ -126,6 +126,25 @@ public sealed class SettlementObjectsTests
     }
 
     [TestMethod]
+    public async Task Cached_platform_locations_still_observe_destroyed_and_repaired_parts()
+    {
+        var snapshot = Snapshot();
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(StableIds());
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        var before = objects.Platforms(snapshot, layout, problems);
+        var station = NodeFixtures.Station(2);
+        var damaged = station with { Parts = station.Parts.Select((part, index) => index == 0
+            ? part with { Destroyed = true, Durability = new(0, part.Durability.Maximum) } : part).ToImmutableArray() };
+        var changed = Snapshot(content: snapshot.Content, station: damaged,
+            node: NodeFixtures.Node() with { Platforms = before.Length - 1 });
+        var after = objects.Platforms(changed, layout, problems);
+        Assert.HasCount(before.Length - 1, after);
+        CollectionAssert.AreEqual(before.ToArray(), objects.Platforms(snapshot, layout, problems).ToArray());
+        Assert.IsEmpty(problems);
+    }
+
+    [TestMethod]
     public async Task PlatformAtEqualDistanceChoosesSmallerLocalZ()
     {
         var evaluation = NodeFixtures.StationEvaluation();
@@ -555,7 +574,7 @@ public sealed class SettlementObjectsTests
         var instances = (vehicles.IsDefault ? ImmutableArray<InstanceView>.Empty : vehicles).Add(station);
         return basis with { Core = new FixedCoreReadView
         {
-            Position = basis.Core.Position, InputIdentity = basis.Core.InputIdentity,
+            Position = basis.Core.Position, Revision = basis.Core.Revision, InputIdentity = basis.Core.InputIdentity,
             World = basis.Core.World with { Nodes = [node], Edges = [], Trains = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) },

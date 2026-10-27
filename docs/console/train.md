@@ -2,7 +2,7 @@
 
 [返回命令索引](README.md)
 
-仅 Debug 构建且接入新 `HostCoordinator` 时可用。默认旧模拟入口不提供此命令。
+仅 Debug 构建可用。
 
 ```text
 train form <车辆ID>...

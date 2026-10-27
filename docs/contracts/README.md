@@ -1,11 +1,11 @@
 # 四模块公开契约
 
-本目录记录完整 Demo 的模块接口，不记录模块内部类图。[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)已确认以下规范，取舍见 [ADR-0016](../adr/0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)。接口的公共语义和变更流程见[公共约定](conventions.md)，玩法规则仍以[设计文档](../design/README.md)为准。
+本目录记录完整 Demo 的模块接口，不记录模块内部类图。[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)已确认以下规范，取舍见决策笔记 `2026-10-10-separate-module-contracts`。接口的公共语义和变更流程见[公共约定](conventions.md)，玩法规则仍以[设计文档](../design/README.md)为准。
 本页的命令提交、业务输入身份与创作写入边界按[契约审计修订：设计输入、同步提交与公开面收缩](https://github.com/odradekk/train/issues/296)调整；保留上述历史决策出处，以下协议为当前约定。
 
 ## 状态与后续交付
 
-当前已确认整组契约基线为 `93e177b`（`public-api.txt` blob `0d37f89`）。[#481 批准计划](https://github.com/odradekk/train/issues/481#issuecomment-6183141667)引入有长度的节点运行、统一节点权威位置、预约及尺度适配，核心状态格式在主线人口状态格式 7 之上升为 8；声明、接口文档与消费方在同一受控变更中同步。新整组基线须在本票验证并合并后由协调者记录，当前工作不能视为已确认的新基线。
+当前已确认整组契约基线为 `39975587`（`public-api.txt` blob `c257593b`）。
 
 当前已确定模块职责、类型归属、目标项目布局和契约管理规则。核心、内容与体素契约声明，以及四模块消费样例已创建；Godot 接入规范已明确。现有内容、日志和控制台代码已按模块归属迁移，[初始公开面基线](public-api.txt)检查已接入；Core/Content/Scenes/Godot 隔离重建已接入，见[测试入口](testing.md#模块测试的组织与入口)。生产宿主已接入真实工厂，调用位置检查与 Godot 隔离装配已接入；后续变更按受控流程建立新基线，本页不是这些检查已经通过的证据。
 
@@ -21,9 +21,9 @@
 
 | 模块 | 接口文档 | 负责决策 |
 | --- | --- | --- |
-| 核心模拟层 | [core.md](core.md) | [核心模拟层公开契约：命令、查询、事件与复现](https://github.com/odradekk/train/issues/287) |
+| 核心模拟层 | [core.md](core.md)；正文已按子契约拆分，文件见目录页 | [核心模拟层公开契约：命令、查询、事件与复现](https://github.com/odradekk/train/issues/287) |
 | 内容层 | [content.md](content.md) | [内容层公开契约：加载、投影、设计计算与发布](https://github.com/odradekk/train/issues/288) |
-| 体素引擎层 | [scenes.md](scenes.md) | [体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289) |
+| 体素引擎层 | [scenes.md](scenes.md)；正文已按子契约拆分，文件见目录页 | [体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289) |
 | Godot 层 | [godot.md](godot.md) | [Godot 层公开契约：宿主适配、资源与交互接入](https://github.com/odradekk/train/issues/290) |
 
 验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；已接入范围以实际报告为准。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与阶段性联调的交付、变更和验收流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。每阶段联调通过后，才能开始下一阶段开发；完整 Demo 仍须满足全部完成标准。当前生产迁移由扩大的 #304 范围承担，后续行为仍归对应实施任务。
@@ -44,7 +44,7 @@
 | `Scenes/` | `Train.Scenes` | 体素实现 |
 | 根目录 | `Train` | Godot 项目；源码仍按 `App/`、`Rendering/`、`Ui/` 划分 |
 
-契约项目沿用 .NET 10、C# 12，不引用 Godot。命名空间沿用“项目名.项目内目录名”。新增项目时隔离源码编译范围，不能让根项目或实现项目再次编译契约源码。现有测试项目已按 Core、Content、Godot 宿主拆分；目标入口及允许依赖见[测试组织](testing.md#模块测试的组织与入口)。
+契约项目沿用 .NET 10、C# 12，不引用 Godot。命名空间沿用“项目名.项目内目录名”。新增项目时隔离源码编译范围，不能让根项目或实现项目再次编译契约源码。现有测试项目已按 Core、Content、Scenes、Godot 宿主和 CLI 拆分；目标入口及允许依赖见[测试组织](testing.md#模块测试的组织与入口)。
 
 ## 依赖与装配
 
@@ -102,14 +102,14 @@ Godot 只有 `App/Composition/` 可以调用真实创建工厂；其他宿主流
 
 ## 表现资产的交接
 
-由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)确认，取舍见 [ADR-0017](../adr/0017-hand-off-presentation-assets-as-raw-bytes-keyed-by-asset-revision.md)。资产的身份、校验和失败规则见[设计 02 的资产的交接](../design/02-definitions-and-content.md#资产的交接)，代码自带和程序生成的表现资源归属见[设计 07 的总体策略](../design/07-rendering.md#总体策略)。具体声明由内容、体素和 Godot 的契约票写进各自的接口文档。
+由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)确认，取舍见决策笔记 `2026-10-10-raw-asset-bytes-by-revision`。资产的身份、校验和失败规则见[设计 02 的资产的交接](../design/02-definitions-and-content.md#资产的交接)，代码自带和程序生成的表现资源归属见[设计 07 的总体策略](../design/07-rendering.md#总体策略)。具体声明由内容、体素和 Godot 的契约票写进各自的接口文档。
 
 | 数据 | 所有者与生命周期 |
 | --- | --- |
 | 原始字节 | 内容通过宿主文件接口读取，随内容世代不可变，世代不再被使用后由垃圾回收释放；其他模块只读 |
 | 元数据与校验结果 | 内容；元数据来自宿主的资产检查接口 |
 | 解码后的像素、模型数据、纹理、网格、材质 | 只在 Godot 内部，不进入任何契约 |
-| 体素交给渲染层的网格数据 | 体素生成，只用资产修订引用贴图和模型，附材质类别和涂装颜色，不含像素和模型几何；按[体素契约](scenes.md#显示更新与资源)使用可保留的不可变值，无需归还缓冲 |
+| 体素交给渲染层的网格数据 | 体素生成，只用资产修订引用贴图和模型，附材质类别和涂装颜色，不含像素和模型几何；按[体素契约](scenes-display.md#显示更新与资源)使用可保留的不可变值，无需归还缓冲 |
 
 - **资产检查接口**：内容契约定义，Godot 实现。输入原始字节和资产种类，返回元数据或失败种类。接口只报告事实，规则全部在内容实现里；纯 .NET 测试用替身返回元数据。Godot 可以在内部按资产修订缓存解码结果，这不属于契约。
 - **线程**：内容加载器在调用方的线程上同步执行，只在调用期间使用宿主的文件和检查接口，返回后不再调用，自己也不开线程。加载和热重载在哪个线程运行由 Godot 决定，Godot 的宿主实现须在它选的线程上可用。已发布的内容世代及其字节不可变，任何线程都能读。热重载仍然禁止并发和重入。

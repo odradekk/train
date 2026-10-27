@@ -18,16 +18,23 @@ internal static class CombatResolution
         foreach (var controller in combat.Controllers.Where(state => !state.Retreating))
         {
             var scope = Scope(world, controller.Controller);
-            var target = ChooseTarget(world, content, combat, controller, scope);
-            if (target is not { } selected) continue;
+            CombatUnitId? target = null;
+            var targetChosen = false;
             foreach (var unit in CombatQueries.Units(world, controller.Controller)
                          .Where(unit => CombatQueries.Armed(world, content, unit)))
             {
                 foreach (var weapon in Weapons(world, content, unit))
                 {
-                    var interval = WorldResources.IntervalSteps(weapon.Interval)
-                        ?? throw new InvalidOperationException("武器间隔超出可表示范围。");
-                    if ((step - controller.JoinedAtStep) % interval != 0) continue;
+                    var interval = WorldResources.IntervalSteps(weapon.Interval);
+                    if (interval is { } ticks && (step - controller.JoinedAtStep) % ticks != 0) continue;
+                    if (!targetChosen)
+                    {
+                        target = ChooseTarget(world, content, combat, controller, scope);
+                        targetChosen = true;
+                    }
+                    if (target is not { } selected) continue;
+                    // 没有目标时不因间隔超限故障，已有录制和存档的回放结果保持不变。
+                    if (interval is null) throw new InvalidOperationException("武器间隔超出可表示范围。");
                     if (Roll(world, content, combat, unit, weapon.Part, weapon.Damage, selected, step) is { } shot)
                         shots.Add(shot);
                 }
@@ -37,15 +44,21 @@ internal static class CombatResolution
         {
             var group = CreatureQueries.FindGroup(world, combatant.Group);
             if (group is null) continue;
-            var target = ChooseCreatureTarget(world, content, combat, group);
-            if (target is not { } selected) continue;
+            CombatUnitId? target = null;
+            var targetChosen = false;
             foreach (var creature in group.Creatures.OrderBy(item => item.Id.Value))
             {
                 var weapon = CreatureQueries.Projection(content, creature.Definition)?.Weapon;
                 if (weapon is null) continue;
-                var interval = WorldResources.IntervalSteps(weapon.IntervalSeconds)
-                    ?? throw new InvalidOperationException("武器间隔超出可表示范围。");
-                if ((step - combatant.JoinedAtStep) % interval != 0) continue;
+                var interval = WorldResources.IntervalSteps(weapon.IntervalSeconds);
+                if (interval is { } ticks && (step - combatant.JoinedAtStep) % ticks != 0) continue;
+                if (!targetChosen)
+                {
+                    target = ChooseCreatureTarget(world, content, combat, group);
+                    targetChosen = true;
+                }
+                if (target is not { } selected) continue;
+                if (interval is null) throw new InvalidOperationException("武器间隔超出可表示范围。");
                 if (CreatureShot(world, content, combat, group, creature, weapon.Damage, selected, step) is { } shot)
                     shots.Add(shot);
             }
@@ -566,7 +579,7 @@ internal static class CombatResolution
         var quantities = current.ToDictionary(good => good.Good, good => good.Quantity);
         foreach (var good in added)
             quantities[good.Good] = checked(quantities.GetValueOrDefault(good.Good) + good.Quantity);
-        return quantities.OrderBy(pair => WorldReferences.GoodKey(pair.Key), StringComparer.Ordinal)
+        return quantities.OrderBy(pair => pair.Key, WorldReferences.GoodComparer)
             .Select(pair => new GoodsQuantity(pair.Key, pair.Value)).ToImmutableArray();
     }
 

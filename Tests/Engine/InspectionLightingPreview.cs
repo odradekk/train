@@ -34,7 +34,7 @@ public partial class InspectionLightingPreview : Node
             app.Name = "App";
             app.GetNode<Control>("MainMenu").Visible = false;
             app.CreateHost = logger => WorldSceneFixture.CreateHost(core, content, logger);
-            app.CreateScenes = Train.Scenes.ScenesFactory.Create;
+            app.CreateScenes = () => Train.Scenes.ScenesFactory.Create();
             AddChild(app);
             _host = app.Host!;
             _host.AutoPauseOnFocusLoss = false;

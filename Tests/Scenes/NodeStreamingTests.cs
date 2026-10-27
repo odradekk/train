@@ -17,6 +17,27 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Unchanged_streaming_inputs_reuse_the_plan_and_published_parts()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false, following: new(default, [new(16, 200, 0)], []));
+        var revision = scene.StreamingPlanRevision;
+        var published = cache.Read(NodeFixtures.NodeId);
+        for (var frame = 0; frame < 10; frame++)
+            scene.Pump(allowBuild: false, following: new(default, [new(16, 200, 0)], []));
+        Assert.AreEqual(revision, scene.StreamingPlanRevision,
+            "A new FollowedPath with the same samples must not sort the whole corridor again.");
+        Assert.AreSame(published, cache.Read(NodeFixtures.NodeId), "An unchanged part set must not be republished.");
+        scene.Pump(focus: new ScenePoint(64, 0, 0), allowBuild: false, following: new(default, [new(80, 200, 0)], []));
+        Assert.IsGreaterThan(revision, scene.StreamingPlanRevision);
+        Assert.AreSame(published, cache.Read(NodeFixtures.NodeId));
+    }
+
+    [TestMethod]
     public async Task Dispatch_prioritizes_the_chunk_crossed_between_samples_at_a_corner()
     {
         var started = new ConcurrentQueue<GridColumn>();
@@ -519,7 +540,7 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
-    public async Task Unbuilt_and_unloaded_regions_are_fogged_and_not_pickable()
+    public async Task Unbuilt_regions_outside_the_required_window_keep_fog_until_far_terrain_is_displayed()
     {
         var snapshot = Snapshot(true);
         await using var vehicles = new SceneVehicles();
@@ -545,13 +566,32 @@ public sealed class NodeStreamingTests
         var cache = new NodeScene.Cache();
         await using var vehicles = new SceneVehicles();
         await using var scene = Open(snapshot, vehicles, cache);
+        scene.SetFarBuildAllowed(false);
         await Settle(scene, snapshot, default);
         var before = Chunks(cache);
+        var first = Present(scene, snapshot);
+        AssertTerrainFog(first, before);
         var focus = new ScenePoint(288, 0, 288);
         await Settle(scene, snapshot, focus);
         var retention = new NodeRange(focus, NodeStreaming.RetainCells);
         Assert.IsTrue(before.Keys.Any(from => !retention.Intersects(from)));
         Assert.IsTrue(Chunks(cache).Keys.All(retention.Intersects));
+        AssertTerrainFog(Present(scene, snapshot, first), Chunks(cache));
+        AssertTerrainFog(first, before);
+
+        void AssertTerrainFog(SceneFrame frame, ImmutableDictionary<GridColumn, NodeScene.Part> connected)
+        {
+            var fog = frame.Update.Environment.FoggedRegions.Where(box =>
+                box.Minimum.Y == -128 && box.Maximum.Y == 128).ToArray();
+            foreach (var from in new NodeRange(default, 10000).Chunks(scene.Layout!))
+            {
+                var x = from.X + VoxelGrid.ChunkSize / 2;
+                var z = from.Z + VoxelGrid.ChunkSize / 2;
+                Assert.AreEqual(!connected.ContainsKey(from), fog.Any(box =>
+                    x > box.Minimum.X && x < box.Maximum.X && z > box.Minimum.Z && z < box.Maximum.Z),
+                    $"Without far terrain, fog must cover precisely the missing L0 chunks after attachment or unloading: {from}.");
+            }
+        }
     }
 
     [TestMethod]
@@ -754,9 +794,12 @@ public sealed class NodeStreamingTests
         var ahead = new ScenePoint(0, 0, -40 + lead);
         var demanded = new NodeRange(ahead, 160).Chunks(scene.Layout!).ToArray();
         Assert.IsTrue(demanded.All(started.ContainsKey), "The entire predicted circle must be built from the train head.");
-        Assert.IsFalse(started.Keys.Any(from => from.Z > ahead.Z + 160),
-            "A unit or sign error must not move prefetch beyond the predicted circle.");
-        Assert.IsFalse(started.ContainsKey(new(0, 448)), "The lead remains capped at 160 m even at 64x.");
+        var corridor = new NodeCorridor(scene.Layout!,
+            ((Lookup<NodeView>.Found)current.Core.FindNode(NodeFixtures.NodeId)).Value,
+            (TrainPosition.Node)train.Position, train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        Assert.IsTrue(started.Keys.All(from => new NodeRange(scene.StreamingFocus, NodeStreaming.PrefetchCells).Intersects(from) ||
+            new NodeRange(ahead, NodeStreaming.PrefetchCells).Intersects(from) || corridor.Chunks.Contains(from)),
+            "Work beyond the predictive circles must belong to the finite remaining node corridor.");
     }
 
     [TestMethod]
@@ -799,8 +842,12 @@ public sealed class NodeStreamingTests
         var boundary = new NodeRange(scene.Layout.TrainBoundary(entry).Position, 160);
         Assert.IsTrue(predicted.Chunks(scene.Layout).All(started.ContainsKey),
             "The first candidate must build the circle ahead of the predicted head, using the session rate.");
-        Assert.IsTrue(started.Keys.All(from => boundary.Intersects(from) || predicted.Intersects(from)),
-            "The candidate must retain the existing two circles and capped lead.");
+        var corridor = new NodeCorridor(scene.Layout,
+            ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value,
+            new TrainPosition.Node(NodeFixtures.NodeId, new(1), 1, null, null, NodeTravelPhase.Approaching, 0, null),
+            train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        Assert.IsTrue(started.Keys.All(from => boundary.Intersects(from) || predicted.Intersects(from) || corridor.Chunks.Contains(from)),
+            "Additional candidate work must belong to the finite node corridor.");
     }
 
     [TestMethod]
@@ -851,7 +898,7 @@ public sealed class NodeStreamingTests
             _ => cameraStamp
         };
         var camera = new SceneFrame(cameraStamp, new(256, 0, 256), 0, SceneReadiness.Ready, [], [], [], []);
-        var request = Request with { Camera = new(camera, new(32, 0, 32)) };
+        var request = Request with { Camera = new(camera, new(32, 0, 32), 6656) };
         var bounds = scene.Layout!.PanBounds(default);
         var focus = stale ? new ScenePoint((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
             (bounds.Minimum.Y + bounds.Maximum.Y) / 2) : new ScenePoint(288, 0, 288);
@@ -898,19 +945,33 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
-    public async Task Node_fog_regions_remain_bounded()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Node_fog_regions_remain_bounded(bool farDisplayed)
     {
         var layout = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
-        { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-640, 0, -640), new(639, 0, 639)) } } };
+        { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-64, 0, -640), new(63, 0, 639)) } } };
         var train = NodeFixtures.Train(activity: TrainActivity.Running, speed: 320) with
         { Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null, null, null, NodeTravelPhase.Approaching, 240, null) };
         var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, [train], travelMeters: 240);
         await using var vehicles = new SceneVehicles();
         var cache = new NodeScene.Cache();
-        await using var scene = Open(snapshot, vehicles, cache);
+        var farCache = new FarTerrain.Cache();
+        if (farDisplayed)
+        {
+            var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+            var far = new FarTerrain(farCache);
+            far.BindNode(prepared);
+            far.SetFineBuildAllowed(false);
+            far.Demand(default, 1, prepared.Global.Layout.Bounds);
+            while (far.HasPendingCoarse) far.Advance(65536, CancellationToken.None);
+        }
+        await using var scene = Open(snapshot, vehicles, cache, farCache: farCache);
+        if (farDisplayed) scene.SetTerrainViewRadius(1);
         await scene.BuildWork!;
         var target = new WorldSceneTarget.Follow(new(1), new(1));
         SceneFrame? displayed = null;
+        var missingCorridorOutsideWindow = 0;
         for (var i = 0; i < 20; i++)
         {
             var frame = scene.Present(snapshot, Request, NodeFixtures.NextStamp(scene), displayed, default, target);
@@ -918,23 +979,31 @@ public sealed class NodeStreamingTests
             // At the node centre, 320 m/s reaches the 160 m lead cap; the head contributes another 4 cells.
             var retained = new NodeRange(default, 192).Window(scene.Layout!);
             var ahead = new NodeRange(new(0, 0, 324), 160).Window(scene.Layout!);
-            var columns = (Math.Max(retained.Right, ahead.Right) - Math.Min(retained.Left, ahead.Left)) / 32;
-            var rows = (Math.Max(retained.Front, ahead.Front) - Math.Min(retained.Back, ahead.Back)) / 32;
+            var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value;
+            var corridor = new NodeCorridor(scene.Layout!, dimensions, (TrainPosition.Node)train.Position,
+                train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+            var columns = (int)(scene.Layout!.Bounds.Maximum.X - scene.Layout.Bounds.Minimum.X) / 32;
+            var rows = (int)(scene.Layout.Bounds.Maximum.Y - scene.Layout.Bounds.Minimum.Y) / 32;
             var fog = frame.Update.Environment.FoggedRegions
                 .Where(bounds => bounds.Minimum.Y == -128 && bounds.Maximum.Y == 128).ToArray();
-            Assert.IsTrue(fog.Length <= 4 + rows * ((columns + 1) / 2),
-                "Merged runs are bounded by the combined retention and forward-prefetch window.");
+            Assert.IsTrue(fog.Length <= rows * ((columns + 1) / 2) + corridor.Chunks.Count,
+                "Merged runs are bounded by layout rows and columns, plus corridor chunks outside the layout.");
             var connected = Chunks(cache);
             foreach (var from in new NodeRange(default, 10000).Chunks(scene.Layout!))
             {
                 var point = new Vector3(from.X + 16, 0, from.Z + 16);
                 var covered = fog.Any(bounds => point.X > bounds.Minimum.X && point.X < bounds.Maximum.X &&
                     point.Z > bounds.Minimum.Z && point.Z < bounds.Maximum.Z);
-                Assert.AreEqual(!connected.ContainsKey(from), covered,
-                    $"Terrain chunk {from} must be fogged exactly when its geometry is absent.");
+                var inWindow = from.X >= Math.Min(retained.Left, ahead.Left) && from.X < Math.Max(retained.Right, ahead.Right) &&
+                    from.Z >= Math.Min(retained.Back, ahead.Back) && from.Z < Math.Max(retained.Front, ahead.Front);
+                if (!inWindow && corridor.Chunks.Contains(from) && !connected.ContainsKey(from)) missingCorridorOutsideWindow++;
+                var required = inWindow || corridor.Chunks.Contains(from);
+                Assert.AreEqual(!connected.ContainsKey(from) && (required || !farDisplayed), covered,
+                    $"Required terrain chunk {from} must stay fogged even when far terrain is displayed.");
             }
             await SceneFixtures.AwaitPendingWork(scene.PendingWork);
         }
+        Assert.IsTrue(missingCorridorOutsideWindow > 0, "The test must exercise required corridor chunks outside the retained/prefetch window.");
     }
 
     [TestMethod]
@@ -1085,6 +1154,74 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
+    public async Task Missing_rail_outside_streaming_demand_does_not_expand_fog()
+    {
+        var snapshot = RailSnapshot();
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var range = new NodeRange(default, NodeStreaming.PrefetchCells);
+        var outside = prepared.Rails.Values.Where(segment =>
+            !range.Intersects(segment.Bounds)).ToArray();
+        Assert.IsNotEmpty(outside, "The fixture must contain undemanded track beyond the node streaming windows.");
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles,
+            build: (data, from, old, token) => { release.Wait(token); return SmallPart(data, from, old, token); },
+            buildRail: (_, rail, old, token) => { release.Wait(token); return rail.Build(old, token); });
+        scene.SetFarBuildAllowed(false);
+        try
+        {
+            await scene.BuildWork!;
+            var frame = scene.Present(snapshot, Request, NodeFixtures.NextStamp(scene), null, default);
+            foreach (var segment in outside)
+            {
+                var point = segment.Sample((segment.Begin + segment.End) / 2).Position;
+                var fog = frame.Update.Environment.FoggedRegions.Where(box =>
+                    box.Minimum.Y == segment.Bounds.Minimum.Y && box.Maximum.Y == segment.Bounds.Maximum.Y);
+                Assert.IsFalse(fog.Any(box => point.X > box.Minimum.X && point.X < box.Maximum.X &&
+                    point.Z > box.Minimum.Z && point.Z < box.Maximum.Z),
+                    $"Missing undemanded rail {segment.Key} must not create a distant fog wall while far terrain is unavailable.");
+            }
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
+    public async Task Prefetched_missing_rail_keeps_fog_when_far_terrain_is_displayed()
+    {
+        var snapshot = RailSnapshot();
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var range = new NodeRange(default, NodeStreaming.PrefetchCells);
+        var prefetch = NodeStreaming.SettlementPrefetch(prepared.Global.Layout);
+        var segment = prepared.Rails.Values.First(segment => !range.Intersects(segment.Bounds) && prefetch.Intersects(segment.Bounds));
+        var point = segment.Sample((segment.Begin + segment.End) / 2).Position;
+        var farCache = new FarTerrain.Cache();
+        var far = new FarTerrain(farCache);
+        far.BindNode(prepared);
+        far.SetFineBuildAllowed(false);
+        far.Demand(point, 200);
+        while (far.HasPendingCoarse) far.Advance(65536, CancellationToken.None);
+        Assert.IsTrue(far.View.Covers(segment.Bounds), "Far terrain must cover the rail so only the prefetch condition retains fog.");
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles,
+            build: (data, from, old, token) => { release.Wait(token); return SmallPart(data, from, old, token); },
+            buildRail: (_, rail, old, token) => { release.Wait(token); return rail.Build(old, token); }, farCache: farCache);
+        try
+        {
+            scene.SetTerrainViewRadius(1);
+            await scene.BuildWork!;
+            var frame = scene.Present(snapshot, Request, NodeFixtures.NextStamp(scene), null, default,
+                new WorldSceneTarget.Location(NodeFixtures.Location));
+            var fog = frame.Update.Environment.FoggedRegions.Where(box => box.Minimum.Y == segment.Bounds.Minimum.Y &&
+                box.Maximum.Y == segment.Bounds.Maximum.Y);
+            Assert.IsTrue(fog.Any(box => point.X > box.Minimum.X && point.X < box.Maximum.X &&
+                point.Z > box.Minimum.Z && point.Z < box.Maximum.Z),
+                "A missing rail in settlement prefetch must stay fogged outside the focus range, even over displayed far terrain.");
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task PendingRailFogDoesNotCoverTheAttachedCurvedRail()
     {
         var snapshot = NodeFixtures.Snapshot(content: NodeFixtures.Content());
@@ -1118,6 +1255,203 @@ public sealed class NodeStreamingTests
             }
         }
         finally { release.Set(); }
+    }
+
+    [TestMethod]
+    public async Task Attaching_one_rail_reuses_nonadjacent_fog_and_preserves_the_previous_union()
+    {
+        var snapshot = RailSnapshot();
+        var cache = new NodeScene.Cache();
+        using var releaseFirst = new ManualResetEventSlim();
+        using var releaseOthers = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache, buildRail: (_, segment, old, token) =>
+        {
+            (entered.TrySetResult(segment.Key) ? releaseFirst : releaseOthers).Wait(token);
+            return segment.Build(old, token);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(allowBuild: false);
+            var line = scene.Layout!.Parking.First();
+            var focus = RailwayCoordinates.Add(line.Start, line.Forward * (float)(line.Length - 64));
+            scene.Pump(focus: focus, allowBuild: false);
+            AssertRailFogUnion(scene);
+            for (var attempt = 0; !entered.Task.IsCompleted; attempt++)
+            {
+                Assert.IsTrue(attempt < 1000, "No rail builder started within the finite node work set.");
+                scene.Pump(focus: focus);
+                Present(scene, snapshot);
+                if (!entered.Task.IsCompleted)
+                    await Task.WhenAny(Task.WhenAll(scene.PendingWork), entered.Task);
+            }
+            var key = await entered.Task;
+            var pendingParts = SceneField<System.Collections.IDictionary>(scene, "pendingParts");
+            var firstWork = pendingParts[key]!;
+            var firstBuild = (Task)firstWork.GetType().GetProperty("Task")!.GetValue(firstWork)!;
+            AssertRailFogUnion(scene);
+            var before = RailFogSegments(scene);
+            var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+            var bounds = prepared.Rails[key].Bounds;
+            var distant = before.Where(pair => !pair.Value.IsEmpty && !Overlaps(pair.Key)).ToArray();
+            var adjacent = before.Where(pair => pair.Key != key && !pair.Value.IsEmpty && Overlaps(pair.Key)).ToArray();
+            Assert.IsNotEmpty(distant, "The fixture needs nonempty distant fog to detect unnecessary rebuilding.");
+            Assert.IsNotEmpty(adjacent, "The fixture needs another pending rail next to the attached rail.");
+            releaseFirst.Set();
+            await firstBuild;
+            for (var attempt = 0; !Rails(cache).ContainsKey(key); attempt++)
+            {
+                Assert.IsTrue(attempt < 10, "The completed rail was not attached after consuming its build result.");
+                scene.Pump(focus: focus, allowBuild: false);
+                Present(scene, snapshot);
+            }
+            Assert.AreEqual(1, Rails(cache).Count, "Exactly one rail is released by the controlled builder.");
+            AssertRailFogUnion(scene);
+            var after = RailFogSegments(scene);
+            foreach (var (other, value) in distant)
+                Assert.IsTrue(after[other].Equals(value), $"Unrelated rail {other} must reuse its clipped fog array.");
+            foreach (var (other, value) in adjacent)
+                Assert.IsFalse(after[other].Equals(value), $"Adjacent rail {other} must be clipped again after attachment.");
+
+            scene.Pump(focus: new ScenePoint(10000, 0, 10000), allowBuild: false);
+            Assert.IsFalse(Rails(cache).ContainsKey(key), "Moving away must unload the released rail outside settlement prefetch.");
+            AssertRailFogUnion(scene);
+
+            bool Overlaps(string other)
+            {
+                var candidate = prepared.Rails[other].Bounds;
+                return candidate.Minimum.X < bounds.Maximum.X + 1 && candidate.Maximum.X > bounds.Minimum.X - 1 &&
+                    candidate.Minimum.Z < bounds.Maximum.Z + 1 && candidate.Maximum.Z > bounds.Minimum.Z - 1;
+            }
+        }
+        finally { releaseFirst.Set(); releaseOthers.Set(); }
+    }
+
+    [TestMethod]
+    public async Task Reopening_retained_rails_preserves_the_previous_fog_union()
+    {
+        var snapshot = RailSnapshot();
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var segment = prepared.Rails.Values.First();
+        var part = new NodeScene.Part(segment.Inputs, WorldSceneSession.BuildGeometry(_ => new([], [], [])),
+            ImmutableDictionary<GridColumn, double>.Empty);
+        var cache = new NodeScene.Cache();
+        var owner = cache.Open(NodeFixtures.NodeId);
+        cache.Publish(NodeFixtures.NodeId, owner, prepared.Global with { Parts = prepared.Global.Parts.Add(segment.Key, part) });
+        await using var vehicles = new SceneVehicles();
+        for (var binding = 0; binding < 2; binding++)
+        {
+            await using var scene = Open(snapshot, vehicles, cache);
+            await scene.BuildWork!;
+            scene.Pump(focus: segment.Sample((segment.Begin + segment.End) / 2).Position, allowBuild: false);
+            AssertRailFogUnion(scene);
+            Assert.IsTrue(Rails(cache).ContainsKey(segment.Key));
+        }
+    }
+
+    [TestMethod]
+    public async Task Rail_fog_regions_follow_ordinal_segment_order()
+    {
+        var snapshot = RailSnapshot();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false);
+        var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+        var segments = Enumerable.Range(0, 32).Select(index => new NodeScene.RailSegment(
+            $"rail:{index}", arc => new(new(arc, 0, 0), Vector3.UnitX, Vector3.UnitZ), 0, 1,
+            new(new(index * 2, -1, 0), new(index * 2 + 1, 1, 1)), "test"))
+            .ToImmutableDictionary(segment => segment.Key);
+        for (var index = 32; segments.Keys.SequenceEqual(segments.Keys.Order(StringComparer.Ordinal)); index++)
+        {
+            var segment = segments.Values.First() with
+            {
+                Key = $"rail:{index}", Bounds = new(new(index * 2, -1, 0), new(index * 2 + 1, 1, 1))
+            };
+            segments = segments.Add(segment.Key, segment);
+        }
+        typeof(NodeScene).GetField("prepared", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(scene, prepared with { Rails = segments });
+        var demanded = SceneField<HashSet<string>>(scene, "corridorRails");
+        demanded.UnionWith(segments.Keys);
+        var actual = ReadRailFog(scene);
+        var cached = RailFogSegments(scene);
+        var expected = segments.Keys.Order(StringComparer.Ordinal).SelectMany(key => cached[key]).ToArray();
+        CollectionAssert.AreEqual(expected, actual.Select(fog => fog.WorldBounds).ToArray(),
+            "Rail fog output must use Ordinal segment order regardless of dictionary hash order.");
+    }
+
+    [TestMethod]
+    public async Task Attaching_a_rail_invalidates_fog_beyond_one_cell_at_its_end_cap()
+    {
+        var snapshot = RailSnapshot();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false);
+        var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+        var forward = Vector3.Normalize(new Vector3(.02856f, 0, 1));
+        var right = new Vector3(forward.Z, 0, -forward.X);
+        var attached = new NodeScene.RailSegment("attached", arc => new(
+            new(10.501 + forward.X * arc, 0, forward.Z * arc), forward, right), 0, 10,
+            new(new(.001f, -1, -10.5f), new(21.001f + forward.X * 10, 1, 20.5f)), "test");
+        var pending = new NodeScene.RailSegment("pending", arc => new(new(-11.4995, 0, arc),
+            Vector3.UnitZ, Vector3.UnitX), 0, 10,
+            new(new(-21.9995f, -1, -10.5f), new(-.9995f, 1, 20.5f)), "test");
+        Assert.IsTrue(attached.Footprint.Any(bounds => bounds.Minimum.X < attached.Bounds.Minimum.X - 1 &&
+            bounds.Minimum.X < pending.Bounds.Maximum.X && bounds.Maximum.X > pending.Bounds.Minimum.X &&
+            bounds.Minimum.Z < pending.Bounds.Maximum.Z && bounds.Maximum.Z > pending.Bounds.Minimum.Z),
+            "The rasterized end cap must overlap the pending rail beyond a one-cell bounds margin.");
+        typeof(NodeScene).GetField("prepared", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(scene, prepared with { Rails = new[] { attached, pending }.ToImmutableDictionary(segment => segment.Key) });
+        SceneField<HashSet<string>>(scene, "corridorRails").UnionWith([attached.Key, pending.Key]);
+        ReadRailFog(scene);
+        var before = RailFogSegments(scene)[pending.Key];
+        SceneField<Dictionary<string, NodeScene.Part>>(scene, "rails").Add(attached.Key,
+            new("test", WorldSceneSession.BuildGeometry(_ => new([], [], [])), ImmutableDictionary<GridColumn, double>.Empty));
+        typeof(NodeScene).GetMethod("IndexRail", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(scene, [attached.Key, true]);
+        typeof(NodeScene).GetField("railFogDirty", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(scene, true);
+        AssertRailFogUnion(scene);
+        Assert.IsFalse(RailFogSegments(scene)[pending.Key].Equals(before),
+            "Attaching an overlapping end cap must invalidate the neighboring segment's cached fog.");
+    }
+
+    private static ImmutableArray<SceneFog> ReadRailFog(NodeScene scene) =>
+        (ImmutableArray<SceneFog>)typeof(NodeScene)
+            .GetMethod("RailFog", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(scene, [default(ScenePoint)])!;
+
+    private static Dictionary<string, ImmutableArray<SceneBounds>> RailFogSegments(NodeScene scene) =>
+        new(SceneField<Dictionary<string, ImmutableArray<SceneBounds>>>(scene, "railFogBySegment"));
+
+    private static T SceneField<T>(NodeScene scene, string name) =>
+        (T)typeof(NodeScene).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(scene)!;
+
+    private static void AssertRailFogUnion(NodeScene scene)
+    {
+        var actual = (ImmutableArray<SceneFog>)typeof(NodeScene)
+            .GetMethod("RailFog", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(scene, [default(ScenePoint)])!;
+        var prepared = SceneField<NodeScene.Preparation>(scene, "prepared");
+        var rails = SceneField<Dictionary<string, NodeScene.Part>>(scene, "rails");
+        var range = SceneField<NodeRange>(scene, "range");
+        var prefetch = SceneField<NodeRange>(scene, "prefetch");
+        var corridor = SceneField<HashSet<string>>(scene, "corridorRails");
+        var chunks = SceneField<HashSet<GridColumn>>(scene, "terrainChunks");
+        var missing = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) &&
+            (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) ||
+                corridor.Contains(segment.Key) || NodeStreaming.OverlapsTerrain(segment.Bounds, chunks)))
+            .Select(segment => segment.Bounds).ToArray();
+        var expected = ConstructionFog.Clip(missing, rails.Keys.Order(StringComparer.Ordinal)
+            .SelectMany(key => prepared.Rails[key].Footprint));
+        var normalized = ConstructionFog.Clip(actual.Select(fog => fog.WorldBounds), []);
+        CollectionAssert.AreEquivalent(expected.ToArray(), normalized.ToArray(),
+            "Incremental rail fog must retain the old demand and clipping union.");
     }
 
     [TestMethod]
@@ -1244,7 +1578,7 @@ public sealed class NodeStreamingTests
     private static NodeScene Open(SceneWorldSnapshot snapshot, SceneVehicles vehicles, NodeScene.Cache? cache = null,
         Func<NodeScene.Preparation, GridColumn, NodeScene.Part?, CancellationToken, NodeScene.Part>? build = null,
         Func<NodeScene.Preparation, NodeScene.RailSegment, NodeScene.Part?, CancellationToken, NodeScene.Part>? buildRail = null,
-        DisplayRate? displayRate = null)
+        DisplayRate? displayRate = null, FarTerrain.Cache? farCache = null)
     {
         ulong next = 0;
         var ids = new Dictionary<string, SceneObjectId>();
@@ -1252,7 +1586,7 @@ public sealed class NodeStreamingTests
         {
             if (!ids.TryGetValue(key, out var id)) ids[key] = id = new(++next);
             return id;
-        }, vehicles, displayRate ?? new(), _ => null, buildChunk: build ?? SmallPart, buildRail: buildRail);
+        }, vehicles, displayRate ?? new(), _ => null, buildChunk: build ?? SmallPart, buildRail: buildRail, farCache: farCache);
     }
 
     private static NodeScene.Part SmallPart(NodeScene.Preparation data, GridColumn from, NodeScene.Part? old, CancellationToken token)

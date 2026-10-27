@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -67,6 +68,8 @@ internal static class RailwayVehicles
 
 internal sealed class SceneVehicles : IAsyncDisposable
 {
+    private static readonly ConditionalWeakTable<DesignEvaluation, string> designInputs = new();
+    internal sealed record CacheKey(string Dynamic, string Design);
     private readonly Dictionary<InstanceId, BuiltObject> ready = [];
     private readonly Dictionary<InstanceId, InstanceView> current = [];
     private readonly HashSet<InstanceId> requested = [];
@@ -75,10 +78,10 @@ internal sealed class SceneVehicles : IAsyncDisposable
         private readonly object gate = new();
         private ulong owner;
         private HashSet<InstanceId>? live;
-        private readonly Dictionary<string, (InstanceId Instance, BuiltObject Body)> bodies = [];
+        private readonly Dictionary<CacheKey, (InstanceId Instance, BuiltObject Body)> bodies = [];
         internal ulong Open() { lock (gate) { live = null; return ++owner; } }
-        internal BuiltObject? Find(string key) { lock (gate) return bodies.GetValueOrDefault(key).Body; }
-        internal void Publish(ulong session, InstanceId instance, string key, BuiltObject body)
+        internal BuiltObject? Find(CacheKey key) { lock (gate) return bodies.GetValueOrDefault(key).Body; }
+        internal void Publish(ulong session, InstanceId instance, CacheKey key, BuiltObject body)
         {
             lock (gate)
             {
@@ -101,7 +104,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
     private readonly ulong owner;
     private HashSet<InstanceId>? live;
     private readonly Func<IContentView, InstanceView, BuiltObject> build;
-    private readonly Dictionary<InstanceId, Task<(string Key, BuiltObject Body)>> pending = [];
+    private readonly Dictionary<InstanceId, Task<(CacheKey Key, BuiltObject Body)>> pending = [];
     internal SceneVehicles(Cache? cache = null, Func<IContentView, InstanceView, BuiltObject>? build = null)
     {
         this.cache = cache ?? new Cache();
@@ -109,6 +112,8 @@ internal sealed class SceneVehicles : IAsyncDisposable
         this.build = build ?? RailwayVehicles.Build;
     }
     private readonly CancellationTokenSource cancellation = new();
+    private ulong revision;
+    internal ulong CompleteBuilds() { Drain(); return revision; }
     internal Task[] PendingWork => pending.Values.Cast<Task>().ToArray();
     internal bool HasPendingBuilds => pending.Values.Any(task => !task.IsCompleted) || requested.Any(id =>
         !ready.TryGetValue(id, out var body) || !WorldSceneSession.Matches(body, current[id]));
@@ -118,7 +123,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
         requested.Clear();
         live = instances.ToHashSet();
         cache.Retain(owner, live);
-        foreach (var id in ready.Keys.Where(id => !live.Contains(id)).ToArray()) ready.Remove(id);
+        foreach (var id in ready.Keys.Where(id => !live.Contains(id)).ToArray()) { ready.Remove(id); revision++; }
         foreach (var id in current.Keys.Where(id => !live.Contains(id)).ToArray()) current.Remove(id);
         Drain();
         // In-flight work remains owned and counted until completion; removed instances cannot republish to the cache.
@@ -157,24 +162,27 @@ internal sealed class SceneVehicles : IAsyncDisposable
                 WorldSceneSession.Matches(built.Body, wanted))
             {
                 ready[pair.Key] = built.Body;
+                revision++;
                 cache.Publish(owner, pair.Key, built.Key, built.Body);
             }
         }
     }
 
-    private static string Inputs(IContentView content, InstanceView instance)
+    private static CacheKey Inputs(IContentView content, InstanceView instance)
     {
         var lookup = content.FindDesign(instance.Design);
         if (lookup is not ContentLookup<DesignEvaluation>.Found found || found.Value is DesignEvaluation.Failed)
-            return RailwayDependencies.Values(new object[] { instance.Id, instance.Design, lookup });
+            return new(RailwayDependencies.Values(new object[] { instance.Id, instance.Design, lookup }), "");
         var scene = DesignGeometry.Projection(found.Value);
-        return RailwayDependencies.Values(new object?[] { instance.Id, instance.Design,
+        var model = designInputs.GetValue(found.Value, evaluation => RailwayDependencies.Values(new object[] {
+            DesignGeometry.Projection(evaluation), evaluation is DesignEvaluation.Complete complete
+                ? complete.Diagnostics : ((DesignEvaluation.Partial)evaluation).Diagnostics }));
+        return new(RailwayDependencies.Values(new object?[] { instance.Id, instance.Design,
             instance.Details is InstanceDetails.Vehicle vehicle ? (object)vehicle.Size : null,
             WorldSceneSession.Destroyed(instance).OrderBy(part => part.Value).ToArray(),
-            StructureDamage.Signature.From(instance), scene,
-            found.Value is DesignEvaluation.Complete complete ? complete.Diagnostics : ((DesignEvaluation.Partial)found.Value).Diagnostics,
+            StructureDamage.Signature.From(instance),
             scene.Voxels.Select(voxel => voxel.Voxel).Distinct().OrderBy(id => id.Value, StringComparer.Ordinal)
-                .Select(id => content.FindVoxelAppearance(id)).ToArray() });
+                .Select(id => content.FindVoxelAppearance(id)).ToArray() }), model);
     }
 
     internal static (SceneObject Object, SceneFog Fog) Loading(InstanceView instance, DesignEvaluation evaluation,

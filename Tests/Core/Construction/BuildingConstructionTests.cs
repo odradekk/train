@@ -87,10 +87,13 @@ public sealed class BuildingConstructionTests
             { World = unplanned.State.World with { Settlements = [planned] } });
         var design = Building(content, PlotSize.Small, BuildingKind.Production, '9');
         var started = Start(session, BuildOn(plot, design));
-        var completed = Step(session, 2).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single();
+        var advanced = Step(session, 2);
+        var completed = advanced.Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single();
         Assert.AreEqual(started.Id, completed.Job);
         Assert.IsInstanceOfType<Lookup<JobView>.Missing>(session.Read().FindJob(started.Id));
         var created = (InstanceId.Building)completed.CreatedInstance!;
+        Assert.IsFalse(advanced.Events.Any(e => e.Event is CoreEvent.ProductionStateChanged changed
+            && changed.Facility.Building == created.Id));
         var world = session.State.World;
         var instance = world.Instances.Single(i => i.Id == created);
         var site = world.Settlements.Single().Plots.Single(p => p.Id == plot);

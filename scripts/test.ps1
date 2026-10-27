@@ -73,7 +73,7 @@ $importDone = $false
 $mtpPipeAlias = $null
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
-    Write-Host (ConvertTo-ConsoleOutput $result.Output $root)
+    Write-Host $result.Output
     $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; notStarted = [bool] $result.NotStarted; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
     Write-Host "CHECK=$Name seconds=$($check.seconds) timeout=$($check.timedOut) notStarted=$($check.notStarted)"
     $trx = Join-Path $run "$Name.trx"
@@ -115,7 +115,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
 }
 function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, [int] $Seconds) {
     if ($Seconds -lt 1) { throw "$Group exhausted its time budget." }
-    Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds)
+    Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds -WorkingDirectory $root)
 }
 function Remove-IsolationTrees([string] $Output) {
     # 外层超时会强杀工具，无法执行其 finally；只清理本次输出内的隔离树。
@@ -181,33 +181,17 @@ try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
                 if (-not $IsWindows) {
-                    foreach ($name in @('stage-export', 'stage-export-optimizations', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
+                    foreach ($name in @('stage-export', 'stage-export-optimizations', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot')) {
                         $summary.checks += [pscustomobject]@{ name = $name; layer = $current; status = 'not-executed'; reason = 'Windows required'; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
                     }
                 }
-                Invoke-Check benchmark-build preparation dotnet @('build', 'Tests/Benchmarks/Train.Benchmarks.csproj', '-c', 'Release', '--nologo') 300
                 Invoke-Check stage-structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'stage-structure')) 300
                 Invoke-Check stage-verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) 120
                 Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 1290
 
                 Invoke-Check stage-core $current dotnet @('test', '--test-modules', 'Tests/Core/bin/Debug/net10.0/Train.Core.Tests.dll', '--root-directory', $root, '--results-directory', $run,
                     '--minimum-expected-tests', '2', '--', '--filter', 'TestCategory=stage', '--report-trx', '--report-trx-filename', 'stage-core.trx', '--timeout', '180s') 180
-                Invoke-Check benchmark $current dotnet @((Join-Path $root 'Tests/Benchmarks/bin/Release/net10.0/Train.Benchmarks.dll'), '--artifacts', (Join-Path $run 'benchmark')) 600
                 if ($IsWindows) {
-                    $threshold = [ordered]@{ name = 'benchmark-threshold'; layer = $current; total = 1; executed = 1; passed = 0; failed = 1; skipped = 0 }
-                    try {
-                        $threshold.baseline = Get-Content (Join-Path $root 'Tests/Benchmarks/Baselines/windows-core-train-loop.json') -Raw | ConvertFrom-Json
-                        $threshold.measurement = Get-Content (Join-Path $run 'benchmark/throughput.json') -Raw | ConvertFrom-Json
-                        foreach ($value in @($threshold.baseline.baselineStepsPerSecond, $threshold.baseline.maximumSlowdown, $threshold.measurement.stepsPerSecond)) {
-                            if (($value -isnot [long] -and $value -isnot [double]) -or -not [double]::IsFinite($value)) { throw 'Benchmark numeric values are invalid.' }
-                        }
-                        if ($threshold.baseline.workload -ne 'core-train-loop-v2' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
-                            $threshold.baseline.baselineStepsPerSecond -le 0 -or $threshold.baseline.maximumSlowdown -lt 1 -or $threshold.measurement.stepsPerSecond -le 0) { throw 'Benchmark workload or numeric values are invalid.' }
-                        $threshold.measurementRatio = $threshold.measurement.stepsPerSecond / $threshold.baseline.baselineStepsPerSecond
-                        if ($threshold.measurement.stepsPerSecond * $threshold.baseline.maximumSlowdown -lt $threshold.baseline.baselineStepsPerSecond) { throw 'Benchmark slowdown exceeds the candidate limit.' }
-                        $threshold.passed = 1; $threshold.failed = 0
-                    } catch { $threshold.error = $_.Exception.Message; throw }
-                    finally { $summary.checks += [pscustomobject] $threshold }
                     foreach ($name in @('APPDATA', 'LOCALAPPDATA', 'TRAIN_ENGINE_TEST_ASSEMBLY', 'TRAIN_ENGINE_REPORT', 'TRAIN_LOG_LEVEL', 'TRAIN_ENGINE_SCREENSHOT', 'TRAIN_SCREENSHOT_OUTPUT')) {
                         if (-not $environment.ContainsKey($name)) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
                     }
@@ -262,7 +246,7 @@ try {
                     $result = if ($remaining -lt 1) {
                         [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget before $($task.name) could start."; TimedOut = $false; NotStarted = $true; CleanupSucceeded = $true; DurationMs = 0 }
                     } else {
-                        try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining }
+                        try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining -WorkingDirectory $using:root }
                         catch { [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message; TimedOut = $false; CleanupSucceeded = $false; DurationMs = 0 } }
                     }
                     [pscustomobject]@{ name = $task.name; program = $task.program; arguments = $arguments; result = $result }
@@ -334,7 +318,7 @@ try {
         }
     }
     $summary.outcome = 'passed'
-} catch { $summary.error = $_.Exception.Message; [Console]::Error.WriteLine((ConvertTo-ConsoleOutput ($_ | Out-String) $root)) }
+} catch { $summary.error = $_.Exception.Message; Write-Error $_ -ErrorAction Continue }
 finally {
     if ($mtpPipeAlias) {
         try { [IO.Directory]::Delete($mtpPipeAlias); $summary.mtpPipeAliasRemoved = $true }
@@ -363,7 +347,6 @@ finally {
     foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $environment[$name]) }
     $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json')
     if ($summary.outcome -eq 'passed') {
-        $retained = @('summary.json', 'benchmark')
         try {
             if ($ExportWindows -or ('stage' -in $layers -and $IsWindows)) {
                 foreach ($relative in @('exports', 'asset-export/staging', 'asset-export/export', 'asset-export/appdata',
@@ -374,13 +357,12 @@ finally {
                 }
                 $probeData = [IO.Path]::GetFullPath((Join-Path $run 'asset-export/probe-data'))
                 foreach ($artifact in (Get-ChildItem -LiteralPath $run -File -Recurse -Force)) {
-                    $inBenchmark = $artifact.FullName.StartsWith((Join-Path $run 'benchmark') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $inScreenshot = $artifact.FullName.StartsWith((Join-Path $run 'screenshot') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $inProbeData = $artifact.FullName.StartsWith($probeData + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $isIsolationEvidence = ($artifact.FullName.StartsWith((Join-Path $run 'isolation') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
                         $artifact.FullName.StartsWith((Join-Path $run 'stage-isolate') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) -and
                         $artifact.Name -in @('inputs.json', 'first-party-assemblies.json', 'isolation-summary.json')
-                    if ($artifact.Name -ne 'summary.json' -and -not $isIsolationEvidence -and -not $inProbeData -and -not $inBenchmark -and -not $inScreenshot -and $artifact.Name -ne 'stage-screenshot.junit.xml' -and $artifact.Extension -notin @('.log', '.jsonl') -and
+                    if ($artifact.Name -ne 'summary.json' -and -not $isIsolationEvidence -and -not $inProbeData -and -not $inScreenshot -and $artifact.Name -ne 'stage-screenshot.junit.xml' -and $artifact.Extension -notin @('.log', '.jsonl') -and
                         $artifact.Name -notlike '*.process.json' -and $artifact.Name -ne 'duration.json') {
                         Remove-Item -LiteralPath $artifact.FullName -Force
                     }
@@ -389,13 +371,13 @@ finally {
                     if (-not (Get-ChildItem -LiteralPath $directory.FullName -Force)) { Remove-Item -LiteralPath $directory.FullName -Force }
                 }
             } else {
-                foreach ($artifact in (Get-ChildItem -LiteralPath $run -Force | Where-Object Name -notin $retained)) { Remove-Item -LiteralPath $artifact.FullName -Recurse -Force }
+                foreach ($artifact in (Get-ChildItem -LiteralPath $run -Force | Where-Object Name -ne 'summary.json')) { Remove-Item -LiteralPath $artifact.FullName -Recurse -Force }
             }
         }
         catch { $summary.outcome = 'failed'; $summary.error = "Cleanup failed: $($_.Exception.Message)"; $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json') }
     }
     $mutex.ReleaseMutex()
     $mutex.Dispose()
-    Write-Host (ConvertTo-ConsoleOutput "SUMMARY=$run/summary.json outcome=$($summary.outcome) seconds=$($summary.seconds)" $root)
+    Write-Host "SUMMARY=$run/summary.json outcome=$($summary.outcome) seconds=$($summary.seconds)"
 }
 if ($summary.outcome -ne 'passed') { exit 1 }

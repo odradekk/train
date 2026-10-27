@@ -1,0 +1,16 @@
+#!/bin/sh
+# Post-checkout, post-merge, and post-rewrite hook: makes frozen decision notes read-only
+# again, since git does not record the flag. Installed by the setup-agent-workflow skill.
+# On Windows, python3 may be a store stub that fails, so try each name and use the first
+# Python 3.10 or later. These hooks run after git has finished, so they warn and never fail.
+NOTES=.agents/notes
+[ -d "$NOTES" ] || exit 0
+for python in python3 python; do
+  if "$python" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+    "$python" .agents/scripts/note_lifecycle.py "$NOTES" protect >/dev/null ||
+      echo "frozen notes: note_lifecycle.py protect failed" >&2
+    exit 0
+  fi
+done
+echo "frozen notes: making frozen notes read-only needs Python 3.10 or later on PATH" >&2
+exit 0

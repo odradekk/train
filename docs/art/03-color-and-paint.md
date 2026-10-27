@@ -46,7 +46,7 @@
 
 ### 玩家涂装
 
-以下是[用户在 #338 确认的目标规则](https://github.com/odradekk/train/issues/338#issuecomment-6235173812)，实现与迁移责任见[本阶段](#本阶段)；不表示当前着色器和资产已经符合。
+以下是[用户在 #338 确认的涂装规则](https://github.com/odradekk/train/issues/338#issuecomment-6235173812)，当前进度见[渲染实现与贴图迁移](#本阶段)。
 
 - 初期每个体素一个主色，支持批量操作（美术 Q208、Q218）。
 - 只有材质类别为 `painted_metal` 和 `concrete` 的表面可以涂装；`bare_metal`、`glass`、`stone_soil`、`polymer_rubber`、`organic` 保持原色（美术 Q222，类别见 [02](02-materials-and-textures.md#材质类别)）。

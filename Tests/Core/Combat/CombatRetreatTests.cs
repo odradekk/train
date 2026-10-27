@@ -4,6 +4,8 @@ using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.Railway;
 using Train.Core.Sessions;
+using Train.Core.Tests.Railway;
+using Train.Core.Tests.World;
 using Train.Core.World;
 
 namespace Train.Core.Tests.Combat;
@@ -126,6 +128,60 @@ public sealed class CombatRetreatTests
         };
         Assert.AreEqual(friendly.Node, CombatOperations.ChooseDestination(modified, state.Content,
             world.Trains.Single(), new WorldLocation.Node(hostile)));
+    }
+
+    [TestMethod]
+    public void A_nearer_unreachable_settlement_is_skipped_for_a_reachable_candidate()
+    {
+        var state = TrainDispatchFixture.State(1);
+        var world = state.World;
+        var source = world.Nodes[0];
+        var friendly = world.Settlements.Single();
+        var farther = new NodeId(3);
+        var origin = new NodeId(2);
+        var fartherSettlement = friendly with { Id = new(2), Node = farther };
+        var modified = world with
+        {
+            Nodes = world.Nodes.Add(source with { Id = farther,
+                Occupant = new NodeOccupant.Settlement(fartherSettlement.Id, fartherSettlement.Relation) }),
+            Edges = [world.Edges[0] with { LengthMeters = 1, Breaks = [new(new(1), 1, 0.5)] },
+                world.Edges[0] with { Id = new(2), Start = origin, End = farther, LengthMeters = 10 }],
+            Settlements = [friendly, fartherSettlement]
+        };
+
+        Assert.AreEqual(farther, CombatOperations.ChooseDestination(modified, state.Content,
+            world.Trains.Single(), new WorldLocation.Node(origin)));
+    }
+
+    [TestMethod]
+    public void Retreat_retries_after_the_only_track_is_repaired_and_completes()
+    {
+        var state = RailwayWorkFixture.Prepared(1, 1, 1, 1, 1, 2.0 / 60);
+        var player = RailwayWorkFixture.Player(state);
+        var train = state.World.Trains.Single() with
+        {
+            Position = WorldFixture.Node(new(2)), Activity = TrainActivity.Retreating
+        };
+        var world = state.World with
+        {
+            Edges = [state.World.Edges[0] with { Breaks = [new(new(1), 1, 0.5)] }],
+            Trains = [train], Next = state.World.Next with { Break = 2 }
+        };
+        using var session = new CoreSession(state with { World = world });
+        TrainDispatchFixture.Step(session);
+        Assert.IsNull(session.State.World.Trains.Single().RetreatDestination);
+        Assert.AreEqual(TrainActivity.Retreating, Train(session, train.Id).Activity);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.RepairRail(new(1), new(1), player.Id),
+            CommandSource.AutomationTest));
+        CombatFixture.AdvanceUntilEvent(session, value => value is CoreEvent.RailRepaired);
+        CombatFixture.AdvanceUntil(session,
+            _ => session.State.World.Trains.Single().RetreatDestination == player.Node, 10);
+        Assert.AreEqual(TrainActivity.Retreating, Train(session, train.Id).Activity);
+        var events = CombatFixture.AdvanceUntilEvent(session,
+            value => value is CoreEvent.RetreatCompleted, 1000);
+        Assert.AreEqual(player.Node, events.OfType<CoreEvent.RetreatCompleted>().Single().Node);
+        Assert.AreEqual(TrainActivity.Stopped, Train(session, train.Id).Activity);
+        Assert.AreEqual(player.Node, ((TrainPosition.Node)Train(session, train.Id).Position).Id);
     }
 
     [TestMethod]

@@ -32,6 +32,8 @@ internal sealed class WorldSceneController : IDisposable
     private bool _disposed;
     private ScenePoint? _pendingNodeFocus;
     private ISceneFrame? _pendingNodeFrame;
+    private bool _candidateFirst;
+    private SceneFrameStamp? _failedCandidate;
 
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
@@ -170,7 +172,8 @@ internal sealed class WorldSceneController : IDisposable
             var displayed = _fullReplacement ? null : actual;
             var poseFrame = _fullReplacement ? actual : _display.PoseFrame;
             var camera = poseFrame is null ? null : new SceneCameraSample(poseFrame,
-                ToNumerics(View.CameraRig.Focus - (_fullReplacement ? _display.Root.Position : Vector3.Zero)));
+                ToNumerics(View.CameraRig.Focus - (_fullReplacement ? _display.Root.Position : Vector3.Zero)),
+                View.CameraRig.TerrainViewRadiusCells);
             var interpolation = status.Remainder / SimulationTime.StepSeconds;
             var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, DebugLayers, _pickRay), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&
@@ -203,7 +206,28 @@ internal sealed class WorldSceneController : IDisposable
             _display.SetFollowedTrain(followed);
             var shift = _fullReplacement ? (Vector3?)null : _display.UpdatePoses(frame);
             if (_pickRay is { } sample && sample.Frame.Update.Frame.Space != frame.Update.Frame.Space) _pickRay = null;
-            using var prepared = _display!.Prepare(frame);
+            var candidate = _session.PresentCandidate(_display.PreparedCandidate);
+            switch (candidate)
+            {
+                case SceneResult<SceneUpdate?>.Success { Value: { } update }:
+                    if (update.Frame.Session != _session.Id || update.Frame.Request != _request)
+                        throw new InvalidOperationException("候选不属于活动场景请求。");
+                    if (_failedCandidate is not { } failed || failed.Session != update.Frame.Session ||
+                        failed.Request != update.Frame.Request || failed.Space != update.Frame.Space)
+                        _display.ReceiveCandidate(update);
+                    break;
+                case SceneResult<SceneUpdate?>.Success:
+                    if (!_display.HasCandidateFor(frame.Update.Frame)) _display.CancelCandidate();
+                    break;
+                case SceneResult<SceneUpdate?>.Failure failure:
+                    foreach (var problem in failure.Problems) Report(problem);
+                    _display.CancelCandidate();
+                    break;
+                case SceneResult<SceneUpdate?>.Faulted faulted:
+                    Fail([faulted.Problem]);
+                    return;
+            }
+            using var prepared = PrepareResources(frame);
             if (prepared is not null)
             {
                 prepared.Commit();
@@ -231,6 +255,44 @@ internal sealed class WorldSceneController : IDisposable
             _display.UpdateConstructionFog(followed);
         }
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Present); }
+    }
+
+    private SceneDisplay.PreparedFrame? PrepareResources(ISceneFrame frame)
+    {
+        var display = _display!;
+        if (!display.IsPreparingCandidate || display.HasCandidateFor(frame.Update.Frame))
+            return display.Prepare(frame);
+        var half = TimeSpan.FromMilliseconds(2);
+        var whole = TimeSpan.FromMilliseconds(4);
+        if (!View.Interactive)
+        {
+            var initial = display.Prepare(frame);
+            PrepareCandidate(whole);
+            return initial;
+        }
+        _candidateFirst = !_candidateFirst;
+        if (_candidateFirst)
+        {
+            PrepareCandidate(half);
+            var active = display.Prepare(frame, whole);
+            if (active is not null) PrepareCandidate(whole);
+            return active;
+        }
+        var prepared = display.Prepare(frame, half);
+        PrepareCandidate(whole);
+        return prepared ?? (!display.IsPreparingCandidate ? display.Prepare(frame, whole) : null);
+    }
+
+    private void PrepareCandidate(TimeSpan budget)
+    {
+        try { _display!.PrepareCandidate(budget); }
+        catch (Exception exception)
+        {
+            // 候选准备失败只放弃该目标的预建资源，实际场景仍走正常显示路径。
+            _failedCandidate = _display!.CandidateScope;
+            _display.CancelCandidate();
+            Report(new("candidate_prepare_failed", SceneStage.Build, null, null, null, null, exception.ToString()));
+        }
     }
 
     private WorldObjectId? FollowSubject() => _target is WorldSceneTarget.Follow follow
@@ -282,6 +344,8 @@ internal sealed class WorldSceneController : IDisposable
         if (result is SceneResult<SceneRequestId>.Success success)
         {
             _display!.CancelPreparation();
+            _display.CancelCandidate();
+            _failedCandidate = null;
             _target = target;
             _display.SetFollowedTrain([]);
             _display.UpdateConstructionFog([]);

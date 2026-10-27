@@ -13,6 +13,9 @@ public partial class ScenePreview : Node
     {
         try
         {
+            // 根窗口的 TreeExiting 晚于所有子节点的 _ExitTree，在 CSharpLanguage::finalize 前排空终结器以避免竞争。
+            // 等待后不再触发 GC，让随后失去引用的包装对象仍能由 Godot 的弱引用跟踪器释放。
+            GetTree().Root.TreeExiting += static () => { GC.Collect(); GC.WaitForPendingFinalizers(); };
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             var path = ProjectSettings.GlobalizePath("res://.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll");
             _context = AssemblyLoadContext.GetLoadContext(GetType().Assembly)!;

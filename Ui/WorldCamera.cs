@@ -1,5 +1,6 @@
 using Godot;
 using Train.Core.Contracts;
+using Train.Rendering;
 using Train.Scenes.Contracts;
 
 namespace Train.Ui;
@@ -10,7 +11,8 @@ internal partial class WorldCamera : Node3D
     internal const float MaximumDistance = 240f;
     internal const float NodeMaximumDistance = 96f;
     internal const float ZoomStep = 0.15f;
-    private const float OrbitSensitivity = 0.006f;
+    internal const float MinimumDistance = 8f;
+    internal const float OrbitSensitivity = 0.006f;
     private const float MinimumPitch = 0.15f;
     private const float MaximumPitch = 1.35f;
     private const float FollowResponse = 8f;
@@ -37,6 +39,25 @@ internal partial class WorldCamera : Node3D
     internal float OrbitYawRadians => _orbitYaw;
     internal float OrbitPitchRadians => _pitch;
     internal ScenePoint FrameOrigin => _frame?.Origin ?? default;
+    internal double TerrainViewRadiusCells => ProjectionRadiusCells(Camera.GetCameraProjection(), Camera.Far);
+
+    internal static double ProjectionRadiusCells(Projection projection, double far)
+    {
+        var inverse = projection.Inverse();
+        double cornerDistance = 0;
+        for (var x = -1; x <= 1; x += 2)
+            for (var y = -1; y <= 1; y += 2)
+            {
+                var corner = inverse * new Vector4(x, y, 1, 1);
+                // 使用实际轴向 Far；不以远平面上接近零的齐次 W 还原深度。
+                var dx = corner.X / (double)corner.Z;
+                var dy = corner.Y / (double)corner.Z;
+                cornerDistance = Math.Max(cornerDistance, far * Math.Sqrt(1 + dx * dx + dy * dy));
+            }
+        // 三维角点距离包住任意朝向的水平投影；纯垂直地形避让不扩大水平偏移。
+        // 向上按 256 格分档，避免投影的微小变化反复调整远景需求范围。
+        return Math.Ceiling((cornerDistance + MaximumDistance + CombatEffects.ShakeDistance) / 256) * 256;
+    }
 
     public WorldCamera()
     {
@@ -124,7 +145,7 @@ internal partial class WorldCamera : Node3D
 
     public void Zoom(float amount)
     {
-        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * ZoomStep), 8f,
+        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * ZoomStep), MinimumDistance,
             NodePanBounds is null ? ZoomCeiling : NodeMaximumDistance);
         PlaceCamera();
     }
@@ -167,8 +188,7 @@ internal partial class WorldCamera : Node3D
         var aim = OrbitPosition();
         var focusPick = _frame.Pick(ClearanceRay(Focus.X, Focus.Z));
         var cameraPick = _frame.Pick(ClearanceRay(aim.X, aim.Z));
-        if (focusPick is ScenePick.NotReady || cameraPick is ScenePick.NotReady) return false;
-        if (!Surface(focusPick, out var focusTop) || !Surface(cameraPick, out var cameraTop)) return false;
+        if (!Surface(focusPick, Focus, out var focusTop) || !Surface(cameraPick, aim, out var cameraTop)) return false;
         if (focusTop is { } focusY) Focus = new(Focus.X, focusY, Focus.Z);
         aim = OrbitPosition();
         if (cameraTop is { } top && top + TerrainClearance > aim.Y)
@@ -176,11 +196,15 @@ internal partial class WorldCamera : Node3D
         return true;
     }
 
-    private bool Surface(ScenePick pick, out float? height)
+    private bool Surface(ScenePick pick, Vector3 point, out float? height)
     {
         height = null;
         switch (pick)
         {
+            case ScenePick.NotReady:
+                height = _frame!.DisplayTerrainHeight(point.X, point.Z) is Lookup<double>.Found found
+                    ? (float)found.Value : null;
+                return height is not null;
             case ScenePick.Miss:
                 return true;
             case ScenePick.Hit hit when hit.Value.Subject is PickSubject.Terrain:
@@ -224,7 +248,7 @@ internal partial class WorldCamera : Node3D
     private void PlaceCamera()
     {
         var position = OrbitPosition();
-        if (_frame?.TerrainHeight(position.X, position.Z) is Lookup<double>.Found terrain)
+        if (_frame?.DisplayTerrainHeight(position.X, position.Z) is Lookup<double>.Found terrain)
             position.Y = Mathf.Max(position.Y, (float)terrain.Value + TerrainClearance);
         var offset = ShakeEnabled ? ShakeOffset : Vector3.Zero;
         Camera.Transform = new Transform3D(Basis.LookingAt(Focus - position, Vector3.Up), position + offset);

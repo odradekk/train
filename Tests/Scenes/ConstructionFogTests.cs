@@ -9,6 +9,69 @@ namespace Train.Scenes.Tests;
 public sealed class ConstructionFogTests
 {
     [TestMethod]
+    [DataRow(64, 96)]
+    [DataRow(96, 64)]
+    public async Task Refreshing_layout_bounds_updates_terrain_fog_without_moving_the_camera(int before, int after)
+    {
+        SceneWorldSnapshot Snapshot(int extent)
+        {
+            var template = NodeFixtures.Layout with { Plots = [] };
+            template = template with { SceneModel = template.SceneModel with
+            { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-extent, 0, -extent), new(extent - 1, 0, extent - 1)) } } };
+            return NodeFixtures.Snapshot(platforms: 0, trains: [], content: NodeFixtures.Content(layout: template,
+                rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
+        }
+        var initial = Snapshot(before);
+        var changed = Snapshot(after);
+        var edge = changed.Core.World.Edges[0];
+        changed = RailwayFixtures.ReplaceCore(changed, edge: edge with { Tracks = 0 });
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), SceneFixtures.NextId(), vehicles, new(), _ => null,
+            buildChunk: (_, _, _, token) => Wait(token), buildRail: (_, _, _, token) => Wait(token));
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false);
+        var oldBounds = scene.Layout!.Bounds;
+        var oldWindow = new NodeRange(default, NodeStreaming.RetainCells).Window(scene.Layout);
+        var first = scene.Present(initial, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), null, default);
+        AssertMissingTerrainFog(first, oldBounds);
+        var pending = scene.PendingWork.ToHashSet();
+        scene.Pump(changed, allowBuild: false);
+        await Task.WhenAll(scene.PendingWork.Where(task => !pending.Contains(task)));
+        var next = scene.Present(changed, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), first, default);
+        var newBounds = scene.Layout!.Bounds;
+        AssertMissingTerrainFog(next, newBounds);
+        AssertMissingTerrainFog(first, oldBounds);
+        Assert.AreNotEqual(oldBounds, newBounds, "The production refresh must adopt a different terrain boundary.");
+        Assert.AreNotEqual(oldWindow, new NodeRange(default, NodeStreaming.RetainCells).Window(scene.Layout),
+            "The adopted layout must change the clipped construction window.");
+        var probe = new ScenePoint(0, 0, (oldBounds.Maximum.Y + newBounds.Maximum.Y) / 2);
+        Assert.AreEqual(before > after, first.Update.Environment.FoggedRegions.Any(box => Contains(box, probe)));
+        Assert.AreEqual(after > before, next.Update.Environment.FoggedRegions.Any(box => Contains(box, probe)),
+            "Terrain fog must follow the adopted layout boundary even when no terrain rows or camera inputs changed.");
+        Assert.IsInstanceOfType<ScenePick.NotReady>(first.Pick(new(new(0, 20, 0), -Vector3.UnitY, 100)),
+            "The blocked, currently required terrain must remain unpickable.");
+        Assert.IsFalse(first.Update.Environment.FoggedRegions.Any(box => Contains(box, new(224, 0, 0))));
+        Assert.IsFalse(next.Update.Environment.FoggedRegions.Any(box => Contains(box, new(224, 0, 0))));
+
+        static NodeScene.Part Wait(CancellationToken token)
+        {
+            token.WaitHandle.WaitOne();
+            token.ThrowIfCancellationRequested();
+            throw new InvalidOperationException();
+        }
+
+        static void AssertMissingTerrainFog(SceneFrame frame, ScenePanBounds bounds)
+        {
+            for (var z = bounds.Minimum.Y; z < bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+            for (var x = bounds.Minimum.X; x < bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+                Assert.IsTrue(frame.Update.Environment.FoggedRegions.Any(box =>
+                    box.Minimum.Y == -128 && box.Maximum.Y == 128 &&
+                    Contains(box, new(x + VoxelGrid.ChunkSize / 2, 0, z + VoxelGrid.ChunkSize / 2))),
+                    "Every unbuilt L0 chunk must remain fogged when the layout is first prepared or rebound.");
+        }
+    }
+
+    [TestMethod]
     [DataRow(384d, 512d)]
     [DataRow(384d, 384.2d)]
     public void AttachedRailFootprintIncludesSleepersBeyondBothArcEnds(double begin, double end)

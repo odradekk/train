@@ -32,7 +32,7 @@ public sealed class NodePresentationRegressionTests
             Assert.AreEqual(SceneReadiness.Ready, first.Readiness);
             Assert.IsTrue(first.Objects.Length > 0);
             block = true;
-            var request = new SceneFrameRequest(1, new(first, new(160, 0, 0)), SceneDebugLayer.None);
+            var request = new SceneFrameRequest(1, new(first, new(160, 0, 0), 6656), SceneDebugLayer.None);
             var moved = scene.Present(snapshot, request, NodeFixtures.NextStamp(scene), first, default);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(SceneReadiness.Partial, moved.Readiness);
@@ -183,7 +183,7 @@ public sealed class NodePresentationRegressionTests
         if (withTrain) instances.Add(RailwayFixtures.Instance(3, train: train.Id) with { Location = NodeFixtures.Location });
         return basis with { Core = new FixedCoreReadView
         {
-            InputIdentity = basis.Core.InputIdentity, Position = basis.Core.Position,
+            InputIdentity = basis.Core.InputIdentity, Position = basis.Core.Position, Revision = new(basis.Core.Position.CompletedSteps + basis.Core.Position.Sequence),
             World = basis.Core.World with { Nodes = [node], Edges = [], Trains = withTrain ? [new(train.Id, train.Position, train.Activity)] : [] },
             Trains = withTrain ? new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) } : [],
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)) },

@@ -8,41 +8,60 @@ namespace Train.Core.Production;
 
 internal static class ProductionOperations
 {
-    internal static ImmutableArray<FacilityRequest> Requests(WorldState world,
+    internal readonly record struct PreparedFacility(TemplateProductionPlan Plan, FacilityKey Key,
+        ProcessProjection? Process, double Capability);
+
+    internal static (ImmutableArray<PreparedFacility> Facilities, ImmutableArray<FacilityRequest> Requests) Prepare(WorldState world,
         CoreContentProjection content, SettlementId id)
     {
         var settlement = world.Settlements.Single(s => s.Id == id);
-        if (settlement.Template.ProductionPlans.IsEmpty) return [];
-        var plans = settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
-            .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
-            .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value)
-            .ThenBy(p => p.Plan.Capability).ToArray();
-        if (plans.Length == 0) return [];
-        var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Facility);
-        var requests = ImmutableArray.CreateBuilder<FacilityRequest>();
-        foreach (var (plan, building) in plans)
+        if (settlement.Template.ProductionPlans.IsEmpty) return ([], []);
+        var plans = new List<(TemplateProductionPlan Plan, BuildingId Building, int Index)>(settlement.Template.ProductionPlans.Length);
+        for (var index = 0; index < settlement.Template.ProductionPlans.Length; index++)
         {
-            var key = new FacilityKey(building!.Value, plan.Capability);
+            var plan = settlement.Template.ProductionPlans[index];
+            if (plan.Capability is not (CapabilityKind.Production or CapabilityKind.Extraction)) continue;
+            if (settlement.Plots.Single(plot => plot.TemplateNumber == plan.PlotNumber).Building is { } building)
+                plans.Add((plan, building, index));
+        }
+        if (plans.Count == 0) return ([], []);
+        plans.Sort(static (a, b) => (a.Plan.Priority, a.Building.Value, a.Plan.Capability, a.Index)
+            .CompareTo((b.Plan.Priority, b.Building.Value, b.Plan.Capability, b.Index)));
+        var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Facility);
+        var capabilities = new Dictionary<BuildingId, BuildingCapabilities>();
+        var prepared = ImmutableArray.CreateBuilder<PreparedFacility>(plans.Count);
+        var requests = ImmutableArray.CreateBuilder<FacilityRequest>();
+        foreach (var (plan, building, _) in plans)
+        {
+            var key = new FacilityKey(building, plan.Capability);
             var runtime = facilities[key];
             var process = ProductionQueries.Process(content, plan.Process);
+            if (!capabilities.TryGetValue(key.Building, out var buildingCapabilities))
+            {
+                buildingCapabilities = BuildingCapabilities.Read(world, content, key.Building);
+                capabilities.Add(key.Building, buildingCapabilities);
+            }
+            var capability = key.Capability == CapabilityKind.Extraction
+                ? buildingCapabilities.Extraction : buildingCapabilities.Production;
+            prepared.Add(new(plan, key, process, capability));
             if (runtime.Batch is { } batch)
             {
-                var capability = ProductionQueries.Capability(world, content, key);
                 if (process is null || ProductionQueries.Process(content, batch.Process) is null || capability == 0) continue;
                 var rate = Math.Min(capability,
                     (batch.FrozenWorkRequired - batch.ProgressWork) / SimulationTime.StepSeconds);
                 requests.Add(new FacilityRequest.Work(key, plan.Priority, rate, batch.FrozenPowerPerWork, batch.FrozenLaborPerWork));
             }
-            else if (ProductionQueries.Find(world, content, key)!.State == ProductionState.Running)
+            else if (ProductionQueries.CanStart(world, content, key, capability))
                 requests.Add(new FacilityRequest.Batch(key, plan.Priority, ProductionQueries.Inputs(process!.Details),
                     (process.Details as ProcessDetails.Extraction)?.Extracts));
         }
 
-        return requests.ToImmutable();
+        return (prepared.MoveToImmutable(), requests.ToImmutable());
     }
 
-    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Complete(WorldState before,
-        CoreContentProjection content, SettlementId id, ImmutableArray<FacilityRequest> requests,
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Complete(
+        CoreContentProjection content, SettlementId id, ImmutableArray<PreparedFacility> prepared,
+        ImmutableArray<FacilityRequest> requests,
         SettlementResolution resolution, ulong step)
     {
         var world = resolution.World;
@@ -51,35 +70,28 @@ internal static class ProductionOperations
             && f.LastActualWorkPerSecond == 0 && f.LastLimits.IsEmpty && f.LastPowerDemand == 0 && f.LastActualSupply == 0
             && f.LastAllocatedLabor == 0))
             return (world, []);
-        var plans = settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
-            .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
-            .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value)
-            .ThenBy(p => p.Plan.Capability).ToArray();
-        if (plans.Length == 0) return (world, []);
+        if (prepared.IsEmpty) return (world, []);
         var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Facility);
         var accepted = resolution.AcceptedBatches.ToHashSet();
         var allocations = resolution.Work.ToDictionary(a => a.Facility);
         var workRequests = requests.OfType<FacilityRequest.Work>().ToDictionary(r => r.Facility);
         var completed = new List<(FacilityKey Key, ProductionBatchState Batch)>();
-        foreach (var (plan, building) in plans)
+        foreach (var (plan, key, process, capability) in prepared)
         {
-            var key = new FacilityKey(building!.Value, plan.Capability);
             var runtime = facilities[key] with
             {
                 LastActualWorkPerSecond = 0, LastLimits = [], LastPowerDemand = 0, LastActualSupply = 0, LastAllocatedLabor = 0
             };
             if (accepted.Contains(key))
             {
-                var process = ProductionQueries.Process(content, plan.Process)!;
-                runtime = runtime with { Batch = new(plan.Process, process.Revision,
-                    ProductionQueries.Outputs(process.Details).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray(),
+                runtime = runtime with { Batch = new(plan.Process, process!.Revision,
+                    ProductionQueries.Outputs(process.Details).OrderBy(g => g.Good, WorldReferences.GoodComparer).ToImmutableArray(),
                     process.WorkRequired, process.PowerPerWork, process.LaborPerWork, 0) };
             }
             else if (allocations.TryGetValue(key, out var allocation))
             {
                 var batch = runtime.Batch!;
                 var request = workRequests[key];
-                var capability = ProductionQueries.Capability(before, content, key);
                 var limits = allocation.Limits;
                 if (allocation.WorkPerSecond == capability) limits = limits.Insert(0, WorkLimit.Capability);
                 var progress = Math.Min(batch.FrozenWorkRequired,
@@ -107,9 +119,9 @@ internal static class ProductionOperations
         var goods = inventory.Goods.ToDictionary(g => g.Good, g => g.Quantity);
         var available = facilities.Values.Any(f => !f.OutputBuffer.IsEmpty)
             ? InventoryStorage.Settlement(world, content, settlement, checked(step + 1)).Uncommitted : 0;
-        foreach (var (plan, building) in plans)
+        foreach (var facility in prepared)
         {
-            var key = new FacilityKey(building!.Value, plan.Capability);
+            var key = facility.Key;
             var runtime = facilities[key];
             var remaining = ImmutableArray.CreateBuilder<GoodsQuantity>();
             foreach (var output in runtime.OutputBuffer)
@@ -130,7 +142,7 @@ internal static class ProductionOperations
             } : s).ToImmutableArray(),
             Inventories = world.Inventories.Select(i => i.Id == inventory.Id ? i with
             {
-                Goods = goods.OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                Goods = goods.OrderBy(g => g.Key, WorldReferences.GoodComparer)
                     .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray()
             } : i).ToImmutableArray()
         };

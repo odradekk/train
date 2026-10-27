@@ -1,0 +1,11 @@
+#!/bin/sh
+# Commit-msg hook: removes AI attribution lines from the commit message.
+# Installed by the setup-agent-workflow skill. On Windows, python3 may be a store
+# stub that fails, so try each name and use the first Python 3.10 or later.
+for python in python3 python; do
+  if "$python" -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; then
+    exec "$python" .agents/scripts/strip_attribution.py "$1"
+  fi
+done
+echo "commit-msg: the attribution check needs Python 3.10 or later on PATH" >&2
+exit 1

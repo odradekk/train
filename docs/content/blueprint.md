@@ -2,7 +2,7 @@
 
 一个蓝图描述一种复合体：车辆、建筑、大型设备、场景模型或生物。文件名是 `<local id>.blueprint.json`，放在 `resources/blueprints/`。Schema 见 [schemas/blueprint.schema.json](schemas/blueprint.schema.json)，示例见 [examples/](examples/)。
 
-规则的来由：实例与蓝图见 [ADR-0012](../adr/0012-give-each-composite-instance-its-own-design-and-keep-blueprints-as-templates.md)，嵌套和货物见 [ADR-0013](../adr/0013-nest-composites-by-copying-designs-and-treat-storable-composites-as-goods.md)，行为和功能复合体见 [ADR-0014](../adr/0014-use-code-provided-behavior-types-and-sealed-functional-composites.md)，合法性见设计文档 [03 的设计合法性](../design/03-vehicles-buildings-and-designs.md#设计合法性)。
+规则的来由：实例与蓝图见决策笔记 `2026-10-09-instance-designs-and-blueprint-templates`，嵌套和货物见决策笔记 `2026-10-09-nest-composites-by-copying-designs`，行为和功能复合体见决策笔记 `2026-10-09-code-behavior-types-and-sealed-composites`，合法性见设计文档 [03 的设计合法性](../design/03-vehicles-buildings-and-designs.md#设计合法性)。
 
 **蓝图 = `schema_version` + `id` + 一份设计对象。** 被嵌套的复合体存的是一份设计对象的副本，存档里内嵌的设计也用同一种写法。
 
@@ -53,7 +53,7 @@
 - **货物种类**有三种：体素定义标识、功能复合体标识、组装体的构成哈希。
 - **顺序和部件编号**：坐标按 x、y、z 依次比较，从小到大。部件编号覆盖所有体素，不论是不是部件：先排自己的体素，再按 `at` 排被嵌套的复合体，组装体内部递归同样排列，功能复合体整件占一个号。编号不看定义，内容缺失也不会移动。设计哈希、部件编号、改装前后的部件对应和存档里的部件记录，都用这同一个顺序。
 - **设计属性**（质量、能力、结构耐久上限、部件表、BOM、建造合法性、车辆长度等）由内容层计算，不写在文件里。
-- **生物例外**：生物个体不复制设计，只引用生物种类，读档和热重载时用当前定义（ADR-0012 的修订）。
+- **生物例外**：生物个体不复制设计，只引用生物种类，读档和热重载时用当前定义（决策笔记 `2026-10-09-instance-designs-and-blueprint-templates` 的修订）。
 - **没有图标字段**：蓝图库的缩略图和大型设备作为货物时的图标，由游戏按设计自动渲染，见[美术 07 的物品图标](../art/07-icons-and-ui.md#物品图标)。
 
 ## 坐标与朝向

@@ -8,6 +8,75 @@ namespace Train.Scenes.Tests;
 public sealed class NodePrebuildTests
 {
     [TestMethod]
+    public async Task A_pending_node_candidate_does_not_stop_the_active_railway_display_range()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var train = RailwayFixtures.Train(280);
+        var initial = RailwayFixtures.Snapshot(lengthMeters: 449, directMeters: 449, relief: 0,
+            content: content, trains: [train], instances: [RailwayFixtures.Instance()]);
+        var path = new RailwayPath(initial, RailwayFixtures.Edge, default);
+        var middle = (int)(280 * RailwayCoordinates.CellsPerMeter / RailwayCoordinates.SegmentLengthCells);
+        var radius = RailwayCoordinates.ViewRadiusSegments;
+        var cache = new RailwayCache();
+        cache.Publish(RailwayFixtures.Edge, cache.OpenSession(RailwayFixtures.Edge),
+            Enumerable.Range(middle - radius, 2 * radius + 1)
+                .Select(index => RailwayFixtures.EmptySegment(initial, path, index, default)));
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, cache, new(),
+            (current, node, previous, token) =>
+            {
+                entered.TrySetResult();
+                release.Task.Wait(token);
+                return RailwayFixtures.EmptyNode(current, node, previous, token);
+            });
+        try
+        {
+            session.RequestView(new WorldSceneTarget.Follow(train.Id, new(1)));
+            var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+            var displayed = await RailwayFixtures.Settled(session, request);
+            await entered.Task;
+            Assert.AreEqual(SceneReadiness.Ready, displayed.Readiness);
+            var building = session.PendingPrebuilds;
+            Assert.IsTrue(building.Any(work => !work.IsCompleted));
+
+            // The newly needed final metre lies beyond focal ±64 m while the node builder remains blocked.
+            var moved = train with { Position = ((TrainPosition.Edge)train.Position) with { DistanceMeters = 340 } };
+            session.Observe(RailwayFixtures.Snapshot(lengthMeters: 449, directMeters: 449, relief: 0, content: content, steps: 1,
+                trains: [moved], instances: [RailwayFixtures.Instance()]), []);
+            var active = await RailwayFixtures.Settled(session, request, displayed);
+            Assert.AreEqual(SceneReadiness.Ready, active.Readiness,
+                "The full railway display range must still receive build slots during candidate preparation.");
+            Assert.IsTrue(building.Any(work => !work.IsCompleted), "The test must not rely on the candidate completing.");
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [TestMethod]
+    public async Task A_known_front_node_starts_prebuilding_before_the_last_prefetch_range()
+    {
+        var train = RailwayFixtures.Train(400, direction: TravelDirection.Reverse, speed: 10);
+        var snapshot = RailwayFixtures.Snapshot(content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()),
+            trains: [train], instances: [RailwayFixtures.Instance()]);
+        var oldThresholdCells = RailwayScene.PrefetchSegments(train.SpeedMetersPerSecond, 1) * RailwayCoordinates.SegmentLengthCells;
+        Assert.IsTrue(((TrainPosition.Edge)train.Position).DistanceMeters * RailwayCoordinates.CellsPerMeter > oldThresholdCells,
+            "The train must remain outside the former final-prefetch trigger range.");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new(),
+            (current, node, previous, token) =>
+            {
+                entered.TrySetResult();
+                return RailwayFixtures.EmptyNode(current, node, previous, token);
+            });
+        session.RequestView(new WorldSceneTarget.Follow(train.Id, new(1)));
+        var frame = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.AreNotEqual(SceneReadiness.Loading, frame.Readiness);
+        Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation,
+            "Once the active display is prepared, its known front node must start without reaching the old trigger range.");
+        await entered.Task;
+    }
+
+    [TestMethod]
     public async Task A_vehicle_that_leaves_the_scene_without_a_ready_body_does_not_block_follow_prebuilding()
     {
         using var content = new SceneFixtures.BlockedAppearanceView(RailwayFixtures.Content(
