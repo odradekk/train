@@ -15,7 +15,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 pwsh -NoProfile -File scripts/test.ps1 -All -Layer fast,integration
 # 全部正确性检查，含引擎、不含导出
 pwsh -NoProfile -File scripts/test.ps1 -All -Layer all
-# 阶段检查（始终执行，Windows 另含导出、截图与吞吐阈值）
+# 阶段检查（始终执行，Windows 另含导出与截图）
 pwsh -NoProfile -File scripts/test.ps1 -Layer stage
 # 只比较当前工作区改动
 pwsh -NoProfile -File scripts/test.ps1 -BaseRef HEAD
@@ -29,7 +29,7 @@ pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 
 `-Layer` 接受 `fast`、`integration`、`engine`、`stage` 的一个或多个值；`all` 仍等于 fast、integration、engine，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，含所请求的引擎层，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`scenes`、`godot`、`contract-support`、`contract-checks`、`cli` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构与公开面、隔离、内容 Schema、引擎和阶段检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用，并强制运行引擎层及导出冒烟。单独 `-Layer engine` 仍按改动选择。
 
-`-Project cli -Layer fast,integration` 验证命令行工具：快速层检查 PNG 结构、GLB 实际顶点与层级变换、表面及不支持特性的事实；集成层启动真实 CLI 进程，加载已提交的 `builtin/core`，比较重复运行及保存退出后恢复的检查点，并严格重放本次录制中的接受／拒绝命令。经济短配方覆盖租赁、装卸、自动买入及具体命令回执，核对恢复后的查询样本与连续运行后缀；有限现车短配方核对报价扣款、待售减少及推进后不补车。委托分支配方让真实起始车队按起步贸易的货物和地点满载采购后，连续提交两次空来源货车委托，验证首次受理扣款与工钱、再次 `insufficient_goods` 回执的完整缺货身份，以及同一步拒绝前后的钱包、库存、任务和工钱查询不变，并验证本次录制的严格重放。基础贯通、容量紧张、委托分支、撤退和受损现车交易的已提交示例检查，以及临时副本篡改用例以 `OSCondition` 限定 Windows；配方计数期望用临时配方副本验证达成时制作成功、达不到时 `make` 失败且不写存档、未知计数键在读取时拒绝；同机跨进程检查在所有平台运行。比较前只显式核对 `CoreInputId`，不同报需要重新制作；种子、生成器版本、生成内容修订和配置交给检查点比较报告字段。示例测试比较检查点摘要并确认提交文件未变，不要求重制存档字节一致。四游戏小时起步贸易与一天租约到期的长配方不进入日常测试层，交付前以 Release 分别执行 replay、save／resume／compare、make／check；同一存档用同种构建配置制作和检查。标准世界 6 游戏小时长测用长示例脚本的 `standard-world-long`，三组和测量见[示例手册](../examples/README.md#标准世界长测)。这些检查不重跑内容制备脚本，也不提供 Godot、Scenes 或四模块阶段验收证据。工具、输出和并行长验证用法见[示例存档与配方](../examples/README.md)。
+`-Project cli -Layer fast,integration` 验证命令行工具：快速层检查 PNG 结构、GLB 实际顶点与层级变换、表面及不支持特性的事实；集成层启动真实 CLI 进程，加载已提交的 `builtin/core`，比较重复运行及保存退出后恢复的检查点，并严格重放本次录制中的接受／拒绝命令。经济短配方覆盖租赁、装卸、自动买入及具体命令回执，核对恢复后的查询样本与连续运行后缀；有限现车短配方核对报价扣款、待售减少及推进后不补车。委托分支配方让真实起始车队按起步贸易的货物和地点满载采购后，连续提交两次空来源货车委托，验证首次受理扣款与工钱、再次 `insufficient_goods` 回执的完整缺货身份，以及同一步拒绝前后的钱包、库存、任务和工钱查询不变，并验证本次录制的严格重放。基础贯通、容量紧张、委托分支、撤退和受损现车交易的已提交示例检查，以及临时副本篡改用例以 `OSCondition` 限定 Windows；配方计数期望用临时配方副本验证达成时制作成功、达不到时 `make` 失败且不写存档、未知计数键在读取时拒绝；同机跨进程检查在所有平台运行。比较前只显式核对 `CoreInputId`，不同报需要重新制作；种子、生成器版本、生成内容修订和配置交给检查点比较报告字段。示例测试比较检查点摘要并确认提交文件未变，不要求重制存档字节一致。四游戏小时起步贸易与一天租约到期的长配方不进入日常测试层，交付前以 Release 分别执行 replay、save／resume／compare、make／check；同一存档用同种构建配置制作和检查。标准世界 6 游戏小时配方 `standard-world-long` 直接用 CLI `run` 诊断，用法见[示例手册](../examples/README.md#标准世界长测)。这些检查不重跑内容制备脚本，也不提供 Godot、Scenes 或四模块阶段验收证据。工具、输出和并行长验证用法见[示例存档与配方](../examples/README.md)。
 
 无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`，引擎层使用其中的 `godot` 行；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
 
@@ -293,17 +293,17 @@ foreach ($group in 'load', 'evaluate', 'history', 'capture', 'restore') {
 
 ## 阶段检查与候选基准
 
-`stage` 在所有平台始终运行 structure、verify、Core/Content/Scenes/Godot 隔离重建、两项生产 Core 确定性用例和独立 Release Benchmark。确定性用例通过生产命令日志与回放接口，在新进程逐检查点比较回放，以及每步写盘、读盘、恢复后与连续运行比较。它们属于阶段层，快速层和集成层不包含这些用例。
+`stage` 在所有平台始终运行 structure、verify、Core/Content/Scenes/Godot 隔离重建、两项生产 Core 确定性用例。确定性用例通过生产命令日志与回放接口，在新进程逐检查点比较回放，以及每步写盘、读盘、恢复后与连续运行比较。它们属于阶段层，快速层和集成层不包含这些用例。
 
-Windows 阶段层还执行 Windows 导出、空用户目录与有效 Mod 的导出后运行、资产导出探针、有窗口的主菜单 GPU 截图比较，以及吞吐阈值判定。非 Windows 仍运行 Benchmark 并保存结果；导出、导出后运行、资产探针、截图和阈值判定在摘要中记为未执行，不记为通过。当前 Linux 检查不需要渲染上下文，不使用 xvfb；无界面 Godot 使用 Dummy 音频。
+Windows 阶段层还执行 Windows 导出、空用户目录与有效 Mod 的导出后运行、资产导出探针、有窗口的主菜单 GPU 截图比较。非 Windows 的导出、导出后运行、资产探针和截图在摘要中记为未执行，不记为通过。当前 Linux 检查不需要渲染上下文，不使用 xvfb；无界面 Godot 使用 Dummy 音频。
 
 发布导出冒烟保留生产内容、PNG 和有效 Mod 检查，同时从 PCK 的 `res://examples/basic-through/save.json` 经过正常恢复流程打开示例，不执行配方。它检查原身份与新身份均为有效且不同的 UUID、位置 200:0、暂停、未保存，以及玩家菜单隐藏示例入口；不保存副本或读回。副本保存到新 UUID 目录且原件不变由宿主测试在临时目录使用真实文件 I/O 验证。开发编辑器的可见入口由引擎测试覆盖；调试导出另做人工验证，命令、日志和截图记录在 Issue 交付评论，不加入 `test.ps1`。这些检查不替代 #298 四模块联调验收。
 
 截图复用引擎测试程序集、Bootstrap 和 JUnit，仅在 Windows 有窗口运行中执行。`stage-screenshot` 设置 `TRAIN_ENGINE_SCREENSHOT=1`，一起执行 `ScreenshotTests` 和 `SceneMaterialPixelTests`，最低 7 例：主菜单截图、5 个材质像素用例和模型实例绘制调用测量。后者分别采样 1 与 64 实例的 5 个已完成帧，要求调用数稳定、非零且相等，原始数值输出到 Godot 日志。普通 headless engine 在执行前排除这两个窗口套件，不把它们计为通过或跳过。输入为 [windows-main-menu.png](../Tests/Engine/Baselines/windows-main-menu.png) 与 [windows-main-menu.json](../Tests/Engine/Baselines/windows-main-menu.json)，通过物理路径读取；`Tests/.gdignore` 阻止编辑器为测试 PNG 生成导入文件。比较先转为 RGBA8。候选值为 `MaxChannelDelta=32`、`MaxDifferentPixelFraction=0.00002`：任一通道差大于 32 的像素计为明显差异，明显差异像素数除以总像素数大于 0.00002 才失败。`comparison.json` 每次记录任意差异像素数、明显差异像素数及比例、最大通道差；`difference.png` 用红色区分明显差异、黄色区分轻微差异，通过时也保留。尺寸不一致、缺少基准或容差均失败。
 
-吞吐输入为 [windows-core-train-loop.json](../Tests/Benchmarks/Baselines/windows-core-train-loop.json)。BenchmarkDotNet 以独立 Release 构建测量 `core-train-loop-v2`：复用 Core 世界夹具并显式固定种子 42、生成器 `stage1-world-v1`、40×20 米世界、80 米进站段、96 米站台段、80 米出站段、15 米/秒节点限速和 0.7 米/秒²制动减速度，通过真实 `CoreFactory` 创建 `ICoreSession`，一辆牵引力 100 kN、最高速度 30 米/秒的列车持续循环经过三个车站，依次停留 4／3／2 步，每批 65,536 个完整模拟步。每次迭代在计时外重建会话并设置循环计划，计时仅覆盖 `ICoreSession.Advance`；结束时在计时外核对实际完成步数、无故障、循环计划仍活动，以及每个计划车站至少两次真实到达，并释放会话。`throughput.json` 保存负载身份、种子、生成器、世界尺寸、节点三段长度、节点限速、制动减速度、列车数、批次步数、每步耗时及标准差、样本数和步/秒，BDN 日志和报告保留原始测量。它只测量该固定列车运行负载的核心吞吐，不提供帧耗时或完整游戏 8× 运行证据。v2 的 Windows 候选规则为 `baselineStepsPerSecond=130000`、`maximumSlowdown=3`；基线取三次独立完整测量中的最低吞吐，向下取整至每秒一万步，仍等待用户确认，仅当实测步/秒乘以 3 小于候选基线时失败；摘要记录实测值、基线和实测除以基线的比值。缺少基准、负载身份不符或无效数字仍失败。Linux 只记录结果，不应用 Windows 阈值。
+Benchmark 仅供手动诊断，不属于阶段检查，不设阶段吞吐阈值。`core-train-loop-v2` 测量固定列车循环运行负载下的 Core 吞吐，结果写入 `throughput.json`，BDN 日志和报告保存原始测量；这些结果不提供帧耗时或完整游戏 8× 运行证据。
 
-需要单独重新采集吞吐时，显式构建不在 `Train.sln` 中的 Benchmark 项目，再从项目目录启动。基准的构建工具链直接指定本次编译源码所在的 `Train.Benchmarks.csproj`，并在日志中写出路径，避免 BenchmarkDotNet 默认从解决方案根目录递归搜索时扫到 `TestResults` 中保留的旧隔离副本，无需删除证据：
+手动采集吞吐时，显式构建不在 `Train.sln` 中的 Benchmark 项目，再从项目目录启动。基准的构建工具链直接指定本次编译源码所在的 `Train.Benchmarks.csproj`，并在日志中写出路径，避免 BenchmarkDotNet 默认从解决方案根目录递归搜索时扫到 `TestResults` 中保留的旧隔离副本，无需删除证据：
 
 ```powershell
 dotnet build Tests/Benchmarks/Train.Benchmarks.csproj -c Release
@@ -315,9 +315,9 @@ try {
 }
 ```
 
-首次确认启动方式时，在上述运行命令末尾添加 `--job Dry`，只做一次最短作业，验证构建、执行和 `throughput.json` 写出。结果的 `dryRun` 为 `true`、`sampleCount` 为 1；这只证明运行链路可用，不能作为吞吐或候选基线依据。正式测量使用完全相同的启动命令，仅去掉 `--job Dry`，并为每次运行指定独立目录。
+首次确认启动方式时，在上述运行命令末尾添加 `--job Dry`，只做一次最短作业，验证构建、执行和 `throughput.json` 写出。结果的 `dryRun` 为 `true`、`sampleCount` 为 1；这只证明运行链路可用，不能作为吞吐依据。正式测量使用完全相同的启动命令，仅去掉 `--job Dry`，并为每次运行指定独立目录。
 
-提交的 PNG、容差和吞吐基线均为**等待用户阶段验收确认的候选基准**，只能用于检查机制，不能据此宣布阶段或产品性能验收通过。更新截图时，在目标 Windows 图形配置下至少用三个独立 Godot 进程和独立用户目录采集，核对菜单内容并比较各图的通道差和明显差异像素比例，再替换 PNG 与容差 JSON。更换 GPU、驱动或 Godot 版本后重新核对。需要重新采集吞吐时，使用上面的 BenchmarkDotNet 命令做多次独立完整测量，记录外部负载和波动，以实测结果提出基线；不要用单次较快结果掩盖波动。候选值及其替换需用户阶段验收确认，替换后重跑完整阶段检查。原始截图、差异、设备信息和测量结果只保留在忽略的运行目录，长期证据引用写入 Issue 评论，不提交运行报告。
+提交的 PNG 和容差为**等待用户阶段验收确认的候选基准**，只能用于检查机制，不能据此宣布阶段或产品性能验收通过。更新截图时，在目标 Windows 图形配置下至少用三个独立 Godot 进程和独立用户目录采集，核对菜单内容并比较各图的通道差和明显差异像素比例，再替换 PNG 与容差 JSON。更换 GPU、驱动或 Godot 版本后重新核对。候选值及其替换需用户阶段验收确认，替换后重跑完整阶段检查。原始截图、差异、设备信息和测量结果只保留在忽略的运行目录，长期证据引用写入 Issue 评论，不提交运行报告。
 
 `core-train-loop-v2` 复用的铁路恢复夹具采用 120／720 步的人口消费／统计间隔，与内置规则一致；共享基础夹具仍用 1／10 步缩短人口行为用例。基准在计时外创建会话，不移除人口执行。比较其他提交时，两边应使用同一份基准和世界／铁路夹具源码，使列车、地图、内容及人口间隔一致。
 
@@ -339,11 +339,11 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 
 ## 执行与边界
 
-选中 MSTest 项目、契约或隔离检查、引擎层或阶段层时，入口构建一次 `Train.sln`，MSTest 使用 SDK 的 `dotnet test --test-modules <相对 DLL 路径> --root-directory <根目录>` 运行已构建程序集，不重复构建。单独的 Schema 任务只调用 Python，不构建；正式经济检查也可独立运行 `python scripts/content/check_economy.py [content-root]`，默认读取 `builtin/core`，标准输出为 JSON 报告。C# 工具随解决方案构建；structure 通过工具生成的遍历项目，在一个 MSBuild 进程内采集全部登记项目的引用、编译项、友元和输出路径。四组调用样例在该进程内恢复、重新求值并构建，使用 `BuildProjectReferences=false` 和 `RestoreRecursive=false` 避免重复构建共享契约；样例仍不加入解决方案。引用采集、样例构建、隔离构建与工具自测的夹具构建均使用 `-maxCpuCount:1` 和 `UseSharedCompilation=false`，限制并发任务内的 MSBuild 节点数并禁用共享编译服务器。verify 检查公开面和类型归属，isolate 按[矩阵选择规则](contracts/testing.md#实际隔离与结构检查)选择模块，串行复制独立输入、冷构建、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；已构建的隔离测试 DLL 同样由 SDK 的 `dotnet test --test-modules` 运行，引用判定与 structure 共用。隔离重建排除 `stage` 类别，由阶段入口单独运行这些用例。阶段层始终依次执行这三个命令，再执行确定性用例和 Benchmark；混选集成层和阶段层时，各自执行所需检查。
+选中 MSTest 项目、契约或隔离检查、引擎层或阶段层时，入口构建一次 `Train.sln`，MSTest 使用 SDK 的 `dotnet test --test-modules <相对 DLL 路径> --root-directory <根目录>` 运行已构建程序集，不重复构建。单独的 Schema 任务只调用 Python，不构建；正式经济检查也可独立运行 `python scripts/content/check_economy.py [content-root]`，默认读取 `builtin/core`，标准输出为 JSON 报告。C# 工具随解决方案构建；structure 通过工具生成的遍历项目，在一个 MSBuild 进程内采集全部登记项目的引用、编译项、友元和输出路径。四组调用样例在该进程内恢复、重新求值并构建，使用 `BuildProjectReferences=false` 和 `RestoreRecursive=false` 避免重复构建共享契约；样例仍不加入解决方案。引用采集、样例构建、隔离构建与工具自测的夹具构建均使用 `-maxCpuCount:1` 和 `UseSharedCompilation=false`，限制并发任务内的 MSBuild 节点数并禁用共享编译服务器。verify 检查公开面和类型归属，isolate 按[矩阵选择规则](contracts/testing.md#实际隔离与结构检查)选择模块，串行复制独立输入、冷构建、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；已构建的隔离测试 DLL 同样由 SDK 的 `dotnet test --test-modules` 运行，引用判定与 structure 共用。隔离重建排除 `stage` 类别，由阶段入口单独运行这些用例。阶段层始终依次执行这三个命令，再执行确定性用例；混选集成层和阶段层时，各自执行所需检查。
 
 各隔离测试会话的进程上限 N 为 660 秒，由 `Isolation.SessionTimeoutSeconds` 定义；挂起转储在 N−10 秒触发，MTP 在 N−5 秒中止会话，外层 ToolProcess 在 N 秒终止进程。三者任一结束会话时，隔离失败信息均标明超时、模块、实际耗时、上限 N 和日志路径。
 
-各层测试执行预算为快速 450 秒、集成 2070 秒、引擎 1710 秒。集成层选中的 MSTest 项目和 structure、verify、Schema 共用一个任务队列与 2070 秒截止时间，通过已有的 `ForEach-Object -Parallel` 执行，最多 4 个任务并发，较重任务排在前面；汇总与清理仍由父流程完成。队列正常结束或检查失败后，先停止集成层计时并保存用例计数，再独立运行选中的 isolate，使用 1290 秒上限，不占用队列或集成层预算。收到停止请求时，不再启动尚未开始的独立隔离检查。快速层保持原有 MSTest 并行执行方式，每个项目保留各自的最低用例数、TRX、超时和挂起转储。阶段层不设总预算，串行执行 structure、verify、isolate，子进程上限分别为 300、120、1290 秒；确定性阶段用例上限为 180 秒，Benchmark 为 600 秒，窗口截图为 120 秒，导出冒烟的两次运行共用 180 秒（外层检查上限 185 秒）；引擎检查仍串行执行。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。诊断区分已启动后超时（`TimedOut`）与截止时尚未启动（`NotStarted`），点名对应检查并记录逐项秒数；缺少 TRX 不覆盖超时诊断。超时用于发现挂起的任务，导致失败并保留可用转储；正常执行耗时增长时，按[预算调整原则](contracts/testing.md#预算调整原则)增加预算，不以延长预算掩盖挂起。必要的 Godot 导入只做一次；导出冒烟的两次运行共享一次 Windows 发布导出。同一工作树不允许并发运行入口。
+各层测试执行预算为快速 450 秒、集成 2070 秒、引擎 1710 秒。集成层选中的 MSTest 项目和 structure、verify、Schema 共用一个任务队列与 2070 秒截止时间，通过已有的 `ForEach-Object -Parallel` 执行，最多 4 个任务并发，较重任务排在前面；汇总与清理仍由父流程完成。队列正常结束或检查失败后，先停止集成层计时并保存用例计数，再独立运行选中的 isolate，使用 1290 秒上限，不占用队列或集成层预算。收到停止请求时，不再启动尚未开始的独立隔离检查。快速层保持原有 MSTest 并行执行方式，每个项目保留各自的最低用例数、TRX、超时和挂起转储。阶段层不设总预算，串行执行 structure、verify、isolate，子进程上限分别为 300、120、1290 秒；确定性阶段用例上限为 180 秒，窗口截图为 120 秒，导出冒烟的两次运行共用 180 秒（外层检查上限 185 秒）；引擎检查仍串行执行。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。诊断区分已启动后超时（`TimedOut`）与截止时尚未启动（`NotStarted`），点名对应检查并记录逐项秒数；缺少 TRX 不覆盖超时诊断。超时用于发现挂起的任务，导致失败并保留可用转储；正常执行耗时增长时，按[预算调整原则](contracts/testing.md#预算调整原则)增加预算，不以延长预算掩盖挂起。必要的 Godot 导入只做一次；导出冒烟的两次运行共享一次 Windows 发布导出。同一工作树不允许并发运行入口。
 
 预算合并依据：[#589](https://github.com/odradekk/train/pull/589) 的本机多 pair engine 层为 471.5293269 秒、同 head Windows CI 为 378.3510036 秒，按较慢值乘 1.5 并向上取整到 30 秒得到 720 秒；[#387](https://github.com/odradekk/train/issues/387) 含导出冒烟和 PCK 探针的本机 engine 层为 510.6451746 秒，同法得到 780 秒。当时两边取较大值，engine 使用 780 秒。继续合并 #390 后，协调者提前释放测量窗口、恢复本机常态工作后，完整 184 项 engine 层实测 539.3363178 秒，同法得到 810 秒，因此最终 engine 使用 810 秒。合并 #640 后，本机多 pair 常态负载下完整 247 项 engine 层实测 897.1310593 秒（`engine-20261019T074034914-bd2caa5`），同法得到 1350 秒；并入 70c82916 后同一负载下实测 972.795 秒（`engine-20261019T084230810-4fd010b`），同法得到 1470 秒，当时 engine 使用 1470 秒。#360 合并 #661 后，本机多 pair 常态负载下含导出冒烟和 PCK 探针的完整 engine 层实测 985.574866 秒（268 项真实 Godot 用例、导出冒烟和资源探针全部通过），同法得到 1500 秒，因此 engine 最终使用 1500 秒。#360 之后本机多 pair 常态负载下完整 269 项 engine 层实测 1124.5181922 秒（`engine-20261020T145552361-3d6dee5`，269/269 通过），乘 1.5 得 1686.7772883，向上取整到 30 秒得到 1710 秒，因此 engine 使用 1710 秒。
 
@@ -366,11 +366,11 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 | Windows routine：`-Layer fast,integration` | `改动分析 120 + 构建 300 + 快速 450 + 集成 2070 + 独立隔离 1290` | 4230（70.5 分钟） |
 | Windows routine：`-Layer engine` | `改动分析 120 + 构建 300 + Godot 导入 120 + 引擎用例 1710` | 2250（37.5 分钟） |
 | Windows correctness：`-All -Layer all` | `构建 300 + 快速 450 + 集成 2070 + 独立隔离 1290 + Godot 导入 120 + 引擎用例 1710` | 5940（99 分钟） |
-| Linux 全量：`-All -Layer all,stage` | `构建 300 + 快速 450 + 集成 2070 + 独立隔离 1290 + Godot 导入 120 + 引擎用例 1710 + benchmark 构建 300 + structure 300 + verify 120 + 阶段隔离 1290 + 阶段 Core 用例 180 + Benchmark 600` | 8730（145.5 分钟） |
+| Linux 全量：`-All -Layer all,stage` | `构建 300 + 快速 450 + 集成 2070 + 独立隔离 1290 + Godot 导入 120 + 引擎用例 1710 + structure 300 + verify 120 + 阶段隔离 1290 + 阶段 Core 用例 180` | 7830（130.5 分钟） |
 
 改动分析的 120 秒只出现在非 `-All` 入口。Godot 导入的 120 秒在引擎计时之外，不占用 1710 秒引擎预算。routine 的第一个入口失败后仍会执行 engine 入口，因此两个入口相加，最坏 6480 秒（108 分钟）。
 
-准备与收尾（检出、还原、工具准备、下载和上传）实测约 1 分钟；`Invoke-HiddenProcess` 超时后最多再等 5 秒清理进程。因此 Windows job 上限设为 115 分钟，Linux 全量 job 上限设为 153 分钟。以后调整任何入口上限时，按表中算式重算合计，再为准备收尾和超时后的进程清理留出约 7 分钟。
+准备与收尾（检出、还原、工具准备、下载和上传）实测约 1 分钟；`Invoke-HiddenProcess` 超时后最多再等 5 秒清理进程。因此 Windows job 上限设为 115 分钟，Linux 全量 job 上限设为 138 分钟。以后调整任何入口上限时，按表中算式重算合计，再为准备收尾和超时后的进程清理留出约 7 分钟。
 
 `AppTests` 和 `ContentTests` 使用生产默认装配，验证内置内容就绪、新局、真实保存后读档、控制台与输入重载，覆盖业务更新、纯表现／无变化及失败保留核心与内容配对；日志用例观测 Godot 输出、控制台缓冲、后台队列、JSONL 和退出释放。菜单用例验证退出请求。`HostSimulationTests` 通过注入宿主及真实帧验证控制台会话控制、步进、检查点、重绑定、故障冻结和诊断。引擎结果要求退出码、JUnit 结果及最低用例数均满足入口规则；实际执行、通过、失败和跳过数写入摘要，不以帧数或超时退出证明通过。
 
@@ -390,7 +390,7 @@ Core 集成层的回放语料位于 `Tests/Core/Sessions/ReplayCorpus/`：这组
 
 每次运行目录为 `TestResults/<选择层>-<yyyyMMddTHHmmssfff>-<7位提交>/`，目录名中的时间为 UTC，只产生一份 `summary.json` 摘要。摘要记录提交、工作区状态、选择、构建、各项目与各层的执行／通过／失败／跳过数（引擎用例来自 JUnit）、用时和结论。独立隔离检查在 `summary.checks` 中以 `name=isolate`、`layer=isolation` 记录 `seconds`、`timedOut`、`notStarted` 和 `cleanupSucceeded`，其耗时不计入 `layers.integration`；不增加 `-Layer` 选项。跳过数记入摘要，整次运行仍可以通过，但跳过的用例不算已验证；脏工作区结果不能证明所记录的干净提交通过。
 
-隔离工具在所有结局下删除自己拥有的隔离树，删除失败判失败，保留清单和日志。普通运行通过后只保留摘要；阶段运行还保留 `benchmark/` 下的吞吐 JSON、BDN 日志和报告，Windows 另保留 `screenshot/` 下的实际 PNG、渲染身份和差异 JSON，以及 `stage-screenshot.junit.xml`。Windows 阶段或 `-ExportWindows` 另保留日志、`*.process.json`、探针耗时记录和 `asset-export/probe-data/`（含 `build-inputs/`），以及本次隔离的 `inputs.json`、`first-party-assemblies.json` 和 `isolation-summary.json`，供复核断言结果、输入清单、实际解析程序集和总耗时。导出二进制、`asset-export/staging/` 及隔离环境目录删除。失败保留 TRX、JUnit、日志、输入和转储等全部证据，其中引擎结果为 `engine-godot.junit.xml`，原生日志为 `engine-godot-native.log`。入口只保留最近 10 个符合命名规则的运行目录；入口持有该工作树的命名互斥锁时，没有 `summary.json` 的运行目录一律视为崩溃遗留并清理。未取得互斥锁则拒绝同工作树新运行。`TestResults/` 下其他目录不清理。结果只有通过或失败；必需检查失败、缺少环境或未完成时返回退出码 1；人工、目标硬件和尚未实现的验证另行报告。
+隔离工具在所有结局下删除自己拥有的隔离树，删除失败判失败，保留清单和日志。普通运行通过后只保留摘要；Windows 阶段运行另保留 `screenshot/` 下的实际 PNG、渲染身份和差异 JSON，以及 `stage-screenshot.junit.xml`。Windows 阶段或 `-ExportWindows` 另保留日志、`*.process.json`、探针耗时记录和 `asset-export/probe-data/`（含 `build-inputs/`），以及本次隔离的 `inputs.json`、`first-party-assemblies.json` 和 `isolation-summary.json`，供复核断言结果、输入清单、实际解析程序集和总耗时。导出二进制、`asset-export/staging/` 及隔离环境目录删除。失败保留 TRX、JUnit、日志、输入和转储等全部证据，其中引擎结果为 `engine-godot.junit.xml`，原生日志为 `engine-godot-native.log`。入口只保留最近 10 个符合命名规则的运行目录；入口持有该工作树的命名互斥锁时，没有 `summary.json` 的运行目录一律视为崩溃遗留并清理。未取得互斥锁则拒绝同工作树新运行。`TestResults/` 下其他目录不清理。结果只有通过或失败；必需检查失败、缺少环境或未完成时返回退出码 1；人工、目标硬件和尚未实现的验证另行报告。
 
 定位单个引擎用例时，先构建 `dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug` 并按[隔离子进程片段](local-environment.md#agent-手动启动-godot)完成资源导入。在运行用例的隔离子进程内设置 `TRAIN_ENGINE_TEST_ASSEMBLY` 为 `.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll` 的绝对路径，`TRAIN_ENGINE_REPORT` 为本次目录内 JUnit 文件的绝对路径，并设置 `TRAIN_ENGINE_SCREENSHOT=0`。Godot 参数使用 `--headless --path . --scene res://Tests/Engine/Bootstrap/Runner.tscn --log-file <本次原生日志> -- --run-tests=<类>[.<方法>] --quit-on-finish`，将选择表达式替换为类名或类名加方法名；此手动运行有用户目录隔离，但不执行统一入口的最低用例数与快照检查。
 
