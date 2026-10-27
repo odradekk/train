@@ -68,6 +68,16 @@ Read-ExecutionState
 释放后：0x00000001
 ```
 
+## 逐项性能判定
+
+每份 `report.json` 的 `assessment` 按[设计 00「本阶段性能目标」](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 保持“待验收”，`reason` 说明尚缺目标配置实机与完整覆盖，`source` 指向设计目标。各项 `items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，需要时附 `observed_seconds`。阈值数值由报告代码单处维护。
+
+`status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺少成对基线或观察截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 继续表示运行是否完成，原有 `timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
+
+打开耗时按操作类别分别统计，p95 至少需要 30 次有效打开；最大值和补齐等待使用有效打开。补齐从首个可操作帧起，检查 5 秒内的 64 m 范围。`scene-memory` 将节点稳态与同进程初始地图保持末 1 秒的中位数配对；存活堆使用返回地图后强制 GC 的读数减 `cycle 0` 初始地图强制 GC 的读数。`scene-node`／`scene-node-first` 缺进入前基线时，增量为 `unknown`；整个游戏的稳态绝对值仍可判定。
+
+`scene-soak` 只判定报告已有的内嵌数据，缺项为 `unknown`；峰值增量不能代替节点稳态差。“两小时不得持续增长”尚未定义判定规则，即使斜率和时长齐全也为 `unknown`；报告保留已有斜率和实际时长，不把短测斜率外推成完整长测结论。
+
 ## 离线汇总
 
 ```powershell
@@ -79,7 +89,7 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 
 脚本通过每个目录的 `summary.json.runs` 定位报告；`report` 必须是相对该目录的路径。绝对路径和解析后指向目录外的路径均为未知，原因分别为 `report_absolute_path` 和 `report_outside_directory`，不会读取这些文件。脚本不改原始 `report.json`、`process.json` 或 `summary.json`；汇总输出须为新文件。
 
-只按场景分组。调用者负责保证输入、构建设置和测量参数可比，不能把不同存档或不同时长的轮次混在同一个场景里作比较。每个指标报告 `valid_runs`、`unknown_runs`、`median`、`min`、`max` 和未知原因；两侧差值是 B 中位数减 A 中位数，百分比是差值除以 A 中位数再乘 100。A 为零时百分比未知。脚本不判断是否达标，也不自动判断差值是否超过波动。
+只按场景分组。调用者负责保证输入、构建设置和测量参数可比，不能把不同存档或不同时长的轮次混在同一个场景里作比较。每个指标报告 `valid_runs`、`unknown_runs`、`median`、`min`、`max` 和未知原因；两侧差值是 B 中位数减 A 中位数，百分比是差值除以 A 中位数再乘 100。A 为零时百分比未知。脚本只汇总下表的 `timing` 数值，不汇总 `assessment`，也不自动判断差值是否超过波动。
 
 | 指标 | 每轮取值 | 单位 |
 | --- | --- | --- |

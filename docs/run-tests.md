@@ -127,7 +127,9 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 报告的 `identity.game_build` 和 `identity.build_commit` 来自实际加载程序集的 `AssemblyInformationalVersion`。脚本从该构建提交计算 `git rev-parse <commit>:docs/contracts/public-api.txt`，记录为 `identity.public_api_git_blob`；提交须存在于本地仓库。脚本同时记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以当前工作树 HEAD 代替二进制来源。
 
-输入存档不变。每个场景通过生产 `--measure=<场景>` 入口运行，不使用测试 Bootstrap。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间，不丢弃卡顿帧。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。
+各场景通过生产 `--measure=<场景>` 运行，输入存档不变。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间，不丢弃卡顿帧。单位为秒和字节；分位数为 nearest-rank，不插值，实际倍速为完成步数除以 60 和采样秒数。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数不作失败阈值。
+
+`assessment.items` 列阈值、实测值和判定；整体待验收，`scope.final_performance=false`。`outcome` 表示运行完成状态，详见[逐项性能判定](../scripts/measure/README.md#逐项性能判定)。
 
 使用 1920×1080 真实窗口。外部每秒记录总 CPU 占用及 Godot／dotnet 进程。正式测量用 [Linux runner](ci.md#linux-夜间运行)；开发机在协调者安排的安静窗口串行交替对照，记录电源与外部负载。OS 文件缓存和 Windows 驱动着色器缓存不清空；Linux 每轮隔离 `XDG_CACHE_HOME`，Mesa 着色器缓存初始为空。截图另跑，回读与 PNG 编码不作性能证据。
 

@@ -12,7 +12,7 @@ internal static class MeasurementReport
 
     internal static string Serialize(string scenario, IReadOnlyDictionary<string, object?> identity,
         MeasurementTiming? timing,
-        string? failure = null)
+        string? failure = null, MeasurementEvidence? evidence = null)
     {
         if (timing is null && failure is null) throw new InvalidOperationException("成功报告必须包含真实绘制帧。");
         // 测量入口写入的身份标明是否在用户指定的测试机器上运行；缺省按开发机处理。
@@ -29,12 +29,19 @@ internal static class MeasurementReport
                 machine = testMachine ? "test" : "development",
                 content = "formal-assets-at-tested-commit",
                 art_review = "美术 Issue #358–#363、#393–#396 的 PR 已合并，正式外观仍待用户目视确认",
-                thresholds = "帧耗时尾部、加载等待等阈值待用户确认，本报告不判定通过",
+                thresholds = MeasurementAssessment.Source,
                 composition = nested ? "游戏在 gamescope 嵌套合成器中以 1920×1080 输出运行，画面先经 gamescope 合成再交给主机合成器；参数见 identity.system.display_wrapper" : null,
                 final_performance = false,
                 unmeasured = Unmeasured(scenario, testMachine) },
             identity,
-            timing
+            timing,
+            assessment = new
+            {
+                conclusion = "待验收",
+                reason = "尚未提供目标配置实机的完整性能验收证据；逐项结果只说明本次窗口。",
+                source = MeasurementAssessment.Source,
+                items = MeasurementAssessment.Evaluate(scenario, JsonSerializer.SerializeToElement(identity, Json), timing, failure, evidence)
+            }
         }, Json);
     }
 

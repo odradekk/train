@@ -17,7 +17,7 @@ description: Measure and optimize train against its guarded scenarios for scene 
 | 完整游戏的帧耗时和实际倍速 | `scene-route-1x`、`scene-route-8x`（以及 2x、4x）、`scene-follow-8x`；聚居地和战斗用重负载存档 | `Core/`、`Scenes/`、`Rendering/`、`Ui/`、`App/` | 同上，`-Scenario scene-route-1x,scene-route-8x,scene-follow-8x` | 帧耗时 p50、p95、p99、最大；实际倍速 | #824 | Linux runner，只报告 |
 | 内存 | `scene-memory`、`scene-soak` | `Scenes/`、`Rendering/`、`Content/`、`Core/` 的存档和状态 | 同上，`-Scenario scene-memory`；两小时长测用 workflow 的 `window-soak` 选项 | 节点稳态私有字节增量、缓冲区加纹理增量、整个游戏稳态私有字节和工作集、离开节点后强制 GC 的存活堆、每小时增长 | #824 | Linux runner，只报告 |
 
-报告按设计 00 阈值判定由 #822 完成。
+先读每份报告的 `assessment.items`：报告按设计 00 的阈值逐项给出 `passed`、`failed` 或 `unknown`，缺数据和截断观察不得当作通过。`assessment.conclusion` 保持“待验收”，还需要目标配置实机与完整覆盖；`outcome=completed` 只表示运行完成。字段、适用窗口和未知规则见[逐项性能判定](../../../scripts/measure/README.md#逐项性能判定)，阈值数值由报告代码单处维护。
 
 ## 找出限制因素
 
