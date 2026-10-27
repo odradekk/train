@@ -301,9 +301,9 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
             using var process = Process.GetCurrentProcess();
             progressWriter.WriteLine(JsonSerializer.Serialize(new RunMeasurement(read.Position, seconds,
                 (read.Position.CompletedSteps - measured.Steps) / (seconds - measured.Seconds),
-                GC.GetTotalMemory(forceFullCollection: true), process.PrivateMemorySize64, process.WorkingSet64,
+                GC.GetTotalMemory(forceFullCollection: true), ProcessMemory.Read(process, 0).Private, process.WorkingSet64,
                 retainedBytes, counts.ToImmutable(), misses), ProgressJson));
-            // 强制回收和写进度的时间不算进下一段的模拟速度。
+            // 强制回收和写进度不计入下一段模拟速度。
             measured = (read.Position.CompletedSteps, clock.Elapsed.TotalSeconds, transfers.Count, completions.Count,
                 new Dictionary<JobId, double>(jobProgress));
         }

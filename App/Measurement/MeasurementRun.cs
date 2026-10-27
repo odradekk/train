@@ -20,16 +20,6 @@ internal sealed partial class MeasurementRun : IDisposable
     private readonly string _output;
     private readonly Dictionary<string, object?> _identity;
     private readonly Process _process = Process.GetCurrentProcess();
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessMemoryCounters
-    {
-        internal uint Size, PageFaultCount;
-        internal nuint PeakWorkingSet, WorkingSet, QuotaPeakPagedPool, QuotaPagedPool,
-            QuotaPeakNonPagedPool, QuotaNonPagedPool, PagefileUsage, PeakPagefileUsage, PrivateUsage;
-    }
-    [DllImport("kernel32.dll", EntryPoint = "K32GetProcessMemoryInfo", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetProcessMemoryInfo(IntPtr process, out ProcessMemoryCounters counters, uint size);
     private MeasurementTiming? _timing;
     private double _simulationWork;
     private WorldObjectId? _subject;
