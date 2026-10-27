@@ -74,6 +74,10 @@ Read-ExecutionState
 
 `status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺少成对基线或观察截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 继续表示运行是否完成，原有 `timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
 
+路线场景的帧耗时 p95、p99、最大值只统计初始空间首个可操作时刻之后的帧。起点取 `identity.scene_budget.route.startup.first_operable_at`，与 `timing.frames[].elapsed_seconds` 共用起点；排除结束时刻小于或等于该时刻的帧，首个可操作帧本身的间隔仍属于打开过程。三项判定的 `window` 说明范围，`window_start_seconds` 记录相对 timing 起点的秒数，`excluded_frames` 记录排除的原始帧数。缺少可操作时刻或排除后没有帧时判为 `unknown`；缺少时刻时这两个字段为 null。
+
+只排除初始点击到可操作的打开段；可操作后的远处补齐和路线途中空间切换的帧照常计入。实际倍速仍用完整路线窗口。非路线场景沿用现有采样窗口，新字段为 null；其他判定项的新字段也为 null。`timing` 的逐帧数据、全窗分布和旁车记录保持完整，只有三项帧耗时判定使用筛选后的窗口。
+
 打开耗时按操作类别分别统计，p95 至少需要 30 次有效打开；最大值和补齐等待使用有效打开。补齐从首个可操作帧起，检查 5 秒内的 64 m 范围。`scene-memory` 的打开时延不作正式证据，不出这三项判定；打开记录仍提供节点稳态读数。每次节点打开按 `click` 配对同进程最近一次地图稳态：首次使用初始地图保持末 1 秒中位数，之后使用点击前最近的 `natural-map.memory`。存活堆使用返回地图后强制 GC 的读数减 `cycle 0` 初始读数。`scene-node`／`scene-node-first` 缺进入前基线时，增量为 `unknown`；整个游戏的稳态绝对值仍可判定。
 
 `scene-soak` 的打开判定和整个游戏稳态绝对值读取 `scene-operations.jsonl`，复用有效打开分组和稳态读数；帧耗时、8× 倍速和增长使用内嵌汇总。节点稳态增量和退出存活堆保持 `unknown`，不读帧和 GC 旁车，也不用峰值或重置堆替代。“两小时不得持续增长”尚未定义判定规则，即使斜率和时长齐全也为 `unknown`；报告保留已有斜率和实际时长，不把短测斜率外推成完整长测结论。
