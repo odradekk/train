@@ -76,12 +76,9 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
     Write-Host $result.Output
     $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; notStarted = [bool] $result.NotStarted; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
     Write-Host "CHECK=$Name seconds=$($check.seconds) timeout=$($check.timedOut) notStarted=$($check.notStarted)"
-    $trx = Join-Path $run "$Name.trx"
-    if (Test-Path $trx) {
-        [xml] $report = Get-Content $trx -Raw
-        $counts = $report.TestRun.ResultSummary.Counters
-        foreach ($count in @('total', 'executed', 'passed', 'failed')) { $check[$count] = [int] $counts.$count }
-        $check.skipped = [int] $counts.notExecuted + [int] $counts.inconclusive
+    $counts = & (Join-Path $PSScriptRoot 'checks/Prepare-TestReports.ps1') $run $Name
+    if ($counts) {
+        foreach ($count in $counts.Keys) { $check[$count] = $counts[$count] }
     } elseif ($Name -in @('engine-godot', 'stage-screenshot')) {
         $junit = Join-Path $run "$Name.junit.xml"
         if (Test-Path $junit) {
