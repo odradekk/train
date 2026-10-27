@@ -482,9 +482,7 @@ internal sealed partial class MeasurementRun
                 _sceneLastProcessRead = now;
             }
             var view = _app.WorldScenes.View;
-            var blocking = SceneBlockingControls();
-            var modal = SceneUiDescendants(_app).OfType<Window>()
-                .Any(window => window != _app.GetWindow() && window.Visible && window.Exclusive);
+            var (blocking, modal) = ReadSceneUi(_app);
             var bufferBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.BufferMemUsed);
             var textureBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TextureMemUsed);
             var videoBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed);
@@ -662,14 +660,6 @@ internal sealed partial class MeasurementRun
             previously_opened_targets = _sceneOpenedTargets.ToArray(),
             displayed = frame?.Update.Frame.ToString(), readiness = frame?.Readiness.ToString(),
             diagnostics = frame?.Diagnostics.Select(item => item.Code).ToArray() };
-    }
-
-    private string[] SceneBlockingControls()
-    {
-        var size = _app.GetViewport().GetVisibleRect().Size;
-        return SceneUiDescendants(_app).OfType<Control>().Where(control => control.IsVisibleInTree() &&
-            control.MouseFilter != Control.MouseFilterEnum.Ignore && control.GetGlobalRect().Size.X >= size.X &&
-            control.GetGlobalRect().Size.Y >= size.Y && control is not MacroMap).Select(control => control.GetPath().ToString()).ToArray();
     }
 
     private async Task CaptureSceneImage(string name)
