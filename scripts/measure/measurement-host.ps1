@@ -3,6 +3,62 @@
 
 $MeasurementCpuWindowSeconds = 30
 
+function Assert-MeasurementRunOutcome($Result, [string] $RunDirectory, [switch] $Gamescope) {
+    $godotLog = Join-Path $RunDirectory 'godot.log'
+    $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
+        Get-Content -LiteralPath $godotLog | Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' }
+    })
+    $processLines = @($Result.Output -split '\r?\n' |
+        Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' })
+    $process = @{
+        exit_code = $Result.ExitCode; timed_out = $Result.TimedOut
+        cleanup_succeeded = $Result.CleanupSucceeded; duration_ms = $Result.DurationMs
+        process_diagnostics = @{ 'godot.log' = $godotLines; 'process.log' = $processLines }
+    }
+    $problems = [System.Collections.Generic.List[string]]::new()
+    if ($Result.ExitCode -ne 0) { $problems.Add("启动进程退出码为 $($Result.ExitCode)。") }
+    if ($Result.TimedOut) { $problems.Add('进程超时。') }
+    if (-not $Result.CleanupSucceeded) { $problems.Add('进程清理未确认成功。') }
+    if ($Gamescope) {
+        $process.launcher_exit_code = $Result.ExitCode
+        $process.exit_code = $null
+        $process.signal = $null
+        try {
+            $game = Get-Content -LiteralPath (Join-Path $RunDirectory 'game-process.json') -Raw -ErrorAction Stop |
+                ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            if ($game -isnot [System.Collections.IDictionary] -or
+                ($game['exit_code'] -isnot [long] -and $game['exit_code'] -isnot [int]) -or
+                -not $game.Contains('signal')) { throw '无效的游戏退出状态。' }
+            if ($game.exit_code -lt 0) {
+                if ($game.signal['number'] -ne -$game.exit_code -or
+                    $game.signal['name'] -isnot [string] -or -not $game.signal.name) { throw '无效的退出信号。' }
+            } elseif ($null -ne $game.signal) { throw '正常退出不能带信号。' }
+            $process.exit_code = $game.exit_code
+            $process.signal = $game.signal
+            if ($game.exit_code -lt 0) { $problems.Add("游戏被信号 $($game.signal.name)($($game.signal.number)) 终止。") }
+            elseif ($game.exit_code -ne 0) { $problems.Add("游戏退出码为 $($game.exit_code)。") }
+        } catch { $problems.Add('游戏退出状态缺失或无法读取。') }
+    }
+    $process | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $RunDirectory 'process.json') -Encoding utf8
+    $reportPath = Join-Path $RunDirectory 'report.json'
+    if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { $problems.Add('未生成报告，缺少结束标记。') }
+    else {
+        try {
+            $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -AsHashtable
+            if ($report -isnot [System.Collections.IDictionary]) { throw '无效的报告。' }
+        } catch { $problems.Add('报告无法解析，缺少结束标记。'); $report = $null }
+        if ($null -ne $report) {
+            if ($report['outcome'] -ne 'completed') { $problems.Add('报告未完成，缺少 completed 结束标记。') }
+            try {
+                if ($report.identity.build_configuration -ne 'ExportRelease' -or
+                    @($report.timing.frames).Count -eq 0 -or $null -eq $report.timing.frames -or
+                    $report.scope.final_performance -ne $false) { throw '无效的报告内容。' }
+            } catch { $problems.Add('报告不是 Release、缺少真实绘制帧或 scope 无效。') }
+        }
+    }
+    if ($problems.Count -gt 0) { throw ($problems -join '；') }
+}
+
 function New-MeasurementLoadState {
     $state = @{ previous_cpu = $null; counters = @{} }
     if ($IsWindows) {

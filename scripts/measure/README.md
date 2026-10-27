@@ -99,10 +99,15 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 
 ```powershell
 pwsh -NoProfile -File scripts/measure/tests/test-precheck.ps1
+pwsh -NoProfile -File scripts/measure/tests/test-run-outcome.ps1
 python -m unittest discover -s scripts/measure/tests -p "test_*.py" -v
 ```
 
-测试不接入 CI。预检使用固定时间序列验证 30 秒覆盖、门槛边界、连续超限和缺失样本；汇总测试使用临时目录里的真实 JSON 文件，验证统计和错误数据处理。编排通过真实入口验证，不使用假游戏替身。
+测试不接入 CI。预检使用固定时间序列验证 30 秒覆盖、门槛边界、连续超限和缺失样本；汇总和运行判定测试使用临时目录里的真实 JSON 文件。运行判定覆盖包装器返回 0 而游戏异常退出、已完成报告之后的异常退出、游戏状态缺失和报告结束标记缺失，以及 Windows 原有条件。`test_game_process.py` 用受控子进程检查退出记录器的零退出、非零退出及信号终止；信号用例在 Windows 上跳过，Linux 上运行。编排通过真实游戏入口验证，不使用假游戏替身；记录器的子进程测试不证明 gamescope 的行为。
+
+Linux 测量需要 `gamescope` 和 `python3`。gamescope 内的 `game-process.py` 直接等待游戏退出，写出每轮的 `game-process.json`；它不转发信号。`process.json.exit_code` 保存游戏原始返回值，负数 `-N` 表示信号 N，`signal` 保存信号名和编号，正常退出时为 `null`；`launcher_exit_code` 单独保存外层启动进程的退出码。退出状态缺失或无法读取时，`exit_code` 为 `null`，该轮失败。Windows 不使用记录器，`process.json` 字段不变。
+
+成功运行要求游戏和启动进程都退出 0、未超时且清理成功；报告须标明 `ExportRelease`、包含真实绘制帧，且 `scope.final_performance` 为 `false`。结束标记是有效 `report.json` 中的 `outcome: "completed"`；不解析控制台的 `MEASUREMENT_REPORT=` 行。游戏退出和报告的失败原因合并在一次错误中，写入 `summary.json.error` 并输出到调用日志；`process.log` 只保存子进程输出。即使报告已经完成，游戏随后异常退出仍判失败。
 
 不启动游戏的拒绝路径检查：沿用上面的单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。每次采样均有效且 CPU 均值大于零时，预期有 8 次预检（4 次主序列、4 次补跑）、全部 `measurement_started=false`，并返回 1。查看 `comparison.json` 确认每个计划项只有两次尝试。
 
