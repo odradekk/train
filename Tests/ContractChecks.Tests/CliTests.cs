@@ -143,6 +143,53 @@ public sealed class CliTests
     }
 
     [TestMethod]
+    public void Verify_reports_both_sides_of_a_factory_signature_change()
+    {
+        var factory = Path.Combine(root, "Core", "CoreFactory.cs");
+        var original = File.ReadAllText(factory);
+        try
+        {
+            RequireSuccess(Check("verify", "baseline.txt"));
+            File.WriteAllText(factory, original.Replace("Create()", "Create(int value)", StringComparison.Ordinal));
+            var result = Check("verify", "baseline.txt");
+            Assert.AreEqual(1, result.ExitCode, result.Output);
+            StringAssert.Contains(result.Output, "removed public API: Train.Core|member|Train.Core.CoreFactory|public static object Create()");
+            StringAssert.Contains(result.Output, "added public API: Train.Core|member|Train.Core.CoreFactory|public static object Create(int value)");
+        }
+        finally
+        {
+            File.WriteAllText(factory, original);
+        }
+    }
+
+    [TestMethod]
+    public void Verify_ignores_implementation_changes_outside_the_factory()
+    {
+        var factory = Path.Combine(root, "Core", "CoreFactory.cs");
+        var implementation = Path.Combine(root, "Core", "Fixture.cs");
+        var originalFactory = File.ReadAllText(factory);
+        var originalImplementation = File.ReadAllText(implementation);
+        try
+        {
+            RequireSuccess(Check("verify", "baseline.txt"));
+            File.WriteAllText(factory, "using System.Text;\n" + originalFactory +
+                "\npublic sealed class Implementation { public int Value => 1; }");
+            File.WriteAllText(implementation, originalImplementation.Replace("int Value", "long Replacement", StringComparison.Ordinal));
+            RequireSuccess(Check("verify", "baseline.txt"));
+            var constructingFactory = File.ReadAllText(factory).Replace("new object()", "new Implementation()", StringComparison.Ordinal);
+            File.WriteAllText(factory, constructingFactory);
+            RequireSuccess(Check("verify", "baseline.txt"));
+            File.WriteAllText(factory, constructingFactory.Replace("Implementation", "RenamedImplementation", StringComparison.Ordinal));
+            RequireSuccess(Check("verify", "baseline.txt"));
+        }
+        finally
+        {
+            File.WriteAllText(factory, originalFactory);
+            File.WriteAllText(implementation, originalImplementation);
+        }
+    }
+
+    [TestMethod]
     public void Isolation_cannot_use_a_prebuilt_dependency_outside_the_allowed_closure()
     {
         RequireSuccess(isolationBaseline);

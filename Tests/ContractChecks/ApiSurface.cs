@@ -19,9 +19,9 @@ internal static class ApiSurface
         }
 
         var platform = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
-        var implementations = contractProjects.Select(name => name[..^".Contracts".Length])
-            .Where(projects.ContainsKey).Select(name => AssemblyPath(name)).Where(File.Exists);
-        var references = platform.Concat(paths).Concat(implementations).Distinct()
+        var implementationProjects = contractProjects.Select(name => name[..^".Contracts".Length])
+            .Where(projects.ContainsKey).ToArray();
+        var references = platform.Concat(paths).Concat(implementationProjects.Select(AssemblyPath).Where(File.Exists)).Distinct()
             .Select(path => MetadataReference.CreateFromFile(path)).ToArray();
         var compilation = CSharpCompilation.Create("ContractSurface", references: references);
         var format = SymbolDisplayFormat.FullyQualifiedFormat
@@ -38,9 +38,14 @@ internal static class ApiSurface
         var lines = new SortedSet<string>(StringComparer.Ordinal);
         var failures = new List<string>();
 
-        foreach (var owner in contractProjects)
+        foreach (var owner in contractProjects.Concat(implementationProjects))
         {
-            var trees = Directory.GetFiles(Path.GetDirectoryName(Path.Combine(root, projects[owner].Path))!, "*.cs", SearchOption.AllDirectories)
+            var directory = Path.GetDirectoryName(Path.Combine(root, projects[owner].Path))!;
+            var factory = contractProjects.Contains(owner) ? null : owner.Split('.').Last() + "Factory";
+            var sources = factory is null
+                ? Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories)
+                : new[] { Path.Combine(directory, factory + ".cs") }.Where(File.Exists);
+            var trees = sources
                 .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
                                !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
                 .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path)).ToArray();
@@ -51,14 +56,19 @@ internal static class ApiSurface
             {
                 var syntax = tree.GetRoot();
                 var model = sourceCompilation.GetSemanticModel(tree);
-                foreach (var directive in syntax.DescendantNodes().OfType<UsingDirectiveSyntax>())
-                    lines.Add($"{owner}|using|{Normalize(directive.ToString())}");
-                foreach (var declaration in syntax.DescendantNodes().OfType<DelegateDeclarationSyntax>())
+                if (factory is null)
+                    foreach (var directive in syntax.DescendantNodes().OfType<UsingDirectiveSyntax>())
+                        lines.Add($"{owner}|using|{Normalize(directive.ToString())}");
+                var declarations = factory is null ? syntax.DescendantNodes()
+                    : syntax.DescendantNodes().OfType<BaseTypeDeclarationSyntax>()
+                        .Where(type => Scope(type) == owner + "." + factory)
+                        .SelectMany(type => type.DescendantNodesAndSelf());
+                foreach (var declaration in declarations.OfType<DelegateDeclarationSyntax>())
                 {
                     if (!VisibleSymbol(model.GetDeclaredSymbol(declaration))) continue;
                     lines.Add($"{owner}|delegate|{Scope(declaration)}|{Normalize(declaration.ToString())}");
                 }
-                foreach (var type in syntax.DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
+                foreach (var type in declarations.OfType<BaseTypeDeclarationSyntax>())
                 {
                     if (!VisibleSymbol(model.GetDeclaredSymbol(type))) continue;
                     var scope = Scope(type);
@@ -83,8 +93,10 @@ internal static class ApiSurface
                             _ => default
                         };
                         if (type is not InterfaceDeclarationSyntax && !Visible(modifiers)) continue;
-                        var text = member is BaseMethodDeclarationSyntax methodNode && methodNode.Body is not null
-                            ? member.ToString()[..(methodNode.Body.SpanStart - member.SpanStart)]
+                        var body = member is BaseMethodDeclarationSyntax methodNode
+                            ? (SyntaxNode?)methodNode.Body ?? methodNode.ExpressionBody : null;
+                        var text = body is not null
+                            ? member.ToString()[..(body.SpanStart - member.SpanStart)]
                             : member.ToString();
                         lines.Add($"{owner}|member|{scope}|{Normalize(text)}");
                     }
