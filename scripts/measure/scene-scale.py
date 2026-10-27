@@ -21,7 +21,7 @@ def validate_variant(baseline, stats, multiple):
         raise ValueError("near_business_missing")
 
 
-def validate_local(baseline, local, verify_stability):
+def validate_local(baseline, local):
     """逐相机比较圆内非轨道几何；跨界远处几何只记录，不参与跨档判定。"""
     if local.get("completed") is not True or local.get("bounded_stability") is not True:
         raise ValueError("local_observation_incomplete")
@@ -41,7 +41,7 @@ def validate_local(baseline, local, verify_stability):
         raise ValueError("near_railway_coverage_unproven")
     if local["railCenterline"]["sha256"] != baseline["railCenterline"]["sha256"]:
         raise ValueError("near_railway_layout_changed")
-    if verify_stability and local.get("stability_verified") is not True:
+    if local.get("stability_verified") is not True:
         raise ValueError("stability_check_not_verified")
     return {"equal": all(local[field] == baseline[field] for field in (
                 "triangleWorldCoordinatesMaterialSha256", "railSteelSha256")),
@@ -239,7 +239,7 @@ def verify(run, inputs):
         variant["local96"] = local
         run.save()
         baseline = baseline or local
-        variant["raw_mesh_comparison"] = validate_local(baseline, local, True)
+        variant["raw_mesh_comparison"] = validate_local(baseline, local)
         variant["local_content_match"] = True
         run.save()
         print(json.dumps({"multiple": multiple, "local_match": True}), flush=True)

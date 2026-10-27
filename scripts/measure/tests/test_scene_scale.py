@@ -143,7 +143,7 @@ class LocalValidationTests(unittest.TestCase):
         self.baseline = {"heightMissing": 0, "maximumRepeatedHeightDifference": 0,
                          "triangleWorldCoordinatesMaterialSha256": "geometry",
                          "terrainHeightSha256": "height", "railSteelSha256": "rail",
-                         "completed": True, "bounded_stability": True,
+                         "completed": True, "bounded_stability": True, "stability_verified": True,
                          "nonRailTriangleWorldCoordinatesMaterialSha256": "other",
                          "railCenterline": {"parkingOutside": True, "sha256": "centerline"},
                          "triangles": 100, "railSteelTriangles": 20,
@@ -156,14 +156,14 @@ class LocalValidationTests(unittest.TestCase):
 
     def test_stable_complete_near_scene_is_accepted(self):
         self.assertEqual({"equal": True, "triangle_delta": 0, "rail_steel_triangle_delta": 0},
-                         scene_scale.validate_local(self.baseline, {**self.baseline, "stability_verified": True}, True))
+                         scene_scale.validate_local(self.baseline, {**self.baseline, "stability_verified": True}))
 
     def test_empty_fully_inside_inventory_cannot_pass_on_matching_empty_hashes(self):
         empty = copy.deepcopy(self.baseline)
         for sample in empty["stability_samples"]:
             sample["firstGeometry"]["fully_inside"]["objects"] = 0
         with self.assertRaisesRegex(ValueError, "near_scene_objects_missing"):
-            scene_scale.validate_local(empty, empty, False)
+            scene_scale.validate_local(empty, empty)
 
     def test_additional_large_scale_slots_must_pass_the_near_exclusion(self):
         with self.assertRaisesRegex(ValueError, "additional_slots_unavailable"):
@@ -174,14 +174,14 @@ class LocalValidationTests(unittest.TestCase):
         for value in (None, False, 1, "true"):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ValueError, "stability_check_not_verified"):
-                    scene_scale.validate_local(self.baseline, {**self.baseline, "stability_verified": value}, True)
+                    scene_scale.validate_local(self.baseline, {**self.baseline, "stability_verified": value})
 
     def test_every_hash_and_full_height_coverage_are_required(self):
         for field, value in (("heightMissing", 1), ("maximumRepeatedHeightDifference", .001),
                              ("terrainHeightSha256", "different")):
             with self.subTest(field=field):
                 with self.assertRaisesRegex(ValueError, "near_scene_geometry_changed"):
-                    scene_scale.validate_local(self.baseline, {**self.baseline, field: value}, False)
+                    scene_scale.validate_local(self.baseline, {**self.baseline, field: value})
 
     def test_each_camera_keeps_identical_fully_inside_nonrail_geometry(self):
         for stage in range(5):
@@ -191,14 +191,14 @@ class LocalValidationTests(unittest.TestCase):
                     changed = copy.deepcopy(self.baseline)
                     changed["stability_samples"][stage]["firstGeometry"]["fully_inside"][field] = value
                     with self.assertRaisesRegex(ValueError, "near_scene_geometry_changed"):
-                        scene_scale.validate_local(self.baseline, changed, False)
+                        scene_scale.validate_local(self.baseline, changed)
 
     def test_crossing_far_geometry_can_differ_without_changing_near_acceptance(self):
         changed = copy.deepcopy(self.baseline)
         changed["nonRailTriangleWorldCoordinatesMaterialSha256"] = "far-not-published"
         changed["stability_samples"][4]["firstGeometry"]["crossing_boundary"] = {
             "nonRailTriangles": 0, "nonRailTriangleWorldCoordinatesMaterialSha256": "empty"}
-        scene_scale.validate_local(self.baseline, changed, False)
+        scene_scale.validate_local(self.baseline, changed)
 
     def test_missing_or_reordered_camera_samples_cannot_skip_near_checks(self):
         for stages in ((0, 1, 2, 3), (0, 1, 2, 3, 3), (0, 1, 3, 2, 4)):
@@ -206,38 +206,35 @@ class LocalValidationTests(unittest.TestCase):
                 changed = copy.deepcopy(self.baseline)
                 changed["stability_samples"] = [changed["stability_samples"][i] for i in stages]
                 with self.assertRaisesRegex(ValueError, "local_observation_incomplete"):
-                    scene_scale.validate_local(self.baseline, changed, False)
-
-    def test_other_scale_points_keep_complete_checks_without_requiring_the_delay(self):
-        scene_scale.validate_local(self.baseline, self.baseline, False)
+                    scene_scale.validate_local(self.baseline, changed)
 
     def test_unknown_or_unstable_local_observations_cannot_be_accepted_at_any_scale(self):
         for field in ("completed", "bounded_stability"):
             for value in (None, False, 1, "true"):
                 with self.subTest(field=field, value=value):
                     with self.assertRaisesRegex(ValueError, "local_observation_incomplete"):
-                        scene_scale.validate_local(self.baseline, {**self.baseline, field: value}, False)
+                        scene_scale.validate_local(self.baseline, {**self.baseline, field: value})
 
     def test_mesh_segmentation_drift_keeps_layout_validation_and_reports_raw_deltas(self):
         changed = {**self.baseline, "triangleWorldCoordinatesMaterialSha256": "different-geometry",
                    "railSteelSha256": "different-rail-mesh", "triangles": 90, "railSteelTriangles": 14}
-        result = scene_scale.validate_local(self.baseline, changed, False)
+        result = scene_scale.validate_local(self.baseline, changed)
         self.assertEqual({"equal": False, "triangle_delta": -10, "rail_steel_triangle_delta": -6}, result)
         sleepers = {**self.baseline, "triangleWorldCoordinatesMaterialSha256": "different-sleepers", "triangles": 98}
         self.assertEqual({"equal": False, "triangle_delta": -2, "rail_steel_triangle_delta": 0},
-                         scene_scale.validate_local(self.baseline, sleepers, False))
+                         scene_scale.validate_local(self.baseline, sleepers))
 
     def test_railway_layout_change_still_stops_the_scale_point(self):
         changed = {**self.baseline, "railCenterline": {"parkingOutside": True, "sha256": "changed"}}
         with self.assertRaisesRegex(ValueError, "near_railway_layout_changed"):
-            scene_scale.validate_local(self.baseline, changed, False)
+            scene_scale.validate_local(self.baseline, changed)
 
     def test_unobserved_parking_tracks_cannot_be_silently_accepted(self):
         for value in (None, False, 1, "true"):
             with self.subTest(value=value):
                 changed = {**self.baseline, "railCenterline": {"parkingOutside": value, "sha256": "centerline"}}
                 with self.assertRaisesRegex(ValueError, "near_railway_coverage_unproven"):
-                    scene_scale.validate_local(self.baseline, changed, False)
+                    scene_scale.validate_local(self.baseline, changed)
 
 
 if __name__ == "__main__":
