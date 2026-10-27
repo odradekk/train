@@ -114,7 +114,9 @@ internal sealed partial class MeasurementRun : IDisposable
         }
         try
         {
-            File.WriteAllText(_output, MeasurementReport.Serialize(_scenario, _identity, _timing, failure));
+            var evidence = failure is null && MeasurementEvidence.UsesSidecars(_scenario)
+                ? MeasurementEvidence.Read(_scenario, Path.GetDirectoryName(_output)!) : null;
+            File.WriteAllText(_output, MeasurementReport.Serialize(_scenario, _identity, _timing, failure, evidence));
             GD.Print($"MEASUREMENT_REPORT={_output} outcome={(failure is null ? "completed" : "failed")}");
         }
         catch (Exception error) { failure = error.ToString(); GD.PrintErr(failure); }
