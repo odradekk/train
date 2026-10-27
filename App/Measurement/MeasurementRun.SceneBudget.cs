@@ -25,16 +25,6 @@ internal sealed partial class MeasurementRun
     private ProbeState? _sceneLoggedProbeState;
     private readonly List<object> _sceneProbeEvents = [];
     private readonly List<SceneProbeCost> _sceneProbeCosts = [];
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessMemoryCounters
-    {
-        internal uint Size, PageFaultCount;
-        internal nuint PeakWorkingSet, WorkingSet, QuotaPeakPagedPool, QuotaPagedPool,
-            QuotaPeakNonPagedPool, QuotaNonPagedPool, PagefileUsage, PeakPagefileUsage, PrivateUsage;
-    }
-    [DllImport("kernel32.dll", EntryPoint = "K32GetProcessMemoryInfo", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetProcessMemoryInfo(IntPtr process, out ProcessMemoryCounters counters, uint size);
     private sealed record SceneProbeCost(string? Operation, long Draw, double Started, double Ended,
         double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds,
         int FogRegionCount);
@@ -549,6 +539,8 @@ internal sealed partial class MeasurementRun
 
     private void ReadSceneProcessMemory()
     {
+        // 设计 00「私有字节」的统一入口：Windows 为 PrivateUsage，Linux 为 RssAnon + VmSwap。
+        // Windows 私有峰值为 PeakPagefileUsage；Linux 私有峰值为 0.2 秒采样中的最大值。
         if (OperatingSystem.IsWindows())
         {
             if (!GetProcessMemoryInfo(_process.Handle, out var memory, (uint)Marshal.SizeOf<ProcessMemoryCounters>()))
@@ -557,9 +549,15 @@ internal sealed partial class MeasurementRun
             _scenePeakPrivate = (long)memory.PeakPagefileUsage; _scenePeakWorking = (long)memory.PeakWorkingSet;
             return;
         }
-        // Linux 没有私有字节计数：用常驻匿名页加交换页代替，峰值取 0.2 秒采样中的最大值而不是内核高水位。
+        (_scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking) =
+            ReadLinuxProcessMemory(File.ReadLines("/proc/self/status"), _scenePeakPrivate);
+    }
+
+    internal static (long Private, long Working, long PeakPrivate, long PeakWorking) ReadLinuxProcessMemory(
+        IEnumerable<string> lines, long previousPeakPrivate)
+    {
         long? working = null, peakWorking = null, anonymous = null, swapped = null;
-        foreach (var line in File.ReadLines("/proc/self/status"))
+        foreach (var line in lines)
         {
             // 字段名后是制表符和对齐空格，例如 "VmRSS:	  123456 kB"。
             var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -574,10 +572,8 @@ internal sealed partial class MeasurementRun
         }
         if (working is null || peakWorking is null || anonymous is null)
             throw new InvalidDataException("/proc/self/status 缺少 VmRSS、VmHWM 或 RssAnon。");
-        _sceneWorking = working.Value;
-        _scenePeakWorking = peakWorking.Value;
-        _scenePrivate = anonymous.Value + (swapped ?? 0);
-        _scenePeakPrivate = Math.Max(_scenePeakPrivate, _scenePrivate);
+        var privateBytes = anonymous.Value + (swapped ?? 0);
+        return (privateBytes, working.Value, Math.Max(previousPeakPrivate, privateBytes), peakWorking.Value);
     }
 
     private object SceneSteady()

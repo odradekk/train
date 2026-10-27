@@ -17,7 +17,7 @@ description: Measure and optimize train against its guarded scenarios for scene 
 | 完整游戏的帧耗时和实际倍速 | `scene-route-1x`、`scene-route-8x`（以及 2x、4x）、`scene-follow-8x`；聚居地和战斗用重负载存档 | `Core/`、`Scenes/`、`Rendering/`、`Ui/`、`App/` | 同上，`-Scenario scene-route-1x,scene-route-8x,scene-follow-8x` | 帧耗时 p50、p95、p99、最大；实际倍速 | #824 | Linux runner，只报告 |
 | 内存 | `scene-memory`、`scene-soak` | `Scenes/`、`Rendering/`、`Content/`、`Core/` 的存档和状态 | 同上，`-Scenario scene-memory`；两小时长测用 workflow 的 `window-soak` 选项 | 节点稳态私有字节增量、缓冲区加纹理增量、整个游戏稳态私有字节和工作集、离开节点后强制 GC 的存活堆、每小时增长 | #824 | Linux runner，只报告 |
 
-重复的旧场景（`map-*`、`follow-*`、`node-*`、`sdfgi-*`、`taa-*`）由 #821 删除，不再使用；报告按设计 00 阈值判定由 #822 完成。
+报告按设计 00 阈值判定由 #822 完成。
 
 ## 找出限制因素
 

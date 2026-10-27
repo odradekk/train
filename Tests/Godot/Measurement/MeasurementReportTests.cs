@@ -9,45 +9,72 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementReportTests
 {
     [TestMethod]
+    public void SceneReportOmitsRetiredScenarioMeasurements()
+    {
+        var measurements = new FrameMeasurements(0, 0);
+        measurements.AddFrame(0.1, 6, 0.001, SimulationSpeed.One, false);
+        using var document = JsonDocument.Parse(MeasurementReport.Serialize("scene-route-1x",
+            new Dictionary<string, object?>(), measurements.Summarize()));
+        var report = document.RootElement;
+        Assert.IsFalse(report.TryGetProperty("memory", out _));
+        Assert.IsFalse(report.TryGetProperty("operations", out _));
+        var timing = report.GetProperty("timing");
+        Assert.IsFalse(timing.TryGetProperty("speed_windows", out _));
+        Assert.IsFalse(timing.TryGetProperty("window_median_actual_speed", out _));
+        Assert.IsFalse(timing.TryGetProperty("window_minimum_actual_speed", out _));
+        Assert.IsFalse(timing.GetProperty("frames")[0].TryGetProperty("follow", out _));
+    }
+
+    [TestMethod]
+    public void LinuxPrivateBytesIncludeSwapAndKeepTheLargestSample()
+    {
+        string[] status = ["Name:\ttrain", "VmRSS:\t  100 kB", "VmHWM:   160 kB",
+            "RssAnon:\t40 kB", "VmSwap:  8 kB"];
+        var first = MeasurementRun.ReadLinuxProcessMemory(status, 0);
+        Assert.AreEqual((49152L, 102400L, 49152L, 163840L), first);
+        var later = MeasurementRun.ReadLinuxProcessMemory(["VmRSS: 90 kB", "VmHWM: 160 kB", "RssAnon: 30 kB"], first.PeakPrivate);
+        Assert.AreEqual((30720L, 92160L, 49152L, 163840L), later);
+    }
+
+    [TestMethod]
+    [DataRow("VmRSS:")]
+    [DataRow("VmHWM:")]
+    [DataRow("RssAnon:")]
+    public void LinuxMemoryCannotBeReportedWithoutRequiredCounters(string missing)
+    {
+        string[] status = ["VmRSS: 100 kB", "VmHWM: 160 kB", "RssAnon: 40 kB", "VmSwap: 8 kB"];
+        Assert.Throws<InvalidDataException>(() => MeasurementRun.ReadLinuxProcessMemory(
+            status.Where(line => !line.StartsWith(missing, StringComparison.Ordinal)), 0));
+    }
+
+    [TestMethod]
     public void MissingSamplesCanOnlyBeReportedAsFailure()
     {
-        Assert.Throws<InvalidOperationException>(() => MeasurementReport.Serialize("map-1x",
-            new Dictionary<string, object?>(), null, [], []));
-        using var report = JsonDocument.Parse(MeasurementReport.Serialize("map-1x",
-            new Dictionary<string, object?>(), null, [], [], "no rendered frames"));
+        Assert.Throws<InvalidOperationException>(() => MeasurementReport.Serialize("scene-map",
+            new Dictionary<string, object?>(), null));
+        using var report = JsonDocument.Parse(MeasurementReport.Serialize("scene-map",
+            new Dictionary<string, object?>(), null, "no rendered frames"));
         Assert.AreEqual("failed", report.RootElement.GetProperty("outcome").GetString());
         Assert.AreEqual(JsonValueKind.Null, report.RootElement.GetProperty("timing").ValueKind);
     }
 
     [TestMethod]
-    public void ReportKeepsRawEvidenceUnavailableMetricsAndFailedOperations()
+    public void ReportKeepsRawTimingAndIdentity()
     {
         var measurements = new FrameMeasurements(10, 20);
-        measurements.AddFrame(10.1, 26, 0.007, SimulationSpeed.Eight, false, new(1, "Edge", 16, 2));
-        var json = MeasurementReport.Serialize("follow-8x", new Dictionary<string, object?>
+        measurements.AddFrame(10.1, 26, 0.007, SimulationSpeed.Eight, false);
+        var json = MeasurementReport.Serialize("scene-route-8x", new Dictionary<string, object?>
         {
             ["commit"] = "tested-build", ["dirty"] = false, ["input_sha256"] = "input-identity"
-        }, measurements.Summarize(), [new(0.1, 1000, 2000, 1500, null, 3000)],
-            [new("first-load", 0, 0.2, true), new("save", 0.5, 0.1, false, "publication_failed")]);
+        }, measurements.Summarize());
         using var document = JsonDocument.Parse(json);
         var report = document.RootElement;
         Assert.AreEqual("input-identity", report.GetProperty("identity").GetProperty("input_sha256").GetString());
         Assert.IsFalse(report.GetProperty("scope").GetProperty("final_performance").GetBoolean());
-        var memory = report.GetProperty("memory")[0];
-        Assert.AreEqual("unavailable", memory.GetProperty("godot_static_bytes").GetString());
-        Assert.AreEqual(3000d, memory.GetProperty("video_memory_bytes").GetDouble());
-        Assert.AreEqual(1500L, memory.GetProperty("peak_working_set_bytes").GetInt64());
-        Assert.AreEqual(26ul, report.GetProperty("timing").GetProperty("frames")[0]
-            .GetProperty("completed_steps").GetUInt64());
-        var follow = report.GetProperty("timing").GetProperty("frames")[0].GetProperty("follow");
-        Assert.AreEqual(1ul, follow.GetProperty("train_id").GetUInt64());
-        Assert.AreEqual("Edge", follow.GetProperty("position_kind").GetString());
-        Assert.AreEqual(16ul, follow.GetProperty("position_id").GetUInt64());
-        Assert.AreEqual(2ul, follow.GetProperty("display_space").GetUInt64());
-        Assert.AreEqual(JsonValueKind.Null, report.GetProperty("timing").GetProperty("window_median_actual_speed").ValueKind);
-        var failedSave = report.GetProperty("operations")[1];
-        Assert.IsFalse(failedSave.GetProperty("succeeded").GetBoolean());
-        Assert.AreEqual("publication_failed", failedSave.GetProperty("problem").GetString());
-        Assert.AreEqual(0.1, failedSave.GetProperty("duration_seconds").GetDouble());
+        var timing = report.GetProperty("timing");
+        Assert.AreEqual(26ul, timing.GetProperty("frames")[0].GetProperty("completed_steps").GetUInt64());
+        Assert.AreEqual(0.007, timing.GetProperty("simulation_seconds").GetProperty("maximum").GetDouble());
+        Assert.AreEqual(0.1, timing.GetProperty("elapsed_seconds").GetDouble(), 1e-12);
+        Assert.AreEqual(1d, timing.GetProperty("actual_speed").GetDouble(), 1e-12);
     }
 }

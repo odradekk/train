@@ -11,6 +11,20 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class ViewCoverageTests
 {
     [TestMethod]
+    public void MissingObservationsHaveNoDurationPercentiles()
+    {
+        var analysis = ViewCoverage.Analyze([]);
+        foreach (var distribution in new[] { analysis.SampleIntervals, analysis.MissingTerrain.Durations, analysis.Neither.Durations })
+        {
+            Assert.AreEqual(0, distribution.Count);
+            Assert.AreEqual(0d, distribution.TotalSeconds);
+            Assert.IsNull(distribution.P50Seconds);
+            Assert.IsNull(distribution.P99Seconds);
+            Assert.IsNull(distribution.MaxSeconds);
+        }
+    }
+
+    [TestMethod]
     public void IntersectsStableZeroPlaneInDisplayedRootCoordinates()
     {
         var frame = Frame(new(100, 20, 300), fog: [new(new(2, -20, 4), new(2, -20, 4))]);

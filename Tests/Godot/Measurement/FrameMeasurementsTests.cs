@@ -8,49 +8,16 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class FrameMeasurementsTests
 {
     [TestMethod]
-    public void SpeedWindowsUseConsecutiveDrawBoundariesAndKeepWholeSampleTail()
+    [DataRow(new double[] { 3 }, 3d, 3d)]
+    [DataRow(new double[] { 3, 1 }, 1d, 3d)]
+    [DataRow(new double[] { 3, 1, 2 }, 2d, 3d)]
+    public void NearestRankKeepsSmallSamplesWithoutInterpolation(double[] samples, double p50, double tail)
     {
-        var measurements = new FrameMeasurements(10, 100);
-        measurements.AddFrame(10.5, 130, 0, SimulationSpeed.Eight, false);
-        measurements.AddFrame(11.25, 250, 0, SimulationSpeed.Eight, false);
-        measurements.AddFrame(11.75, 280, 0, SimulationSpeed.Eight, false);
-        measurements.AddFrame(12, 430, 0, SimulationSpeed.Eight, false);
-        measurements.AddFrame(12.5, 460, 0, SimulationSpeed.Eight, false);
-
-        var result = measurements.Summarize(includeSpeedWindows: true);
-        Assert.AreEqual(2, result.SpeedWindows.Length);
-        Assert.AreEqual(new SpeedWindow(1, 0, 1.25, 150, 2), result.SpeedWindows[0]);
-        Assert.AreEqual(new SpeedWindow(2, 1.25, 2, 180, 4), result.SpeedWindows[1]);
-        Assert.AreEqual(3d, result.WindowMedianActualSpeed);
-        Assert.AreEqual(2d, result.WindowMinimumActualSpeed);
-        Assert.AreEqual(360ul, result.CompletedSteps);
-        Assert.AreEqual(2.4d, result.ActualSpeed);
-        Assert.AreEqual(5, result.Frames.Length);
-    }
-
-    [TestMethod]
-    public void FullSampleKeepsAll120WindowsAndAveragesTheMiddlePair()
-    {
-        var measurements = new FrameMeasurements(0, 0);
-        var steps = 0ul;
-        for (var second = 1; second <= 120; second++)
-        {
-            steps += second <= 60 ? 60ul : 180ul;
-            measurements.AddFrame(second, steps, 0, SimulationSpeed.Eight, false);
-        }
-        var result = measurements.Summarize(includeSpeedWindows: true);
-        Assert.AreEqual(120, result.SpeedWindows.Length);
-        Assert.AreEqual(2d, result.WindowMedianActualSpeed);
-        Assert.AreEqual(1d, result.WindowMinimumActualSpeed);
-        Assert.AreEqual(120, result.SpeedWindows[^1].TargetSecond);
-
-        measurements.AddFrame(122.1, steps, 0, SimulationSpeed.Eight, false);
-        Assert.Throws<InvalidOperationException>(() => measurements.Summarize(includeSpeedWindows: true));
-        var legacy = measurements.Summarize();
-        Assert.AreEqual(121, legacy.Frames.Length);
-        Assert.AreEqual(0, legacy.SpeedWindows.Length);
-        Assert.IsNull(legacy.WindowMedianActualSpeed);
-        Assert.IsNull(legacy.WindowMinimumActualSpeed);
+        var distribution = FrameMeasurements.Distribution(samples);
+        Assert.AreEqual(p50, distribution.P50);
+        Assert.AreEqual(tail, distribution.P95);
+        Assert.AreEqual(tail, distribution.P99);
+        Assert.AreEqual(tail, distribution.Maximum);
     }
 
     [TestMethod]
