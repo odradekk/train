@@ -68,7 +68,7 @@ function Get-TestSelection {
     $selection.projects = @(if (@($selection.changes | Where-Object { $_.sharedRules.Count }).Count) {
         @($Projects.name)
     } else { @($Projects | Where-Object { $_.path -in $selection.affectedProjects -or
-            ($_.name -in @('cli', 'scene-scale') -and @($selection.changes | Where-Object { $_.cliRules.Count }).Count) } | ForEach-Object name) })
+            ($_.name -eq 'cli' -and @($selection.changes | Where-Object { $_.cliRules.Count }).Count) } | ForEach-Object name) })
 
     $projectPaths = @(git -c core.quotepath=false ls-files --cached --others --exclude-standard -- '*.csproj')
     if ($LASTEXITCODE) { throw 'Cannot list project files for selection explanations.' }

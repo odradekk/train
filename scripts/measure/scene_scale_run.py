@@ -76,10 +76,8 @@ class ScaleRun:
             raise RuntimeError(name + "_failed")
         return value if json_output else result.stdout
 
-    def observe(self, repository, mode, save, name, verify_stability=False):
+    def observe(self, repository, mode, save, name):
         arguments = ["dotnet", self.probe, repository, mode, save]
-        if verify_stability:
-            arguments.append("--verify-stable")
         # 五个位置各有 300 秒上限，额外时间留给加载和退出。
         return self.command(arguments, name, 1620 if mode == "local" else 360, json_output=True)
 
@@ -99,6 +97,7 @@ class ScaleRun:
             "builtin_identity": tree_identity(self.root / "builtin"),
             "assemblies_sha256": {path.name: sha(path) for path in sorted(self.probe.parent.glob("Train.*.dll"))},
             "identity_method": "File bytes SHA256; tree SHA256 of sorted UTF-8 path + NUL + lowercase file SHA256 + LF. "
+                "Source and assembly byte hashes are local provenance only, not cross-platform comparison keys. "
                 "Compare recipe and content tree across platforms; save bytes are recorded for local binding until cross-platform identity is confirmed."})
         self.manifest["sources_sha256"].update({path.relative_to(self.root).as_posix(): sha(path)
             for path in sorted([*self.root.glob("Tools/SceneScale/*.cs"),

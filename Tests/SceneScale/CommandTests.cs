@@ -8,7 +8,7 @@ public sealed class CommandTests
     [TestMethod]
     [DataRow("local", "", "FileNotFoundException")]
     [DataRow("stats", "", "FileNotFoundException")]
-    [DataRow("local", "--verify-stable", "FileNotFoundException")]
+    [DataRow("local", "--verify-stable", "ArgumentException")]
     [DataRow("ready", "--verify-stable", "ArgumentException")]
     [DataRow("stats", "--verify-stable", "ArgumentException")]
     [DataRow("bounds", "--verify-stable", "ArgumentException")]

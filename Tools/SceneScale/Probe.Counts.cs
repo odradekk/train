@@ -3,10 +3,7 @@ internal static partial class Probe
 {
     private static readonly (int X, int Y, int Z)[] FaceNeighbors = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
 
-    internal sealed record FarCounts(long N, int C, long F)
-    {
-        internal HashSet<(int, int, int)> Chunks { get; init; } = [];
-    }
+    internal sealed record FarCounts(long N, int C, long F);
     internal static FarCounts CountFar(IEnumerable<HashSet<(int X, int Y, int Z)>> buildings)
     {
         var chunks = new HashSet<(int, int, int)>();
@@ -20,6 +17,6 @@ internal static partial class Probe
             foreach (var (dx, dy, dz) in FaceNeighbors)
                 if (!cells.Contains((x + dx, y + dy, z + dz))) f++;
         }
-        return new(n, chunks.Count, f) { Chunks = chunks };
+        return new(n, chunks.Count, f);
     }
 }

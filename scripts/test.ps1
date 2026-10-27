@@ -92,7 +92,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
             throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut), executed=$($check.executed), minimum=$minimum, failed=$($check.failed)); evidence: $run"
         }
         return
-    } elseif ($Name -match '^(fast|integration|stage)-(core|content|scenes|godot|contract-support|contract-checks|cli)$') {
+    } elseif ($Name -match "^(fast|integration|stage)-($($projects.name -join '|'))$") {
         if (-not $check.timedOut -and -not $check.notStarted) {
             $summary.checks += [pscustomobject] $check
             throw "$Name did not produce its required TRX report."

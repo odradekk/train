@@ -27,11 +27,11 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 ```
 
-`-Layer` 接受 `fast`、`integration`、`engine`、`stage` 的一个或多个值；`all` 仍等于 fast、integration、engine，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，含所请求的引擎层，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`scenes`、`godot`、`contract-support`、`contract-checks`、`cli` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构与公开面、隔离、内容 Schema、引擎和阶段检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用，并强制运行引擎层及导出冒烟。单独 `-Layer engine` 仍按改动选择。
+`-Layer` 接受 `fast`、`integration`、`engine`、`stage` 的一个或多个值；`all` 仍等于 fast、integration、engine，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，含所请求的引擎层，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`scenes`、`godot`、`contract-support`、`contract-checks`、`cli`、`scene-scale` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构与公开面、隔离、内容 Schema、引擎和阶段检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用，并强制运行引擎层及导出冒烟。单独 `-Layer engine` 仍按改动选择。
 
 `-Project cli -Layer fast,integration` 验证命令行工具：快速层检查 PNG 结构、GLB 实际顶点与层级变换、表面及不支持特性的事实；集成层启动真实 CLI 进程，加载已提交的 `builtin/core`，比较重复运行及保存退出后恢复的检查点，并严格重放本次录制中的接受／拒绝命令。经济短配方覆盖租赁、装卸、自动买入及具体命令回执，核对恢复后的查询样本与连续运行后缀；有限现车短配方核对报价扣款、待售减少及推进后不补车。委托分支配方让真实起始车队按起步贸易的货物和地点满载采购后，连续提交两次空来源货车委托，验证首次受理扣款与工钱、再次 `insufficient_goods` 回执的完整缺货身份，以及同一步拒绝前后的钱包、库存、任务和工钱查询不变，并验证本次录制的严格重放。基础贯通、容量紧张、委托分支、撤退和受损现车交易的已提交示例检查，以及临时副本篡改用例以 `OSCondition` 限定 Windows；配方计数期望用临时配方副本验证达成时制作成功、达不到时 `make` 失败且不写存档、未知计数键在读取时拒绝；同机跨进程检查在所有平台运行。比较前只显式核对 `CoreInputId`，不同报需要重新制作；种子、生成器版本、生成内容修订和配置交给检查点比较报告字段。示例测试比较检查点摘要并确认提交文件未变，不要求重制存档字节一致。四游戏小时起步贸易与一天租约到期的长配方不进入日常测试层，交付前以 Release 分别执行 replay、save／resume／compare、make／check；同一存档用同种构建配置制作和检查。标准世界 6 游戏小时配方 `standard-world-long` 直接用 CLI `run` 诊断，用法见[示例手册](../examples/README.md#标准世界长测)。这些检查不重跑内容制备脚本，也不提供 Godot、Scenes 或四模块阶段验收证据。工具、输出和并行长验证用法见[示例存档与配方](../examples/README.md)。
 
-无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`，引擎层使用其中的 `godot` 行；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
+无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数见 `scripts/checks/Get-TestProjects.ps1`，引擎层使用其中的 `godot` 行；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
 
 Scenes 快速层验证会话生命周期、不可变帧、立方体网格及其贴图方向与跨格平铺、拾取、只读预览、线路与节点生成规则、列车摆放和线路—节点切换。#326 的模块用例覆盖模板原坐标与地块号联结、站点槽位及贯通线、核心站台号映射与数量不符诊断、建筑身份与未变网格复用及迟到结果拒收、两条停车线的排序和容量上限、资源数量变化与独立对象身份、缺失内容来源。Core／Content 使用固定读视图，几何使用生产构造和独立采样，会话时序使用受控后台门控；部分摆放夹具省略地形。资源对象网格复用或静态布局输入不变的断言本身不证明真实地形重建行为。生产线路 A → 空节点 → 线路 B 的跟随、停留与首帧坐标交接在进程内异步验证，并检查空节点没有站台或混凝土读取。快速层不提供大型真实样例的首建和重绑定成本、真实四模块联调或 Godot 纹理与画面证据；core-city 的完整内容和真实引擎表现、#299 阶段验收仍需后续验证。Scenes 已接入实际隔离入口，单次是否通过以运行日志与摘要为准；实现范围见[体素契约](contracts/scenes.md)。
 
@@ -318,7 +318,7 @@ try {
 
 ## 按改动选择
 
-默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从七个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。引擎层复用同一次改动分析：dotnet-affected 输出包含 `Tests/Engine/Train.Engine.Tests.csproj`，或改动命中下述引擎路径规则时选中；该项目引用根 `Train.csproj`，所以根项目及其依赖的影响沿同一张项目图传播。选中后执行当前全部引擎用例。`-All` 和 `-ExportWindows` 强制引擎，不依赖改动结果。单独选择 `stage` 时完全跳过改动分析，不要求基准引用存在，始终执行[阶段检查](#阶段检查与候选基准)；`-Layer stage,engine` 不强制引擎，阶段全量检查使用 `-All -Layer all,stage`。
+默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从八个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。引擎层复用同一次改动分析：dotnet-affected 输出包含 `Tests/Engine/Train.Engine.Tests.csproj`，或改动命中下述引擎路径规则时选中；该项目引用根 `Train.csproj`，所以根项目及其依赖的影响沿同一张项目图传播。选中后执行当前全部引擎用例。`-All` 和 `-ExportWindows` 强制引擎，不依赖改动结果。单独选择 `stage` 时完全跳过改动分析，不要求基准引用存在，始终执行[阶段检查](#阶段检查与候选基准)；`-Layer stage,engine` 不强制引擎，阶段全量检查使用 `-All -Layer all,stage`。
 
 以下共享文件改动选择全部 MSTest 项目：`Contracts/**`、任意层级的 `Directory.Build.*`、`global.json`、`docs/content/schemas/**`、`Tests/ContractSupport/**`、`Train.sln`、`.config/dotnet-tools.json`、`scripts/test.ps1`、`scripts/checks/**`。工作流 YAML 不在共享列表中。
 

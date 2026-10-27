@@ -20,8 +20,7 @@ internal static partial class Probe
         };
 
         var focus = Vector2.Zero;
-        var farChunks = new HashSet<(int, int, int)>();
-        long farN = 0, farF = 0;
+        var buildings = new List<HashSet<(int, int, int)>>();
         var near = new List<string>();
 
         var objects = new List<object>();
@@ -34,9 +33,7 @@ internal static partial class Probe
             var design = (DesignEvaluation.Complete)((ContentLookup<DesignEvaluation>.Found)content.FindDesign(instance.Design)).Value;
             var cells = design.Scene.Voxels.Select(v => (v.At.X + at.At.X, v.At.Y + at.At.Y, v.At.Z + at.At.Z)).ToHashSet();
             var counts = CountFar([cells]);
-            farChunks.UnionWith(counts.Chunks);
-            farN += counts.N;
-            farF += counts.F;
+            buildings.Add(cells);
             bool close32 = false;
             foreach (var v in design.Scene.Voxels)
             {
@@ -66,6 +63,7 @@ internal static partial class Probe
                 farF = counts.F
             });
         }
+        var far = CountFar(buildings);
         var ground = layout.SceneModel.Scene.Voxels.Select(v => (v.At.X, v.At.Y, v.At.Z)).ToHashSet();
         long groundF = 0;
         foreach (var (x, y, z) in ground) foreach (var (dx, dy, dz) in FaceNeighbors) if (!ground.Contains((x + dx, y + dy, z + dz))) groundF++;
@@ -91,7 +89,7 @@ internal static partial class Probe
             plots = layout.Plots.Length,
             publicLayoutSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(layout, json)))),
             buildingObjects = objects,
-            far = new { N = farN, C = farChunks.Count, F = farF },
+            far = new { far.N, far.C, far.F },
             ground = new
             {
                 N = ground.Count,

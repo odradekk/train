@@ -2,18 +2,15 @@ using Train.SceneScale;
 
 try
 {
-    var verifyStable = args.Length > 3 && args[^1] == "--verify-stable";
-    var argumentCount = args.Length - (verifyStable ? 1 : 0);
-    if (argumentCount != 3 || args[1] is not ("bounds" or "stats" or "ready" or "local") ||
-        verifyStable && args[1] != "local")
-        throw new ArgumentException("参数必须为 <repo> <bounds|stats|ready|local> <save|-> [--verify-stable]；自检仅用于 local。");
+    if (args.Length != 3 || args[1] is not ("bounds" or "stats" or "ready" or "local"))
+        throw new ArgumentException("参数必须为 <repo> <bounds|stats|ready|local> <save|->。");
     ProbeProgress.Mode = args[1];
     ProbeProgress.Input = args[2] == "-" ? "new" : "save";
     ProbeProgress.Write("prepare-start");
     var prepared = Composition.Prepare(Path.GetFullPath(args[0]), args[2] == "-" ? null : args[2]);
     ProbeProgress.Write("prepare-complete");
     using var core = prepared.Core;
-    return await Probe.Run(args[1], core.Read(), prepared.Content, prepared.Scenes, verifyStable) ? 0 : 1;
+    return await Probe.Run(args[1], core.Read(), prepared.Content, prepared.Scenes) ? 0 : 1;
 }
 catch (Exception error)
 {

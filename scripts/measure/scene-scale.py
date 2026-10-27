@@ -134,7 +134,7 @@ def chosen_slots(slots, multiple):
         raise ValueError("additional_slots_unavailable")
     chosen = [(i, j) for i in range(1, 10) for j in range(-3, 4) if (i, j) in available]
     chosen.sort(key=lambda item: (abs(item[0]), abs(item[1]), item))
-    # 焦点在原点时近景圆排除的位置变了；保留原 63 个位置，补足两个有效位置。
+    # 原点的 192 格近景圆排除中心地块；保留 63 个候选位置，另加两个圆外位置补足容量。
     return chosen + extra
 
 
@@ -181,7 +181,7 @@ def generate(run):
                     plot["id"] = len(variant_template["plots"]) + 1
                     variant_template["plots"].append(plot)
         if multiple != 1:
-            # 保持 flatten 方法；原点近景圆排除的位置变化后，需要扩边容纳远处地块。
+            # flatten 覆盖原点近景圆外的全部远处地块，边界留足放置空间。
             lower, upper = {10: ([-1312, -1216], [1983, 1599]),
                             30: ([-2208, -1856], [3327, 2623]),
                             100: ([-8480, -1728], [8703, 2111])}[multiple]
@@ -235,7 +235,7 @@ def verify(run, inputs):
         ready = run.observe(run.root, "ready", inputs / original["save"], f"{multiple}x-ready")
         if ready["businessSceneRootsWithin32m"] <= 0:
             raise ValueError("near_scene_business_missing")
-        local = run.observe(run.root, "local", inputs / original["save"], f"{multiple}x-local96", True)
+        local = run.observe(run.root, "local", inputs / original["save"], f"{multiple}x-local96")
         variant["local96"] = local
         run.save()
         baseline = baseline or local

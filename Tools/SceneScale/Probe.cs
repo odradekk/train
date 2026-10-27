@@ -9,7 +9,7 @@ namespace Train.SceneScale;
 internal static partial class Probe
 {
     internal static async Task<bool> Run(string mode, ICoreReadView view,
-        IContentView content, IScenesFactory scenes, bool verifyStable = false)
+        IContentView content, IScenesFactory scenes)
     {
         if (mode == "stats")
         {
@@ -81,8 +81,8 @@ internal static partial class Probe
                 maximumHeight = terrainSamples.Count == 0 ? (double?)null : terrainSamples.Values.Max(),
                 maximumRepeatedHeightDifference,
                 terrainHeightSha256 = Digest(terrainSamples.Select(p => $"{p.Key.X},{p.Key.Z},{Q(p.Value)}")),
-                stability_verified = verifyStable ? (bool?)(completed && samples.All(sample => sample.equal == true)) : null,
-                stability_wait_seconds = verifyStable ? (int?)10 : null,
+                stability_verified = completed && samples.All(sample => sample.equal == true),
+                stability_wait_seconds = 10,
                 bounded_stability = completed,
                 local_stability_seconds = 30,
                 position_timeout_seconds = 300,
@@ -172,7 +172,7 @@ internal static partial class Probe
                             }
                             samples.Add(new(stage, offsets[stage], captured.Observation, null, null, captured.Geometry,
                                 unchangedSinceSeconds: stableWindow.UnchangedSinceSeconds));
-                            if (verifyStable) first = captured.Observation;
+                            first = captured.Observation;
                         }
                         else
                         {
@@ -186,7 +186,7 @@ internal static partial class Probe
                             }
                             first = null;
                         }
-                        if (!verifyStable || first is null)
+                        if (first is null)
                         {
                             if (stage + 1 == offsets.Length)
                             {
