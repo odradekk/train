@@ -60,6 +60,7 @@
 | `Train.Scenes` | `Train.Scenes.Contracts`、`Train.Content.Contracts`、`Train.Core.Contracts` |
 | `Train` | 三个契约项目；真实实现项目只用于下述装配例外 |
 | `Train.Cli` | Core、Content 的契约与实现项目；真实工厂只在 `Tools/Cli/Composition.cs` 调用 |
+| `Train.SceneScale` | Core、Content、Scenes 的契约与实现项目；真实工厂只在 `Tools/SceneScale/Composition.cs` 调用 |
 
 核心在编译时看不到布局、体素朝向、表现资产和显示文本。内容按读取方提供投影；体素可以读取核心查询和内容契约，宏观地图及管理界面可以直接使用核心查询，不需要经过体素。
 
@@ -68,6 +69,8 @@
 Godot 只有 `App/Composition/` 可以调用真实创建工厂；其他宿主流程、渲染和界面接收装配好的契约接口。独立测试替换装配入口并注入替身，仍执行同一份 Godot 生产代码。暂不引入依赖注入容器、插件扫描或反射装配框架。
 
 `Tools/Cli/` 是纯 .NET 宿主工具，不是新的业务模块，不引用 Godot 或 Scenes。只有其 `Composition.cs` 调用真实 Core／Content 工厂，其余代码接收契约。工具链接 `App/Assets/DiskContentFiles.cs`、`App/Assets/GlbInput.cs`、`App/Saves/SaveContainer.cs`、`App/Saves/FileSaveStore.cs`、`App/RuntimeEnvironment.cs`、`App/Measurement/WorldCounts.cs`、`App/Measurement/ProcessMemory.cs` 同份纯 .NET 源码，使用宿主的 GLB 容器检查、格式 6 容器、文件发布流程、运行环境身份，以及与窗口长测共用的配方期望计数和私有内存读数；源码归属检查按这七个精确文件允许共享，不开放整个宿主目录。核心与内容载荷不透明传递，头部位置和包清单分别来自核心、内容捕获。
+
+`Tools/SceneScale/` 是纯 .NET 体素规模测量工具，通过三个模块的真实契约会话测量场景生成，不引用 Godot。只有其 `Composition.cs` 调用真实工厂。它链接 `Tools/Cli/CliContentFiles.cs`、`Tools/Cli/AssetInspector.cs`、`Tools/Cli/GlbAssetInspector.cs`，以及 `App/Assets/DiskContentFiles.cs`、`App/Assets/GlbInput.cs`、`App/Saves/SaveContainer.cs`、`App/Saves/FileSaveStore.cs`；源码归属检查只允许这七个共享文件。
 
 不为 Godot 对称地增设第四个契约程序集。下层需要的文件读取、PNG 解码、资源提交等宿主接口由需要它的模块定义，Godot 实现；下层不引用 Godot 类型。Godot 的接口文档仍须说明这些适配、装配、交互和资源责任。
 

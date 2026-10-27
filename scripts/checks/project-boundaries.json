@@ -6,6 +6,10 @@
     "Train.Godot.Tests"
   ],
   "projects": {
+    "Train.SceneScale": {
+      "path": "Tools/SceneScale/Train.SceneScale.csproj",
+      "references": ["Train.Core.Contracts", "Train.Content.Contracts", "Train.Scenes.Contracts", "Train.Core", "Train.Content", "Train.Scenes"]
+    },
     "Train.Cli": {
       "path": "Tools/Cli/Train.Cli.csproj",
       "references": ["Train.Core.Contracts", "Train.Content.Contracts", "Train.Core", "Train.Content"],

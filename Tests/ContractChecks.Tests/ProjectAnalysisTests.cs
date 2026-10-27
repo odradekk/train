@@ -7,6 +7,35 @@ namespace Train.ContractChecks.Tests;
 public sealed class ProjectAnalysisTests
 {
     [TestMethod]
+    [DataRow("Tools/Cli/CliContentFiles.cs", true)]
+    [DataRow("Tools/Cli/AssetInspector.cs", true)]
+    [DataRow("Tools/Cli/GlbAssetInspector.cs", true)]
+    [DataRow("App/Assets/DiskContentFiles.cs", true)]
+    [DataRow("App/Assets/GlbInput.cs", true)]
+    [DataRow("App/Saves/SaveContainer.cs", true)]
+    [DataRow("App/Saves/FileSaveStore.cs", true)]
+    [DataRow("Tools/Cli/Composition.cs", false)]
+    [DataRow("Tools/Cli/Nested/CliContentFiles.cs", false)]
+    [DataRow("Tools/Cli/../Foreign.cs", false)]
+    [DataRow("App/Assets/GodotAssetInspector.cs", false)]
+    [DataRow("App/Saves/SaveService.cs", false)]
+    [DataRow("App/Measurement/WorldCounts.cs", false)]
+    public void Scene_scale_links_only_its_registered_shared_source(string file, bool allowed)
+    {
+        var root = Path.GetFullPath("workspace");
+        var owner = Path.Combine(root, "Tools", "SceneScale");
+        Assert.AreEqual(allowed, ProjectAnalysis.OwnsCompileSource(root, "Train.SceneScale", owner, Path.Combine(root, file)));
+    }
+
+    [TestMethod]
+    public void Other_projects_cannot_link_scene_scale_shared_source()
+    {
+        var root = Path.GetFullPath("workspace");
+        Assert.IsFalse(ProjectAnalysis.OwnsCompileSource(root, "Train.Content", Path.Combine(root, "Content"),
+            Path.Combine(root, "Tools", "Cli", "CliContentFiles.cs")));
+    }
+
+    [TestMethod]
     public void Cli_links_only_its_registered_host_source()
     {
         var root = Path.GetFullPath("workspace");
