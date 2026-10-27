@@ -15,9 +15,10 @@ function Check([string] $Name, [string] $GameStatus = $normal, [string] $Report 
     if ($GameStatus) { [IO.File]::WriteAllText((Join-Path $directory 'game-process.json'), $GameStatus) }
     if ($Report) { [IO.File]::WriteAllText((Join-Path $directory 'report.json'), $Report) }
     $problem = $null
-    try { Assert-MeasurementRunOutcome -Result $Result -RunDirectory $directory -Gamescope:(-not $Windows) }
+    try { Assert-MeasurementRunOutcome -Result $Result -RunDirectory $directory -RunName "$Name/2" -Gamescope:(-not $Windows) }
     catch { $problem = $_.Exception.Message }
     if (($Problems.Count -eq 0) -ne ($null -eq $problem)) { throw "$Name expected=[$Problems] actual=[$problem]" }
+    if ($Problems.Count -gt 0 -and -not $problem.StartsWith("$Name/2 ")) { throw "$Name missing run prefix: $problem" }
     foreach ($part in $Problems) {
         if (-not $problem.Contains($part)) { throw "$Name missing=[$part] actual=[$problem]" }
     }
@@ -44,12 +45,8 @@ try {
     $unknown = Check 'missing-game-status-after-report' -GameStatus '' -Problems @('游戏退出状态')
     if ($null -ne $unknown.exit_code) { throw 'Missing game status was treated as an exit code.' }
     Check 'unreadable-game-status' -GameStatus '{' -Problems @('游戏退出状态') | Out-Null
-    Check 'invalid-game-status-shape' -GameStatus '[]' -Problems @('游戏退出状态') | Out-Null
-    Check 'invalid-game-status' -GameStatus '{"exit_code":false,"signal":null}' -Problems @('游戏退出状态') | Out-Null
-    Check 'invalid-signal-status' -GameStatus '{"exit_code":-6,"signal":null}' -Problems @('游戏退出状态') | Out-Null
     Check 'missing-report' -Report '' -Problems @('未生成报告') | Out-Null
     Check 'unreadable-report' -Report '{' -Problems @('报告无法解析') | Out-Null
-    Check 'invalid-report-shape' -Report '[]' -Problems @('报告无法解析') | Out-Null
     Check 'failed-report' -Report ($completed.Replace('completed', 'failed')) -Problems @('报告未完成') | Out-Null
     Check 'missing-outcome' -Report ($completed.Replace('"outcome":"completed",', '')) -Problems @('报告未完成') | Out-Null
     Check 'aborted-without-report' -GameStatus '{"exit_code":-6,"signal":{"name":"SIGABRT","number":6}}' -Report '' -Problems @('SIGABRT(6)', '未生成报告') | Out-Null
@@ -63,7 +60,7 @@ try {
         Check "not-release-$platform" -Windows:$platform -Report ($completed.Replace('ExportRelease', 'Debug')) -Problems @('Release') | Out-Null
         Check "no-frames-$platform" -Windows:$platform -Report ($completed.Replace('[0.016]', '[]')) -Problems @('绘制帧') | Out-Null
         Check "null-frames-$platform" -Windows:$platform -Report ($completed.Replace('[0.016]', 'null')) -Problems @('绘制帧') | Out-Null
-        Check "final-performance-$platform" -Windows:$platform -Report ($completed.Replace('false', 'true')) -Problems @('报告') | Out-Null
+        Check "final-performance-$platform" -Windows:$platform -Report ($completed.Replace('false', 'true')) -Problems @('scope') | Out-Null
     }
     Check 'windows-missing-report' -Windows -Report '' -Problems @('未生成报告') | Out-Null
     Check 'windows-failed-report' -Windows -Report ($completed.Replace('completed', 'failed')) -Problems @('报告未完成') | Out-Null

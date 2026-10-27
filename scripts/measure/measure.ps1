@@ -227,7 +227,7 @@ try {
                 if ($idleInhibit) { $launch = @('systemd-inhibit', '--what=idle:sleep', '--who=train-measure', '--why=window measurement', '--mode=block') + $launch }
                 $result = Invoke-HiddenProcess -FilePath $launch[0] -TimeoutSeconds $timeout -ArgumentList @($launch | Select-Object -Skip 1)
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
-                Assert-MeasurementRunOutcome -Result $result -RunDirectory $runDirectory -Gamescope:($null -ne $wrapper)
+                Assert-MeasurementRunOutcome -Result $result -RunDirectory $runDirectory -RunName "$name/$iteration" -Gamescope:($null -ne $wrapper)
             }
             finally {
                 foreach ($variable in $previousUserDirectories.Keys) { [Environment]::SetEnvironmentVariable($variable, $previousUserDirectories[$variable]) }
