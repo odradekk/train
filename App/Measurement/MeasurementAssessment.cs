@@ -5,7 +5,8 @@ using static Train.App.Measurement.MeasurementJson;
 namespace Train.App.Measurement;
 
 internal sealed record MeasurementAssessmentItem(string Metric, string Window, string Unit, string Rule,
-    double? Threshold, double? Measured, string Status, string? Reason, double? ObservedSeconds = null);
+    double? Threshold, double? Measured, string Status, string? Reason, double? ObservedSeconds = null,
+    double? WindowStartSeconds = null, int? ExcludedFrames = null);
 
 /// <summary>报告逐项对照已确认目标；不代表目标配置或完整负载验收。
 /// Decision note: 2026-10-26-performance-measurement-system
@@ -54,7 +55,18 @@ internal static partial class MeasurementAssessment
         if (scenario == "scene-soak") AddSoak(items, identity, budget);
         else
         {
-            AddFrames(items, window, timing?.FrameSeconds);
+            if (route)
+            {
+                var start = Number(At(budget, "route", "startup", "first_operable_at"));
+                // 首个可操作帧和 timing 共用 now；该帧的间隔仍属于打开过程。
+                var frames = start is { } at && timing is not null
+                    ? timing.Frames.Where(frame => frame.ElapsedSeconds > at).ToArray() : [];
+                AddFrames(items, "路线 timing：初始空间首个可操作时刻之后，包含远处补齐和途中空间切换",
+                    frames.Length > 0 ? FrameMeasurements.Distribution(frames.Select(frame => frame.IntervalSeconds)) : null,
+                    start, start.HasValue ? timing?.Frames.Length - frames.Length : null,
+                    start is null ? "缺少初始空间的首个可操作时刻" : frames.Length == 0 ? "首个可操作时刻之后没有窗口帧" : null);
+            }
+            else AddFrames(items, window, timing?.FrameSeconds);
             if (scenario is "scene-follow-8x" or "scene-route-8x")
                 items.Add(Check("actual_speed", window, timing?.ActualSpeed,
                     timing is null || timing.Frames.IsEmpty ? "缺少窗口帧" :
@@ -114,11 +126,13 @@ internal static partial class MeasurementAssessment
                 with { ObservedSeconds = seconds });
     }
 
-    private static void AddFrames(List<MeasurementAssessmentItem> items, string window, TimingDistribution? frames)
+    private static void AddFrames(List<MeasurementAssessmentItem> items, string window, TimingDistribution? frames,
+        double? windowStartSeconds = null, int? excludedFrames = null, string? reason = null)
     {
-        items.Add(Check("frame_p95", window, frames?.P95));
-        items.Add(Check("frame_p99", window, frames?.P99));
-        items.Add(Check("frame_maximum", window, frames?.Maximum));
+        foreach (var (metric, measured) in new[] { ("frame_p95", frames?.P95), ("frame_p99", frames?.P99),
+            ("frame_maximum", frames?.Maximum) })
+            items.Add(Check(metric, window, measured, reason) with
+            { WindowStartSeconds = windowStartSeconds, ExcludedFrames = excludedFrames });
     }
 
     private static MeasurementAssessmentItem Check(string metric, string window, double? measured, string? reason = null)

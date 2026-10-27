@@ -11,6 +11,136 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementWindowTests
 {
     [TestMethod]
+    [DataRow("scene-route-1x")]
+    [DataRow("scene-route-2x")]
+    [DataRow("scene-route-4x")]
+    [DataRow("scene-route-8x")]
+    public void RouteFrameVerdictsExcludeTheOpeningThroughTheFirstOperableFrame(string scenario)
+    {
+        var measurements = new FrameMeasurements(10, 0);
+        measurements.AddFrame(10.25, 120, 0, SimulationSpeed.Eight, false);
+        measurements.AddFrame(10.5, 240, 0, SimulationSpeed.Eight, false);
+        measurements.AddFrame(10.5078125, 244, 0, SimulationSpeed.Eight, false);
+        measurements.AddFrame(10.515625, 248, 0, SimulationSpeed.Eight, false);
+        var timing = measurements.Summarize();
+        using var report = Report(scenario, timing, new()
+        { ["scene_budget"] = new { route = new { route_completed = true,
+            startup = new { first_operable_at = 0.5, first_ready_at = 4d, status = "passed" } } } });
+
+        foreach (var metric in new[] { "frame_p95", "frame_p99", "frame_maximum" })
+        {
+            var item = Item(report, metric);
+            Assert.AreEqual("passed", item.GetProperty("status").GetString(), metric);
+            Assert.AreEqual(0.0078125, item.GetProperty("measured").GetDouble(), metric);
+            Assert.AreEqual(0.5, item.GetProperty("window_start_seconds").GetDouble(), metric);
+            Assert.AreEqual(2, item.GetProperty("excluded_frames").GetInt32(), metric);
+            StringAssert.Contains(item.GetProperty("window").GetString()!, "可操作");
+        }
+        Assert.IsTrue(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(timing,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower }),
+            report.RootElement.GetProperty("timing")), "原始逐帧记录和全窗统计必须保持完整。");
+    }
+
+    [TestMethod]
+    [DataRow(0, 4d)]
+    [DataRow(1, 4d)]
+    [DataRow(1, 0.5)]
+    public void EveryPostOperableLongFrameCountsIncludingFillInAndLaterRouteFrames(int longFrame, double readyAt)
+    {
+        var measurements = new FrameMeasurements(0, 0);
+        measurements.AddFrame(0.5, 240, 0, SimulationSpeed.Eight, false);
+        var at = 0.5;
+        for (var index = 0; index < 2; index++)
+        {
+            at += index == longFrame ? 0.125 : 0.0078125;
+            measurements.AddFrame(at, (ulong)(244 + index * 4), 0, SimulationSpeed.Eight, false);
+        }
+        using var report = Report("scene-route-8x", measurements.Summarize(), new()
+        { ["scene_budget"] = new { route = new { route_completed = true,
+            startup = new { first_operable_at = 0.5, first_ready_at = readyAt, status = "passed" } } } });
+        foreach (var metric in new[] { "frame_p95", "frame_p99", "frame_maximum" })
+        {
+            Assert.AreEqual("failed", Item(report, metric).GetProperty("status").GetString(), metric);
+            Assert.AreEqual(0.125, Item(report, metric).GetProperty("measured").GetDouble(), metric);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RoutesWithoutAnOperableTimeCannotUseTheFullWindow(bool explicitNull)
+    {
+        var startup = new Dictionary<string, object?>();
+        if (explicitNull) startup["first_operable_at"] = null;
+        using var report = Report("scene-route-8x", Timing(), new()
+        { ["scene_budget"] = new { route = new { route_completed = true, startup } } });
+        foreach (var metric in new[] { "frame_p95", "frame_p99", "frame_maximum" })
+        {
+            var item = Item(report, metric);
+            Assert.AreEqual("unknown", item.GetProperty("status").GetString(), metric);
+            Assert.AreEqual(JsonValueKind.Null, item.GetProperty("measured").ValueKind);
+            StringAssert.Contains(item.GetProperty("reason").GetString()!, "可操作时刻");
+            Assert.AreEqual(JsonValueKind.Null, item.GetProperty("window_start_seconds").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, item.GetProperty("excluded_frames").ValueKind);
+        }
+    }
+
+    [TestMethod]
+    public void ARouteWithNoFramesAfterBecomingOperableHasNoFrameVerdict()
+    {
+        using var report = Report("scene-route-8x", Timing(), new()
+        { ["scene_budget"] = new { route = new { route_completed = true,
+            startup = new { first_operable_at = 1d } } } });
+        foreach (var metric in new[] { "frame_p95", "frame_p99", "frame_maximum" })
+        {
+            var item = Item(report, metric);
+            Assert.AreEqual("unknown", item.GetProperty("status").GetString(), metric);
+            Assert.AreEqual(JsonValueKind.Null, item.GetProperty("measured").ValueKind);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(item.GetProperty("reason").GetString()));
+            Assert.AreEqual(1d, item.GetProperty("window_start_seconds").GetDouble());
+            Assert.AreEqual(1, item.GetProperty("excluded_frames").GetInt32());
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false, "failed")]
+    [DataRow(true, "unknown")]
+    public void RouteSpeedStillUsesOpeningFramesAndTheOriginalWindow(bool openingSlowed, string expected)
+    {
+        var measurements = new FrameMeasurements(0, 0);
+        measurements.AddFrame(0.5, 120, 0, openingSlowed ? SimulationSpeed.One : SimulationSpeed.Eight, false);
+        measurements.AddFrame(0.75, 240, 0, SimulationSpeed.Eight, false);
+        using var report = Report("scene-route-8x", measurements.Summarize(), new()
+        { ["scene_budget"] = new { route = new { route_completed = true,
+            startup = new { first_operable_at = 0.5 } } } });
+        var item = Item(report, "actual_speed");
+        Assert.AreEqual(expected, item.GetProperty("status").GetString());
+        Assert.AreEqual(16d / 3, item.GetProperty("measured").GetDouble(), 1e-12);
+        Assert.AreEqual("路线 timing：从点击起，包含打开过程的整条路线", item.GetProperty("window").GetString());
+        Assert.AreEqual(JsonValueKind.Null, item.GetProperty("window_start_seconds").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, item.GetProperty("excluded_frames").ValueKind);
+    }
+
+    [TestMethod]
+    [DataRow("scene-map")]
+    [DataRow("scene-follow-8x")]
+    [DataRow("scene-memory")]
+    [DataRow("scene-editor")]
+    public void NonRouteFrameWindowsKeepTheirOriginalDistribution(string scenario)
+    {
+        using var report = Report(scenario, Timing(0.125), new()
+        { ["scene_budget"] = new { route = new { startup = new { first_operable_at = 1d } } } });
+        foreach (var metric in new[] { "frame_p95", "frame_p99", "frame_maximum" })
+        {
+            var item = Item(report, metric);
+            Assert.AreEqual("failed", item.GetProperty("status").GetString(), metric);
+            Assert.AreEqual(0.125, item.GetProperty("measured").GetDouble(), metric);
+            Assert.AreEqual(JsonValueKind.Null, item.GetProperty("window_start_seconds").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, item.GetProperty("excluded_frames").ValueKind);
+        }
+    }
+
+    [TestMethod]
     [DataRow(7.99, "failed")]
     [DataRow(8d, "passed")]
     [DataRow(8.01, "passed")]
