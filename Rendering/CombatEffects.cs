@@ -597,15 +597,9 @@ internal sealed class CombatEffects : IDisposable
             indices[index + 4] = vertex + 2;
             indices[index + 5] = vertex + 3;
         }
-        var arrays = new Godot.Collections.Array();
-        arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = vertices;
-        arrays[(int)Mesh.ArrayType.Normal] = normals;
-        arrays[(int)Mesh.ArrayType.TexUV] = uvs;
-        arrays[(int)Mesh.ArrayType.TexUV2] = uv2;
-        arrays[(int)Mesh.ArrayType.Index] = indices;
         var mesh = new ArrayMesh();
-        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+        MeshSurfaces.Add(mesh, Mesh.PrimitiveType.Triangles, vertices: vertices, normals: normals,
+            textureUvs: uvs, faceUvs: uv2, indices: indices);
         return mesh;
     }
 

@@ -319,19 +319,13 @@ internal sealed class SceneResources : IDisposable
 
     private static ArrayMesh CreateMesh(PackedSceneMesh source)
     {
-        using var arrays = new Godot.Collections.Array();
-        arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = source.Positions;
-        arrays[(int)Mesh.ArrayType.Normal] = source.Normals;
-        arrays[(int)Mesh.ArrayType.TexUV] = source.TextureUvs;
-        arrays[(int)Mesh.ArrayType.TexUV2] = source.FaceUvs;
-        arrays[(int)Mesh.ArrayType.Custom0] = source.Custom;
-        arrays[(int)Mesh.ArrayType.Index] = source.Indices;
         var mesh = new ArrayMesh();
         try
         {
-            mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays,
-                flags: (Mesh.ArrayFormat)((ulong)Mesh.ArrayCustomFormat.RgbaFloat << (int)Mesh.ArrayFormat.FormatCustom0Shift));
+            MeshSurfaces.Add(mesh, Mesh.PrimitiveType.Triangles,
+                flags: (Mesh.ArrayFormat)((ulong)Mesh.ArrayCustomFormat.RgbaFloat << (int)Mesh.ArrayFormat.FormatCustom0Shift),
+                vertices: source.Positions, normals: source.Normals, textureUvs: source.TextureUvs,
+                faceUvs: source.FaceUvs, custom: source.Custom, indices: source.Indices);
             if (mesh.GetSurfaceCount() != 1) throw new InvalidOperationException("场景网格创建失败。");
             return mesh;
         }
