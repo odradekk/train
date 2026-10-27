@@ -11,15 +11,15 @@ public sealed class SoakSamplingTests
     [TestMethod]
     [DataRow("map", false)]
     [DataRow("editor", true)]
-    public void ViewRecordKeepsGcAndFrameEvidenceInTheSameWindow(string view, bool paused)
+    public void ViewRecordReportsInjectedGcDifferenceAlongsideFrameEvidence(string view, bool paused)
     {
         var sample = new MeasurementRun.SoakSample(view, SimulationSpeed.Eight, 100, 1000,
-            TimeSpan.FromSeconds(2), [10, 4, 1]);
+            new GcReading(TimeSpan.FromSeconds(2), [10, 4, 1]));
         sample.Frames.AddFrame(100.5, paused ? 1000UL : 1240UL, .001, SimulationSpeed.Eight, paused);
         sample.Frames.AddFrame(101, paused ? 1000UL : 1480UL, .001, SimulationSpeed.Eight, paused);
         sample.Classes["all-but-line-battle"] = 2;
 
-        var (timing, record) = sample.Finish(3, TimeSpan.FromSeconds(2.125), [13, 6, 2]);
+        var (timing, record) = sample.Finish(3, new GcReading(TimeSpan.FromSeconds(2.125), [13, 6, 2]));
         using var report = Report(timing, record);
         var result = report.RootElement.GetProperty("identity").GetProperty("scene_budget")
             .GetProperty("soak").GetProperty("samples")[0];

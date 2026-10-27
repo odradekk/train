@@ -43,7 +43,7 @@ internal sealed partial class MeasurementRun
         var now = Seconds();
         if (_resourceLastDraw > 0)
             _resourceFrames.Add(new(Engine.GetProcessFrames(), now,
-                _routeSampling ? (_routeOperableGcPause is null ? "route-opening" : "route-follow") : _scenePhase,
+                _routeSampling ? (_routeOperableGc is null ? "route-opening" : "route-follow") : _scenePhase,
                 now - _resourceLastDraw,
                 _resourcePreparation, _resourceCandidatePreparation, _resourceCommit));
         _resourceLastDraw = now;

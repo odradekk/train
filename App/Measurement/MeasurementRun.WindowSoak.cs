@@ -443,7 +443,7 @@ internal sealed partial class MeasurementRun
         {
             seconds, segments = _soakSegment, body_seconds = body, round_trips_per_segment = SoakRoundTrips,
             sample_seconds = SoakSampleSeconds,
-            gc_method = "Process-local GC.GetTotalPauseDuration and GC.CollectionCount deltas per sample. Read immediately before waiting and after the final draw; seconds retains the original previous-draw to final-draw span. Collection counts are not pause-event counts. Measurement-forced collections outside samples are recorded in scene-collections.jsonl and excluded.",
+            gc_method = SoakGcMethod,
             load_classes = new { full = "配方保存点的全部期望成立", all_but_line_battle = "armed_line_combats 不成立，其余不成立的只有 armed_combats",
                 below_recipe = "其他期望不成立；这些帧不是标准负载证据", frame_rule = "每帧按最近一次（每秒最多一次）计数分类" },
             views = _soakTotals.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new

@@ -4,16 +4,19 @@ namespace Train.App.Measurement;
 
 internal sealed partial class MeasurementRun
 {
+    private const string SoakGcMethod = "Process-local GC.GetTotalPauseDuration and GC.CollectionCount deltas per sample. Read immediately before waiting and after the final draw; seconds retains the original previous-draw to final-draw span. Pause share is an upper bound including collections caused by measurement allocations such as per-frame serialization and world counts; no allocation overhead is subtracted. Collection counts are not pause-event counts. Measurement-forced collections outside samples are recorded in scene-collections.jsonl and excluded.";
+
     internal sealed class SoakSample(string view, SimulationSpeed speed, double started, ulong steps,
-        TimeSpan gcPause, int[] gcCollections)
+        GcReading gcStart)
     {
         internal FrameMeasurements Frames { get; } = new(started, steps);
         internal Dictionary<string, int> Classes { get; } = new(StringComparer.Ordinal);
 
-        /// <summary>结束视图窗口，输出同窗帧统计和进程 GC 累计读数的差值；不包含窗外主动 GC。</summary>
-        internal (MeasurementTiming Timing, object Record) Finish(int segment, TimeSpan gcEndPause, int[] gcEndCollections)
+        // GC 读数在等待窗口前后取得；帧统计仍从此前一帧起算，窗外主动 GC 不计入。
+        internal (MeasurementTiming Timing, object Record) Finish(int segment, GcReading gcEnd)
         {
             var timing = Frames.Summarize();
+            var gc = gcEnd.Since(gcStart);
             return (timing, new
             {
                 segment, view, speed = (int)speed, started, seconds = timing.ElapsedSeconds,
@@ -22,8 +25,8 @@ internal sealed partial class MeasurementRun
                 steps_per_second = timing.CompletedSteps / timing.ElapsedSeconds, target_steps_per_second = (int)speed * SimulationTime.StepsPerSecond,
                 paused_frames = timing.Frames.Count(frame => frame.Paused),
                 simulation_budget_frames = timing.SimulationBudgetReachedFrames, load_classes = Classes,
-                pause_seconds = (gcEndPause - gcPause).TotalSeconds,
-                collections_by_generation = Enumerable.Range(0, 3).Select(generation => gcEndCollections[generation] - gcCollections[generation]).ToArray()
+                pause_seconds = gc.Pause.TotalSeconds,
+                collections_by_generation = gc.CollectionsByGeneration
             });
         }
     }
@@ -36,12 +39,11 @@ internal sealed partial class MeasurementRun
         _scenePhase = $"{view}-{(int)speed}x";
         var started = _sceneLastDraw;
         var sample = new SoakSample(view, speed, started, host.GetStatus()!.View.Position.CompletedSteps,
-            GC.GetTotalPauseDuration(), Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray());
+            GcReading.Current);
         _soakSample = sample;
         await Wait(() => _sceneLastDraw >= started + SoakSampleSeconds || ended?.Invoke() == true && sample.Classes.Count > 0);
         _soakSample = null;
-        var (timing, record) = sample.Finish(_soakSegment, GC.GetTotalPauseDuration(),
-            Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray());
+        var (timing, record) = sample.Finish(_soakSegment, GcReading.Current);
         var key = $"{view}/{(int)speed}x";
         if (!_soakTotals.TryGetValue(key, out var totals)) _soakTotals[key] = totals = new();
         totals.Intervals.AddRange(timing.Frames.Select(frame => frame.IntervalSeconds));
