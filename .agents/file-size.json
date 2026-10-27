@@ -182,9 +182,9 @@
     "Ui/GameUi.cs": 8701,
     "Ui/MacroMap.cs": 5819,
     "Ui/WorldPanels.cs": 5738,
-    "docs/run-tests.md": 22811,
+    "docs/run-tests.md": 22350,
     "scripts/content/check_economy.py": 6393,
     "scripts/content/generate_small_world.py": 29437,
-    "scripts/test.ps1": 8579
+    "scripts/test.ps1": 7979
   }
 }
