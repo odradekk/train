@@ -75,6 +75,9 @@ try {
         if (-not (Get-Command gamescope -ErrorAction SilentlyContinue)) {
             throw 'Linux 测量需要 gamescope 提供固定的 1920×1080 输出，主机上找不到 gamescope。'
         }
+        if (-not (Get-Command python3 -ErrorAction SilentlyContinue)) {
+            throw 'Linux 测量需要 python3 记录游戏退出状态，主机上找不到 python3。'
+        }
         $wrapper = @{ program = 'gamescope'; version = ((& gamescope --version 2>&1) | Select-Object -First 1) -as [string]
             arguments = @('-w', '1920', '-h', '1080', '-W', '1920', '-H', '1080', '--') }
     }
@@ -217,27 +220,14 @@ try {
                 if ($PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('--measure-train', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('--measure-node', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 $launch = @($ExecutablePath) + $arguments
-                if ($null -ne $wrapper) { $launch = @($wrapper.program) + $wrapper.arguments + $launch }
+                if ($null -ne $wrapper) {
+                    $launch = @($wrapper.program) + $wrapper.arguments + @('python3',
+                        (Join-Path $PSScriptRoot 'game-process.py'), (Join-Path $runDirectory 'game-process.json')) + $launch
+                }
                 if ($idleInhibit) { $launch = @('systemd-inhibit', '--what=idle:sleep', '--who=train-measure', '--why=window measurement', '--mode=block') + $launch }
                 $result = Invoke-HiddenProcess -FilePath $launch[0] -TimeoutSeconds $timeout -ArgumentList @($launch | Select-Object -Skip 1)
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
-                $godotLog = Join-Path $runDirectory 'godot.log'
-                $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
-                    Get-Content -LiteralPath $godotLog | Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' }
-                })
-                $processLines = @($result.Output -split '\r?\n' |
-                    Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' })
-                Write-Json (Join-Path $runDirectory 'process.json') @{
-                    exit_code = $result.ExitCode; timed_out = $result.TimedOut
-                    cleanup_succeeded = $result.CleanupSucceeded; duration_ms = $result.DurationMs
-                    process_diagnostics = @{ 'godot.log' = $godotLines; 'process.log' = $processLines }
-                }
-                if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$name/$iteration 进程失败或超时。" }
-                if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "$name/$iteration 未生成报告。" }
-                $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-                if ($report.outcome -ne 'completed' -or $report.identity.build_configuration -ne 'ExportRelease' -or
-                    @($report.timing.frames).Count -eq 0 -or $null -eq $report.timing.frames -or
-                    $report.scope.final_performance -ne $false) { throw "$name/$iteration 报告未完成、不是 Release 或缺少真实绘制帧。" }
+                Assert-MeasurementRunOutcome -Result $result -RunDirectory $runDirectory -RunName "$name/$iteration" -Gamescope:($null -ne $wrapper)
             }
             finally {
                 foreach ($variable in $previousUserDirectories.Keys) { [Environment]::SetEnvironmentVariable($variable, $previousUserDirectories[$variable]) }
