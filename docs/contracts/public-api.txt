@@ -350,6 +350,8 @@ Train.Content.Contracts|type|Train.Content.Contracts.VoxelShape|public readonly 
 Train.Content.Contracts|type|Train.Content.Contracts.VoxelSimulationDraft|public sealed record VoxelSimulationDraft(long? BaseValue, double? MassTons, long? MaxDurability, bool RawGood, double? FuelEnergyPerUnit, ImmutableArray<PartCapability> Behaviors);
 Train.Content.Contracts|using|using System.Collections.Immutable;
 Train.Content.Contracts|using|using Train.Core.Contracts;
+Train.Content|member|Train.Content.ContentFactory|public static C.IContentFactory Create() => new InitialContentFactory();
+Train.Content|type|Train.Content.ContentFactory|public static class ContentFactory
 Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Construction|3
 Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Defense|5
 Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Power|2
@@ -961,6 +963,8 @@ Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Train|public sealed
 Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId|public abstract record WorldObjectId
 Train.Core.Contracts|type|Train.Core.Contracts.WorldSummary|public sealed record WorldSummary(ulong WorldSeed, RuleDefinitionId RailwayRule, double WidthMeters, double HeightMeters, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges, ImmutableArray<TrainMapItem> Trains, ImmutableArray<CreatureGroupMapItem> CreatureGroups, ImmutableArray<CombatMapItem> Combats);
 Train.Core.Contracts|using|using System.Collections.Immutable;
+Train.Core|member|Train.Core.CoreFactory|public static ICoreFactory Create() => new CoreSessionFactory();
+Train.Core|type|Train.Core.CoreFactory|public static class CoreFactory
 Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.BuiltInMaterial|Construction|3
 Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.BuiltInMaterial|RailSteel|0
 Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.BuiltInMaterial|Sleeper|1
@@ -1210,3 +1214,5 @@ Train.Scenes.Contracts|using|using System.Collections.Immutable;
 Train.Scenes.Contracts|using|using System.Numerics;
 Train.Scenes.Contracts|using|using Train.Content.Contracts;
 Train.Scenes.Contracts|using|using Train.Core.Contracts;
+Train.Scenes|member|Train.Scenes.ScenesFactory|public static IScenesFactory Create(ISceneStreamingObserver? observer = null) => new Factory(observer);
+Train.Scenes|type|Train.Scenes.ScenesFactory|public static class ScenesFactory
