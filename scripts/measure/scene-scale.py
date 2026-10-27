@@ -1,24 +1,22 @@
-"""用 #499 的布局配方生成四档普通存档及公开 N/C/F 核对结果。"""
+"""生成四档普通存档和 N/C/F，另在本机核对可打开的两档近景。"""
 # Decision note: 2026-10-26-post-demo-performance-and-memory-gaps
 
 import argparse
 import copy
-import hashlib
 import json
 import math
 import shutil
-import subprocess
 from pathlib import Path
 
+from scene_scale_run import ScaleRun, input_identity, read, sha, write
 
-def validate_variant(baseline, stats, bounds, focus, multiple):
-    """固定近景和默认焦点，只扩大远处建筑；失配时拒绝该档。"""
+
+def validate_variant(baseline, stats, multiple):
+    """固定原点近景，只扩大远处建筑；失配时拒绝该档。"""
     if any(stats[field] != baseline[field] for field in ("near96", "groundNear96")):
         raise ValueError("near_content_changed")
     if stats["far"]["N"] < multiple * baseline["far"]["N"]:
         raise ValueError("far_growth_insufficient")
-    if any(abs(bounds["focus"][axis] - focus[axis]) >= .001 for axis in range(2)):
-        raise ValueError("focus_calibration_changed")
     if stats["businessObjectsWithin32m"] <= 0:
         raise ValueError("near_business_missing")
 
@@ -30,6 +28,9 @@ def validate_local(baseline, local, verify_stability):
     if any([sample["cameraStage"] for sample in value["stability_samples"]] != list(range(5))
            for value in (baseline, local)):
         raise ValueError("local_observation_incomplete")
+    if any(sample["firstGeometry"]["fully_inside"]["objects"] <= 0
+           for value in (baseline, local) for sample in value["stability_samples"]):
+        raise ValueError("near_scene_objects_missing")
     if local["heightMissing"] != 0 or local["maximumRepeatedHeightDifference"] != 0 or \
             local["terrainHeightSha256"] != baseline["terrainHeightSha256"] or any(
                 sample["firstGeometry"]["fully_inside"][field] != reference["firstGeometry"]["fully_inside"][field]
@@ -47,9 +48,6 @@ def validate_local(baseline, local, verify_stability):
             "triangle_delta": local["triangles"] - baseline["triangles"],
             "rail_steel_triangle_delta": local["railSteelTriangles"] - baseline["railSteelTriangles"]}
 
-
-def read(path):
-    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def crossing_observations(variants):
@@ -91,16 +89,9 @@ def crossing_observations(variants):
             "The probe is not the game frame loop; game fill-in is measured by far_ready.", "objects": objects}
 
 
-def write(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n", encoding="utf-8")
-
-
-def sha(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
 
 def plot_rect(plot):
-    # #499 的放置算法使用地块包围盒；LargeStation 是当前内容新增的尺寸。
+    # 放置筛选使用完整地块包围盒，不能只排除建筑中心。
     sizes = {"small": (48, 48), "medium": (96, 96), "large": (192, 192), "giant": (384, 384),
              "small_station": (192, 112), "large_station": (256, 208)}
     width, depth = sizes[plot["size"]]
@@ -134,179 +125,156 @@ def slots_for(template, focus):
     return slots
 
 
-def generate(root, output, configuration):
-    manifest = {"stage": "build", "completed": False, "variants": [],
-                "definition": "N: building projection voxels outside radius192 cells; C: unique containing world32^3 chunks; F: exposed six-neighbor faces owned by far cells. Authored ground is separate; procedural terrain N/C/F is unavailable."}
-    manifest_path = output / "scale-manifest.json"
+def chosen_slots(slots, multiple):
+    if multiple != 100:
+        return slots
+    available = set(slots)
+    extra = [(0, 2), (0, 3)]
+    if not all(item in available for item in extra):
+        raise ValueError("additional_slots_unavailable")
+    chosen = [(i, j) for i in range(1, 10) for j in range(-3, 4) if (i, j) in available]
+    chosen.sort(key=lambda item: (abs(item[0]), abs(item[1]), item))
+    # 焦点在原点时近景圆排除的位置变了；保留原 63 个位置，补足两个有效位置。
+    return chosen + extra
 
-    def command(arguments, name, timeout, json_output=False):
-        def log(text):
-            for directory, label in ((output, "<run>"), (root, "<source>")):
-                text = text.replace(str(directory), label).replace(directory.as_posix(), label)
-            (output / (name + ".log")).write_text(text, encoding="utf-8")
 
-        try:
-            result = subprocess.run(list(map(str, arguments)), cwd=root, capture_output=True,
-                                    text=True, encoding="utf-8", errors="replace", timeout=timeout)
-        except subprocess.TimeoutExpired as error:
-            log((error.stdout or b"").decode("utf-8", errors="replace") +
-                (error.stderr or b"").decode("utf-8", errors="replace"))
-            raise
-        log(result.stdout + result.stderr)
-        value = None
-        if json_output and result.stdout.strip():
-            try:
-                value = json.loads(result.stdout.strip().splitlines()[-1])
-            except json.JSONDecodeError:
-                if not result.returncode:
-                    raise
-            else:
-                write(output / (name + ".json"), value)
-        if result.returncode:
-            if value is not None:
-                manifest["failed_observation"] = name + ".json"
-            raise RuntimeError(name + "_failed")
-        return value if json_output else result.stdout
+def generate(run):
+    root, output, manifest = run.root, run.output, run.manifest
+    manifest["definition"] = "N: building projection voxels outside radius192 cells; C: unique containing world32^3 chunks; F: exposed six-neighbor faces owned by far cells. Authored ground is separate; procedural terrain N/C/F is unavailable."
+    run.prepare()
+    native_save = root / "examples/starting-trade/save.json"
+    run.observe(root, "bounds", native_save, "native-bounds")
+    baseline = run.observe(root, "stats", native_save, "native-stats")
+    manifest.update({"native_save_sha256": sha(native_save), "focus_cells": [0, 0, 0],
+                     "focus_rule": "Node world origin; pan-bounds center is navigation metadata only.",
+                     "baseline_far": baseline["far"]})
+    pair_n = sum(item["totalN"] for item in baseline["buildingObjects"] if item["plot"] in (11, 12))
+    if pair_n <= 0 or baseline["far"]["N"] <= 0:
+        raise ValueError("baseline_far_content_missing")
+    template_relative = Path("builtin/core/resources/settlement-templates/core-city.settlement-template.json")
+    ground_relative = Path("builtin/core/resources/blueprints/core-city-ground.blueprint.json")
+    template, ground = read(root / template_relative), read(root / ground_relative)
+    slots = slots_for(template, [0, 0])
+    recipe = read(root / "examples/starting-trade/recipe.json")
+    for sequence, entry in enumerate(recipe["commands"]):
+        entry["at"] = {"completed_steps": 0, "sequence": sequence}
+    recipe["target"], recipe["checkpoint_steps"] = {"completed_steps": 1, "sequence": 0}, []
+    write(output / "recipe.json", recipe)
+    manifest["recipe_sha256"] = sha(output / "recipe.json")
+    expected_trains = {entry["train"] for entry in recipe["commands"] if entry["kind"] == "train.start"}
+    (output / "saves").mkdir()
+    for multiple in (1, 10, 30, 100):
+        manifest["stage"] = f"{multiple}x-input"
+        repository = output / f"inputs/{multiple}x"
+        repository.mkdir(parents=True)
+        shutil.copytree(root / "builtin", repository / "builtin")
+        shutil.copy2(root / "project.godot", repository / "project.godot")
+        variant_template, variant_ground = copy.deepcopy(template), copy.deepcopy(ground)
+        pairs = 0 if multiple == 1 else math.ceil((multiple - 1) * baseline["far"]["N"] / pair_n)
+        pairs += pairs % 2
+        chosen = chosen_slots(slots, multiple)
+        if pairs // 2 > len(chosen):
+            raise ValueError("archived_slots_insufficient")
+        for i, j in chosen[:pairs // 2]:
+            for plots in (pair(i, j), pair(-i, -j)):
+                for plot in plots:
+                    plot["id"] = len(variant_template["plots"]) + 1
+                    variant_template["plots"].append(plot)
+        if multiple != 1:
+            # 保持 flatten 方法；原点近景圆排除的位置变化后，需要扩边容纳远处地块。
+            lower, upper = {10: ([-1312, -1216], [1983, 1599]),
+                            30: ([-2208, -1856], [3327, 2623]),
+                            100: ([-8480, -1728], [8703, 2111])}[multiple]
+            variant_ground["appearance"]["flatten"] = {"from": lower, "to": upper, "height": 1}
+            write(repository / template_relative, variant_template)
+            write(repository / ground_relative, variant_ground)
+        bounds = run.observe(repository, "bounds", "-", f"{multiple}x-bounds")
+        save = output / f"saves/{multiple}x.save.json"
+        run.command(["dotnet", run.cli, "make", repository, output / "recipe.json", save], f"{multiple}x-make", 180)
+        stats = run.observe(root, "stats", save, f"{multiple}x-stats")
+        run.observe(root, "bounds", save, f"{multiple}x-restored-bounds")
+        variant = {"multiple": multiple, "extra_pairs": pairs, "save": save.relative_to(output).as_posix(),
+                   "template_sha256": sha(repository / template_relative),
+                   "ground_sha256": sha(repository / ground_relative), "far": stats["far"],
+                   "far_N_multiple": stats["far"]["N"] / baseline["far"]["N"],
+                   "navigation_center": bounds["navigationCenter"],
+                   "input_identity": input_identity(output, {"multiple": multiple, "save": save.relative_to(output).as_posix()})}
+        manifest["variants"].append(variant)
+        run.save()
+        validate_variant(baseline, stats, multiple)
+        trains = {item["Id"]["Value"]: item for item in stats["trainStates"]}
+        if any(train not in trains or trains[train]["Activity"] != "Running" or not trains[train]["loop"] or
+               not trains[train]["planStops"] for train in expected_trains):
+            raise ValueError("recipe_train_load_changed")
+        variant["near_content_match"] = True
+        run.save()
+        print(json.dumps({"multiple": multiple, "far": stats["far"], "near_match": True}), flush=True)
 
-    probe = root / f"Tools/SceneScale/bin/{configuration}/net10.0/Train.SceneScale.dll"
-    cli = root / f"Tools/Cli/bin/{configuration}/net10.0/Train.Cli.dll"
 
-    def observe(repository, mode, save, name, verify_stability=False):
-        arguments = ["dotnet", probe, repository, mode, save]
-        if mode in ("stats", "local"):
-            arguments.append(output / "focus.json")
-        if verify_stability:
-            arguments.append("--verify-stable")
-        # 五个位置各有 300 秒独立上限；额外时间留给加载和进程退出。
-        return command(arguments, name, 1620 if mode == "local" else 360, json_output=True)
-
-    try:
-        for project in ("Cli", "SceneScale"):
-            command(["dotnet", "build", root / f"Tools/{project}/Train.{project}.csproj",
-                     "-c", configuration, "--nologo"], "build-" + project.lower(), 300)
-        manifest["source_head"] = command(["git", "rev-parse", "HEAD"], "source-head", 30).strip()
-        manifest["source_dirty"] = bool(command(["git", "status", "--porcelain"], "source-status", 30).strip())
-        manifest["configuration"] = configuration
-        manifest["sources_sha256"] = {path.relative_to(root).as_posix(): sha(path)
-            for path in sorted([Path(__file__).resolve(), *root.glob("Tools/SceneScale/*.cs"),
-                                root / "Tools/SceneScale/Train.SceneScale.csproj"])}
-        manifest["builtin_sha256"] = {path.relative_to(root / "builtin").as_posix(): sha(path)
-                                      for path in sorted((root / "builtin").rglob("*")) if path.is_file()}
-        manifest["assemblies_sha256"] = {path.name: sha(path) for path in sorted(probe.parent.glob("Train.*.dll"))}
-        manifest["stage"] = "native"
-        native_save = root / "examples/starting-trade/save.json"
-        observe(root, "bounds", native_save, "native-bounds")
-        focus = [0, 0]
-        write(output / "focus.json", focus)
-        baseline = observe(root, "stats", native_save, "native-stats")
-        manifest["native_save_sha256"] = sha(native_save)
-        manifest["focus_cells"] = [focus[0], 0, focus[1]]
-        manifest["focus_rule"] = "Current node initial view: node world origin; pan-bounds center is navigation metadata only."
-        manifest["baseline_far"] = baseline["far"]
-        pair_n = sum(item["totalN"] for item in baseline["buildingObjects"] if item["plot"] in (11, 12))
-        if pair_n <= 0 or baseline["far"]["N"] <= 0:
-            raise ValueError("baseline_far_content_missing")
-        template_relative = Path("builtin/core/resources/settlement-templates/core-city.settlement-template.json")
-        ground_relative = Path("builtin/core/resources/blueprints/core-city-ground.blueprint.json")
-        template, ground = read(root / template_relative), read(root / ground_relative)
-        slots = slots_for(template, focus)
-        recipe = read(root / "examples/starting-trade/recipe.json")
-        for sequence, entry in enumerate(recipe["commands"]):
-            entry["at"] = {"completed_steps": 0, "sequence": sequence}
-        recipe["target"], recipe["checkpoint_steps"] = {"completed_steps": 1, "sequence": 0}, []
-        write(output / "recipe.json", recipe)
-        manifest["recipe_sha256"] = sha(output / "recipe.json")
-        expected_trains = {entry["train"] for entry in recipe["commands"] if entry["kind"] == "train.start"}
-        (output / "saves").mkdir()
-        local_baseline = None
-        for multiple in (1, 10, 30, 100):
-            manifest["stage"] = f"{multiple}x-input"
-            repository = output / f"inputs/{multiple}x"
-            repository.mkdir(parents=True)
-            shutil.copytree(root / "builtin", repository / "builtin")
-            shutil.copy2(root / "project.godot", repository / "project.godot")
-            variant_template, variant_ground = copy.deepcopy(template), copy.deepcopy(ground)
-            pairs = 0 if multiple == 1 else math.ceil((multiple - 1) * baseline["far"]["N"] / pair_n)
-            pairs += pairs % 2
-            chosen = slots
-            if multiple == 100:
-                available = set(slots)
-                chosen = [(i, j) for i in range(1, 10) for j in range(-3, 4) if (i, j) in available]
-                chosen.sort(key=lambda item: (abs(item[0]), abs(item[1]), item))
-                # 焦点改到原点后，近景圆排除的位置变了；保留原 63 个位置，补足两个有效位置。
-                chosen.extend([(0, 2), (0, 3)])
-            if pairs // 2 > len(chosen):
-                raise ValueError("archived_slots_insufficient")
-            for i, j in chosen[:pairs // 2]:
-                for plots in (pair(i, j), pair(-i, -j)):
-                    for plot in plots:
-                        plot["id"] = len(variant_template["plots"]) + 1
-                        variant_template["plots"].append(plot)
-            if multiple != 1:
-                # 沿用 #499 的 flatten 方法；焦点改到原点后，近景圆排除的位置变了，
-                # 30×、100× 按批准值扩边以容纳远处地块，核对失配时仍停止。
-                lower, upper = {10: ([-1312, -1216], [1983, 1599]),
-                                30: ([-2208, -1856], [3327, 2623]),
-                                100: ([-8480, -1728], [8703, 2111])}[multiple]
-                variant_ground["appearance"]["flatten"] = {"from": lower, "to": upper, "height": 1}
-                write(repository / template_relative, variant_template)
-                write(repository / ground_relative, variant_ground)
-            bounds = observe(repository, "bounds", "-", f"{multiple}x-bounds")
-            save = output / f"saves/{multiple}x.save.json"
-            command(["dotnet", cli, "make", repository, output / "recipe.json", save], f"{multiple}x-make", 180)
-            stats = observe(root, "stats", save, f"{multiple}x-stats")
-            restored_bounds = observe(root, "bounds", save, f"{multiple}x-restored-bounds")
-            variant = {"multiple": multiple, "extra_pairs": pairs, "save": save.relative_to(output).as_posix(),
-                       "save_sha256": sha(save), "template_sha256": sha(repository / template_relative),
-                       "ground_sha256": sha(repository / ground_relative), "far": stats["far"],
-                       "far_N_multiple": stats["far"]["N"] / baseline["far"]["N"],
-                       "focus_error_cells": [bounds["focus"][axis] - focus[axis] for axis in range(2)]}
-            manifest["variants"].append(variant)
-            write(manifest_path, manifest)
-            for current_bounds in (bounds, restored_bounds):
-                validate_variant(baseline, stats, current_bounds, focus, multiple)
-            trains = {item["Id"]["Value"]: item for item in stats["trainStates"]}
-            if any(train not in trains or trains[train]["Activity"] != 1 or not trains[train]["loop"] or
-                   not trains[train]["planStops"] for train in expected_trains):
-                raise ValueError("recipe_train_load_changed")
-            manifest["stage"] = f"{multiple}x-local"
-            ready = observe(root, "ready", save, f"{multiple}x-ready")
-            if ready["businessSceneRootsWithin32m"] <= 0:
-                raise ValueError("near_scene_business_missing")
-            verify_stability = multiple in (1, 100)
-            local = observe(root, "local", save, f"{multiple}x-local96", verify_stability)
-            variant["local96"] = local
-            write(manifest_path, manifest)
-            local_baseline = local_baseline or local
-            variant["raw_mesh_comparison"] = validate_local(local_baseline, local, verify_stability)
-            variant["near_content_match"] = variant["local_content_match"] = True
-            write(manifest_path, manifest)
-            print(json.dumps({"multiple": multiple, "far": stats["far"], "near_match": True}), flush=True)
-        manifest["crossing_geometry_observations"] = crossing_observations(manifest["variants"])
-        manifest["stage"], manifest["completed"] = "completed", True
-        write(manifest_path, manifest)
-    except Exception as error:
-        manifest["error_type"] = type(error).__name__
-        if type(error) is ValueError:
-            manifest["failure"] = str(error)
-        write(manifest_path, manifest)
-        raise
+def verify(run, inputs):
+    generated = read(inputs / "scale-manifest.json")
+    if generated.get("completed") is not True or generated.get("operation") != "generate" or \
+            [item["multiple"] for item in generated["variants"]] != [1, 10, 30, 100]:
+        raise ValueError("generation_incomplete")
+    if sha(inputs / "recipe.json") != generated["recipe_sha256"]:
+        raise ValueError("recipe_identity_changed")
+    # 校验四档实际文件，绑定清单；近景探针只运行可在测试机打开的两档。
+    for variant in generated["variants"]:
+        if input_identity(inputs, variant) != variant["input_identity"]:
+            raise ValueError("input_identity_changed")
+    run.prepare()
+    if any(generated[field] != run.manifest[field] for field in
+           ("source_head", "builtin_identity", "configuration")):
+        raise ValueError("generation_source_changed")
+    run.manifest["generation_manifest_sha256"] = sha(inputs / "scale-manifest.json")
+    baseline = None
+    for original in generated["variants"][:2]:
+        multiple = original["multiple"]
+        variant = {"multiple": multiple, "input_identity": original["input_identity"]}
+        run.manifest["variants"].append(variant)
+        ready = run.observe(run.root, "ready", inputs / original["save"], f"{multiple}x-ready")
+        if ready["businessSceneRootsWithin32m"] <= 0:
+            raise ValueError("near_scene_business_missing")
+        local = run.observe(run.root, "local", inputs / original["save"], f"{multiple}x-local96", True)
+        variant["local96"] = local
+        run.save()
+        baseline = baseline or local
+        variant["raw_mesh_comparison"] = validate_local(baseline, local, True)
+        variant["local_content_match"] = True
+        run.save()
+        print(json.dumps({"multiple": multiple, "local_match": True}), flush=True)
+    run.manifest["crossing_geometry_observations"] = crossing_observations(run.manifest["variants"])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--configuration", choices=("Debug", "Release"), default="Release")
+    subparsers = parser.add_subparsers(dest="operation", required=True)
+    for operation in ("generate", "verify"):
+        subparser = subparsers.add_parser(operation)
+        subparser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+        subparser.add_argument("--output", type=Path, required=True)
+        subparser.add_argument("--configuration", choices=("Debug", "Release"), default="Release")
+        if operation == "verify":
+            subparser.add_argument("--input", type=Path, required=True)
     args = parser.parse_args()
-    root, output = args.root.resolve(), args.output.resolve()
+    output = args.output.resolve()
     if output.exists() and any(output.iterdir()):
         parser.error("output_directory_must_be_new_or_empty")
     output.mkdir(parents=True, exist_ok=True)
+    run = ScaleRun(args.root.resolve(), output, args.configuration, args.operation)
     try:
-        generate(root, output, args.configuration)
+        if args.operation == "generate":
+            generate(run)
+        else:
+            verify(run, args.input.resolve())
+        run.manifest["stage"], run.manifest["completed"] = "completed", True
+        run.save()
     except Exception as error:
-        print("scene_scale_failed: " + type(error).__name__ + "; see scale-manifest.json")
+        run.manifest["error_type"] = type(error).__name__
+        if type(error) in (ValueError, RuntimeError):
+            run.manifest["failure"] = str(error)
+        run.save()
+        print("scene_scale_failed: " + type(error).__name__ + "; see " + run.manifest_path.name)
         return 1
     return 0
 

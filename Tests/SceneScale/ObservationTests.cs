@@ -1,4 +1,4 @@
-HARNESS = r'''
+
 using System.Collections.Immutable;
 using System.Numerics;
 using System.Security.Cryptography;
@@ -7,12 +7,32 @@ using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 using Train.SceneScale;
 
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+namespace Train.SceneScale.Tests;
+[TestClass]
+public sealed class ObservationTests
+{
+    [TestMethod]
+    [TestCategory("fast")]
+    [DataRow("complete") ]
+    [DataRow("readiness") ]
+    [DataRow("missing") ]
+    [DataRow("fog") ]
+    [DataRow("repeat-time") ]
+    [DataRow("drift") ]
+    [DataRow("stability-window") ]
+    [DataRow("updates") ]
+    [DataRow("capture") ]
+    [DataRow("geometry-cache") ]
+    [DataRow("nonrail") ]
+    public void Observe(string name)
+    {
 var frame = new TestFrame();
 var heights = new Dictionary<(int X, int Z), double>();
 var columns = Probe.LocalColumns(Vector2.Zero);
 void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 Probe.LocalCoverage Observe() => Probe.ObserveLocalCoverage(frame, Vector2.Zero, columns, heights);
-switch (args[0])
+switch (name)
 {
     case "complete":
         Check(columns.Count == 115816, "the original fixed 192-cell circle must keep every column");
@@ -199,9 +219,12 @@ switch (args[0])
         Check(!unusedGeometry.FullyInside && unusedGeometry.Bounds!.Maximum.X == 300 && unusedGeometry.Triangles.Count == 1,
             "classification and reported bounds include every Geometry vertex, including unused vertices");
         break;
-    default: NonRailCases.Run(args[0]); break;
+    default: NonRailCases.Run(name); break;
 }
 
+
+    }
+}
 sealed class TestFrame : ISceneFrame
 {
     public (int X, int Z)? Missing;
@@ -222,4 +245,3 @@ sealed class TestFrame : ISceneFrame
     public Lookup<ScenePose> FindPose(WorldObjectId subject) => throw new NotSupportedException();
     public Lookup<WorldLocation> Locate(Vector3 point) => throw new NotSupportedException();
 }
-'''

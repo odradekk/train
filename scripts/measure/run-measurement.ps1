@@ -42,7 +42,8 @@ try {
     New-Item -ItemType Directory -Force -Path $work, $results, $CacheDirectory | Out-Null
     $scaleDirectory = Join-Path $work 'scene-scale'
     $inputs = if ($InputSet -eq 'scene-scale') {
-        @(1, 10, 30, 100 | ForEach-Object {
+        # 30× 和 100× 打开节点所需内存超过测试机，只生成和统计，不在游戏里打开。
+        @(1, 10 | ForEach-Object {
             @{ name = "${_}x"; path = (Join-Path $scaleDirectory "saves/${_}x.save.json")
                 directory = (Join-Path $results "scale-${_}x"); stage = 'not_started'; succeeded = $false }
         })
@@ -82,7 +83,7 @@ try {
 
     if ($InputSet -eq 'scene-scale') {
         $stage = 'scale-inputs'
-        & python3 (Join-Path $Root 'scripts/measure/scene-scale.py') --root $Root --output $scaleDirectory --configuration Release `
+        & python3 (Join-Path $Root 'scripts/measure/scene-scale.py') generate --root $Root --output $scaleDirectory --configuration Release `
             *> (Join-Path $results 'scale-inputs-process.log')
         $inputExit = $LASTEXITCODE
         $preservedInputs = (New-Item -ItemType Directory -Force -Path (Join-Path $results 'scale-inputs')).FullName
@@ -116,18 +117,26 @@ try {
     $executable = Join-Path $build 'train.x86_64'
     foreach ($measurementInput in $inputs) {
         New-Item -ItemType Directory -Force -Path $measurementInput.directory | Out-Null
-        $stage = $measurementInput.stage = 'reference'
-        & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
-            -OutputDirectory (Join-Path $measurementInput.directory 'reference') -Scenario scene-reference -Repeat 1 -Machine test `
-            *> (Join-Path $measurementInput.directory 'reference-process.log')
-        if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
-        $stage = $measurementInput.stage = 'scenarios'
-        & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
-            -OutputDirectory (Join-Path $measurementInput.directory 'scenarios') -Scenario ($Scenario -split ',' | ForEach-Object { $_.Trim() }) -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds `
-            -ReferencePath (Join-Path $measurementInput.directory 'reference/scene-reference-1/scene-reference.json') `
-            *> (Join-Path $measurementInput.directory 'scenarios-process.log')
-        if ($LASTEXITCODE -ne 0) { throw "场景列表测量失败，退出码 $LASTEXITCODE。" }
-        $measurementInput.succeeded = $true
+        try {
+            $stage = $measurementInput.stage = 'reference'
+            & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
+                -OutputDirectory (Join-Path $measurementInput.directory 'reference') -Scenario scene-reference -Repeat 1 -Machine test `
+                *> (Join-Path $measurementInput.directory 'reference-process.log')
+            if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
+            $stage = $measurementInput.stage = 'scenarios'
+            & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
+                -OutputDirectory (Join-Path $measurementInput.directory 'scenarios') -Scenario ($Scenario -split ',' | ForEach-Object { $_.Trim() }) -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds `
+                -ReferencePath (Join-Path $measurementInput.directory 'reference/scene-reference-1/scene-reference.json') `
+                *> (Join-Path $measurementInput.directory 'scenarios-process.log')
+            if ($LASTEXITCODE -ne 0) { throw "场景列表测量失败，退出码 $LASTEXITCODE。" }
+            $measurementInput.succeeded = $true
+            $measurementInput.stage = 'completed'
+        }
+        catch {
+            $failure = $true
+            $_.ToString() | Set-Content -LiteralPath (Join-Path $measurementInput.directory 'failure.log')
+            Write-Host "输入 $($measurementInput.name) 失败，阶段：$($measurementInput.stage)。"
+        }
     }
 }
 catch {

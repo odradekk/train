@@ -1,4 +1,14 @@
-NONRAIL_CASES = r'''
+
+using System.Collections.Immutable;
+using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
+using Train.Core.Contracts;
+using Train.Scenes.Contracts;
+using Train.SceneScale;
+
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+namespace Train.SceneScale.Tests;
 static class NonRailCases
 {
     private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
@@ -72,4 +82,3 @@ static class NonRailCases
             "fully_inside and crossing_boundary independently aggregate nonrail world-triangle keys");
     }
 }
-'''

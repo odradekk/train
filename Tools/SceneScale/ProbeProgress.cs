@@ -12,7 +12,7 @@ internal static class ProbeProgress
 
     internal static void Write(string stage, object? detail = null)
     {
-        if (Clock.Elapsed.TotalSeconds < nextAt) return;
+        if (stage is not ("error" or "local-capture") && Clock.Elapsed.TotalSeconds < nextAt) return;
         nextAt = Clock.Elapsed.TotalSeconds + 1;
         using var process = Process.GetCurrentProcess();
         var gc = GC.GetGCMemoryInfo();

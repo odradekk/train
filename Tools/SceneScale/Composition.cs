@@ -30,7 +30,11 @@ internal static class Composition
             new(CliContentFiles.BuiltIn, CliContentFiles.Mods, null, version, []), purpose),
             new CliContentFiles(repository), new AssetInspector()));
         if (loaded.Report.Diagnostics.Any(d => d.Severity == ContentDiagnosticSeverity.Error) || !loaded.Report.RuntimeMissing.IsEmpty)
+        {
+            foreach (var diagnostic in loaded.Report.Diagnostics)
+                Console.Error.WriteLine(JsonSerializer.Serialize(new { diagnostic.Code, diagnostic.Field }));
             throw new InvalidDataException("内容加载失败。");
+        }
         var view = loaded.View;
         var options = new CoreSessionOptions(new("probe", "probe", "anonymous", "anonymous", "net10"), false, 1);
         using var candidate = state is null

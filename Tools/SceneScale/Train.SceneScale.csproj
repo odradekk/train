@@ -8,6 +8,7 @@
     <LangVersion>12.0</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Train.SceneScale.Tests" />
     <ProjectReference Include="../../Contracts/Core/Train.Core.Contracts.csproj" />
     <ProjectReference Include="../../Contracts/Content/Train.Content.Contracts.csproj" />
     <ProjectReference Include="../../Contracts/Scenes/Train.Scenes.Contracts.csproj" />

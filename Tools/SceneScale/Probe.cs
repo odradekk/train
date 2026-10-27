@@ -5,15 +5,15 @@ using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 namespace Train.SceneScale;
 
-// 沿用 #499 的 N/C/F、局部几何与高度观测定义；耗时只作等待信息，不是游戏性能指标。
+// 耗时只作等待信息，不是游戏性能指标。
 internal static partial class Probe
 {
-    internal static async Task<bool> Run(string mode, double[]? observedFocus, ICoreReadView view,
+    internal static async Task<bool> Run(string mode, ICoreReadView view,
         IContentView content, IScenesFactory scenes, bool verifyStable = false)
     {
         if (mode == "stats")
         {
-            WriteStats(view, content, observedFocus!);
+            WriteStats(view, content);
             return true;
         }
         var json = new JsonSerializerOptions { IncludeFields = true };
@@ -31,7 +31,7 @@ internal static partial class Probe
             triangles = all.Values.Where(o => o.Parent == null && o.Subject == null).Sum(o => o.Visuals.OfType<SceneVisual.Geometry>().Where(g => g.Mesh.Material is not SceneMaterial.BuiltIn).Sum(g => (long)g.Mesh.TriangleIndices.Length / 3))
         };
         int stage = 0;
-        var focusCenter = mode == "local" && observedFocus is not null ? new Vector2((float)observedFocus[0], (float)observedFocus[1]) : Vector2.Zero;
+        var focusCenter = Vector2.Zero;
         var offsets = new[] { Vector2.Zero, new Vector2(64, 0), new Vector2(-64, 0), new Vector2(0, 64), new Vector2(0, -64) };
         var localTriangles = new HashSet<string>(StringComparer.Ordinal);
         var localRails = new HashSet<string>(StringComparer.Ordinal);
@@ -65,6 +65,7 @@ internal static partial class Probe
                 maximumCoordinateQuantizationErrorCells = .0005,
                 cameraOffsetsCells = offsets,
                 cameraStages = samples.Count,
+                cameraSamplingMethod = "Stage 0 uses the default camera; stages 1-4 use radius192. Crossing-boundary first observations depend on this radius.",
                 triangles = localTriangles.Count,
                 triangleWorldCoordinatesMaterialSha256 = Digest(localTriangles),
                 railSteelTriangles = localRails.Count,
@@ -208,7 +209,6 @@ internal static partial class Probe
                         origin = frame.Origin,
                         min = new[] { b.Minimum.X, b.Minimum.Y },
                         max = new[] { b.Maximum.X, b.Maximum.Y },
-                        focus = new[] { 0d, 0d },
                         navigationCenter = new[] { frame.Origin.X + (b.Minimum.X + b.Maximum.X) / 2, frame.Origin.Z + (b.Minimum.Y + b.Maximum.Y) / 2 },
                         sceneObjectCount = all.Count,
                         businessSceneRootsWithin32m = all.Values.Count(o => o.Parent == null && o.Subject is WorldObjectId.Instance

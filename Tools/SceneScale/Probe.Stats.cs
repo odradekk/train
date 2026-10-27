@@ -9,7 +9,7 @@ namespace Train.SceneScale;
 
 internal static partial class Probe
 {
-    private static void WriteStats(ICoreReadView view, IContentView content, double[] observedFocus)
+    private static void WriteStats(ICoreReadView view, IContentView content)
     {
         var node = view.World.Nodes.Single(n => n.Id.Value == 2);
         var settlement = ((Lookup<SettlementView>.Found)view.FindSettlement(((NodeOccupant.Settlement)node.Occupant!).Id)).Value;
@@ -19,13 +19,13 @@ internal static partial class Probe
             IncludeFields = true
         };
 
-        var focus = new Vector2((float)observedFocus![0], (float)observedFocus![1]);
+        var focus = Vector2.Zero;
         var farChunks = new HashSet<(int, int, int)>();
-        var near = new List<string>();
         long farN = 0, farF = 0;
+        var near = new List<string>();
+
         var objects = new List<object>();
         int business32 = 0;
-        var D = new[] { (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1) };
         foreach (var plot in settlement.Plots.Where(p => p.Occupant is PlotOccupant.Building))
         {
             var at = layout.Plots.Single(p => p.Number == plot.TemplatePlotNumber);
@@ -33,8 +33,10 @@ internal static partial class Probe
             var instance = ((Lookup<InstanceView>.Found)view.FindInstance(new InstanceId.Building(((PlotOccupant.Building)plot.Occupant).Id))).Value;
             var design = (DesignEvaluation.Complete)((ContentLookup<DesignEvaluation>.Found)content.FindDesign(instance.Design)).Value;
             var cells = design.Scene.Voxels.Select(v => (v.At.X + at.At.X, v.At.Y + at.At.Y, v.At.Z + at.At.Z)).ToHashSet();
-            long n = 0, f = 0;
-            var chunks = new HashSet<(int, int, int)>();
+            var counts = CountFar([cells]);
+            farChunks.UnionWith(counts.Chunks);
+            farN += counts.N;
+            farF += counts.F;
             bool close32 = false;
             foreach (var v in design.Scene.Voxels)
             {
@@ -51,32 +53,22 @@ internal static partial class Probe
                     v.Shape,
                     v.Paint
                 }, json));
-                else
-                {
-                    n++;
-                    var ch = ((int)Math.Floor(x / 32.0), (int)Math.Floor(y / 32.0), (int)Math.Floor(z / 32.0));
-                    chunks.Add(ch);
-                    farChunks.Add(ch);
-                    foreach (var (dx, dy, dz) in D) if (!cells.Contains((x + dx, y + dy, z + dz))) f++;
-                }
             }
             if (close32) business32++;
-            farN += n;
-            farF += f;
             objects.Add(new
             {
                 plot = plot.TemplatePlotNumber,
                 at = at.At,
                 design = instance.Design.Value,
                 totalN = cells.Count,
-                farN = n,
-                farC = chunks.Count,
-                farF = f
+                farN = counts.N,
+                farC = counts.C,
+                farF = counts.F
             });
         }
         var ground = layout.SceneModel.Scene.Voxels.Select(v => (v.At.X, v.At.Y, v.At.Z)).ToHashSet();
         long groundF = 0;
-        foreach (var (x, y, z) in ground) foreach (var (dx, dy, dz) in D) if (!ground.Contains((x + dx, y + dy, z + dz))) groundF++;
+        foreach (var (x, y, z) in ground) foreach (var (dx, dy, dz) in FaceNeighbors) if (!ground.Contains((x + dx, y + dy, z + dz))) groundF++;
         var groundNear = layout.SceneModel.Scene.Voxels.Where(v => Math.Pow(v.At.X - focus.X, 2) + Math.Pow(v.At.Z - focus.Y, 2) <= 192 * 192).Select(v => JsonSerializer.Serialize(new
         {
             v.At,
@@ -99,12 +91,7 @@ internal static partial class Probe
             plots = layout.Plots.Length,
             publicLayoutSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(layout, json)))),
             buildingObjects = objects,
-            far = new
-            {
-                N = farN,
-                C = farChunks.Count,
-                F = farF
-            },
+            far = new { N = farN, C = farChunks.Count, F = farF },
             ground = new
             {
                 N = ground.Count,
@@ -128,7 +115,7 @@ internal static partial class Probe
             {
                 t.Id,
                 position = t.Position.ToString(),
-                t.Activity,
+                Activity = t.Activity.ToString(),
                 t.SpeedMetersPerSecond,
                 planStops = t.Plan?.Stops.Length,
                 loop = t.Plan?.Loop

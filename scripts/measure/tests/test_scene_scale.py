@@ -1,16 +1,24 @@
 import copy
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 spec = importlib.util.spec_from_file_location("scene_scale", Path(__file__).resolve().parents[1] / "scene-scale.py")
 scene_scale = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scene_scale)
 
 
 class GeneratedContentTests(unittest.TestCase):
+    def test_generated_json_has_platform_independent_utf8_lf_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "input.json"
+            scene_scale.write(output, {"value": "中"})
+            self.assertEqual('{"value":"中"}\n'.encode("utf-8"), output.read_bytes())
+
     def test_modified_ground_roundtrips_within_the_content_json_file_limit(self):
         ground = scene_scale.read(Path(__file__).resolve().parents[3] /
                                   "builtin/core/resources/blueprints/core-city-ground.blueprint.json")
@@ -30,10 +38,9 @@ class ScaleInputValidationTests(unittest.TestCase):
         self.stats = copy.deepcopy(self.baseline)
         self.stats["far"]["N"] = 1000
         self.stats["businessObjectsWithin32m"] = 1
-        self.bounds = {"focus": [12, 34]}
 
-    def test_valid_far_growth_keeps_the_original_near_content_and_focus(self):
-        scene_scale.validate_variant(self.baseline, self.stats, self.bounds, [12, 34], 10)
+    def test_valid_far_growth_keeps_the_origin_near_content(self):
+        scene_scale.validate_variant(self.baseline, self.stats, 10)
 
     def test_near_content_drift_cannot_be_reported_as_a_scale_point(self):
         for field in ("near96", "groundNear96"):
@@ -41,26 +48,17 @@ class ScaleInputValidationTests(unittest.TestCase):
                 changed = copy.deepcopy(self.stats)
                 changed[field]["sha256"] = "different"
                 with self.assertRaisesRegex(ValueError, "near_content_changed"):
-                    scene_scale.validate_variant(self.baseline, changed, self.bounds, [12, 34], 10)
+                    scene_scale.validate_variant(self.baseline, changed, 10)
 
     def test_insufficient_far_growth_is_rejected(self):
         self.stats["far"]["N"] = 999
         with self.assertRaisesRegex(ValueError, "far_growth_insufficient"):
-            scene_scale.validate_variant(self.baseline, self.stats, self.bounds, [12, 34], 10)
-
-    def test_focus_must_match_within_the_archived_calibration_tolerance(self):
-        for focus in ([.001, 0], [0, .001], [.01, 0]):
-            with self.subTest(focus=focus):
-                self.bounds["focus"] = focus
-                with self.assertRaisesRegex(ValueError, "focus_calibration_changed"):
-                    scene_scale.validate_variant(self.baseline, self.stats, self.bounds, [0, 0], 10)
-        self.bounds["focus"] = [.00099, 0]
-        scene_scale.validate_variant(self.baseline, self.stats, self.bounds, [0, 0], 10)
+            scene_scale.validate_variant(self.baseline, self.stats, 10)
 
     def test_an_empty_near_view_is_rejected_even_when_the_hash_matches(self):
         self.stats["businessObjectsWithin32m"] = 0
         with self.assertRaisesRegex(ValueError, "near_business_missing"):
-            scene_scale.validate_variant(self.baseline, self.stats, self.bounds, [12, 34], 10)
+            scene_scale.validate_variant(self.baseline, self.stats, 10)
 
     def test_both_mirrored_building_groups_stay_outside_the_node_origin_near_circle(self):
         slots = scene_scale.slots_for({"plots": []}, [0, 0])
@@ -150,7 +148,7 @@ class LocalValidationTests(unittest.TestCase):
                          "railCenterline": {"parkingOutside": True, "sha256": "centerline"},
                          "triangles": 100, "railSteelTriangles": 20,
                          "stability_samples": [{"cameraStage": stage, "firstGeometry": {
-                             "fully_inside": {"nonRailTriangles": 80,
+                             "fully_inside": {"objects": 1, "nonRailTriangles": 80,
                                               "nonRailTriangleWorldCoordinatesMaterialSha256": "near"},
                              "crossing_boundary": {"nonRailTriangles": 20,
                                                    "nonRailTriangleWorldCoordinatesMaterialSha256": "far"}}}
@@ -159,6 +157,18 @@ class LocalValidationTests(unittest.TestCase):
     def test_stable_complete_near_scene_is_accepted(self):
         self.assertEqual({"equal": True, "triangle_delta": 0, "rail_steel_triangle_delta": 0},
                          scene_scale.validate_local(self.baseline, {**self.baseline, "stability_verified": True}, True))
+
+    def test_empty_fully_inside_inventory_cannot_pass_on_matching_empty_hashes(self):
+        empty = copy.deepcopy(self.baseline)
+        for sample in empty["stability_samples"]:
+            sample["firstGeometry"]["fully_inside"]["objects"] = 0
+        with self.assertRaisesRegex(ValueError, "near_scene_objects_missing"):
+            scene_scale.validate_local(empty, empty, False)
+
+    def test_additional_large_scale_slots_must_pass_the_near_exclusion(self):
+        with self.assertRaisesRegex(ValueError, "additional_slots_unavailable"):
+            scene_scale.chosen_slots([(0, 2)], 100)
+        self.assertEqual([(0, 2), (0, 3)], scene_scale.chosen_slots([(0, 2), (0, 3)], 100))
 
     def test_required_stability_check_cannot_be_omitted_or_coerced(self):
         for value in (None, False, 1, "true"):

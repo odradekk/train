@@ -1,22 +1,30 @@
-"""Exercise the pure public-frame railway signature with hand-worked geometry."""
-import subprocess
-import tempfile
-import unittest
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-HARNESS = r'''
 using System.Collections.Immutable;
 using System.Numerics;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 using Train.SceneScale;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+namespace Train.SceneScale.Tests;
+[TestClass]
+public sealed class RailwayTests
+{
+    [TestMethod]
+    [TestCategory("fast")]
+    [DataRow("clip") ]
+    [DataRow("circle") ]
+    [DataRow("origin") ]
+    [DataRow("quantize") ]
+    [DataRow("path") ]
+    [DataRow("parking") ]
+    public void Observe(string name)
+    {
 var frame = new Frame();
 void Check(bool ok, string why) { if (!ok) throw new Exception(why); }
 SceneDebugLine Line(Vector3 a, Vector3 b) => new(a,b,Vector4.One);
 Probe.LocalRailway Capture() => Probe.CaptureRailway(frame, Vector2.Zero);
 void Segments(params string[] expected) => Check(Capture().normalized_segments.SequenceEqual(expected), string.Join("|",Capture().normalized_segments));
-switch(args[0]) {
+switch(name) {
 case "clip":
     frame.DebugLines = [Line(new(-384,-384,0),new(384,384,0)), Line(new(193,0,0),new(200,0,0)), Line(new(192,0,-5),new(192,0,5))];
     Segments("-192000,-192000,0;192000,192000,0", "192000,0,0;192000,0,0");
@@ -66,6 +74,9 @@ case "parking":
     break;
 }
 SceneOverviewPlot Plot(int n,float z) => new(n,PlotSize.SmallStation,[new(0,z),new(10,z),new(10,z+10),new(0,z+10)]);
+
+    }
+}
 sealed class Frame : ISceneFrame {
  public ScenePoint Origin {get;set;}
  public SceneNodeOverview? NodeOverview {get;set;}
@@ -81,31 +92,3 @@ sealed class Frame : ISceneFrame {
  public Lookup<double> TerrainHeight(double x,double z) => throw new NotSupportedException();
  public Lookup<double> DisplayTerrainHeight(double x,double z) => throw new NotSupportedException();
 }
-'''
-
-class RailwayTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.temp = tempfile.TemporaryDirectory(prefix="train-railway-tests-")
-        folder = Path(cls.temp.name)
-        refs = ''.join(f'<ProjectReference Include="{ROOT / "Contracts" / n / ("Train."+n+".Contracts.csproj")}" />' for n in ('Core','Content','Scenes'))
-        sources = ''.join(f'<Compile Include="{p}" />' for p in sorted((ROOT/'Tools/SceneScale').glob('Probe.Local*.cs')))
-        cls.project = folder/'Railway.csproj'
-        cls.project.write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup>'+refs+sources+'</ItemGroup></Project>',encoding='utf-8')
-        (folder/'Program.cs').write_text(HARNESS,encoding='utf-8')
-        result = subprocess.run(['dotnet','build',cls.project,'--nologo'],cwd=ROOT,capture_output=True,text=True,encoding='utf-8',timeout=120)
-        if result.returncode: raise AssertionError(result.stdout+result.stderr)
-        cls.assembly = folder/'bin/Debug/net10.0/Railway.dll'
-    @classmethod
-    def tearDownClass(cls): cls.temp.cleanup()
-    def check_case(self,name):
-        result = subprocess.run(['dotnet',self.assembly,name],cwd=ROOT,capture_output=True,text=True,encoding='utf-8',timeout=20)
-        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-    def test_circle_clips_crossing_height_and_tangent(self): self.check_case('clip')
-    def test_circle_is_exact_and_handles_vertical_lines(self): self.check_case('circle')
-    def test_origin_converts_all_three_coordinates(self): self.check_case('origin')
-    def test_quantization_and_reversed_duplicate_segments(self): self.check_case('quantize')
-    def test_path_change_but_not_order_changes_signature(self): self.check_case('path')
-    def test_parking_exclusion_requires_strict_public_station_proof(self): self.check_case('parking')
-
-if __name__ == '__main__': unittest.main()

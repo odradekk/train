@@ -59,9 +59,13 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 | `measure_repeat` | 每个所选场景的轮数 | `3` |
 | `measure_seconds` | 每轮时长，秒；`0` 使用场景默认值 | `0` |
 
-运行器只导出一次 Release。`example` 先跑一次 `scene-reference`，把参考文件通过 `ReferencePath` 传给每个所选场景；这次准备不计入指定轮数。因此默认选择还会再跑 3 次 `scene-reference`。`scene-scale` 调用被测 checkout 的 `scripts/measure/scene-scale.py`，构建 Release CLI 和 SceneScale 工具并生成四档存档，再依次对每档执行同样的参考准备和场景列表，轮数取 `measure_repeat`。该输入集忽略 `measure_input`，只使用仓库内的固定配方；正式打开测量选择 `scene-node-first`。
+运行器只导出一次 Release。`example` 先跑一次 `scene-reference`，把参考文件通过 `ReferencePath` 传给每个所选场景；这次准备不计入指定轮数。因此默认选择还会再跑 3 次 `scene-reference`。
 
-手动选择 `window-soak` 时，同一运行器固定使用 `example`、`scene-soak`、`examples/standard-world/save.json`、Repeat 1，时长取 `soak_seconds`（默认 7200 秒）。这些选择均只报告测量结果，不强制性能预算。结果写入 `TestResults/measure-<UTC时间戳>-<被测提交短SHA>/`。`example` 的 `reference/` 是准备运行，`scenarios/` 是所选场景；`scene-scale` 按 `scale-1x/`、`scale-10x/`、`scale-30x/`、`scale-100x/` 分开保存各档的 `reference/` 和 `scenarios/`。`scale-inputs/` 保留生成器根目录的 JSON（含 `scale-manifest.json`）及 `saves/`，不保留临时 `inputs/<档位>/builtin/`。`export/` 共用同一次导出日志。顶层 `summary.json` 记录 `input_set` 和各档阶段、成功状态；生成、参考或场景测量失败均使入口非零退出，后续档位保留未开始状态。每个场景目录中的 `summary.json.runs` 仍供离线汇总使用，不能把不同档位混合统计。
+`scene-scale` 调用被测 checkout 的 `scripts/measure/scene-scale.py generate`，构建 Release CLI 和 SceneScale 工具，对四档执行 bounds、make 和 stats，生成存档及统计。运行器固定只对 1×、10× 执行参考准备和所选场景，轮数取 `measure_repeat`；30×、100× 的打开内存需求超出测试机容量，只生成存档及统计。该输入集忽略 `measure_input`，只使用仓库内的固定配方；正式打开测量选择 `scene-node-first`。runner 不运行 ready 或 local；近景核对在本机独立运行 `scene-scale.py verify`，只核对 1×、10×，两档都做 10 秒复核。
+
+手动选择 `window-soak` 时，同一运行器固定使用 `example`、`scene-soak`、`examples/standard-world/save.json`、Repeat 1，时长取 `soak_seconds`（默认 7200 秒）。这些选择均只报告测量结果，不强制性能预算。结果写入 `TestResults/measure-<UTC时间戳>-<被测提交短SHA>/`。`example` 的 `reference/` 是准备运行，`scenarios/` 是所选场景；`scene-scale` 在 `scale-1x/`、`scale-10x/` 分开保存各档的 `reference/` 和 `scenarios/`。`scale-inputs/` 保留并上传生成器根目录的 JSON（含 `scale-manifest.json`）、`.log` 文件及 `saves/`，不保留临时内容树 `inputs/`。`export/` 共用同一次导出日志。顶层 `summary.json` 记录 `input_set` 和各档阶段、成功状态。各档独立记录失败状态，某档参考或场景测量失败后继续其他档位，最后只要有失败就以非零退出。生成失败时保留已产生的清单和日志，并以非零退出。每个场景目录中的 `summary.json.runs` 仍供离线汇总使用，不能把不同档位混合统计。
+
+规模路径尚无 runner 首次成功记录。待首次成功后核对生成、参考准备和所选场景的分段耗时，按[预算调整原则](contracts/testing.md#预算调整原则)补充预算；本机近景核对的耗时单独记录，预算也待首次成功后按实测核对。
 
 这两种选择只能经 `workflow_dispatch` 触发，会在主机屏幕上打开游戏窗口，运行前须与协调者确认 runner 时段和主机条件。输入通过环境变量传入脚本。工作流从 `GITHUB_SHA` 归档 `scripts/` 到 `RUNNER_TEMP` 并保留目录结构，运行该版本的脚本；`export-measurement.ps1 -SourceDirectory` 指向被测 checkout，所以也能测量搬迁前的提交。运行器把官方 `Godot_v4.7.2-stable_mono_export_templates.tpz` 缓存在 runner 工具目录，每次按同一发布的 `SHA512-SUMS.txt` 重新核对，只解出 `linux_release.x86_64` 到 `RUNNER_TEMP`，再导出 Linux Release。游戏使用 runner 用户自己的桌面会话。主机须安装 gamescope；入口始终用 `gamescope -w 1920 -h 1080 -W 1920 -H 1080 --` 固定游戏输出为 1920×1080，找不到 gamescope 时失败。
 

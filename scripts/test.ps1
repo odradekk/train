@@ -15,20 +15,12 @@ $layers = @(($Layer -join ',') -split ',' | Select-Object -Unique)
 if (@($layers | Where-Object { $_ -notin @('fast', 'integration', 'engine', 'stage', 'all') }).Count) { throw 'Unknown test layer.' }
 if ('all' -in $layers) { $layers = @('fast', 'integration', 'engine') + @($layers | Where-Object { $_ -eq 'stage' }) }
 $Project = @(($Project -join ',') -split ',' | Where-Object { $_ } | Select-Object -Unique)
-if (@($Project | Where-Object { $_ -notin @('core', 'content', 'scenes', 'godot', 'contract-support', 'contract-checks', 'cli') }).Count) { throw 'Unknown test project.' }
 if ($All -and $Project.Count) { throw '-All and -Project cannot be combined.' }
 if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $IsWindows)) { throw '-ExportWindows requires engine, no -Project, and Windows.' }
 if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine', 'stage') }) }
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
-$projects = @(
-    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 481; integration = $(if ($IsWindows) { 10 } else { 7 }) },
-    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 426; integration = 1 },
-    @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 251; integration = 1 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 145; integration = $(if ($IsWindows) { 85 } else { 77 }); engine = 109 },
-    @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 41; integration = 0 },
-    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 },
-    @{ name = 'cli'; path = 'Tests/Cli/Train.Cli.Tests.csproj'; fast = 4; integration = $(if ($IsWindows) { 7 } else { 3 }) }
-)
+$projects = @(& (Join-Path $PSScriptRoot 'checks/Get-TestProjects.ps1'))
+if ($Project.Where({ $_ -notin $projects.name }).Count) { throw 'Unknown test project.' }
 $engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
 $commit = (git rev-parse HEAD).Trim()
