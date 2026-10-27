@@ -4,7 +4,7 @@
 本页的命令提交、业务输入身份与创作写入边界按[契约审计修订 #296](https://github.com/odradekk/train/issues/296)调整；保留上述历史决策出处，以下协议为当前约定。
 
 
-本页规定目标方案。现有测试已拆分为 Core、Content、Scenes、Godot 宿主和 CLI 五个项目，另有独立的真实 Godot 引擎测试项目。统一入口已接入分层和项目选择；Scenes 当前行为覆盖与证据边界见[统一测试入口](../run-tests.md#选择)，具体待实现范围见[体素契约的当前状态](scenes-status.md)。Core/Content/Scenes/Godot 隔离重建已接入统一入口。26 个已登记项目的依赖与公开面基线可检查。Godot 隔离装配已接入，当前整组契约基线为 `39975587`。[契约原型](https://github.com/odradekk/train/issues/292)验证过声明、调用方式、替身和检查机制，其证据范围见下文。
+本页规定目标方案。现有测试已拆分为 Core、Content、Scenes、Godot 宿主和 CLI 五个项目，另有独立的真实 Godot 引擎测试项目。统一入口已接入分层和项目选择；Scenes 当前行为覆盖与证据边界见[统一测试入口](../run-tests.md#选择)，具体待实现范围见[体素契约的当前状态](scenes-status.md)。Core/Content/Scenes/Godot 隔离重建已接入统一入口。26 个已登记项目的依赖与公开面基线可检查。Godot 隔离装配已接入，当前整组契约基线为 `6114cc10`。[契约原型](https://github.com/odradekk/train/issues/292)验证过声明、调用方式、替身和检查机制，其证据范围见下文。
 
 已归档的[运行原型](../../archive/prototypes/contract-probe/README.md)提供上述机制的最小实证入口，分别报告有限情景、真实文件与 Godot 检查，并用故意违规证明检查有效。它没有接入生产测试入口；真实模块尚未实现的项目仍记为待验证，具体运行结果与输入身份保存在忽略目录的单次摘要中。
 
@@ -63,7 +63,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 当前工具命令为 `structure <仓库根> <配置> <输出目录>`、`verify <仓库根> <配置> <基线文件>`、`isolate <仓库根> <配置> <输出目录>`、`snapshot <仓库根> <配置> <基线文件>`；退出码 0 表示通过，1 表示检查或执行失败，2 表示用法错误。`contract-checks` 自测项目覆盖结构失败、公开面和隔离机制。按 #318 的审查决定，其中 6 个 Keep File 规则用例仅使用临时文件、在进程内执行，须满足快速层每例 1 秒上限；CLI 接线由既有结构失败用例同时断言，不额外启动 structure。
 
-单独选择阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 时完全跳过改动分析，总是构建一次解决方案并执行固定阶段检查，包括 structure、verify、isolate、确定性用例和 Benchmark；平台范围和候选基准见[阶段检查与候选基准](../run-tests.md#阶段检查与候选基准)。`-Layer stage,engine` 不强制引擎，引擎仍按同一套影响规则选择；完整阶段检查使用 `-All -Layer all,stage`，由 `-All` 强制引擎。常规集成入口仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；选中后在最多 4 个任务、2070 秒的集成队列结束后独立执行，使用 1290 秒上限，即使队列失败也执行，不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查；显式 `-Project` 跳过这些全仓检查。
+单独选择阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 时完全跳过改动分析，总是构建一次解决方案并执行固定阶段检查，包括 structure、verify、isolate 和确定性用例；平台范围和候选基准见[阶段检查与候选基准](../run-tests.md#阶段检查与候选基准)。`-Layer stage,engine` 不强制引擎，引擎仍按同一套影响规则选择；完整阶段检查使用 `-All -Layer all,stage`，由 `-All` 强制引擎。常规集成入口仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；选中后在最多 4 个任务、2070 秒的集成队列结束后独立执行，使用 1290 秒上限，即使队列失败也执行，不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查；显式 `-Project` 跳过这些全仓检查。
 
 边界矩阵 `scripts/checks/project-boundaries.json` 在顶层、与 `projects` 同级登记 `isolationTests`，其元素是 `projects` 中的隔离根测试项目名。`isolate` 只选择此列表中的项目，沿矩阵声明的允许引用生成各自的依赖闭包；空列表判失败，不回退到固定项目名。工具夹具可以只登记一个模块；真实仓库登记 `["Train.Core.Tests", "Train.Content.Tests", "Train.Scenes.Tests", "Train.Godot.Tests"]`，串行复制独立输入、冷构建四个模块、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；单次是否通过以运行日志与摘要为准。
 
@@ -86,13 +86,13 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 
 公开面不变不能证明语义兼容。行为变化仍按[受控变更流程](conventions.md#契约基线与受控变更)更新文档、用例及受影响调用方，经用户确认后才记录整组新基线。提取器和构建脚本是检查工具，不在生产契约中引入检查框架。
 
-当前 `structure` 检查 26 个已登记项目的求值引用、解析路径、输出程序集、源码归属和友元声明，发现未登记的新项目会失败，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的程序集检查跨契约类型归属与枚举实际值。当前已确认整组契约基线为 `39975587`（`public-api.txt` blob `c257593b`）。真实工厂已建立，但当前公开声明提取仍只扫描契约项目源码，尚未纳入实现工厂的公开面。Core/Content/Scenes/Godot 的隔离重建已接入，单次是否通过以运行日志与摘要为准。
+当前 `structure` 检查 26 个已登记项目的求值引用、解析路径、输出程序集、源码归属和友元声明，发现未登记的新项目会失败，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的契约程序集检查跨契约类型归属与枚举实际值。提取范围还包括 `CoreFactory.cs`、`ContentFactory.cs`、`ScenesFactory.cs` 中对应工厂及其可见嵌套类型的公开声明；工厂文件的 `using` 和其他实现类型不纳入基线。当前已确认整组契约基线为 `6114cc10`（`public-api.txt` blob `ef9fb7be`）。Core/Content/Scenes/Godot 的隔离重建已接入，单次是否通过以运行日志与摘要为准。
 
 ### 公开面基线更新
 
 先按[受控变更流程](conventions.md#契约基线与受控变更)确认接口和行为变更，更新受影响文档、共享用例及调用样例，取得用户对整组新基线的确认。然后先在仓库根目录运行 `dotnet build Train.sln -c Debug` 构建契约程序集，再运行 `dotnet Tests/ContractChecks/bin/Debug/net10.0/Train.ContractChecks.dll snapshot . Debug docs/contracts/public-api.txt` 生成 `docs/contracts/public-api.txt`，逐项审查 diff，再运行 `pwsh -NoProfile -File scripts/test.ps1 -Layer integration`。`snapshot` 会直接覆盖文件，不能把生成成功当成用户确认。记录承载新基线的提交和 `git rev-parse <提交>:docs/contracts/public-api.txt` 返回的 blob 身份，并在 Issue 中保留确认与验证结果。
 
-当前提取器保留源码声明中的 `using` 指令、表达式体和初始值文本，因此这些文本变化也会产生差异；审查时需判断其是否改变可观察契约，不把所有差异自动视为签名变化。
+当前提取器不记录方法的块状方法体或表达式体；契约源码中的 `using` 指令、其他声明的表达式体和初始值文本仍保留，因此这些文本变化也会产生差异。审查时需判断其是否改变可观察契约，不把所有差异自动视为签名变化。
 
 ## 最小调用原型的验证矩阵
 

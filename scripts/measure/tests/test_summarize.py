@@ -37,10 +37,9 @@ class DirectoryTests(unittest.TestCase):
     def report(elapsed=2):
         return {"outcome": "completed", "timing": {
             "elapsed_seconds": elapsed, "actual_speed": 3,
-            "window_median_actual_speed": 4, "window_minimum_actual_speed": 1,
             "frame_seconds": {"p50": 0.01, "p95": 0.03, "p99": 0.06, "maximum": 0.1},
             "simulation_seconds": {"p50": 0.001, "p95": 0.003, "p99": 0.006, "maximum": 0.01},
-            "frames": [{"interval_seconds": 1000}]}, "memory": [], "operations": []}
+            "frames": [{"interval_seconds": 1000}]}}
 
     def metrics(self, result, scenario="scene-test"):
         return result["scenarios"][scenario]["metrics"]
@@ -59,84 +58,16 @@ class DirectoryTests(unittest.TestCase):
                     "frame_seconds.p99": 0.06, "frame_seconds.maximum": 0.1,
                     "simulation_seconds.p50": 0.001, "simulation_seconds.p95": 0.003,
                     "simulation_seconds.p99": 0.006, "simulation_seconds.maximum": 0.01,
-                    "actual_speed": 3, "window_median_actual_speed": 4,
-                    "window_minimum_actual_speed": 1, "elapsed_seconds": 5}
+                    "actual_speed": 3, "elapsed_seconds": 5}
         for name, value in expected.items():
             self.assertEqual(value, metrics[f"timing.{name}"]["A"]["median"], name)
-        self.assertNotIn("timing.frames", metrics)
-
-    def test_operations_use_name_and_take_each_runs_median_before_combining_runs(self):
-        first = self.report()
-        first["operations"] = [
-            {"name": "new-operation", "duration_seconds": value, "succeeded": True}
-            for value in (1, 3, 20)]
-        second = self.report()
-        second["operations"] = [{"name": "new-operation", "duration_seconds": 10, "succeeded": True}]
-        self.add_run(report=first)
-        self.add_run(report=second)
-        metric = self.metrics(summarize.summarize_directories([self.root / "A"]))[
-            "operations.new-operation.duration_seconds"]["A"]
-        self.assertEqual((6.5, 3, 10), tuple(metric[key] for key in ("median", "min", "max")))
-        self.assertEqual(2, metric["valid_runs"])
-
-    def test_failed_or_non_numeric_operation_invalidates_that_runs_operation(self):
-        for index, invalid in enumerate(({"succeeded": False}, {"duration_seconds": "unavailable"},
-                                       {"duration_seconds": None}, {"duration_seconds": True}, {})):
-            with self.subTest(invalid=invalid):
-                report = self.report()
-                bad = {"name": "load", "duration_seconds": 99, "succeeded": True}
-                bad.update(invalid)
-                if not invalid:
-                    del bad["succeeded"]
-                report["operations"] = [
-                    {"name": "load", "duration_seconds": 1, "succeeded": True}, bad]
-                side = f"case-{index}"
-                self.add_run(side=side, report=report)
-                metric = self.metrics(summarize.summarize_directories([self.root / side]))[
-                    "operations.load.duration_seconds"]["A"]
-                self.assertEqual(("unknown", None), (metric["status"], metric["median"]))
-
-    def test_memory_reports_final_and_peak_per_run_for_each_fixed_counter(self):
-        first = self.report()
-        first["memory"] = [{"working_set_bytes": 100, "private_bytes": 80, "peak_working_set_bytes": 150,
-                            "godot_static_bytes": 40, "video_memory_bytes": 50},
-                           {"working_set_bytes": 20, "private_bytes": 90, "peak_working_set_bytes": 160,
-                            "godot_static_bytes": 30, "video_memory_bytes": 60}]
-        second = self.report()
-        second["memory"] = [{"working_set_bytes": 60, "private_bytes": 100, "peak_working_set_bytes": 110,
-                             "godot_static_bytes": 10, "video_memory_bytes": 20}]
-        self.add_run(report=first)
-        self.add_run(report=second)
-        metrics = self.metrics(summarize.summarize_directories([self.root / "A"]))
-        self.assertEqual(40, metrics["memory.working_set_bytes.final"]["A"]["median"])
-        self.assertEqual(80, metrics["memory.working_set_bytes.peak"]["A"]["median"])
-        self.assertEqual(95, metrics["memory.private_bytes.final"]["A"]["median"])
-        self.assertEqual(135, metrics["memory.peak_working_set_bytes.peak"]["A"]["median"])
-        self.assertEqual(25, metrics["memory.godot_static_bytes.peak"]["A"]["median"])
-        self.assertEqual(40, metrics["memory.video_memory_bytes.final"]["A"]["median"])
-
-    def test_unavailable_memory_makes_affected_metric_unknown(self):
-        for index, invalid in enumerate(("unavailable", None, True)):
-            with self.subTest(invalid=invalid):
-                report = self.report()
-                report["memory"] = [{"working_set_bytes": invalid, "private_bytes": 1},
-                                    {"working_set_bytes": 20, "private_bytes": invalid}]
-                side = f"memory-{index}"
-                self.add_run(side=side, report=report)
-                metrics = self.metrics(summarize.summarize_directories([self.root / side]))
-                self.assertEqual(20, metrics["memory.working_set_bytes.final"]["A"]["median"])
-                for name in ("working_set_bytes.peak", "private_bytes.final", "private_bytes.peak"):
-                    metric = metrics[f"memory.{name}"]["A"]
-                    self.assertEqual(("unknown", None, 1),
-                                     (metric["status"], metric["median"], metric["unknown_runs"]))
+        self.assertEqual({f"timing.{name}" for name in expected}, set(metrics))
 
     def test_failed_runs_never_contribute_reported_values(self):
         for index, condition in enumerate(("run_failed", "report_failed", "exit", "timeout", "cleanup", "missing_process")):
             with self.subTest(condition=condition):
                 side = f"failure-{index}"
                 report = self.report(100)
-                report["operations"] = [{"name": "load", "duration_seconds": 100, "succeeded": True}]
-                report["memory"] = [{"working_set_bytes": 100}]
                 if condition == "report_failed":
                     report["outcome"] = "failed"
                 path = self.add_run(side=side, report=report, succeeded=condition != "run_failed")
@@ -150,7 +81,7 @@ class DirectoryTests(unittest.TestCase):
                                    {"cleanup_succeeded": False} if condition == "cleanup" else {})
                     process_path.write_text(json.dumps(process))
                 metrics = self.metrics(summarize.summarize_directories([self.root / side]))
-                for name in ("timing.elapsed_seconds", "operations.load.duration_seconds", "memory.working_set_bytes.final"):
+                for name in ("timing.elapsed_seconds", "timing.actual_speed"):
                     self.assertEqual((None, 0, 1), tuple(metrics[name]["A"][key]
                                                          for key in ("median", "valid_runs", "unknown_runs")))
                     self.assertTrue(metrics[name]["A"]["unknown_reasons"])
@@ -237,9 +168,9 @@ class DirectoryTests(unittest.TestCase):
         self.assertEqual(original, report.read_bytes())
 
     def test_null_sections_produce_unknown_metrics(self):
-        self.add_run(report={"outcome": "completed", "timing": None, "memory": None, "operations": None})
+        self.add_run(report={"outcome": "completed", "timing": None})
         metrics = self.metrics(summarize.summarize_directories([self.root / "A"]))
-        self.assertEqual(len(summarize.TIMING_METRICS + summarize.MEMORY_METRICS), len(metrics))
+        self.assertEqual(len(summarize.TIMING_METRICS), len(metrics))
         for metric in metrics.values():
             self.assertEqual((None, 1, "unknown"), tuple(metric["A"][key]
                                                        for key in ("median", "unknown_runs", "status")))
@@ -262,17 +193,6 @@ class DirectoryTests(unittest.TestCase):
                 path.parent.joinpath("process.json").write_text(json.dumps(process))
                 metric = self.metrics(summarize.summarize_directories([self.root / side]))["timing.actual_speed"]["A"]
                 self.assertEqual((None, 1), (metric["median"], metric["unknown_runs"]))
-
-    def test_partial_reports_with_malformed_collections_do_not_abort_other_runs(self):
-        for index, (memory, operations) in enumerate(((12, {}), ([None, 12], [False, {}, {"name": 1}]), ([], 12))):
-            with self.subTest(index=index):
-                side = f"partial-{index}"
-                self.add_run(side=side, report=self.report(6))
-                self.add_run(side=side, report={"outcome": "failed", "timing": {"elapsed_seconds": 100},
-                                                "memory": memory, "operations": operations})
-                metric = self.metrics(summarize.summarize_directories([self.root / side]))["timing.elapsed_seconds"]["A"]
-                self.assertEqual((6, 1, 1), tuple(metric[key] for key in ("median", "valid_runs", "unknown_runs")))
-
 
 class StatisticsTests(unittest.TestCase):
     def test_no_valid_values_produces_null_with_reason(self):

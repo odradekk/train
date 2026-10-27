@@ -17,7 +17,7 @@ description: Measure and optimize train against its guarded scenarios for scene 
 | 完整游戏的帧耗时和实际倍速 | `scene-route-1x`、`scene-route-8x`（以及 2x、4x）、`scene-follow-8x`；聚居地和战斗用重负载存档 | `Core/`、`Scenes/`、`Rendering/`、`Ui/`、`App/` | 同上，`-Scenario scene-route-1x,scene-route-8x,scene-follow-8x` | 帧耗时 p50、p95、p99、最大；实际倍速 | #824 | Linux runner，只报告 |
 | 内存 | `scene-memory`、`scene-soak` | `Scenes/`、`Rendering/`、`Content/`、`Core/` 的存档和状态 | 同上，`-Scenario scene-memory`；两小时长测用 workflow 的 `window-soak` 选项 | 节点稳态私有字节增量、缓冲区加纹理增量、整个游戏稳态私有字节和工作集、离开节点后强制 GC 的存活堆、每小时增长 | #824 | Linux runner，只报告 |
 
-重复的旧场景（`map-*`、`follow-*`、`node-*`、`sdfgi-*`、`taa-*`）由 #821 删除，不再使用；报告按设计 00 阈值判定由 #822 完成。
+先读每份报告的 `assessment.items`：报告按设计 00 的阈值逐项给出 `passed`、`failed` 或 `unknown`，缺数据和截断观察不得当作通过。`assessment.conclusion` 保持“待验收”，还需要目标配置实机与完整覆盖；`outcome=completed` 只表示运行完成。字段、适用窗口和未知规则见[逐项性能判定](../../../scripts/measure/README.md#逐项性能判定)，阈值数值由报告代码单处维护。
 
 ## 找出限制因素
 
@@ -44,7 +44,7 @@ description: Measure and optimize train against its guarded scenarios for scene 
 2. **核对起点：** 在未改动的代码上跑场景和它的功能测试，和存下的基线比较。差距很大说明基线过时或机器不同，先弄清楚再继续。
 3. **找限制因素：** 用上面的工具。动手前读这一区域的决策笔记，包括被拒绝的，避免重复试过的做法。
 4. **写下假设：** 每条假设指出一个机制，例如「每帧都重新扫描所有高度列」。从便宜的开始试：去掉结果没人用的工作；只做一次；少做；晚点做；在玩家不等的时候做；并行做；做得更快。
-5. **一次只改一处：** 每次改动后跑功能测试，再按 `measure-performance` 技能交替运行改前和改后来比较。差异超过波动且测试通过才保留，否则完全撤回。每次尝试（保留的和撤回的）连同数字记在临时目录的文件里。可以在不同工作树里并行准备多个尝试，但测量一次只跑一个。
+5. **一次只改一处：** 每次改动后跑功能测试，再按 `measure-performance` 技能交替运行改前和改后来比较。开发机上的交替对照、负载采样、CPU 预检和跨轮汇总用 `scripts/measure/` 里现成的脚本，用法见 [scripts/measure/README.md](../../../scripts/measure/README.md)，不要另写一份。差异超过波动且测试通过才保留，否则完全撤回。每次尝试（保留的和撤回的）连同数字记在临时目录的文件里。可以在不同工作树里并行准备多个尝试，但测量一次只跑一个。
 6. **拒绝：** 收益在完整游戏里消失、拖慢典型负载、复杂度超过收益，或改变了笔记允许之外的行为（Core 模拟结果必须逐字节不变；场景就绪后显示的内容不变；只有流式加载的顺序、时机和就绪前的空白可以变，且不超出目标）。
 7. **停止：** 达到目标，或剩下的想法收益太小不值得做时停下，把剩下的想法按价值排好列出来。
 8. **交付：** 每个保留的改动单独提交，用 `commit` 技能；改场景的提交单独做，并按测量规则带上新基线。PR 用 `pr` 技能，写主要数字和被拒绝的尝试。别人还会想再试的、被拒绝的想法写成被拒绝的决策笔记。

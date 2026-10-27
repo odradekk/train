@@ -134,8 +134,9 @@ internal static class ViewCoverage
         a.Sample is { Known: true } && b.Sample is { Known: true };
     private static CoverageDistribution Distribution(IEnumerable<double> values)
     {
-        var sorted = values.Order().ToArray();
-        double? Percentile(double p) => sorted.Length == 0 ? null : sorted[(int)Math.Ceiling(sorted.Length * p) - 1];
-        return new(sorted.Length, sorted.Sum(), Percentile(.5), Percentile(.99), sorted.Length == 0 ? null : sorted[^1]);
+        var samples = values.ToArray();
+        if (samples.Length == 0) return new(0, 0, null, null, null);
+        var distribution = FrameMeasurements.Distribution(samples);
+        return new(samples.Length, samples.Sum(), distribution.P50, distribution.P99, distribution.Maximum);
     }
 }

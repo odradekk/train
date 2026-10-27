@@ -1,6 +1,4 @@
 using System.Text.Json;
-using System.Runtime.InteropServices;
-using System.ComponentModel;
 using Godot;
 using Train.App.Saves;
 using Train.Core.Contracts;
@@ -25,16 +23,6 @@ internal sealed partial class MeasurementRun
     private ProbeState? _sceneLoggedProbeState;
     private readonly List<object> _sceneProbeEvents = [];
     private readonly List<SceneProbeCost> _sceneProbeCosts = [];
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessMemoryCounters
-    {
-        internal uint Size, PageFaultCount;
-        internal nuint PeakWorkingSet, WorkingSet, QuotaPeakPagedPool, QuotaPagedPool,
-            QuotaPeakNonPagedPool, QuotaNonPagedPool, PagefileUsage, PeakPagefileUsage, PrivateUsage;
-    }
-    [DllImport("kernel32.dll", EntryPoint = "K32GetProcessMemoryInfo", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetProcessMemoryInfo(IntPtr process, out ProcessMemoryCounters counters, uint size);
     private sealed record SceneProbeCost(string? Operation, long Draw, double Started, double Ended,
         double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds,
         int FogRegionCount);
@@ -50,7 +38,6 @@ internal sealed partial class MeasurementRun
     private bool _sceneCapturedPartial;
     private object? _scenePresented;
     private SceneFrameStamp? _scenePresentedStamp;
-    private static readonly JsonSerializerOptions SceneJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     private sealed record SceneSample(double At, string Phase, double FrameSeconds, ulong Steps,
         string Speed, bool Paused, string? Request, string? Space, string? Readiness,
@@ -61,6 +48,7 @@ internal sealed partial class MeasurementRun
 
     private async Task RunSceneBudget()
     {
+        _identity["encounter_action"] = ConfigureEncounterAction(_scenario, _app.Notifications);
         var directory = Path.GetDirectoryName(_output)!;
         using var frames = new StreamWriter(Path.Combine(directory, "scene-frames.jsonl"));
         using var operations = new StreamWriter(Path.Combine(directory, "scene-operations.jsonl"));
@@ -482,9 +470,7 @@ internal sealed partial class MeasurementRun
                 _sceneLastProcessRead = now;
             }
             var view = _app.WorldScenes.View;
-            var blocking = SceneBlockingControls();
-            var modal = SceneUiDescendants(_app).OfType<Window>()
-                .Any(window => window != _app.GetWindow() && window.Visible && window.Exclusive);
+            var (blocking, modal) = ReadSceneUi(_app);
             var bufferBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.BufferMemUsed);
             var textureBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TextureMemUsed);
             var videoBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed);
@@ -549,38 +535,9 @@ internal sealed partial class MeasurementRun
         }
     }
 
-    private void ReadSceneProcessMemory()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            if (!GetProcessMemoryInfo(_process.Handle, out var memory, (uint)Marshal.SizeOf<ProcessMemoryCounters>()))
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            _scenePrivate = (long)memory.PrivateUsage; _sceneWorking = (long)memory.WorkingSet;
-            _scenePeakPrivate = (long)memory.PeakPagefileUsage; _scenePeakWorking = (long)memory.PeakWorkingSet;
-            return;
-        }
-        // Linux 没有私有字节计数：用常驻匿名页加交换页代替，峰值取 0.2 秒采样中的最大值而不是内核高水位。
-        long? working = null, peakWorking = null, anonymous = null, swapped = null;
-        foreach (var line in File.ReadLines("/proc/self/status"))
-        {
-            // 字段名后是制表符和对齐空格，例如 "VmRSS:	  123456 kB"。
-            var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            long Bytes() => long.Parse(fields[1]) * 1024;
-            switch (fields[0])
-            {
-                case "VmRSS:": working = Bytes(); break;
-                case "VmHWM:": peakWorking = Bytes(); break;
-                case "RssAnon:": anonymous = Bytes(); break;
-                case "VmSwap:": swapped = Bytes(); break;
-            }
-        }
-        if (working is null || peakWorking is null || anonymous is null)
-            throw new InvalidDataException("/proc/self/status 缺少 VmRSS、VmHWM 或 RssAnon。");
-        _sceneWorking = working.Value;
-        _scenePeakWorking = peakWorking.Value;
-        _scenePrivate = anonymous.Value + (swapped ?? 0);
-        _scenePeakPrivate = Math.Max(_scenePeakPrivate, _scenePrivate);
-    }
+    private void ReadSceneProcessMemory() =>
+        (_scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking) =
+            ProcessMemory.Read(_process, _scenePeakPrivate);
 
     private object SceneSteady()
     {
@@ -662,14 +619,6 @@ internal sealed partial class MeasurementRun
             previously_opened_targets = _sceneOpenedTargets.ToArray(),
             displayed = frame?.Update.Frame.ToString(), readiness = frame?.Readiness.ToString(),
             diagnostics = frame?.Diagnostics.Select(item => item.Code).ToArray() };
-    }
-
-    private string[] SceneBlockingControls()
-    {
-        var size = _app.GetViewport().GetVisibleRect().Size;
-        return SceneUiDescendants(_app).OfType<Control>().Where(control => control.IsVisibleInTree() &&
-            control.MouseFilter != Control.MouseFilterEnum.Ignore && control.GetGlobalRect().Size.X >= size.X &&
-            control.GetGlobalRect().Size.Y >= size.Y && control is not MacroMap).Select(control => control.GetPath().ToString()).ToArray();
     }
 
     private async Task CaptureSceneImage(string name)

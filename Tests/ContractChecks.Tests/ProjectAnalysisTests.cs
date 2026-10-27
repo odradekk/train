@@ -17,6 +17,8 @@ public sealed class ProjectAnalysisTests
         Assert.IsTrue(Allowed("Saves/SaveContainer.cs"));
         Assert.IsTrue(Allowed("Saves/FileSaveStore.cs"));
         Assert.IsTrue(Allowed("RuntimeEnvironment.cs"));
+        Assert.IsTrue(Allowed("Measurement/ProcessMemory.cs"));
+        Assert.IsFalse(Allowed("Measurement/MeasurementRun.cs"));
         Assert.IsFalse(Allowed("Saves/SaveCapture.cs"));
         Assert.IsFalse(Allowed("Saves/SaveService.cs"));
         Assert.IsFalse(Allowed("Assets/ContentFiles.cs"));

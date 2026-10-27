@@ -13,11 +13,7 @@ TIMING_METRICS = tuple(
     for distribution in ("frame_seconds", "simulation_seconds")
     for statistic in ("p50", "p95", "p99", "maximum")
 ) + tuple(f"timing.{name}" for name in (
-    "actual_speed", "window_median_actual_speed", "window_minimum_actual_speed", "elapsed_seconds"))
-MEMORY_COUNTERS = ("working_set_bytes", "private_bytes", "peak_working_set_bytes",
-                   "godot_static_bytes", "video_memory_bytes")
-MEMORY_METRICS = tuple(f"memory.{counter}.{statistic}"
-                       for counter in MEMORY_COUNTERS for statistic in ("final", "peak"))
+    "actual_speed", "elapsed_seconds"))
 
 
 def is_number(value):
@@ -40,24 +36,6 @@ def report_metrics(report):
         for key in metric.split("."):
             value = value.get(key) if isinstance(value, dict) else None
         metrics[metric] = (value, "missing_or_non_numeric")
-    memory = report.get("memory")
-    memory = memory if isinstance(memory, list) else []
-    for counter in MEMORY_COUNTERS:
-        values = [sample.get(counter) if isinstance(sample, dict) else None for sample in memory]
-        metrics[f"memory.{counter}.final"] = (values[-1] if values else None, "memory_missing_or_non_numeric")
-        peak = max(values) if values and all(is_number(value) for value in values) else None
-        metrics[f"memory.{counter}.peak"] = (peak, "memory_missing_or_non_numeric")
-    operations = {}
-    entries = report.get("operations")
-    for operation in entries if isinstance(entries, list) else []:
-        if isinstance(operation, dict) and isinstance(operation.get("name"), str):
-            operations.setdefault(operation["name"], []).append(operation)
-    for name, entries in operations.items():
-        durations = [entry.get("duration_seconds") for entry in entries]
-        reason = "operation_failed" if any(entry.get("succeeded") is not True for entry in entries) else None
-        if reason is None and not all(is_number(value) for value in durations):
-            reason = "operation_non_numeric"
-        metrics[f"operations.{name}.duration_seconds"] = (None, reason) if reason else (median(durations), None)
     return metrics
 
 
@@ -128,14 +106,12 @@ def summarize_directories(directories):
         for side in sides:
             reports_by_side.setdefault(side, [])
         metrics = {}
-        metric_names = set(TIMING_METRICS + MEMORY_METRICS).union(
-            *(report for reports in reports_by_side.values() for report, _ in reports))
-        for metric in sorted(metric_names):
+        for metric in sorted(TIMING_METRICS):
             metrics[metric] = {}
             for side, reports in reports_by_side.items():
                 samples = []
                 for report, reason in reports:
-                    samples.append((None, reason) if reason else report.get(metric, (None, "metric_missing")))
+                    samples.append((None, reason) if reason else report[metric])
                 metrics[metric][side] = summarize_values(samples)
             if len(sides) == 2:
                 metrics[metric].update(compare(metrics[metric]["A"]["median"], metrics[metric]["B"]["median"]))

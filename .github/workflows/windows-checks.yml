@@ -204,15 +204,14 @@ jobs:
     name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
     if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak' || inputs.selection == 'measure'))
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || inputs.selection == 'window-soak' && 200 || inputs.selection == 'measure' && 720 || 153 }}
+    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || inputs.selection == 'window-soak' && 200 || inputs.selection == 'measure' && 720 || 138 }}
     permissions:
       contents: read
     env:
       CI_SELECTION: ${{ inputs.selection || 'nightly' }}
       LONG_EXAMPLE: ${{ inputs.example }}
     steps:
-      - name: Mask measurement host identity
-        if: inputs.selection == 'measure' || inputs.selection == 'window-soak'
+      - name: Mask runner host identity
         shell: bash
         run: |
           values=("$HOME" "$(id -un)" "$(uname -n)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE")

@@ -78,11 +78,6 @@ internal partial class WorldSceneView : Node3D
 
     internal void SetLoading(bool loading) => _message.Visible = loading;
     internal bool SdfgiEnabled => _environment.SdfgiEnabled;
-    internal void SetMeasurementEffects(bool sdfgi, bool taa)
-    {
-        _environment.SdfgiEnabled = sdfgi;
-        GetViewport().UseTaa = taa;
-    }
     internal void SetHighQuality(bool high)
     {
         // 比阴影近平面更靠近太阳的投射体会被钳制，PCSS 半影随之放大；pancake 要盖住最高建筑（core-city-hub 116 米，太阳 40°）。

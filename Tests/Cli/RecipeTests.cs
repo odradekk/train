@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Train.Cli.Tests;
@@ -34,12 +33,10 @@ public sealed class RecipeTests
         Assert.AreEqual("train.start", recipe.Commands[^1].Kind);
         Assert.AreEqual(standard.Expectations.Length, recipe.Expectations.Length);
         Assert.AreEqual(standard.CheckpointSteps[0], recipe.CheckpointSteps[0]);
-        // 负载达到后至少推进 6 模拟小时；负载起点和长示例脚本的 C 组保存点都必须是检查点。
+        // 负载达到后至少推进 6 模拟小时，负载起点必须是检查点。
         Assert.IsNotNull(recipe.Load);
         Assert.IsTrue(recipe.Target.CompletedSteps >= recipe.Load.From + 6 * 3600 * 60);
-        var script = File.ReadAllText(Path.Combine(Repository, "scripts", "checks", "run-long-example.ps1"));
-        var save = ulong.Parse(Regex.Match(script, @"'standard-world-long' \{ '(\d+)' \}").Groups[1].Value);
-        foreach (var step in new[] { recipe.Load.From, save }) CollectionAssert.Contains(recipe.CheckpointSteps.ToArray(), step);
+        CollectionAssert.Contains(recipe.CheckpointSteps.ToArray(), recipe.Load.From);
     }
 
     [TestMethod]

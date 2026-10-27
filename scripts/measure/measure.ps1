@@ -4,12 +4,10 @@ param(
     [Parameter(Mandatory)][string] $ExecutablePath,
     [Parameter(Mandatory)][string] $InputPath,
     [Parameter(Mandatory)][string] $OutputDirectory,
-    [ValidateSet('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
-        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on', 'scene-node', 'scene-node-first',
+    [ValidateSet('scene-node', 'scene-node-first',
         'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-soak', 'scene-capture', 'scene-map', 'scene-reference', 'scene-editor',
         'scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x', 'scene-route-capture-1x', 'scene-route-capture-8x')]
-    [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
-        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
+    [string[]] $Scenario = @('scene-route-1x', 'scene-route-8x'),
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     [switch] $StreamingDiagnostics,
     [ValidateSet('default', 'farthest', 'default-low-orbit', 'farthest-low-orbit')][string[]] $RouteCamera = @('default'),
@@ -74,6 +72,9 @@ try {
         # 测试机器的合成器会改写窗口尺寸；gamescope 给游戏固定的 1920×1080 输出（用户 2026-10-22 决定）。
         if (-not (Get-Command gamescope -ErrorAction SilentlyContinue)) {
             throw 'Linux 测量需要 gamescope 提供固定的 1920×1080 输出，主机上找不到 gamescope。'
+        }
+        if (-not (Get-Command python3 -ErrorAction SilentlyContinue)) {
+            throw 'Linux 测量需要 python3 记录游戏退出状态，主机上找不到 python3。'
         }
         $wrapper = @{ program = 'gamescope'; version = ((& gamescope --version 2>&1) | Select-Object -First 1) -as [string]
             arguments = @('-w', '1920', '-h', '1080', '-W', '1920', '-H', '1080', '--') }
@@ -154,18 +155,13 @@ try {
     })
     foreach ($selection in $selections) {
         $name = $selection.scenario
-        $isScene = $name.StartsWith('scene-', [StringComparison]::Ordinal)
         $timeout = if ($name -eq 'scene-memory') {
             if ($DurationSeconds -eq 0) { 7800 } else { $DurationSeconds + 600 }
         } elseif ($name -eq 'scene-soak') {
             # 长测在到时后跑完当前一段（最长约 15 分钟），再加读档与退出余量。
             $(if ($DurationSeconds -eq 0) { 7200 } else { $DurationSeconds }) + 1800
         } elseif ($name.StartsWith('scene-route-', [StringComparison]::Ordinal)) { 3600 }
-        elseif ($isScene) { 600 } else {
-            # 实测采样外耗时最多 39.5 秒；总耗时取 1.5 倍并向上取整到 30 秒，不降低原有预算。
-            $sampleSeconds = if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }
-            [Math]::Max(180, [Math]::Ceiling(($sampleSeconds + 40) * 1.5 / 30) * 30)
-        }
+        else { 600 }
         for ($iteration = 1; $iteration -le $Repeat; $iteration++) {
             $runName = if ($StreamingDiagnostics -or $lowOrbit) { "$name-$($selection.camera)-$iteration" } else { "$name-$iteration" }
             $runDirectory = Join-Path $OutputDirectory $runName
@@ -209,7 +205,7 @@ try {
                 $arguments = @(
                     '--windowed', '--resolution', '1920x1080', '--log-file', (Join-Path $runDirectory 'godot.log'), '--',
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
-                if ($isScene -or $DurationSeconds -gt 0) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture))
                 if ($StreamingDiagnostics) { $arguments += '--measure-streaming' }
                 if ($StreamingDiagnostics -or $lowOrbit) { $arguments += @('--measure-route-camera', $selection.camera) }
                 if ($NodeReadyHold) { $arguments += '--measure-node-ready-hold' }
@@ -217,27 +213,14 @@ try {
                 if ($PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('--measure-train', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('--measure-node', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 $launch = @($ExecutablePath) + $arguments
-                if ($null -ne $wrapper) { $launch = @($wrapper.program) + $wrapper.arguments + $launch }
+                if ($null -ne $wrapper) {
+                    $launch = @($wrapper.program) + $wrapper.arguments + @('python3',
+                        (Join-Path $PSScriptRoot 'game-process.py'), (Join-Path $runDirectory 'game-process.json')) + $launch
+                }
                 if ($idleInhibit) { $launch = @('systemd-inhibit', '--what=idle:sleep', '--who=train-measure', '--why=window measurement', '--mode=block') + $launch }
                 $result = Invoke-HiddenProcess -FilePath $launch[0] -TimeoutSeconds $timeout -ArgumentList @($launch | Select-Object -Skip 1)
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
-                $godotLog = Join-Path $runDirectory 'godot.log'
-                $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
-                    Get-Content -LiteralPath $godotLog | Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' }
-                })
-                $processLines = @($result.Output -split '\r?\n' |
-                    Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' })
-                Write-Json (Join-Path $runDirectory 'process.json') @{
-                    exit_code = $result.ExitCode; timed_out = $result.TimedOut
-                    cleanup_succeeded = $result.CleanupSucceeded; duration_ms = $result.DurationMs
-                    process_diagnostics = @{ 'godot.log' = $godotLines; 'process.log' = $processLines }
-                }
-                if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$name/$iteration 进程失败或超时。" }
-                if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "$name/$iteration 未生成报告。" }
-                $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-                if ($report.outcome -ne 'completed' -or $report.identity.build_configuration -ne 'ExportRelease' -or
-                    @($report.timing.frames).Count -eq 0 -or $null -eq $report.timing.frames -or
-                    $report.scope.final_performance -ne $false) { throw "$name/$iteration 报告未完成、不是 Release 或缺少真实绘制帧。" }
+                Assert-MeasurementRunOutcome -Result $result -RunDirectory $runDirectory -RunName "$name/$iteration" -Gamescope:($null -ne $wrapper)
             }
             finally {
                 foreach ($variable in $previousUserDirectories.Keys) { [Environment]::SetEnvironmentVariable($variable, $previousUserDirectories[$variable]) }
@@ -271,12 +254,12 @@ finally {
             display_wrapper = $wrapper
             scope = @{
                 final_performance = $false
-                warmup_seconds = 5; sample_seconds = $(if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }); repetitions = $Repeat
+                repetitions = $Repeat
                 scene_duration_seconds_argument = $DurationSeconds
-                scene_timing = '新 scene 情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
+                scene_timing = '情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
                 external_load = $(if ($IsWindows) { '每秒通过性能计数器记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。' }
                     else { '每秒记录 /proc/stat 总 CPU 占用、MemAvailable、最高温区温度、交流电状态及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载。' })
-                limitation = $(if ($Machine -eq 'test') { '用户 2026-10-22 指定的测试机器上的真实窗口测量；阈值待用户确认，不判定通过。' }
+                limitation = $(if ($Machine -eq 'test') { '用户 2026-10-22 指定的测试机器上的真实窗口测量；报告逐项对照设计 00 阈值，整体仍待目标配置实机与完整覆盖验收。' }
                     else { '开发机真实窗口测量，仅用于重复采样与证据核对，不代表目标硬件最终性能。' })
             }
         }

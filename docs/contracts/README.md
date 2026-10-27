@@ -5,7 +5,7 @@
 
 ## 状态与后续交付
 
-当前已确认整组契约基线为 `39975587`（`public-api.txt` blob `c257593b`）。
+当前已确认整组契约基线为 `6114cc10`（`public-api.txt` blob `ef9fb7be`）。
 
 当前已确定模块职责、类型归属、目标项目布局和契约管理规则。核心、内容与体素契约声明，以及四模块消费样例已创建；Godot 接入规范已明确。现有内容、日志和控制台代码已按模块归属迁移，[初始公开面基线](public-api.txt)检查已接入；Core/Content/Scenes/Godot 隔离重建已接入，见[测试入口](testing.md#模块测试的组织与入口)。生产宿主已接入真实工厂，调用位置检查与 Godot 隔离装配已接入；后续变更按受控流程建立新基线，本页不是这些检查已经通过的证据。
 
@@ -67,7 +67,7 @@
 
 Godot 只有 `App/Composition/` 可以调用真实创建工厂；其他宿主流程、渲染和界面接收装配好的契约接口。独立测试替换装配入口并注入替身，仍执行同一份 Godot 生产代码。暂不引入依赖注入容器、插件扫描或反射装配框架。
 
-`Tools/Cli/` 是纯 .NET 宿主工具，不是新的业务模块，不引用 Godot 或 Scenes。只有其 `Composition.cs` 调用真实 Core／Content 工厂，其余代码接收契约。工具链接 `App/Assets/DiskContentFiles.cs`、`App/Assets/GlbInput.cs`、`App/Saves/SaveContainer.cs`、`App/Saves/FileSaveStore.cs`、`App/RuntimeEnvironment.cs`、`App/Measurement/WorldCounts.cs` 同份纯 .NET 源码，使用宿主的 GLB 容器检查、格式 6 容器、文件发布流程、运行环境身份，以及与窗口长测共用的配方期望计数；源码归属检查按这六个精确文件允许共享，不开放整个宿主目录。核心与内容载荷不透明传递，头部位置和包清单分别来自核心、内容捕获。
+`Tools/Cli/` 是纯 .NET 宿主工具，不是新的业务模块，不引用 Godot 或 Scenes。只有其 `Composition.cs` 调用真实 Core／Content 工厂，其余代码接收契约。工具链接 `App/Assets/DiskContentFiles.cs`、`App/Assets/GlbInput.cs`、`App/Saves/SaveContainer.cs`、`App/Saves/FileSaveStore.cs`、`App/RuntimeEnvironment.cs`、`App/Measurement/WorldCounts.cs`、`App/Measurement/ProcessMemory.cs` 同份纯 .NET 源码，使用宿主的 GLB 容器检查、格式 6 容器、文件发布流程、运行环境身份，以及与窗口长测共用的配方期望计数和私有内存读数；源码归属检查按这七个精确文件允许共享，不开放整个宿主目录。核心与内容载荷不透明传递，头部位置和包清单分别来自核心、内容捕获。
 
 不为 Godot 对称地增设第四个契约程序集。下层需要的文件读取、PNG 解码、资源提交等宿主接口由需要它的模块定义，Godot 实现；下层不引用 Godot 类型。Godot 的接口文档仍须说明这些适配、装配、交互和资源责任。
 
