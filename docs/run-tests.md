@@ -125,9 +125,9 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 & ./scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/standard-world/save.json -OutputDirectory TestResults/measure-selected -Scenario @('scene-route-1x', 'scene-route-8x')
 ```
 
-报告的 `identity.game_build` 和 `identity.build_commit` 来自实际加载程序集的 `AssemblyInformationalVersion`。脚本从该构建提交计算 `git rev-parse <commit>:docs/contracts/public-api.txt`，记录为 `identity.public_api_git_blob`；提交须存在于本地仓库。脚本同时记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以当前工作树 HEAD 代替二进制来源。
+`identity.game_build`／`identity.build_commit` 来自已加载程序集的 `AssemblyInformationalVersion`。脚本执行 `git rev-parse <commit>:docs/contracts/public-api.txt`，计算并记录 `identity.public_api_git_blob`；构建提交须在本地仓库。脚本记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以 HEAD 代替二进制来源。
 
-场景经生产 `--measure=<场景>` 运行，输入存档不变。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间，不丢弃卡顿帧。单位为秒和字节；分位数为 nearest-rank，不插值，实际倍速为完成步数除以 60 和采样秒数。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数不作失败阈值。
+生产入口是 `--measure=<场景>`，输入存档不变。报告核对该程序集的 SHA-256 与构建提交，记录窗口／viewport、GPU／驱动、录制、自动存档和遇敌自动降速设置。`identity.encounter_action` 记录实际值 `value` 和产品默认值 `default_value`，仅测量主动关闭时带 `reason`。`timing.frames` 记录 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停和模拟工作时间，保留卡顿帧。单位为秒和字节；分位数用 nearest-rank，不插值；实际倍速为完成步数除以 60 和采样秒数。模拟工作时间含帧驱动推进及边界消费者，不含候选准备和渲染提交；5 ms 预算触及次数不作失败阈值。
 
 报告判定见[说明](../scripts/measure/README.md#逐项性能判定)。
 
@@ -152,8 +152,8 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
 | `scene-edge` | 地图首次打开线路 11、返回地图后重开、读档回地图后立即再开线路 |
 | `scene-follow` | 地图首次点击列车 1，跟随其参考中心所在的车辆 |
-| `scene-follow-8x` | 经同一 UI 路径进入跟随，切 8×、预热 5 秒后采样 120 秒；可用 `DurationSeconds` 改为短预演 |
-| `scene-route-1x`、`scene-route-2x`、`scene-route-4x`、`scene-route-8x` | seed 40 起步贸易存档，跟随列车 1 走完线路→节点→线路路线，终点节点的显示帧定位到车头（按编组朝向取首车或末车）后，再补齐交接后的车身轨迹；记录 Scenes／实际显示的前方覆盖、车身覆盖、边界截断和未知，倍率取自原生帧循环 |
+| `scene-follow-8x` | 经同一 UI 路径跟随，遇敌自动降速设为 `None`；8× 预热 5 秒后采样 120 秒（`DurationSeconds` 可缩短） |
+| `scene-route-1x`、`scene-route-2x`、`scene-route-4x`、`scene-route-8x` | seed 40 起步贸易存档，跟随列车 1 完成线路→节点→线路；终点节点显示帧定位到车头（按编组朝向取首车或末车）后，补齐交接后的车身轨迹。记录 Scenes／实际显示的前方覆盖、车身覆盖、边界截断和未知；倍率取自原生帧循环。仅 `scene-route-8x` 将遇敌自动降速设为 `None` |
 | `scene-route-capture-1x`、`scene-route-capture-8x` | 同一路线的独立截图运行，截图开销不计作计时证据 |
 | `scene-memory` | 重复打开节点并返回地图；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
 | `scene-soak` | 正式窗口长测，输入为 `examples/standard-world/save.json`，见下文[窗口长测](#窗口长测) |
@@ -260,7 +260,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 2. 主体至少 12 分钟、不读档，让自动存档槽和录制起点在同一会话里轮换。每轮依次：地图、地图→节点 2、节点→边 15、边 15→节点 3、返回地图、地图→边 15、跟随列车 1、设计编辑器（打开列车 1 首车，上色一格、撤销、重做后放弃）。每个视图取 10 秒 8× 样本，每段首轮另取 1× 样本；编辑器打开时宿主暂停模拟。
 3. 段末 8 次保存并读取玩家自己的存档，读档后首个打开的场景在节点 2 与边 15 之间交替。
 
-遇敌自动降速在长测中设为 `None` 并记入报告，避免新战斗把 8× 样本降到 1×。负载按配方在保存点的期望计数，计数在后台线程每秒最多一次，每帧按最近一次结果分为 `full`、`all-but-line-battle` 和 `below-recipe`；计数耗时写入 `scene-probe-costs.jsonl`。自动存档按槽文件头的保存时间计数；录制裁剪只在同一会话、前后两次读数都有可用起点时，按最早起点位置前移计数。玩家存档的读档被拒绝时，长测记录操作、保存位置、状态和问题字段，在原对局继续且不取读档后首显样本，`round_trips.evidence` 记为 `failed`；标准世界重置失败仍使运行失败。每段主体按首轮实测的每真实秒步数定长，保证同一会话能攒够录制起点而发生裁剪，见报告的 `body_sizing`。报告的 `identity.scene_budget.soak` 汇总各视图与倍速的帧耗时分位数、超过 16.7 ms 的帧比例、实际步数／秒与负载分类比例，各类操作的时延分布、前后三分之一中位数和每小时斜率、相对前一地图稳态的峰值增量，以及内存斜率与每段存活堆。Godot 显存读数在集成显卡上是共享系统内存。
+`scene-soak` 也将遇敌自动降速设为 `None`。负载按保存点的配方期望计数，后台线程每秒最多计数一次；每帧按最近结果分为 `full`、`all-but-line-battle` 和 `below-recipe`，计数耗时写入 `scene-probe-costs.jsonl`。自动存档按槽文件头的保存时间计数；录制裁剪要求同一会话前后都有可用起点，按最早起点前移计数。玩家存档读档被拒绝时，记录操作、保存位置、状态和问题字段，在原对局继续，不取读档后首显样本，并将 `round_trips.evidence` 记为 `failed`；标准世界重置失败仍使运行失败。每段主体按首轮实测的每真实秒步数定长，让同一会话积累足够起点并发生裁剪（`body_sizing`）。`identity.scene_budget.soak` 汇总各视图与倍速的帧耗时分位数、超过 16.7 ms 的帧比例、实际步数／秒与负载分类比例、操作的时延分布、前后三分之一中位数、每小时斜率、相对前一地图稳态的峰值增量、内存斜率和每段存活堆。Godot 显存读数在集成显卡上是共享系统内存。
 
 测量窗口和视口必须在整段运行中保持 1920×1080，适配器不能是软件渲染，否则立即失败。Linux 上 `measure.ps1` 总在 gamescope 嵌套合成器中启动游戏，找不到 gamescope 时失败。进程首次打开节点、线路和首次跟随需要新进程，不在长测范围内。测试机器上的触发方式见[远端检查](#远端检查)和 [CI](ci.md#linux-夜间运行)。
 
