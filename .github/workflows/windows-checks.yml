@@ -34,9 +34,14 @@ on:
         type: string
         default: scene-reference
       measure_input:
-        description: examples/ 下的输入存档（仅 measure）
+        description: examples/ 下的输入存档（仅 measure 的 example 输入集）
         type: string
         default: examples/standard-world/save.json
+      measure_input_set:
+        description: 测量输入集（仅 measure）
+        type: choice
+        options: [example, scene-scale]
+        default: example
       measure_repeat:
         description: 每场景轮数（仅 measure）
         type: string
@@ -310,10 +315,11 @@ jobs:
           SOAK_SECONDS: ${{ inputs.soak_seconds }}
           MEASURE_SCENARIOS: ${{ inputs.measure_scenarios }}
           MEASURE_INPUT: ${{ inputs.measure_input }}
+          MEASURE_INPUT_SET: ${{ inputs.measure_input_set }}
           MEASURE_REPEAT: ${{ inputs.measure_repeat }}
           MEASURE_SECONDS: ${{ inputs.measure_seconds }}
         run: |
-          $parameters = @{ Scenario = $env:MEASURE_SCENARIOS; InputPath = $env:MEASURE_INPUT; Repeat = $env:MEASURE_REPEAT; DurationSeconds = $env:MEASURE_SECONDS }
+          $parameters = @{ Scenario = $env:MEASURE_SCENARIOS; InputSet = $env:MEASURE_INPUT_SET; InputPath = $env:MEASURE_INPUT; Repeat = $env:MEASURE_REPEAT; DurationSeconds = $env:MEASURE_SECONDS }
           if ($env:CI_SELECTION -eq 'window-soak') {
             $parameters = @{ Scenario = 'scene-soak'; InputPath = 'examples/standard-world/save.json'; Repeat = 1; DurationSeconds = $env:SOAK_SECONDS }
           }
