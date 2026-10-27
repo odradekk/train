@@ -211,8 +211,7 @@ jobs:
       CI_SELECTION: ${{ inputs.selection || 'nightly' }}
       LONG_EXAMPLE: ${{ inputs.example }}
     steps:
-      - name: Mask measurement host identity
-        if: inputs.selection == 'measure' || inputs.selection == 'window-soak'
+      - name: Mask runner host identity
         shell: bash
         run: |
           values=("$HOME" "$(id -un)" "$(uname -n)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE")
