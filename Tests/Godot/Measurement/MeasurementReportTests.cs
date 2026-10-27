@@ -9,28 +9,6 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementReportTests
 {
     [TestMethod]
-    public void LinuxPrivateBytesIncludeSwapAndKeepTheLargestSample()
-    {
-        string[] status = ["Name:\ttrain", "VmRSS:\t  100 kB", "VmHWM:   160 kB",
-            "RssAnon:\t40 kB", "VmSwap:  8 kB"];
-        var first = MeasurementRun.ReadLinuxProcessMemory(status, 0);
-        Assert.AreEqual((49152L, 102400L, 49152L, 163840L), first);
-        var later = MeasurementRun.ReadLinuxProcessMemory(["VmRSS: 90 kB", "VmHWM: 160 kB", "RssAnon: 30 kB"], first.PeakPrivate);
-        Assert.AreEqual((30720L, 92160L, 49152L, 163840L), later);
-    }
-
-    [TestMethod]
-    [DataRow("VmRSS:")]
-    [DataRow("VmHWM:")]
-    [DataRow("RssAnon:")]
-    public void LinuxMemoryCannotBeReportedWithoutRequiredCounters(string missing)
-    {
-        string[] status = ["VmRSS: 100 kB", "VmHWM: 160 kB", "RssAnon: 40 kB", "VmSwap: 8 kB"];
-        Assert.Throws<InvalidDataException>(() => MeasurementRun.ReadLinuxProcessMemory(
-            status.Where(line => !line.StartsWith(missing, StringComparison.Ordinal)), 0));
-    }
-
-    [TestMethod]
     public void MissingSamplesCanOnlyBeReportedAsFailure()
     {
         Assert.Throws<InvalidOperationException>(() => MeasurementReport.Serialize("scene-map",

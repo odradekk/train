@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Train.App.Measurement;
 using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -14,7 +15,7 @@ using static Train.Cli.CliRunner;
 
 namespace Train.Cli;
 
-/// <summary>Measures one group of content operations in the current process; records values only, no budgets.</summary>
+/// <summary>Records one group of content operations without budgets.</summary>
 internal sealed class ContentMeasurement(ICoreFactory core, IContentFactory content, CliRunner runner)
 {
     internal static readonly string[] Groups = ["load", "evaluate", "history", "capture", "restore"];
@@ -58,7 +59,7 @@ internal sealed class ContentMeasurement(ICoreFactory core, IContentFactory cont
                 // Windows 上对应 PeakPagefileUsage，即进程私有提交量的峰值。
                 ["peakPagedMemoryBytes"] = process.PeakPagedMemorySize64,
                 ["workingSetBytes"] = process.WorkingSet64,
-                ["privateMemoryBytes"] = process.PrivateMemorySize64,
+                ["privateMemoryBytes"] = ProcessMemory.Read(process, 0).Private,
                 ["managedHeapBytes"] = GC.GetTotalMemory(false),
                 ["totalAllocatedBytes"] = GC.GetTotalAllocatedBytes(true),
                 ["gcCollections"] = new JsonArray(GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2)),

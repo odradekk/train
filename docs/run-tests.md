@@ -183,7 +183,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `route-frames.jsonl`、`route-ranges.jsonl`、`route-analysis.json` | 整路逐帧轨迹、范围变化及离线覆盖结果；不能把未知或观察不足当作通过 |
 | 截图 | 对应截图情景生成的画面 |
 
-场景内存写在 `scene-frames.jsonl`、操作记录及 `identity.scene_budget` 的稳态值中。设计 00「私有字节」在 Windows 上读取 `PrivateUsage`，峰值读取 `PeakPagefileUsage`；Linux 上读取 `/proc/self/status` 的 `RssAnon + VmSwap`（缺少 `VmSwap` 时为 0），私有峰值取 0.2 秒采样的最大值。所有场景共用这一处读法；两个平台的计数并非完全相同。工作集及峰值工作集分别使用 Windows 的 `WorkingSet`／`PeakWorkingSet` 和 Linux 的 `VmRSS`／`VmHWM`，单位都是字节。
+场景内存记录在 `scene-frames.jsonl`、操作记录和 `identity.scene_budget` 的稳态值中。私有字节按设计 00：Windows 读 `PrivateUsage`、峰值读 `PeakPagefileUsage`；Linux 读 `/proc/self/status` 的 `RssAnon + VmSwap`（缺 `VmSwap` 按 0），私有峰值取 0.2 秒采样最大值。场景、CLI `run` 进度和 `measure-content` 共用读法；两个平台的计数并非完全相同。工作集和峰值工作集分别读 Windows `WorkingSet`／`PeakWorkingSet`、Linux `VmRSS`／`VmHWM`；单位均为字节。
 
 ### 流式宿主记录
 

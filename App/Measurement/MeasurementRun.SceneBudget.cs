@@ -1,6 +1,4 @@
 using System.Text.Json;
-using System.Runtime.InteropServices;
-using System.ComponentModel;
 using Godot;
 using Train.App.Saves;
 using Train.Core.Contracts;
@@ -537,44 +535,9 @@ internal sealed partial class MeasurementRun
         }
     }
 
-    private void ReadSceneProcessMemory()
-    {
-        // 设计 00「私有字节」的统一入口：Windows 为 PrivateUsage，Linux 为 RssAnon + VmSwap。
-        // Windows 私有峰值为 PeakPagefileUsage；Linux 私有峰值为 0.2 秒采样中的最大值。
-        if (OperatingSystem.IsWindows())
-        {
-            if (!GetProcessMemoryInfo(_process.Handle, out var memory, (uint)Marshal.SizeOf<ProcessMemoryCounters>()))
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            _scenePrivate = (long)memory.PrivateUsage; _sceneWorking = (long)memory.WorkingSet;
-            _scenePeakPrivate = (long)memory.PeakPagefileUsage; _scenePeakWorking = (long)memory.PeakWorkingSet;
-            return;
-        }
+    private void ReadSceneProcessMemory() =>
         (_scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking) =
-            ReadLinuxProcessMemory(File.ReadLines("/proc/self/status"), _scenePeakPrivate);
-    }
-
-    internal static (long Private, long Working, long PeakPrivate, long PeakWorking) ReadLinuxProcessMemory(
-        IEnumerable<string> lines, long previousPeakPrivate)
-    {
-        long? working = null, peakWorking = null, anonymous = null, swapped = null;
-        foreach (var line in lines)
-        {
-            // 字段名后是制表符和对齐空格，例如 "VmRSS:	  123456 kB"。
-            var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            long Bytes() => long.Parse(fields[1]) * 1024;
-            switch (fields[0])
-            {
-                case "VmRSS:": working = Bytes(); break;
-                case "VmHWM:": peakWorking = Bytes(); break;
-                case "RssAnon:": anonymous = Bytes(); break;
-                case "VmSwap:": swapped = Bytes(); break;
-            }
-        }
-        if (working is null || peakWorking is null || anonymous is null)
-            throw new InvalidDataException("/proc/self/status 缺少 VmRSS、VmHWM 或 RssAnon。");
-        var privateBytes = anonymous.Value + (swapped ?? 0);
-        return (privateBytes, working.Value, Math.Max(previousPeakPrivate, privateBytes), peakWorking.Value);
-    }
+            ProcessMemory.Read(_process, _scenePeakPrivate);
 
     private object SceneSteady()
     {

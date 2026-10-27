@@ -18,6 +18,7 @@
     <Compile Include="../../App/Saves/FileSaveStore.cs" Link="FileSaveStore.cs" />
     <Compile Include="../../App/RuntimeEnvironment.cs" Link="RuntimeEnvironment.cs" />
     <Compile Include="../../App/Measurement/WorldCounts.cs" Link="WorldCounts.cs" />
+    <Compile Include="../../App/Measurement/ProcessMemory.cs" Link="ProcessMemory.cs" />
     <InternalsVisibleTo Include="Train.Cli.Tests" />
   </ItemGroup>
 </Project>
