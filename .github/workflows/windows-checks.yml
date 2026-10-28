@@ -46,6 +46,10 @@ on:
         description: 每场景轮数（仅 measure）
         type: string
         default: '3'
+      measure_node_ready_hold:
+        description: 节点首次就绪后保持观察（仅 measure 的参考和首开场景）
+        type: boolean
+        default: false
       measure_seconds:
         description: 每轮秒数，0 使用场景默认值（仅 measure）
         type: string
@@ -318,8 +322,10 @@ jobs:
           MEASURE_INPUT_SET: ${{ inputs.measure_input_set }}
           MEASURE_REPEAT: ${{ inputs.measure_repeat }}
           MEASURE_SECONDS: ${{ inputs.measure_seconds }}
+          MEASURE_NODE_READY_HOLD: ${{ inputs.measure_node_ready_hold }}
         run: |
           $parameters = @{ Scenario = $env:MEASURE_SCENARIOS; InputSet = $env:MEASURE_INPUT_SET; InputPath = $env:MEASURE_INPUT; Repeat = $env:MEASURE_REPEAT; DurationSeconds = $env:MEASURE_SECONDS }
+          if ($env:CI_SELECTION -eq 'measure' -and $env:MEASURE_NODE_READY_HOLD -eq 'true') { $parameters.NodeReadyHold = $true }
           if ($env:CI_SELECTION -eq 'window-soak') {
             $parameters = @{ Scenario = 'scene-soak'; InputPath = 'examples/standard-world/save.json'; Repeat = 1; DurationSeconds = $env:SOAK_SECONDS }
           }

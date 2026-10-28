@@ -2,6 +2,8 @@
 
 游戏测量入口是 `measure.ps1`，导出入口是 `export-measurement.ps1`。`measure.ps1` 默认运行无需参考文件的 `scene-route-1x`、`scene-route-8x`；其余场景按需显式选择。测量场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。本目录的辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，不需要 Pester 或额外包。
 
+`-NodeReadyHold` 使 `scene-node-first` 和参考运行中指定节点在 Ready 后保持 60 秒，其余场景忽略，支持与路线混选。runner 的布尔输入 `measure_node_ready_hold` 默认 false，仅对 `measure` 生效，传给参考和场景运行。首开场景的 `measure_seconds` 须为 0–120，但不改变保持时间：默认 5 秒，开启后 60 秒。
+
 ## 开发机交替对照
 
 `compare-measurement.ps1` 用于 Windows 开发机上同一窗口里的快速对照，在协调者安排的安静窗口里运行。正式测量仍使用 Linux runner 的 `measure` workflow。
@@ -74,11 +76,9 @@ Read-ExecutionState
 
 `status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺少成对基线或观察截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 继续表示运行是否完成，原有 `timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
 
-路线场景的帧耗时 p95、p99、最大值只统计初始空间首个可操作时刻之后的帧。起点取 `identity.scene_budget.route.startup.first_operable_at`，与 `timing.frames[].elapsed_seconds` 共用起点；排除结束时刻小于或等于该时刻的帧，首个可操作帧本身的间隔仍属于打开过程。三项判定的 `window` 说明范围，`window_start_seconds` 记录相对 timing 起点的秒数，`excluded_frames` 记录排除的原始帧数。缺少可操作时刻或排除后没有帧时判为 `unknown`；缺少时刻时 `window_start_seconds`、`excluded_frames` 为 null。
+路线帧耗时 p95、p99、最大值排除初始打开段：`identity.scene_budget.route.startup.first_operable_at` 与 `timing.frames[].elapsed_seconds` 共用起点，帧结束时刻≤可操作时刻的记录排除，首个可操作帧的间隔仍属打开。三项的 `window` 说明范围，`window_start_seconds` 记录相对起点，`excluded_frames` 记录排除数；缺可操作时刻或无后续帧时为 `unknown`，缺时刻时两字段为 `null`。可操作后补齐和途中切换照常计入；实际倍速用全窗。非路线和其他判定项的两字段为 `null`。原始 `timing` 和旁车均保留。
 
-只排除初始点击到可操作的打开段；可操作后的远处补齐和路线途中空间切换的帧照常计入。实际倍速仍用完整路线窗口。非路线场景沿用现有采样窗口，新字段为 null；其他判定项的新字段也为 null。`timing` 的逐帧数据、全窗分布和旁车记录保持完整，只有三项帧耗时判定使用筛选后的窗口。
-
-打开耗时按操作类别分别统计，p95 至少需要 30 次有效打开；最大值和补齐等待使用有效打开。补齐从首个可操作帧起，检查 5 秒内的 64 m 范围。`scene-memory` 的打开时延不作正式证据，不出这三项判定；打开记录仍提供节点稳态读数。每次节点打开按 `click` 配对同进程最近一次地图稳态：首次使用初始地图保持末 1 秒中位数，之后使用点击前最近的 `natural-map.memory`。存活堆使用返回地图后强制 GC 的读数减 `cycle 0` 初始读数。`scene-node`／`scene-node-first` 缺进入前基线时，增量为 `unknown`；整个游戏的稳态绝对值仍可判定。
+打开 p95 按类别至少需 30 个有效样本；最大值和补齐也只用有效打开。补齐从可操作起检查 5 秒内的 64 m 范围。`scene-memory` 不作正式打开时延证据，节点只观察约 5 秒，不按稳态判定。节点增量按 `click` 配对最近地图读数：首次取初始地图末 1 秒中位数，之后取最近 `natural-map.memory`；缺基线时增量 `unknown`。返回地图后强制 GC 的存活堆减 `cycle 0` 初值。原报告的 `steady` 只是末 1 秒统计，须另核对稳定性，未稳定时不据此宣称通过预算。
 
 `scene-soak` 的打开判定和整个游戏稳态绝对值读取 `scene-operations.jsonl`，复用有效打开分组和稳态读数；帧耗时、8× 倍速和增长使用内嵌汇总。节点稳态增量和退出存活堆保持 `unknown`，不读帧和 GC 旁车，也不用峰值或重置堆替代。“两小时不得持续增长”尚未定义判定规则，即使斜率和时长齐全也为 `unknown`；报告保留已有斜率和实际时长，不把短测斜率外推成完整长测结论。
 
@@ -93,7 +93,7 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 
 脚本通过每个目录的 `summary.json.runs` 定位报告；`report` 必须是相对该目录的路径。绝对路径和解析后指向目录外的路径均为未知，原因分别为 `report_absolute_path` 和 `report_outside_directory`，不会读取这些文件。脚本不改原始 `report.json`、`process.json` 或 `summary.json`；汇总输出须为新文件。
 
-只按场景分组。调用者负责保证输入、构建设置和测量参数可比，不能把不同存档或不同时长的轮次混在同一个场景里作比较。每个指标报告 `valid_runs`、`unknown_runs`、`median`、`min`、`max` 和未知原因；两侧差值是 B 中位数减 A 中位数，百分比是差值除以 A 中位数再乘 100。A 为零时百分比未知。脚本汇总下表的 `timing` 数值和以下旁车数据，不汇总 `assessment`，不维护性能阈值，也不自动判断差值是否超过波动。
+按场景分组，输入、构建设置和参数须可比，不混合存档或时长。每指标报告 `valid_runs`、`unknown_runs`、`median`、`min`、`max` 和未知原因；差值为 B 中位数减 A，百分比为差值/A×100，A 为零时未知。脚本汇总 `timing` 和旁车，不汇总 `assessment`、不维护游戏性能预算，也不判断差值是否超过波动。
 
 | 指标 | 每轮取值 | 单位 |
 | --- | --- | --- |
@@ -105,6 +105,8 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 再对上述每轮值计算跨轮中位数和范围，不拼接多轮原始帧。
 
 `openings.<侧>.by_operation` 按操作名合并同场景各进程的配套文件 `scene-operations.jsonl`。只纳入 `kind=open` 且 `sample_valid=true` 的记录，分别输出有效和无效样本数。点击到可操作、可操作到 Ready、读档按钮到可操作三种耗时各输出样本数、缺失数和 p50／p95／p99／最大值，单位为秒。读档按钮耗时只统计带 `load_button` 的读档记录。分位数沿用游戏报告的 nearest-rank 算法：将样本排序后取第 `ceil(p × 样本数)` 个值，不插值。脚本不判断是否达到 30 次，报告使用者须结合样本数对照[设计 00 性能目标](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)。
+
+`scenarios.scene-node-first.memory_stability.<侧>[]` 逐轮读取 `map-node` 和 `scene-frames.jsonl`。取 Ready 至 `observation_ended` 的末 10 秒；不足 10 秒仍保留所见值，标 `unknown`。有效打开、帧覆盖窗口两端、至少两个不同采样时刻且私有字节完整为正时，`(max-min)/min ≤ 1%` 标 `stable`，否则 `unknown` 并记录 `reason`。`memory` 保留各计数的样本数、最小值、分位数和最大值，`range_ratio` 为私有字节范围比；`window_start_at`／`window_end_at` 是窗口边界，`sample_span_seconds` 是窗内原始样本跨度。不插值，坏文件整份未知。此条件只说明所采值稳定，不保证采样间无尖峰或后台预取完成；GPU、工作集不另判稳。
 
 `hourly_memory.<侧>` 用 `scene-soak` 的 `natural-map.at`、`memory`，从首条记录起每 3600 秒分段。`runs[].hours` 的 `start_at`／`end_at` 是目标边界；`observed_start_at` 取不晚于起点的最后一条记录，`observed_end_at` 取不早于终点的第一条记录；未到终点则取末条。区间内原始样本（含端点）参与最小二乘回归，相邻小时共享边界样本，不插值。`samples`、`observed_seconds` 记录实际样本数、覆盖时长。
 
@@ -127,7 +129,7 @@ python scripts/measure/scene-scale.py verify --input TestResults/scene-scale-inp
 
 焦点为节点世界原点 `(0,0,0)`。远处建筑以 core-city-hub／bastion-fortress 组合镜像放置，两侧完整地块均须避开已有地块和焦点周围 192 格圆。100× 的追加位置也须通过这一筛选。10／30／100× 扩大地面的平坦范围（flatten），高度保持为 1 格。N／C／F 分别是圆外建筑的占用格数、包含它们的世界 32³ 区块数、六邻接暴露面数。模型地面另列，程序地形的占用 N／C／F 不可从公开投影取得。`navigation_center` 只记录真实导航范围中心。
 
-生成清单为 `scale-manifest.json`，核对清单为 `scale-verification.json`。两者通过各档的 `input_identity` 绑定 `recipe_sha256`、`content_tree`、`save_sha256`。`content_tree.files` 记录相对 POSIX 路径和实际文件字节的 SHA256；`content_tree.sha256` 对按路径排序的“路径 + NUL + 小写文件 SHA256 + LF”UTF-8 字节再作 SHA256。跨平台优先比较配方和内容树；存档哈希绑定本次输入，Windows／Linux 存档字节是否一致尚待实测。`verify` 检查四档输入标识和生成源码身份，记录 `generation_manifest_sha256`，仅对 1／10× 运行 ready／local，核对 Scenes 生成的游戏近景。
+生成清单 `scale-manifest.json` 和核对清单 `scale-verification.json` 按 `input_identity` 绑定 `recipe_sha256`、`content_tree`、`save_sha256`。`content_tree.files` 记录相对 POSIX 路径及文件字节 SHA256；树哈希对排序后的“路径 + NUL + 小写文件 SHA256 + LF”UTF-8 字节再取 SHA256。跨平台优先比较配方和内容树；P2-R/F2 四档存档字节也与本机一致。verify 检查四档标识和源码身份，记录 `generation_manifest_sha256`，仅对 1／10× 运行 ready／local 近景核对。规模路径的 [P2-R/F2 分段耗时记录及使用限制](../../docs/ci.md#linux-夜间运行)已记录。
 
 近景核对覆盖五个相机位置：原点和 X／Z 各 ±64 格。各位置的 `firstGeometry.fully_inside` 对象集合须非空。跨档比较以节点原点为圆心、半径 192 格的圆内完整对象的非轨道三角形数、哈希及全部高度列，只排除 `RailSteel`／`Sleeper` 网格；失配即停止。`railCenterline` 将公开整条轨道的 XYZ 调试折线逐格采样，裁剪到 192 格圆，按 0.001 格量化、规范端点顺序、去重，独立于网格的 128 格分段。折线不含停车轨，须用首站地块侧向边界证明停车轨在圆外，否则记为 `unknown`。
 

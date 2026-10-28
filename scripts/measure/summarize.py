@@ -123,6 +123,68 @@ def summarize_openings(runs):
             "by_operation": operations}
 
 
+def node_memory_window(path, records, reason):
+    """Classify sampled private bytes in the node-first operation's last ten seconds."""
+    result = {"status": "unknown", "reason": reason, "window_seconds": 10,
+              "window_start_at": None, "window_end_at": None, "observed_seconds": None,
+              "samples": 0, "sample_span_seconds": None, "range_ratio": None, "memory": {}}
+    if reason:
+        return result
+    openings = [record for record in records if record.get("kind") == "open" and record.get("name") == "map-node"]
+    if len(openings) != 1:
+        return {**result, "reason": "node_opening_missing_or_ambiguous"}
+    opening = openings[0]
+    ready, end = opening.get("ready"), opening.get("observation_ended")
+    if not is_number(ready) or not is_number(end) or ready < 0 or end < ready:
+        return {**result, "reason": "invalid_observation_times"}
+    start = max(ready, end - 10)
+    result.update(window_start_at=start, window_end_at=end, observed_seconds=end - start)
+    values = {key: [] for key in ("private_bytes", "working_set_bytes", "buffer_bytes", "texture_bytes", "video_bytes")}
+    times, before, after = [], False, False
+    try:
+        with path.with_name("scene-frames.jsonl").open(encoding="utf-8-sig") as source:
+            for line in source:
+                if not line.strip():
+                    continue
+                frame = json.loads(line)
+                if not isinstance(frame, dict) or not is_number(frame.get("at")):
+                    return {**result, "reason": "frames_invalid_record"}
+                at = frame["at"]
+                before |= at <= start
+                after |= at >= end
+                if start <= at <= end:
+                    times.append(at)
+                    for key in values:
+                        values[key].append(frame.get(key))
+    except FileNotFoundError:
+        return {**result, "reason": "frames_missing_file"}
+    except (OSError, ValueError):
+        return {**result, "reason": "frames_unreadable_jsonl"}
+    result["samples"] = len(times)
+    result["sample_span_seconds"] = max(times) - min(times) if times else None
+    for key, samples in values.items():
+        known = [value for value in samples if is_number(value) and value >= 0]
+        result["memory"][key] = {**distribution(samples), "minimum": min(known) if known else None}
+    private = result["memory"]["private_bytes"]
+    if private["minimum"] is not None and private["minimum"] > 0:
+        result["range_ratio"] = (private["maximum"] - private["minimum"]) / private["minimum"]
+    if opening.get("sample_valid") is not True:
+        result["reason"] = "invalid_opening"
+    elif end - ready < 10:
+        result["reason"] = "insufficient_observation"
+    elif not before or not after:
+        result["reason"] = "incomplete_frame_coverage"
+    elif len(set(times)) < 2:
+        result["reason"] = "insufficient_samples"
+    elif private["unknown_samples"] or result["range_ratio"] is None:
+        result["reason"] = "invalid_private_bytes"
+    elif result["range_ratio"] > 0.01:
+        result["reason"] = "still_changing"
+    else:
+        result.update(status="stable", reason=None)
+    return result
+
+
 MEMORY_COUNTERS = ("private_bytes", "working_set_bytes", "video_bytes")
 
 
@@ -218,6 +280,12 @@ def summarize_directories(directories):
         scenarios[scenario] = {"runs": {side: len(reports) for side, reports in reports_by_side.items()},
                                "metrics": metrics,
                                "openings": {side: summarize_openings(runs) for side, runs in operation_runs.items()}}
+        if scenario == "scene-node-first":
+            scenarios[scenario]["memory_stability"] = {
+                side: [{"run": index, **node_memory_window(path, records, reason or problem)}
+                       for index, ((_, path, reason), (records, problem)) in enumerate(
+                           zip(reports, operation_runs[side]), 1)]
+                for side, reports in reports_by_side.items()}
         if scenario == "scene-soak":
             scenarios[scenario]["hourly_memory"] = {
                 side: summarize_hourly_memory(runs) for side, runs in operation_runs.items()}

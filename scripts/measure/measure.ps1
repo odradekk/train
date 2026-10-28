@@ -50,9 +50,6 @@ try {
          @($Scenario | Where-Object { $_ -notin @('scene-node', 'scene-edge') }).Count -gt 0)) {
         throw '-RouteCamera 需要 -StreamingDiagnostics；scene-node/scene-edge 的低俯仰环绕除外。'
     }
-    if ($NodeReadyHold -and @($Scenario | Where-Object { $_ -notin @('scene-node-first', 'scene-reference') }).Count -gt 0) {
-        throw '-NodeReadyHold 只用于 scene-node-first 和 scene-reference。'
-    }
     if ($StreamingDiagnostics -and @($Scenario | Where-Object { $_ -notin @('scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x') }).Count -gt 0) {
         throw '-StreamingDiagnostics 仅支持 scene-route-1x/2x/4x/8x。'
     }
@@ -208,7 +205,7 @@ try {
                 $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture))
                 if ($StreamingDiagnostics) { $arguments += '--measure-streaming' }
                 if ($StreamingDiagnostics -or $lowOrbit) { $arguments += @('--measure-route-camera', $selection.camera) }
-                if ($NodeReadyHold) { $arguments += '--measure-node-ready-hold' }
+                if ($NodeReadyHold -and $name -in @('scene-node-first', 'scene-reference')) { $arguments += '--measure-node-ready-hold' }
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 if ($PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('--measure-train', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('--measure-node', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
