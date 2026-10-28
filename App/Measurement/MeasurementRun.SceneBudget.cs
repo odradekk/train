@@ -81,7 +81,7 @@ internal sealed partial class MeasurementRun
             await LoadSceneInput();
             _sceneEvidence["initial_load"] = new { button = _sceneLoadButton, completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw };
             _sceneEvidence["initial_load_counts"] = SceneLoadCounts();
-            // First clicks happen before the steady-map hold. They never wait for a prebuild.
+            // 首次点击不等地图稳态或预构建。
             if (IsRouteMeasurement)
             {
                 await RunFollowRoute();
@@ -402,7 +402,7 @@ internal sealed partial class MeasurementRun
         _scenePhase = phase;
         var started = _sceneLastDraw;
         if (_timing is null) _sceneTiming = new(started, _app.Host!.GetStatus()!.View.Position.CompletedSteps);
-        await Wait(() => _sceneLastDraw >= started + 5);
+        await Wait(() => _sceneLastDraw >= started + (_scenario == "scene-map" ? 60 : 5));
         if (_sceneTiming is not null)
         { _timing = _sceneTiming.Summarize(); _sceneTiming = null; }
     }

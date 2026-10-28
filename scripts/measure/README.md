@@ -1,8 +1,8 @@
 # 测量辅助脚本
 
-游戏测量入口是 `measure.ps1`，导出入口是 `export-measurement.ps1`。`measure.ps1` 默认运行无需参考文件的 `scene-route-1x`、`scene-route-8x`；其余场景按需显式选择。测量场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。本目录的辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，不需要 Pester 或额外包。
+测量入口为 `measure.ps1`，导出入口为 `export-measurement.ps1`。`measure.ps1` 默认运行无需参考文件的 `scene-route-1x`、`scene-route-8x`；其余场景按需显式选择。测量场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
 
-`-NodeReadyHold` 使 `scene-node-first` 和参考运行中指定节点在 Ready 后保持 60 秒，其余场景忽略，支持与路线混选。runner 的布尔输入 `measure_node_ready_hold` 默认 false，仅对 `measure` 生效，传给参考和场景运行。首开场景的 `measure_seconds` 须为 0–120，但不改变保持时间：默认 5 秒，开启后 60 秒。
+`-NodeReadyHold` 仅使 `scene-node-first` 和参考运行的指定节点 Ready 后保持 60 秒，其余场景忽略。runner 的 `measure_node_ready_hold` 默认 false，仅传给 `measure` 的参考和场景运行。首开 `measure_seconds` 为 0–120，不改保持时长（默认 5 秒，开启后 60 秒）；混选路线须为 0。`scene-map` 末段纯地图固定保持 60 秒，不受此参数控制；其他地图保持仍为 5 秒。旧 `scene-map` 读数不可比；仓库暂无已提交基线。
 
 ## 开发机交替对照
 
@@ -91,9 +91,9 @@ python scripts/measure/summarize.py <measure输出目录> --output <新汇总文
 python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <新汇总文件.json>
 ```
 
-脚本通过每个目录的 `summary.json.runs` 定位报告；`report` 必须是相对该目录的路径。绝对路径和解析后指向目录外的路径均为未知，原因分别为 `report_absolute_path` 和 `report_outside_directory`，不会读取这些文件。脚本不改原始 `report.json`、`process.json` 或 `summary.json`；汇总输出须为新文件。
+脚本按各目录的 `summary.json.runs` 定位报告；`report` 须相对此目录。绝对路径、解析后位于目录外的路径均不读取，标为未知，原因分别为 `report_absolute_path`、`report_outside_directory`。不改原始 `report.json`、`process.json`、`summary.json`；输出须为新文件。
 
-按场景分组，输入、构建设置和参数须可比，不混合存档或时长。每指标报告 `valid_runs`、`unknown_runs`、`median`、`min`、`max` 和未知原因；差值为 B 中位数减 A，百分比为差值/A×100，A 为零时未知。脚本汇总 `timing` 和旁车，不汇总 `assessment`、不维护游戏性能预算，也不判断差值是否超过波动。
+按场景分组，输入、构建设置和参数须可比，不混存档或时长。每指标报告 `valid_runs`、`unknown_runs`、`median`、`min`、`max` 和未知原因；差值为 B 中位数减 A，百分比为差值/A×100，A 为零时未知。脚本汇总 `timing` 和旁车，不汇总 `assessment`、不维护游戏性能预算，也不判断差值是否超过波动。
 
 | 指标 | 每轮取值 | 单位 |
 | --- | --- | --- |
@@ -102,11 +102,11 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 | `timing.actual_speed` | 报告已有倍速值 | 倍 |
 | `timing.elapsed_seconds` | 报告已有采样时长 | 秒 |
 
-再对上述每轮值计算跨轮中位数和范围，不拼接多轮原始帧。
+再计算跨轮中位数和范围，不拼接原始帧。
 
-`openings.<侧>.by_operation` 按操作名合并同场景各进程的配套文件 `scene-operations.jsonl`。只纳入 `kind=open` 且 `sample_valid=true` 的记录，分别输出有效和无效样本数。点击到可操作、可操作到 Ready、读档按钮到可操作三种耗时各输出样本数、缺失数和 p50／p95／p99／最大值，单位为秒。读档按钮耗时只统计带 `load_button` 的读档记录。分位数沿用游戏报告的 nearest-rank 算法：将样本排序后取第 `ceil(p × 样本数)` 个值，不插值。脚本不判断是否达到 30 次，报告使用者须结合样本数对照[设计 00 性能目标](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)。
+`openings.<侧>.by_operation` 按操作名合并同场景各进程的配套文件 `scene-operations.jsonl`。只纳入 `kind=open` 且 `sample_valid=true` 的记录，分别输出有效和无效样本数。点击到可操作、可操作到 Ready、读档按钮到可操作三种耗时各输出样本数、缺失数和 p50／p95／p99／最大值，单位为秒。读档按钮耗时只统计带 `load_button` 的读档记录。分位数沿用游戏报告的 nearest-rank 算法：将样本排序后取第 `ceil(p × 样本数)` 个值，不插值。脚本不检查 30 次门槛，须按样本数对照[设计 00 性能目标](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)。
 
-`scenarios.scene-node-first.memory_stability.<侧>[]` 逐轮读取 `map-node` 和 `scene-frames.jsonl`。取 Ready 至 `observation_ended` 的末 10 秒；不足 10 秒仍保留所见值，标 `unknown`。有效打开、帧覆盖窗口两端、至少两个不同采样时刻且私有字节完整为正时，`(max-min)/min ≤ 1%` 标 `stable`，否则 `unknown` 并记录 `reason`。`memory` 保留各计数的样本数、最小值、分位数和最大值，`range_ratio` 为私有字节范围比；`window_start_at`／`window_end_at` 是窗口边界，`sample_span_seconds` 是窗内原始样本跨度。不插值，坏文件整份未知。此条件只说明所采值稳定，不保证采样间无尖峰或后台预取完成；GPU、工作集不另判稳。
+`scenarios.scene-node-first.memory_stability.<侧>[]` 取 `map-node` 的 Ready 至 `observation_ended` 末 10 秒；`scenarios.scene-map.memory_stability.<侧>[]` 取 `scene-frames.jsonl` 的 `final-map` 段末 10 秒，输出结构相同，共用统计：不足 10 秒保留观察值并标 `unknown`；节点须有效打开，帧须覆盖窗口两端、至少两个不同采样时刻，且私有字节完整为正。满足条件且 `(max-min)/min ≤ 1%` 标 `stable`，否则 `unknown` 并记录 `reason`。`memory` 保留各计数的样本数、最小值、分位数和最大值，`range_ratio` 为私有字节范围比；`window_start_at`／`window_end_at` 为窗口边界，`sample_span_seconds` 为窗内原始样本跨度。不插值，坏文件整份未知。只说明采样值稳定，不保证采样间无尖峰或后台预取完成；GPU、工作集不另判稳。
 
 `hourly_memory.<侧>` 用 `scene-soak` 的 `natural-map.at`、`memory`，从首条记录起每 3600 秒分段。`runs[].hours` 的 `start_at`／`end_at` 是目标边界；`observed_start_at` 取不晚于起点的最后一条记录，`observed_end_at` 取不早于终点的第一条记录；未到终点则取末条。区间内原始样本（含端点）参与最小二乘回归，相邻小时共享边界样本，不插值。`samples`、`observed_seconds` 记录实际样本数、覆盖时长。
 

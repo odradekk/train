@@ -123,41 +123,60 @@ def summarize_openings(runs):
             "by_operation": operations}
 
 
-def node_memory_window(path, records, reason):
-    """Classify sampled private bytes in the node-first operation's last ten seconds."""
+def read_frames(path):
+    with path.open(encoding="utf-8-sig") as source:
+        for line in source:
+            if not line.strip():
+                continue
+            frame = json.loads(line)
+            if not isinstance(frame, dict) or not is_number(frame.get("at")):
+                raise TypeError("invalid frame record")
+            yield frame
+
+
+def memory_window(path, records, reason, frame_phase=None):
+    """Classify the last ten seconds of a node opening or a selected frame phase."""
     result = {"status": "unknown", "reason": reason, "window_seconds": 10,
               "window_start_at": None, "window_end_at": None, "observed_seconds": None,
               "samples": 0, "sample_span_seconds": None, "range_ratio": None, "memory": {}}
     if reason:
         return result
-    openings = [record for record in records if record.get("kind") == "open" and record.get("name") == "map-node"]
-    if len(openings) != 1:
-        return {**result, "reason": "node_opening_missing_or_ambiguous"}
-    opening = openings[0]
-    ready, end = opening.get("ready"), opening.get("observation_ended")
-    if not is_number(ready) or not is_number(end) or ready < 0 or end < ready:
-        return {**result, "reason": "invalid_observation_times"}
-    start = max(ready, end - 10)
-    result.update(window_start_at=start, window_end_at=end, observed_seconds=end - start)
-    values = {key: [] for key in ("private_bytes", "working_set_bytes", "buffer_bytes", "texture_bytes", "video_bytes")}
-    times, before, after = [], False, False
+    valid = True
+    if frame_phase is None:
+        openings = [record for record in records if record.get("kind") == "open" and record.get("name") == "map-node"]
+        if len(openings) != 1:
+            return {**result, "reason": "node_opening_missing_or_ambiguous"}
+        opening = openings[0]
+        ready, end = opening.get("ready"), opening.get("observation_ended")
+        valid = opening.get("sample_valid") is True
+    frames_path = path.with_name("scene-frames.jsonl")
     try:
-        with path.with_name("scene-frames.jsonl").open(encoding="utf-8-sig") as source:
-            for line in source:
-                if not line.strip():
-                    continue
-                frame = json.loads(line)
-                if not isinstance(frame, dict) or not is_number(frame.get("at")):
-                    return {**result, "reason": "frames_invalid_record"}
-                at = frame["at"]
-                before |= at <= start
-                after |= at >= end
-                if start <= at <= end:
-                    times.append(at)
-                    for key in values:
-                        values[key].append(frame.get(key))
+        if frame_phase is not None:
+            ready = end = None
+            for frame in read_frames(frames_path):
+                if frame.get("phase") == frame_phase:
+                    ready = frame["at"] if ready is None else ready
+                    end = frame["at"]
+            if ready is None:
+                return {**result, "reason": "frames_phase_missing"}
+        if not is_number(ready) or not is_number(end) or ready < 0 or end < ready:
+            return {**result, "reason": "invalid_observation_times"}
+        start = max(ready, end - 10)
+        result.update(window_start_at=start, window_end_at=end, observed_seconds=end - start)
+        values = {key: [] for key in ("private_bytes", "working_set_bytes", "buffer_bytes", "texture_bytes", "video_bytes")}
+        times, before, after = [], False, False
+        for frame in read_frames(frames_path):
+            at = frame["at"]
+            before |= at <= start
+            after |= at >= end
+            if start <= at <= end and (frame_phase is None or frame.get("phase") == frame_phase):
+                times.append(at)
+                for key in values:
+                    values[key].append(frame.get(key))
     except FileNotFoundError:
         return {**result, "reason": "frames_missing_file"}
+    except TypeError:
+        return {**result, "reason": "frames_invalid_record"}
     except (OSError, ValueError):
         return {**result, "reason": "frames_unreadable_jsonl"}
     result["samples"] = len(times)
@@ -168,7 +187,7 @@ def node_memory_window(path, records, reason):
     private = result["memory"]["private_bytes"]
     if private["minimum"] is not None and private["minimum"] > 0:
         result["range_ratio"] = (private["maximum"] - private["minimum"]) / private["minimum"]
-    if opening.get("sample_valid") is not True:
+    if not valid:
         result["reason"] = "invalid_opening"
     elif end - ready < 10:
         result["reason"] = "insufficient_observation"
@@ -280,9 +299,10 @@ def summarize_directories(directories):
         scenarios[scenario] = {"runs": {side: len(reports) for side, reports in reports_by_side.items()},
                                "metrics": metrics,
                                "openings": {side: summarize_openings(runs) for side, runs in operation_runs.items()}}
-        if scenario == "scene-node-first":
+        if scenario in ("scene-node-first", "scene-map"):
             scenarios[scenario]["memory_stability"] = {
-                side: [{"run": index, **node_memory_window(path, records, reason or problem)}
+                side: [{"run": index, **memory_window(path, records, reason or problem,
+                                                    "final-map" if scenario == "scene-map" else None)}
                        for index, ((_, path, reason), (records, problem)) in enumerate(
                            zip(reports, operation_runs[side]), 1)]
                 for side, reports in reports_by_side.items()}

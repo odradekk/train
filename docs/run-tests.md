@@ -147,7 +147,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | 情景 | 实际路径 |
 | --- | --- |
 | `scene-reference` | 独立参考运行，暂停至初始 Ready 后恢复仿真，再观察 10 秒；各空间首次 Ready 及焦点再移动 16 m 后的 Ready 帧记录公开对象和地形，输出 `scene-reference.json`，不作性能样本。世界里有节点 3 和边 15 时一并记录，供 `scene-soak` 使用 |
-| `scene-map` | 同存档的新进程地图内存基线，不打开场景 |
+| `scene-map` | 同存档新进程纯地图内存；末段固定保持 60 秒，不受 `measure_seconds` 控制；其他地图保持仍为 5 秒，旧 5 秒读数不可比。无需新增测量参数。 |
 | `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
 | `scene-edge` | 地图首次打开线路 11、返回地图后重开、读档回地图后立即再开线路 |
@@ -164,7 +164,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 `Repeat` 控制每情景的新进程数量，默认是 3；`DurationSeconds=0` 使用情景默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短默认的 120 秒采样窗口。输入规模及测量、探针和判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
 
-除 `scene-reference`、`scene-map`、`scene-editor` 和 `scene-route-*` 外，所有 `scene-*` 情景必须传 `-ReferencePath`，指向同一构建提交、同一输入 SHA 的 `scene-reference.json`；参考运行不计入性能样本。整路测量使用默认 `DurationSeconds=0`，非零值只作提前结束的预演。
+除 `scene-reference`、`scene-map`、`scene-editor` 和 `scene-route-*` 外，所有 `scene-*` 情景必须传 `-ReferencePath`，指向同一构建提交、同一输入 SHA 的 `scene-reference.json`；参考运行不计入性能样本。整路测量及混选路线须用 `DurationSeconds=0`（runner 的 `measure_seconds=0`）；非零只作提前结束预演。
 
 整路首次打开仅对初始空间单列 `route-analysis.json.startup`：从首个可操作帧起，以显示帧 `displayed_readiness` 在 5 秒内达到 Ready 判定。状态为 `passed`、`failed`、`unknown` 或 `not_observed`；历史记录缺少 readiness 为未知，初始空间从未可操作为未观察。初始空间在 Ready 前切走时，下一空间的 Ready 不能补算成功。初始空间这 5 秒内的判定帧以 `excluded_reason=initial_startup` 排除出 criterion 2 始终覆盖统计，逐帧原始覆盖仍保留；恰好第 5 秒起恢复统计，期间发生的跟随空间切换也立即恢复统计。该分类不改变 D18 near32 首次 Partial 的语义。
 
@@ -200,7 +200,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 自由镜头使用 `-Scenario scene-node,scene-edge -RouteCamera default-low-orbit,farthest-low-orbit -Repeat 1 -ReferencePath <scene-reference.json>`，不带 `-StreamingDiagnostics`。每个组合仅执行原情景的首次打开操作，Ready 后持续观察 60 秒，不再重复打开；节点自由镜头最远 96 格，线路最远 240 格，使用 1×。`scene-operations.jsonl` 的 `low-orbit-sample` 每秒最多五次记录实际相机、环绕角状态、核心步数、速度与覆盖，`open.low_orbit` 保留观察起止。固定观察窗口不证明全域远景已补齐。
 
-内存对照使用 `-NodeReadyHold`（应用开关 `--measure-node-ready-hold`），仅扩长 `NodeId` 指定节点操作的 Ready 后保持时间至 60 秒；支持 `scene-node-first` 和 `scene-reference`，参考中的其他节点及线路操作保持原时长。省略时行为不变。`scene-node-first` 增加 55 秒；`scene-reference` 的目标节点参考增加 50 秒。每次打开的 `ready_hold_seconds_requested` 记录保持时间，报告保留实际观察起止；基线和新版须使用相同测量入口改动与参数。
+`-NodeReadyHold`（应用开关 `--measure-node-ready-hold`）仅将 `scene-node-first`、`scene-reference` 的 `NodeId` 节点 Ready 后保持延至 60 秒，分别增加 55、50 秒；省略时及参考中其他节点、线路均不变。`ready_hold_seconds_requested` 记录请求时长，报告保留实际观察起止；两侧须使用相同测量入口改动与参数。
 
 应用参数为 `--measure-streaming` 和 `--measure-route-camera default|farthest`。记录开启时窗口与视口仍固定为 1920×1080，使用玩家默认跟随相机：偏航跟随车体，保留默认俯仰与按地形抬高镜头，仅通过现有 `ShakeEnabled` 关闭镜头震动。默认缩放距离保持 48 格；最远档通过现有 `Zoom` 拉到 `ZoomCeiling`，跟随时线路和节点均为 240 格，96 格只适用于节点自由平移。每个绘制帧记录实际相机位置、焦点、距离和角度，包含地形避让造成的变化；距离单位为格（1 格 = 0.5 米）。
 
