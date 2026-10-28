@@ -13,9 +13,9 @@ description: Measure and optimize train against its guarded scenarios for scene 
 
 | 用户操作 | 场景 | 守护的代码和内容 | 运行 | 指标 | 基线 | 运行位置 |
 |---|---|---|---|---|---|---|
-| 场景打开和远处补齐 | `scene-node-first`、`scene-node`、`scene-edge`、`scene-follow` | `Scenes/`、`Rendering/SceneDisplay*`、`App/WorldSceneController.cs`、`App/HostCoordinator.cs` | `& ./scripts/measure/measure.ps1 -ExecutablePath <游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario scene-node-first,scene-node,scene-edge,scene-follow -ReferencePath <参考文件> -Repeat <轮数>` | 点击到可操作的 p95 和最大值；远景补齐时间 | #824 | Linux runner，只报告 |
-| 完整游戏的帧耗时和实际倍速 | `scene-route-1x`、`scene-route-8x`（以及 2x、4x）、`scene-follow-8x`；聚居地和战斗用重负载存档 | `Core/`、`Scenes/`、`Rendering/`、`Ui/`、`App/` | 同上，`-Scenario scene-route-1x,scene-route-8x,scene-follow-8x` | 帧耗时 p50、p95、p99、最大；实际倍速 | #824 | Linux runner，只报告 |
-| 内存 | `scene-memory`、`scene-soak` | `Scenes/`、`Rendering/`、`Content/`、`Core/` 的存档和状态 | 同上，`-Scenario scene-memory`；两小时长测用 workflow 的 `window-soak` 选项 | 节点稳态私有字节增量、缓冲区加纹理增量、整个游戏稳态私有字节和工作集、离开节点后强制 GC 的存活堆、每小时增长 | #824 | Linux runner，只报告 |
+| 场景打开和远处补齐 | `scene-node-first`、`scene-node`、`scene-edge`、`scene-follow` | `Scenes/`、`Rendering/SceneDisplay*`、`App/WorldSceneController.cs`、`App/HostCoordinator.cs` | `& ./scripts/measure/measure.ps1 -ExecutablePath <游戏> -InputPath <存档> -OutputDirectory <空目录> -Scenario scene-node-first,scene-node,scene-edge,scene-follow -ReferencePath <参考文件> -Repeat <轮数>` | 点击到可操作的 p95 和最大值；远景补齐时间 | [场景打开基线](../../../scripts/measure/baselines/2026-10-28-scene-opening.md) | Linux runner，只报告 |
+| 完整游戏的帧耗时和实际倍速 | `scene-route-1x`、`scene-route-8x`（以及 2x、4x）、`scene-follow-8x`；聚居地和战斗用重负载存档 | `Core/`、`Scenes/`、`Rendering/`、`Ui/`、`App/` | 同上，`-Scenario scene-route-1x,scene-route-8x,scene-follow-8x` | 帧耗时 p50、p95、p99、最大；实际倍速 | [帧耗时和实际倍速基线](../../../scripts/measure/baselines/2026-10-28-frame-time.md) | Linux runner，只报告 |
+| 内存 | `scene-memory`、`scene-soak` | `Scenes/`、`Rendering/`、`Content/`、`Core/` 的存档和状态 | 同上，`-Scenario scene-memory`；两小时长测用 workflow 的 `window-soak` 选项 | 节点稳态私有字节增量、缓冲区加纹理增量、整个游戏稳态私有字节和工作集、离开节点后强制 GC 的存活堆、每小时增长 | [内存基线](../../../scripts/measure/baselines/2026-10-28-memory.md) | Linux runner，只报告 |
 
 先读每份报告的 `assessment.items`：报告按设计 00 的阈值逐项给出 `passed`、`failed` 或 `unknown`，缺数据和截断观察不得当作通过。`assessment.conclusion` 保持“待验收”，还需要目标配置实机与完整覆盖；`outcome=completed` 只表示运行完成。字段、适用窗口和未知规则见[逐项性能判定](../../../scripts/measure/README.md#逐项性能判定)，阈值数值由报告代码单处维护。
 
