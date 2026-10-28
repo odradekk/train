@@ -38,6 +38,8 @@ internal static class FactoryReferences
             var path = Path.GetFullPath(tree.FilePath);
             if (name == "Train" && ProjectAnalysis.IsChildPath(path, Path.Combine(root, "App", "Composition")) ||
                 name == "Train.Cli" && path.Equals(Path.Combine(root, "Tools", "Cli", "Composition.cs"),
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) ||
+                name == "Train.SceneScale" && path.Equals(Path.Combine(root, "Tools", "SceneScale", "Composition.cs"),
                     OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
             var model = compilation.GetSemanticModel(tree);
             foreach (var identifier in tree.GetRoot().DescendantNodes().OfType<SimpleNameSyntax>())

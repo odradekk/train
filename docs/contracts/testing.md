@@ -4,7 +4,7 @@
 本页的命令提交、业务输入身份与创作写入边界按[契约审计修订 #296](https://github.com/odradekk/train/issues/296)调整；保留上述历史决策出处，以下协议为当前约定。
 
 
-本页规定目标方案。现有测试已拆分为 Core、Content、Scenes、Godot 宿主和 CLI 五个项目，另有独立的真实 Godot 引擎测试项目。统一入口已接入分层和项目选择；Scenes 当前行为覆盖与证据边界见[统一测试入口](../run-tests.md#选择)，具体待实现范围见[体素契约的当前状态](scenes-status.md)。Core/Content/Scenes/Godot 隔离重建已接入统一入口。26 个已登记项目的依赖与公开面基线可检查。Godot 隔离装配已接入，当前整组契约基线为 `6114cc10`。[契约原型](https://github.com/odradekk/train/issues/292)验证过声明、调用方式、替身和检查机制，其证据范围见下文。
+本页规定目标方案。现有测试已拆分为 Core、Content、Scenes、Godot 宿主、CLI 和 SceneScale 六个项目，另有独立的真实 Godot 引擎测试项目。统一入口已接入分层和项目选择；Scenes 当前行为覆盖与证据边界见[统一测试入口](../run-tests.md#选择)，具体待实现范围见[体素契约的当前状态](scenes-status.md)。Core/Content/Scenes/Godot 隔离重建已接入统一入口。28 个已登记项目的依赖与公开面基线可检查。Godot 隔离装配已接入，当前整组契约基线为 `6114cc10`。[契约原型](https://github.com/odradekk/train/issues/292)验证过声明、调用方式、替身和检查机制，其证据范围见下文。
 
 已归档的[运行原型](../../archive/prototypes/contract-probe/README.md)提供上述机制的最小实证入口，分别报告有限情景、真实文件与 Godot 检查，并用故意违规证明检查有效。它没有接入生产测试入口；真实模块尚未实现的项目仍记为待验证，具体运行结果与输入身份保存在忽略目录的单次摘要中。
 
@@ -81,12 +81,12 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 | --- | --- |
 | 依赖允许范围 | 检查构建求值后的项目引用、实际解析及输出程序集依赖，覆盖间接依赖和条件引用；按目标构建配置应用契约索引的允许范围 |
 | 公开面 | 提取契约和公开工厂声明，与已确认基线比较，包括签名、可见性、可空性等结构；新增、删除或变化都报告，未经确认不能自动接受新基线 |
-| 类型泄漏与装配限制 | 检查公开声明所用类型的归属；Roslyn 按真实工厂 `Create` 符号检查任何引用（含调用和方法组），生产 Train 仅允许 `App/Composition/`，CLI 仅允许 `Tools/Cli/Composition.cs`，其他非测试、非 Benchmark 项目禁止引用 |
+| 类型泄漏与装配限制 | 检查公开声明所用类型的归属；Roslyn 按真实工厂 `Create` 符号检查任何引用（含调用和方法组），生产 Train 仅允许 `App/Composition/`，CLI 仅允许 `Tools/Cli/Composition.cs`，SceneScale 仅允许 `Tools/SceneScale/Composition.cs`，其他非测试、非 Benchmark 项目禁止引用 |
 | 隔离构建与测试 | 验证目标模块在缺少其他实现时仍能编译、运行自身用例；检查测试支持未引入对方实现、友元访问或源码链接 |
 
 公开面不变不能证明语义兼容。行为变化仍按[受控变更流程](conventions.md#契约基线与受控变更)更新文档、用例及受影响调用方，经用户确认后才记录整组新基线。提取器和构建脚本是检查工具，不在生产契约中引入检查框架。
 
-当前 `structure` 检查 26 个已登记项目的求值引用、解析路径、输出程序集、源码归属和友元声明，发现未登记的新项目会失败，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的契约程序集检查跨契约类型归属与枚举实际值。提取范围还包括 `CoreFactory.cs`、`ContentFactory.cs`、`ScenesFactory.cs` 中对应工厂及其可见嵌套类型的公开声明；工厂文件的 `using` 和其他实现类型不纳入基线。当前已确认整组契约基线为 `6114cc10`（`public-api.txt` blob `ef9fb7be`）。Core/Content/Scenes/Godot 的隔离重建已接入，单次是否通过以运行日志与摘要为准。
+当前 `structure` 检查 28 个已登记项目的求值引用、解析路径、输出程序集、源码归属和友元声明，发现未登记的新项目会失败，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的契约程序集检查跨契约类型归属与枚举实际值。提取范围还包括 `CoreFactory.cs`、`ContentFactory.cs`、`ScenesFactory.cs` 中对应工厂及其可见嵌套类型的公开声明；工厂文件的 `using` 和其他实现类型不纳入基线。当前已确认整组契约基线为 `6114cc10`（`public-api.txt` blob `ef9fb7be`）。Core/Content/Scenes/Godot 的隔离重建已接入，单次是否通过以运行日志与摘要为准。
 
 ### 公开面基线更新
 

@@ -34,8 +34,7 @@ internal sealed partial class MeasurementRun
     private TrainPosition? _routePreviousPosition;
     private long _routeStateId, _routeFrames;
     private long _routeDecisionEndDraw;
-    private TimeSpan? _routeOperableGcPause;
-    private int[]? _routeOperableGcCollections;
+    private GcReading? _routeOperableGc;
     private double _routeStarted, _routeLastCapture, _routePresentedCost;
     private SceneSpaceId? _routeLastSpace;
     private int _routeCaptureBurst;
@@ -71,8 +70,7 @@ internal sealed partial class MeasurementRun
                 throw new InvalidOperationException("无法启动测量列车。");
             _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").RaiseObjectClicked(_sceneTarget);
             _routeStarted = Seconds();
-            var gcPause = GC.GetTotalPauseDuration();
-            var gcCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
+            var gcStart = GcReading.Current;
             _sceneTiming = new(_routeStarted, host.GetStatus()!.View.Position.CompletedSteps);
             _routeSampling = true;
             EdgeId? first = null, second = null;
@@ -81,8 +79,7 @@ internal sealed partial class MeasurementRun
             var routeCompleted = false;
             var postrollCells = 0d;
             ScenePoint? postrollPrevious = null;
-            TimeSpan? routeGcEnd = null;
-            int[]? routeGcEndCollections = null;
+            GcReading? routeGcEnd = null;
             var transitions = new List<object>();
             string? lastPosition = null;
             while (true)
@@ -119,8 +116,7 @@ internal sealed partial class MeasurementRun
                     if (!routeCompleted)
                     {
                         routeCompleted = true; _routeDecisionEndDraw = _routeFrames;
-                        routeGcEnd = GC.GetTotalPauseDuration();
-                        routeGcEndCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
+                        routeGcEnd = GcReading.Current;
                     }
                     var sample = _routeSamples[^1];
                     var leading = train.OrderFacing == TrainOrderFacing.FirstEndLeading ? sample.Vehicles.FirstOrDefault() : sample.Vehicles.LastOrDefault();
@@ -143,13 +139,15 @@ internal sealed partial class MeasurementRun
             _routeSampling = false;
             _timing = _sceneTiming.Summarize();
             _sceneTiming = null;
+            var gcEnd = routeGcEnd ?? GcReading.Current;
+            var gc = gcEnd.Since(gcStart);
+            var operableGc = _routeOperableGc is { } operable ? gcEnd.Since(operable) : (GcReading?)null;
             _sceneEvidence["route_gc"] = new
             {
-                pause_seconds = ((routeGcEnd ?? GC.GetTotalPauseDuration()) - gcPause).TotalSeconds,
-                collections_by_generation = Enumerable.Range(0, 3).Select(generation => (routeGcEndCollections?[generation] ?? GC.CollectionCount(generation)) - gcCollections[generation]).ToArray(),
-                after_first_operable_pause_seconds = _routeOperableGcPause is { } operable ? ((routeGcEnd ?? GC.GetTotalPauseDuration()) - operable).TotalSeconds : (double?)null,
-                after_first_operable_collections_by_generation = _routeOperableGcCollections is { } counts ?
-                    Enumerable.Range(0, 3).Select(generation => (routeGcEndCollections?[generation] ?? GC.CollectionCount(generation)) - counts[generation]).ToArray() : null,
+                pause_seconds = gc.Pause.TotalSeconds,
+                collections_by_generation = gc.CollectionsByGeneration,
+                after_first_operable_pause_seconds = operableGc?.Pause.TotalSeconds,
+                after_first_operable_collections_by_generation = operableGc?.CollectionsByGeneration,
                 method = "Process-local GC.GetTotalPauseDuration delta; GC.CollectionCount deltas are collection counts, not pause-event counts. Trajectory-only postroll, offline serialization and analysis are excluded."
             };
             WriteTrace();
@@ -296,10 +294,9 @@ internal sealed partial class MeasurementRun
             var newSpace = frame is not null && frame.Update.Frame.Space != _routeLastSpace;
             if (newSpace) { _routeLastSpace = frame!.Update.Frame.Space; _routeCaptureBurst = 6; }
             var operable = _app.WorldScenes.View.Interactive && !_app.WorldScenes.View.Loading;
-            if (operable && _routeOperableGcPause is null)
+            if (operable && _routeOperableGc is null)
             {
-                _routeOperableGcPause = GC.GetTotalPauseDuration();
-                _routeOperableGcCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
+                _routeOperableGc = GcReading.Current;
             }
             var sample = new RouteFrame(++_routeFrames, now - _routeStarted, completed,
                 frame?.Update.Frame, display?.DisplayedFrame?.Update.Frame,

@@ -81,7 +81,7 @@ internal sealed partial class MeasurementRun
             await LoadSceneInput();
             _sceneEvidence["initial_load"] = new { button = _sceneLoadButton, completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw };
             _sceneEvidence["initial_load_counts"] = SceneLoadCounts();
-            // First clicks happen before the steady-map hold. They never wait for a prebuild.
+            // 首次点击不等地图稳态或预构建。
             if (IsRouteMeasurement)
             {
                 await RunFollowRoute();
@@ -402,7 +402,7 @@ internal sealed partial class MeasurementRun
         _scenePhase = phase;
         var started = _sceneLastDraw;
         if (_timing is null) _sceneTiming = new(started, _app.Host!.GetStatus()!.View.Position.CompletedSteps);
-        await Wait(() => _sceneLastDraw >= started + 5);
+        await Wait(() => _sceneLastDraw >= started + (_scenario == "scene-map" ? 60 : 5));
         if (_sceneTiming is not null)
         { _timing = _sceneTiming.Summarize(); _sceneTiming = null; }
     }
@@ -548,26 +548,6 @@ internal sealed partial class MeasurementRun
             working_set_bytes = Median(item => item.WorkingSetBytes), buffer_bytes = Median(item => item.BufferBytes),
             texture_bytes = Median(item => item.TextureBytes), video_bytes = Median(item => item.VideoBytes),
             peak_private_bytes = _scenePeakPrivate, peak_working_set_bytes = _scenePeakWorking };
-    }
-
-    private long CollectSceneHeap(int cycle, string phase)
-    {
-        ResetSceneProbe();
-        _sceneProbeDetail = _sceneFirstNearDetail = null;
-        _sceneRecent.Clear();
-        var natural = new { private_bytes = _scenePrivate, working_set_bytes = _sceneWorking };
-        var started = Seconds();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        GC.WaitForPendingFinalizers();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        var heap = GC.GetGCMemoryInfo();
-        var live = GC.GetTotalMemory(false);
-        _sceneCollectionTrace!.WriteLine(JsonSerializer.Serialize(new { cycle, phase, at = Seconds(),
-            seconds = Seconds() - started, natural, managed_live_bytes = live,
-            heap_bytes = heap.HeapSizeBytes, fragmented_bytes = heap.FragmentedBytes,
-            committed_bytes = heap.TotalCommittedBytes }, SceneJson));
-        _sceneCollectionTrace.Flush();
-        return live;
     }
 
     private static string Location(WorldLocation location) => location switch

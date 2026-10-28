@@ -26,7 +26,9 @@ internal static class ProjectAnalysis
         new[] { "World/WorldFixture.cs", "Railway/TrainRecoveryFixture.cs" }.Any(file =>
             Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, "Tests", "Core", file)), PathComparison)) || name == "Train.Cli" &&
         new[] { "Assets/DiskContentFiles.cs", "Assets/GlbInput.cs", "Saves/SaveContainer.cs", "Saves/FileSaveStore.cs", "RuntimeEnvironment.cs", "Measurement/WorldCounts.cs", "Measurement/ProcessMemory.cs" }.Any(file =>
-            Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, "App", file)), PathComparison)) || name == "Train.Cli.Tests" &&
+            Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, "App", file)), PathComparison)) || name == "Train.SceneScale" &&
+        new[] { "Tools/Cli/CliContentFiles.cs", "Tools/Cli/AssetInspector.cs", "Tools/Cli/GlbAssetInspector.cs", "App/Assets/DiskContentFiles.cs", "App/Assets/GlbInput.cs", "App/Saves/SaveContainer.cs", "App/Saves/FileSaveStore.cs" }.Any(file =>
+            Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, file)), PathComparison)) || name == "Train.Cli.Tests" &&
         Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Engine", "Assets", "GlbFixture.cs"), PathComparison);
 
     internal static IEnumerable<string> BuiltInImportFailures(string root)

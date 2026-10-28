@@ -4,7 +4,7 @@
 import argparse
 from collections import Counter
 import json
-from math import isfinite
+from math import ceil, isfinite
 from pathlib import Path, PureWindowsPath
 from statistics import median
 
@@ -52,14 +52,14 @@ def read_json(path):
 def read_run(directory, run):
     report_name = Path(run["report"])
     if report_name.anchor or PureWindowsPath(run["report"]).anchor:
-        return {}, "report_absolute_path"
+        return {}, None, "report_absolute_path"
     try:
         root = directory.resolve()
         report_path = (root / report_name).resolve()
     except (OSError, ValueError):
-        return {}, "report_invalid_path"
+        return {}, None, "report_invalid_path"
     if not report_path.is_relative_to(root):
-        return {}, "report_outside_directory"
+        return {}, None, "report_outside_directory"
     report, report_problem = read_json(report_path)
     process, process_problem = read_json(report_path.parent / "process.json")
     reason = None
@@ -74,7 +74,186 @@ def read_run(directory, run):
     elif (type(process.get("exit_code")) is not int or process["exit_code"] != 0 or
           process.get("timed_out") is not False or process.get("cleanup_succeeded") is not True):
         reason = "process_failed_or_incomplete"
-    return report_metrics(report), reason
+    return report_metrics(report), report_path, reason
+
+
+def distribution(values):
+    known = sorted(value for value in values if is_number(value) and value >= 0)
+    return {"samples": len(known), "unknown_samples": len(values) - len(known),
+            **{key: known[ceil(fraction * len(known)) - 1] if known else None
+               for key, fraction in (("p50", 0.5), ("p95", 0.95), ("p99", 0.99), ("maximum", 1))}}
+
+
+def read_operations(path):
+    try:
+        records = []
+        with path.open(encoding="utf-8-sig") as source:
+            for line in source:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    return [], "operations_invalid_record"
+                records.append(record)
+        return records, None
+    except FileNotFoundError:
+        return [], "operations_missing_file"
+    except (OSError, ValueError):
+        return [], "operations_unreadable_jsonl"
+
+
+def summarize_openings(runs):
+    groups, problems = {}, Counter()
+    for records, reason in runs:
+        if reason:
+            problems[reason] += 1
+            continue
+        for record in records:
+            if record.get("kind") == "open" and record.get("name"):
+                groups.setdefault(record["name"], []).append(record)
+    operations = {}
+    for name, records in sorted(groups.items()):
+        valid = [record for record in records if record.get("sample_valid") is True]
+        operations[name] = {"valid_samples": len(valid), "invalid_samples": len(records) - len(valid),
+                            **{metric: distribution([record.get(metric) for record in valid
+                                if metric != "load_button_to_operable_seconds" or record.get("load_button") is not None]) for metric in (
+                                "click_to_operable_seconds", "operable_to_ready_seconds",
+                                "load_button_to_operable_seconds")}}
+    return {"unknown_runs": sum(problems.values()), "unknown_reasons": dict(problems),
+            "by_operation": operations}
+
+
+def read_frames(path):
+    with path.open(encoding="utf-8-sig") as source:
+        for line in source:
+            if not line.strip():
+                continue
+            frame = json.loads(line)
+            if not isinstance(frame, dict) or not is_number(frame.get("at")):
+                raise TypeError("invalid frame record")
+            yield frame
+
+
+def memory_window(path, records, reason, frame_phase=None):
+    """Classify the last ten seconds of a node opening or a selected frame phase."""
+    result = {"status": "unknown", "reason": reason, "window_seconds": 10,
+              "window_start_at": None, "window_end_at": None, "observed_seconds": None,
+              "samples": 0, "sample_span_seconds": None, "range_ratio": None, "memory": {}}
+    if reason:
+        return result
+    valid = True
+    if frame_phase is None:
+        openings = [record for record in records if record.get("kind") == "open" and record.get("name") == "map-node"]
+        if len(openings) != 1:
+            return {**result, "reason": "node_opening_missing_or_ambiguous"}
+        opening = openings[0]
+        ready, end = opening.get("ready"), opening.get("observation_ended")
+        valid = opening.get("sample_valid") is True
+    frames_path = path.with_name("scene-frames.jsonl")
+    try:
+        if frame_phase is not None:
+            ready = end = None
+            for frame in read_frames(frames_path):
+                if frame.get("phase") == frame_phase:
+                    ready = frame["at"] if ready is None else ready
+                    end = frame["at"]
+            if ready is None:
+                return {**result, "reason": "frames_phase_missing"}
+        if not is_number(ready) or not is_number(end) or ready < 0 or end < ready:
+            return {**result, "reason": "invalid_observation_times"}
+        start = max(ready, end - 10)
+        result.update(window_start_at=start, window_end_at=end, observed_seconds=end - start)
+        values = {key: [] for key in ("private_bytes", "working_set_bytes", "buffer_bytes", "texture_bytes", "video_bytes")}
+        times, before, after = [], False, False
+        for frame in read_frames(frames_path):
+            at = frame["at"]
+            before |= at <= start
+            after |= at >= end
+            if start <= at <= end and (frame_phase is None or frame.get("phase") == frame_phase):
+                times.append(at)
+                for key in values:
+                    values[key].append(frame.get(key))
+    except FileNotFoundError:
+        return {**result, "reason": "frames_missing_file"}
+    except TypeError:
+        return {**result, "reason": "frames_invalid_record"}
+    except (OSError, ValueError):
+        return {**result, "reason": "frames_unreadable_jsonl"}
+    result["samples"] = len(times)
+    result["sample_span_seconds"] = max(times) - min(times) if times else None
+    for key, samples in values.items():
+        known = [value for value in samples if is_number(value) and value >= 0]
+        result["memory"][key] = {**distribution(samples), "minimum": min(known) if known else None}
+    private = result["memory"]["private_bytes"]
+    if private["minimum"] is not None and private["minimum"] > 0:
+        result["range_ratio"] = (private["maximum"] - private["minimum"]) / private["minimum"]
+    if not valid:
+        result["reason"] = "invalid_opening"
+    elif end - ready < 10:
+        result["reason"] = "insufficient_observation"
+    elif not before or not after:
+        result["reason"] = "incomplete_frame_coverage"
+    elif len(set(times)) < 2:
+        result["reason"] = "insufficient_samples"
+    elif private["unknown_samples"] or result["range_ratio"] is None:
+        result["reason"] = "invalid_private_bytes"
+    elif result["range_ratio"] > 0.01:
+        result["reason"] = "still_changing"
+    else:
+        result.update(status="stable", reason=None)
+    return result
+
+
+MEMORY_COUNTERS = ("private_bytes", "working_set_bytes", "video_bytes")
+
+
+def hourly_memory(records):
+    maps = [record for record in records if record.get("kind") == "natural-map"]
+    if not maps:
+        return [], "map_samples_missing"
+    if any(not is_number(record.get("at")) or not isinstance(record.get("memory"), dict) or
+           not is_number(record["memory"].get("samples")) or record["memory"]["samples"] <= 0 for record in maps):
+        return [], "map_sample_invalid"
+    maps.sort(key=lambda record: record["at"])
+    origin, end = maps[0]["at"], maps[-1]["at"]
+    hours = []
+    for index in range(max(1, ceil((end - origin) / 3600))):
+        start, stop = origin + index * 3600, origin + (index + 1) * 3600
+        observed_start = max(record["at"] for record in maps if record["at"] <= start)
+        observed_end = next((record["at"] for record in maps if record["at"] >= stop), end)
+        points = [record for record in maps if observed_start <= record["at"] <= observed_end]
+        result = {"hour": index + 1, "start_at": start, "end_at": stop, "samples": len(points),
+                  "observed_start_at": observed_start, "observed_end_at": observed_end,
+                  "observed_seconds": observed_end - observed_start}
+        result["reason"] = "partial_hour" if end < stop else None
+        for counter in MEMORY_COUNTERS:
+            values = [record["memory"].get(counter) for record in points]
+            slope = None
+            if result["reason"] is None and len(points) >= 2 and all(is_number(value) and value >= 0 for value in values):
+                times = [(record["at"] - start) / 3600 for record in points]
+                mean_time, mean_value = sum(times) / len(times), sum(values) / len(values)
+                denominator = sum((time - mean_time) ** 2 for time in times)
+                if denominator > 0:
+                    slope = sum((time - mean_time) * (value - mean_value)
+                                for time, value in zip(times, values)) / denominator
+            result[counter + "_per_hour"] = slope
+        hours.append(result)
+    return hours, None
+
+
+def summarize_hourly_memory(runs):
+    results, groups = [], {}
+    for index, (records, reason) in enumerate(runs, 1):
+        hours, problem = ([], reason) if reason else hourly_memory(records)
+        results.append({"run": index, "hours": hours, "reason": problem})
+        for hour in hours:
+            groups.setdefault(str(hour["hour"]), {})[index] = hour
+    return {"origin": "first_natural_map", "runs": results,
+            "by_hour": {hour: {counter + "_per_hour": summarize_values([
+                (values.get(result["run"], {}).get(counter + "_per_hour"),
+                 result["reason"] or values.get(result["run"], {}).get("reason") or
+                 "hour_missing_or_insufficient_samples") for result in results])
+                for counter in MEMORY_COUNTERS} for hour, values in groups.items()}}
 
 
 def compare(a, b):
@@ -110,13 +289,26 @@ def summarize_directories(directories):
             metrics[metric] = {}
             for side, reports in reports_by_side.items():
                 samples = []
-                for report, reason in reports:
+                for report, _, reason in reports:
                     samples.append((None, reason) if reason else report[metric])
                 metrics[metric][side] = summarize_values(samples)
             if len(sides) == 2:
                 metrics[metric].update(compare(metrics[metric]["A"]["median"], metrics[metric]["B"]["median"]))
+        operation_runs = {side: [([], reason) if reason else read_operations(path.with_name("scene-operations.jsonl"))
+                                 for _, path, reason in reports] for side, reports in reports_by_side.items()}
         scenarios[scenario] = {"runs": {side: len(reports) for side, reports in reports_by_side.items()},
-                               "metrics": metrics}
+                               "metrics": metrics,
+                               "openings": {side: summarize_openings(runs) for side, runs in operation_runs.items()}}
+        if scenario in ("scene-node-first", "scene-map"):
+            scenarios[scenario]["memory_stability"] = {
+                side: [{"run": index, **memory_window(path, records, reason or problem,
+                                                    "final-map" if scenario == "scene-map" else None)}
+                       for index, ((_, path, reason), (records, problem)) in enumerate(
+                           zip(reports, operation_runs[side]), 1)]
+                for side, reports in reports_by_side.items()}
+        if scenario == "scene-soak":
+            scenarios[scenario]["hourly_memory"] = {
+                side: summarize_hourly_memory(runs) for side, runs in operation_runs.items()}
     return {"inputs": {side: str(directory) for side, directory in sides.items()},
             "input_status": input_status, "scenarios": scenarios}
 

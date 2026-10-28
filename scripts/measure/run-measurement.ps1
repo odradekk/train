@@ -6,9 +6,11 @@
 param(
     [Parameter(Mandatory)][string] $CacheDirectory,
     [Parameter(Mandatory)][string] $Scenario,
-    [Parameter(Mandatory)][string] $InputPath,
+    [ValidateSet('example', 'scene-scale')][string] $InputSet = 'example',
+    [string] $InputPath = 'examples/standard-world/save.json',
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
+    [switch] $NodeReadyHold,
     [string] $Root = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 )
 
@@ -20,13 +22,16 @@ $work = $null
 $results = $null
 $stage = 'input'
 $failure = $false
+$inputs = @()
 try {
     $Root = (Resolve-Path -LiteralPath $Root).Path
-    $examples = Join-Path $Root 'examples'
-    $InputPath = [IO.Path]::GetFullPath($InputPath, $Root)
-    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-    if (-not $InputPath.StartsWith($examples + [IO.Path]::DirectorySeparatorChar, $comparison) -or
-        -not (Test-Path -LiteralPath $InputPath -PathType Leaf)) { throw [ArgumentException]::new('存档必须是 examples/ 下已存在的文件。') }
+    if ($InputSet -eq 'example') {
+        $examples = Join-Path $Root 'examples'
+        $InputPath = [IO.Path]::GetFullPath($InputPath, $Root)
+        $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+        if (-not $InputPath.StartsWith($examples + [IO.Path]::DirectorySeparatorChar, $comparison) -or
+            -not (Test-Path -LiteralPath $InputPath -PathType Leaf)) { throw [ArgumentException]::new('存档必须是 examples/ 下已存在的文件。') }
+    }
     $stage = 'platform'
     if (-not $IsLinux) { throw '测量运行器只在 Linux 测试机器上运行。' }
     # /tmp 可能是 tmpfs，会占用被测内存；构建放在 runner 磁盘临时目录。
@@ -36,6 +41,16 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '无法读取被测提交。' }
     $results = Join-Path $Root "TestResults/measure-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff'))-$($commit.Substring(0, 7))"
     New-Item -ItemType Directory -Force -Path $work, $results, $CacheDirectory | Out-Null
+    $scaleDirectory = Join-Path $work 'scene-scale'
+    $inputs = if ($InputSet -eq 'scene-scale') {
+        # 30× 和 100× 打开节点所需内存超过测试机，只生成和统计，不在游戏里打开。
+        @(1, 10 | ForEach-Object {
+            @{ name = "${_}x"; path = (Join-Path $scaleDirectory "saves/${_}x.save.json")
+                directory = (Join-Path $results "scale-${_}x"); stage = 'not_started'; succeeded = $false }
+        })
+    } else {
+        @(@{ name = 'example'; path = $InputPath; directory = $results; stage = 'not_started'; succeeded = $false })
+    }
     $stage = 'template'
     # 缓存只省下载；每次都按同一发布的官方 SHA512-SUMS.txt 重新核对。
     $sums = Join-Path $work 'SHA512-SUMS.txt'
@@ -67,6 +82,23 @@ try {
         Copy-Item -Destination (New-Item -ItemType Directory -Force -Path (Join-Path $results 'export')).FullName
     if ($exportExit -ne 0) { throw "Release 导出失败，退出码 $exportExit。" }
 
+    if ($InputSet -eq 'scene-scale') {
+        $stage = 'scale-inputs'
+        & python3 (Join-Path $Root 'scripts/measure/scene-scale.py') generate --root $Root --output $scaleDirectory --configuration Release `
+            *> (Join-Path $results 'scale-inputs-process.log')
+        $inputExit = $LASTEXITCODE
+        $preservedInputs = (New-Item -ItemType Directory -Force -Path (Join-Path $results 'scale-inputs')).FullName
+        Get-ChildItem -LiteralPath $scaleDirectory -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.json', '.log' } |
+            Copy-Item -Destination $preservedInputs
+        $saves = Join-Path $scaleDirectory 'saves'
+        if (Test-Path -LiteralPath $saves -PathType Container) { Copy-Item -LiteralPath $saves -Destination $preservedInputs -Recurse }
+        if ($inputExit -ne 0) { throw "规模点输入生成失败，退出码 $inputExit。" }
+        foreach ($measurementInput in $inputs) {
+            if (-not (Test-Path -LiteralPath $measurementInput.path -PathType Leaf)) { throw "规模点 $($measurementInput.name) 存档缺失。" }
+        }
+    }
+
     # 使用 runner 用户自己的桌面会话；X11 只选能连上的显示。
     $stage = 'display'
     $runtime = "/run/user/$(& id -u)"
@@ -84,17 +116,29 @@ try {
     Write-Host "display: $(@($(if ($env:DISPLAY) { "x11 $env:DISPLAY" }), $(if ($env:WAYLAND_DISPLAY) { 'wayland' })) -join ', ')"
 
     $executable = Join-Path $build 'train.x86_64'
-    $stage = 'reference'
-    & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $InputPath `
-        -OutputDirectory (Join-Path $results 'reference') -Scenario scene-reference -Repeat 1 -Machine test `
-        *> (Join-Path $results 'reference-process.log')
-    if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
-    $stage = 'scenarios'
-    & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $InputPath `
-        -OutputDirectory (Join-Path $results 'scenarios') -Scenario ($Scenario -split ',' | ForEach-Object { $_.Trim() }) -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds `
-        -ReferencePath (Join-Path $results 'reference/scene-reference-1/scene-reference.json') `
-        *> (Join-Path $results 'scenarios-process.log')
-    if ($LASTEXITCODE -ne 0) { throw "场景列表测量失败，退出码 $LASTEXITCODE。" }
+    foreach ($measurementInput in $inputs) {
+        New-Item -ItemType Directory -Force -Path $measurementInput.directory | Out-Null
+        try {
+            $stage = $measurementInput.stage = 'reference'
+            & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
+                -OutputDirectory (Join-Path $measurementInput.directory 'reference') -Scenario scene-reference -Repeat 1 -Machine test -NodeReadyHold:$NodeReadyHold `
+                *> (Join-Path $measurementInput.directory 'reference-process.log')
+            if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
+            $stage = $measurementInput.stage = 'scenarios'
+            & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
+                -OutputDirectory (Join-Path $measurementInput.directory 'scenarios') -Scenario ($Scenario -split ',' | ForEach-Object { $_.Trim() }) -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds -NodeReadyHold:$NodeReadyHold `
+                -ReferencePath (Join-Path $measurementInput.directory 'reference/scene-reference-1/scene-reference.json') `
+                *> (Join-Path $measurementInput.directory 'scenarios-process.log')
+            if ($LASTEXITCODE -ne 0) { throw "场景列表测量失败，退出码 $LASTEXITCODE。" }
+            $measurementInput.succeeded = $true
+            $measurementInput.stage = 'completed'
+        }
+        catch {
+            $failure = $true
+            $_.ToString() | Set-Content -LiteralPath (Join-Path $measurementInput.directory 'failure.log')
+            Write-Host "输入 $($measurementInput.name) 失败，阶段：$($measurementInput.stage)。"
+        }
+    }
 }
 catch {
     $failure = $true
@@ -105,8 +149,11 @@ catch {
 finally {
     if ($work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
     if ($results) {
-        @{ succeeded = -not $failure; stage = $stage; scenarios = $Scenario; repeat = $Repeat; duration_seconds = $DurationSeconds } |
-            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $results 'summary.json')
+        @{ succeeded = -not $failure; stage = $stage; input_set = $InputSet
+            scenarios = $Scenario; repeat = $Repeat; duration_seconds = $DurationSeconds
+            scales = @($inputs | Where-Object name -NE 'example' | ForEach-Object {
+                @{ scale = $_.name; stage = $_.stage; succeeded = $_.succeeded }
+            }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $results 'summary.json')
     }
 }
 if ($failure) { exit 1 }
