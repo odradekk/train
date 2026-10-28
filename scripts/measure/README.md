@@ -2,7 +2,7 @@
 
 测量入口为 `measure.ps1`，导出入口为 `export-measurement.ps1`。`measure.ps1` 默认运行无需参考文件的 `scene-route-1x`、`scene-route-8x`；其余场景按需显式选择。测量场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
 
-`-NodeReadyHold` 仅使 `scene-node-first` 和参考运行的指定节点 Ready 后保持 60 秒，其余场景忽略。runner 的 `measure_node_ready_hold` 默认 false，仅传给 `measure` 的参考和场景运行。首开 `measure_seconds` 为 0–120，不改保持时长（默认 5 秒，开启后 60 秒）；混选路线须为 0。`scene-map` 末段纯地图固定保持 60 秒，不受此参数控制；其他地图保持仍为 5 秒。旧 `scene-map` 读数不可比；仓库暂无已提交基线。
+`-NodeReadyHold` 仅使 `scene-node-first` 和参考运行的指定节点 Ready 后保持 60 秒，其余场景忽略。runner 的 `measure_node_ready_hold` 默认 false，仅传给 `measure` 的参考和场景运行。首开 `measure_seconds` 为 0–120，不改保持时长（默认 5 秒，开启后 60 秒）；混选路线须为 0。`scene-map` 末段纯地图固定保持 60 秒，不受此参数控制；其他地图保持仍为 5 秒。旧 `scene-map` 读数不可比；已提交的基线见 [baselines/](baselines/)。
 
 ## 开发机交替对照
 
