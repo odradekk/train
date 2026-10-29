@@ -21,7 +21,7 @@ internal sealed partial class MeasurementRun
         ObserveSceneResources(_app.WorldScenes!.Display);
     }
 
-    private void ObserveSceneResources(SceneDisplay? display)
+    internal void ObserveSceneResources(SceneDisplay? display)
     {
         if (ReferenceEquals(display, _resourceDisplay)) return;
         if (_resourceDisplay is not null) _resourceDisplay.Measure = null;
@@ -52,7 +52,7 @@ internal sealed partial class MeasurementRun
 
     private void WriteSceneResourceTimings()
     {
-        if (_resourceDisplay is not null) _resourceDisplay.Measure = null;
+        ObserveSceneResources(null);
         var path = Path.Combine(Path.GetDirectoryName(_output)!, "scene-resource-frames.jsonl");
         using (var writer = new StreamWriter(path))
             foreach (var frame in _resourceFrames) writer.WriteLine(JsonSerializer.Serialize(frame, SceneJson));

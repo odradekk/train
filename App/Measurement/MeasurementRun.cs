@@ -188,6 +188,7 @@ internal sealed partial class MeasurementRun : IDisposable
     private void OnDraw()
     {
         if (_disposed || _app.Host!.GetStatus() is null) return;
+        ObserveSceneResources();
         var window = _app.GetWindow().Size;
         var viewport = _app.GetViewport().GetTexture().GetSize();
         if (window != WindowSize || viewport != (Vector2)WindowSize)
@@ -215,6 +216,7 @@ internal sealed partial class MeasurementRun : IDisposable
     {
         _disposed = true;
         StopEditorMeasurement();
+        ObserveSceneResources(null);
         RenderingServer.FramePostDraw -= OnDraw;
         _process.Dispose();
     }
