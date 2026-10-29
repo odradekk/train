@@ -127,7 +127,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         _subjects = input.Validate(status.View);
         Host.SetPaused(true);
         Host.AutoPauseOnFocusLoss = false;
-        World = new(Host, CreateScenes(), _logger);
+        World = new(Host, CreateScenes, _logger);
         World.ReturnedToMap += problem => _sceneFailure = problem?.Code ?? "场景已关闭";
         owner.AddChild(World.View);
         if (input.Target is WorldObjectId.Train train && status.View.FindTrain(train.Id) is Lookup<TrainView>.Found foundTrain)

@@ -10,10 +10,9 @@ using Train.Ui;
 
 namespace Train.App;
 
-internal sealed class WorldSceneController : IDisposable
+internal sealed partial class WorldSceneController : IDisposable
 {
     private readonly HostCoordinator _host;
-    private readonly IScenesFactory _factory;
     private readonly TrainLogger _logger;
     private readonly GodotMainThreadDispatcher _dispatcher = new();
     private readonly AssetResourceCache _cache;
@@ -21,9 +20,6 @@ internal sealed class WorldSceneController : IDisposable
     private readonly HashSet<SceneProblem> _reported = [];
     private IWorldSceneSession? _session;
     private SceneDisplay? _display;
-    private HostBinding _hostBinding;
-    private ContentGeneration _generation;
-    private SceneBinding _sceneBinding;
     private SceneRequestId _request;
     private WorldSceneTarget? _target;
     private ScenePickRaySample? _pickRay;
@@ -46,59 +42,6 @@ internal sealed class WorldSceneController : IDisposable
     internal event Action<PickSubject>? Selected;
     internal event Action<ISceneFrame>? FramePresented;
 
-    internal WorldSceneController(HostCoordinator host, IScenesFactory factory, TrainLogger logger)
-    {
-        _host = host; _factory = factory; _logger = logger;
-        _cache = new(_dispatcher);
-        host.BoundaryCompleted += Observe;
-        View.CameraRig.ObjectTop = id => _display?.ObjectTopY(id);
-        View.PickRequested += Pick;
-        View.ReturnRequested += ReturnToMap;
-        View.SetActive(false);
-        View.SetLoading(false);
-    }
-
-    internal void Open(WorldSceneTarget target)
-    {
-        _dispatcher.RequireMainThread();
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_host.GetStatus() is not { } status || _host.Content is not { } content)
-            throw new InvalidOperationException("打开世界场景需要活动会话。");
-        if (_session is not null && status.Binding == _hostBinding && content.Generation == _generation)
-        {
-            try { RequestTarget(target); }
-            catch (Exception exception) { AdapterFailed(exception, SceneStage.Input); }
-            return;
-        }
-        CloseScene();
-        UpdateBinding(status.Binding, content.Generation);
-        Start(new(status.View, content), target);
-    }
-
-    private void UpdateBinding(HostBinding binding, ContentGeneration generation)
-    {
-        if (binding == _hostBinding && generation == _generation) return;
-        _hostBinding = binding;
-        _generation = generation;
-        _sceneBinding = new(Guid.NewGuid());
-    }
-
-    internal SceneProblem? Regenerate()
-    {
-        _dispatcher.RequireMainThread();
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_host.IsBusy)
-            return new("busy", SceneStage.Input, null, null, null, null, "宿主正在处理操作，请稍后重试。");
-        if (_session is null || _target is not { } target ||
-            _host.GetStatus() is not { } status || _host.Content is not { } content)
-            return new("no_scene", SceneStage.Input, null, null, null, null, "没有可重新生成的世界场景。");
-        CloseScene();
-        UpdateBinding(status.Binding, content.Generation);
-        Start(new(status.View, content), target);
-        return _session is not null ? null :
-            new("scene_failed", SceneStage.Input, null, null, null, null, "重新生成场景失败。");
-    }
-
     private void Start(SceneWorldSnapshot snapshot, WorldSceneTarget target)
     {
         View.SetActive(true);
@@ -106,7 +49,7 @@ internal sealed class WorldSceneController : IDisposable
         View.SetLoading(true);
         try
         {
-            var opened = _factory.OpenWorld(_sceneBinding, snapshot);
+            var opened = (_factory ??= _createFactory()).OpenWorld(_sceneBinding, snapshot);
             if (opened is not SceneResult<IWorldSceneSession>.Success success) { Fail(opened); return; }
             _session = success.Value;
             _display = new(_cache, snapshot.Content, completeInitialFrame: true);
@@ -487,6 +430,7 @@ internal sealed class WorldSceneController : IDisposable
         _disposed = true;
         _host.BoundaryCompleted -= Observe;
         CloseScene();
+        _factory = null;
         foreach (var task in _closing)
             _ = task.ContinueWith(completed =>
             {

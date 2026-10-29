@@ -60,13 +60,14 @@ public partial class App : Node
             var arguments = OS.GetCmdlineUserArgs();
             var streaming = arguments.Any(argument => argument.StartsWith("--measure=", StringComparison.Ordinal)) &&
                 arguments.Contains("--measure-streaming", StringComparer.Ordinal) ? new StreamingRecorder() : null;
-            var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes(streaming);
+            var createScenes = CreateScenes ?? (() => HostComposition.CreateScenes(streaming));
+            var scenesFactory = createScenes();
             Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
             Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), AuthoringPaths.ModsDirectory(userData),
                 OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null);
             Saves = new SaveService(Host, new FileSaveStore(userData), Editor);
             GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
-            WorldScenes = new(Host, scenesFactory, _logger);
+            WorldScenes = new(Host, createScenes, _logger);
             Editor.Changed += () =>
             {
                 if (Editor.IsOpen && WorldScenes.View.Visible) WorldScenes.ReturnToMap();
