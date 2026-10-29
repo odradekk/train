@@ -38,7 +38,7 @@ public partial class SceneDisplayTests
         long now = 0;
         display.Timestamp = () => now;
         List<TimeSpan> durations = [];
-        display.Measure = (work, elapsed) =>
+        display.Measure = (work, elapsed, _) =>
         {
             if (work != SceneDisplayWork.PrepareCandidate) return;
             durations.Add(elapsed);
@@ -89,7 +89,7 @@ public partial class SceneDisplayTests
             await new UiTestInput(TestScene).Frames(1);
             List<TimeSpan> durations = [];
             List<SceneDisplayEvent> events = [];
-            display.Measure = (work, elapsed) => { if (work == SceneDisplayWork.Prepare) durations.Add(elapsed); };
+            display.Measure = (work, elapsed, _) => { if (work == SceneDisplayWork.Prepare) durations.Add(elapsed); };
             display.Observe = events.Add;
             using var cancelled = display.Prepare(Frame(3, [], loading ? first.Update.Frame : null,
                 readiness: loading ? SceneReadiness.Loading : SceneReadiness.Ready));

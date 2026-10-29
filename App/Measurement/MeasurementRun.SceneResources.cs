@@ -51,15 +51,20 @@ internal sealed partial class MeasurementRun
                 preparation_seconds = FrameMeasurements.Distribution(samples.Select(frame => frame.PreparationSeconds)),
                 candidate_preparation_seconds = FrameMeasurements.Distribution(samples.Select(frame => frame.CandidatePreparationSeconds)),
                 preparation_total_seconds = FrameMeasurements.Distribution(samples.Select(frame => frame.PreparationTotalSeconds)),
+                preparation_gc_pause_seconds = FrameMeasurements.Distribution(samples.Select(frame => frame.PreparationGcPauseSeconds)),
+                preparation_calls = samples.Sum(frame => frame.PreparationCalls),
+                candidate_preparation_calls = samples.Sum(frame => frame.CandidatePreparationCalls),
                 commit_seconds = FrameMeasurements.Distribution(samples.Select(frame => frame.CommitSeconds)),
-                longest_frame = samples.MaxBy(frame => frame.FrameSeconds)
+                longest_frame = samples.MaxBy(frame => frame.FrameSeconds),
+                longest_preparation_frame = samples.MaxBy(frame => frame.PreparationTotalSeconds),
+                longest_candidate_preparation_frame = samples.MaxBy(frame => frame.CandidatePreparationSeconds)
             };
         }
         _sceneEvidence["resource_work"] = new
         {
             frames = Path.GetFileName(path),
             frame_count = _resourceFrames.Count,
-            scope = "Main-thread elapsed spans, including GC pauses; preparation reuses the shared budget clock. Calls are summed between actual draws; Prepare and PrepareCandidate exclude Commit. Not worker CPU time or streaming stage latency.",
+            scope = "Main-thread elapsed spans and GC pause deltas, summed between actual draws; Prepare and PrepareCandidate exclude Commit. Assessment subtracts each frame's GC pauses; raw elapsed and the shared budget clock still include them. Not worker CPU time or streaming stage latency.",
             phases = _resourceFrames.GroupBy(frame => frame.Phase).Select(group => new
             {
                 phase = group.Key, all_frames = Summary(group),

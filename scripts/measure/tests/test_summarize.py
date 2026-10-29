@@ -47,7 +47,8 @@ class DirectoryTests(unittest.TestCase):
     def preparation_report(self, measured, status="passed", reason=None):
         return {**self.report(), "assessment": {"items": [{
             "metric": "scene_preparation_maximum", "unit": "seconds", "threshold": 0.004,
-            "measured": measured, "status": status, "reason": reason}]}}
+            "measured": measured, "raw_maximum": measured, "gc_pause_maximum": 0,
+            "status": status, "reason": reason}]}}
 
     def test_preparation_preserves_each_run_maximum_and_never_hides_a_failed_run(self):
         for measured, status in ((0.003, "passed"), (0.004, "passed"), (0.005, "failed"), (None, "unknown")):

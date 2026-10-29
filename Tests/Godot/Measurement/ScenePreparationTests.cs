@@ -10,14 +10,64 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class ScenePreparationTests
 {
     [TestMethod]
+    [DataRow(.0099, .006, "passed")]
+    [DataRow(.0100, .006, "passed")]
+    [DataRow(.0101, .006, "failed")]
+    public void PreparationBudgetSubtractsGcAndReportsBothOriginalValues(double raw, double pause, string status) =>
+        InDirectory(directory =>
+        {
+            WriteFrames(directory, [new { after_operable = true, excluded_space_change = false,
+                preparation_seconds = raw, candidate_preparation_seconds = 0, preparation_gc_pause_seconds = pause }]);
+            using var report = ReadReport(directory, 1);
+            var item = Item(report, "scene_preparation_maximum");
+            Assert.AreEqual(status, item.GetProperty("status").GetString());
+            Assert.AreEqual(raw - pause, item.GetProperty("measured").GetDouble(), 1e-12);
+            Assert.AreEqual(raw, item.GetProperty("raw_maximum").GetDouble());
+            Assert.AreEqual(pause, item.GetProperty("gc_pause_maximum").GetDouble());
+        });
+
+    [TestMethod]
+    public void PreparationSubtractsPauseOnEachFrameBeforeTakingMaximum() => InDirectory(directory =>
+    {
+        WriteFrames(directory,
+        [
+            new { after_operable = true, excluded_space_change = false, preparation_seconds = .1,
+                candidate_preparation_seconds = 0, preparation_gc_pause_seconds = .099 },
+            new { after_operable = true, excluded_space_change = false, preparation_seconds = .005,
+                candidate_preparation_seconds = 0, preparation_gc_pause_seconds = 0.0 }
+        ]);
+        using var report = ReadReport(directory, 2);
+        var item = Item(report, "scene_preparation_maximum");
+        Assert.AreEqual("failed", item.GetProperty("status").GetString());
+        Assert.AreEqual(.005, item.GetProperty("measured").GetDouble());
+        Assert.AreEqual(.1, item.GetProperty("raw_maximum").GetDouble());
+        Assert.AreEqual(.099, item.GetProperty("gc_pause_maximum").GetDouble());
+    });
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("null")]
+    [DataRow("-0.001")]
+    [DataRow("0.004")]
+    public void MissingOrInvalidGcPauseCannotPassAnOtherwiseValidObservation(string? pause) => InDirectory(directory =>
+    {
+        WriteFrames(directory, [Frame(1, 10, true, .003)]);
+        var field = pause is null ? "" : $",\"preparation_gc_pause_seconds\":{pause}";
+        File.AppendAllText(Path.Combine(directory, "scene-resource-frames.jsonl"),
+            $$"""{"after_operable":true,"excluded_space_change":false,"preparation_seconds":0.003,"candidate_preparation_seconds":0{{field}}}""");
+        using var report = ReadReport(directory, 2);
+        Assert.AreEqual("unknown", Item(report, "scene_preparation_maximum").GetProperty("status").GetString());
+    });
+
+    [TestMethod]
     public void PreparationIncludesBothKindsOfWorkAndPassesAtFourMilliseconds()
     {
         InDirectory(directory =>
         {
             File.WriteAllText(Path.Combine(directory, "scene-resource-frames.jsonl"),
                 """
-                {"excluded_space_change":false,"process_frame":1,"at":10,"frame_seconds":1,"after_operable":false,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"commit_seconds":0.1}
-                {"excluded_space_change":false,"process_frame":2,"at":11,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0.001,"commit_seconds":0.2}
+                {"excluded_space_change":false,"process_frame":1,"at":10,"frame_seconds":1,"after_operable":false,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"preparation_gc_pause_seconds":0,"commit_seconds":0.1}
+                {"excluded_space_change":false,"process_frame":2,"at":11,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0.001,"preparation_gc_pause_seconds":0,"commit_seconds":0.2}
                 """);
             using var report = ReadReport(directory, 2);
             var item = Item(report, "scene_preparation_maximum");
@@ -32,8 +82,8 @@ public sealed class ScenePreparationTests
     {
         File.WriteAllText(Path.Combine(directory, "scene-resource-frames.jsonl"),
             """
-            {"excluded_space_change":false,"process_frame":1,"at":10,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0,"commit_seconds":0}
-            {"excluded_space_change":false,"process_frame":2,"at":11,"frame_seconds":1,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"commit_seconds":0}
+            {"excluded_space_change":false,"process_frame":1,"at":10,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0,"preparation_gc_pause_seconds":0,"commit_seconds":0}
+            {"excluded_space_change":false,"process_frame":2,"at":11,"frame_seconds":1,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"preparation_gc_pause_seconds":0,"commit_seconds":0}
             """);
         using var report = ReadReport(directory, 2);
         Assert.AreEqual("unknown", Item(report, "scene_preparation_maximum").GetProperty("status").GetString());
@@ -152,7 +202,7 @@ public sealed class ScenePreparationTests
 
     private static object Frame(int processFrame, double at, bool afterOperable, double seconds) =>
         new { process_frame = processFrame, at, frame_seconds = 1, after_operable = afterOperable, excluded_space_change = false,
-            preparation_seconds = seconds, candidate_preparation_seconds = 0, commit_seconds = 0 };
+            preparation_seconds = seconds, candidate_preparation_seconds = 0, preparation_gc_pause_seconds = 0, commit_seconds = 0 };
 
     private static void WriteFrames(string directory, IEnumerable<object> frames) =>
         File.WriteAllLines(Path.Combine(directory, "scene-resource-frames.jsonl"), frames.Select(frame => JsonSerializer.Serialize(frame)));

@@ -12,6 +12,7 @@ internal sealed partial class SceneDisplay
         _cache.RequireMainThread();
         ResetPreparationBudget();
         var started = Timestamp();
+        var pauseStarted = GC.GetTotalPauseDuration();
         try
         {
             if (_candidatePromoted && !HasCandidateFor(frame.Update.Frame))
@@ -155,9 +156,11 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
-            var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
+            var pause = GC.GetTotalPauseDuration() - pauseStarted;
+            var ended = Timestamp();
+            var elapsed = Stopwatch.GetElapsedTime(started, ended);
             _preparationTime += elapsed;
-            Measure?.Invoke(SceneDisplayWork.Prepare, elapsed);
+            Measure?.Invoke(SceneDisplayWork.Prepare, elapsed, pause);
         }
     }
 

@@ -28,6 +28,8 @@ internal sealed class MeasurementEvidence
     internal List<double?> RetiredHeaps { get; } = [];
     internal string? HeapProblem { get; private set; }
     internal double? PreparationMaximum { get; private set; }
+    internal double? PreparationRawMaximum { get; private set; }
+    internal double? PreparationGcPauseMaximum { get; private set; }
     internal int PreparationFrames { get; private set; }
     internal int PreparationSamples { get; private set; }
     internal int PreparationExcludedFrames { get; private set; }
@@ -118,8 +120,13 @@ internal sealed class MeasurementEvidence
             var total = active + candidate;
             if (total is null || !double.IsFinite(total.Value) || active < 0 || candidate < 0)
                 throw new JsonException("场景准备耗时缺失或无效");
+            var pause = Number(At(record, "preparation_gc_pause_seconds"));
+            if (pause is null || pause < 0 || pause > total)
+                throw new JsonException("场景准备 GC 暂停缺失或无效");
             PreparationSamples++;
-            PreparationMaximum = Math.Max(PreparationMaximum ?? 0, total.Value);
+            PreparationMaximum = Math.Max(PreparationMaximum ?? 0, total.Value - pause.Value);
+            PreparationRawMaximum = Math.Max(PreparationRawMaximum ?? 0, total.Value);
+            PreparationGcPauseMaximum = Math.Max(PreparationGcPauseMaximum ?? 0, pause.Value);
         });
     }
 

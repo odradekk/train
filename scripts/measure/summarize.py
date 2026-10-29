@@ -45,17 +45,24 @@ def report_metrics(report):
 
 def summarize_preparation(reports):
     samples, statuses = [], []
+    raw_maxima, gc_pause_maxima = [], []
     for report, _, reason in reports:
         item = report.get("scene_preparation", {})
         status, value = item.get("status"), item.get("measured")
+        raw, gc_pause = item.get("raw_maximum"), item.get("gc_pause_maximum")
         valid = (reason is None and status in ("passed", "failed") and item.get("unit") == "seconds"
-                 and is_number(value) and value >= 0)
+                 and all(is_number(number) and number >= 0 for number in (value, raw, gc_pause)))
         samples.append((value if valid else None, reason or item.get("reason") or "missing_or_invalid_assessment"))
+        raw_maxima.append(raw if valid else None)
+        gc_pause_maxima.append(gc_pause if valid else None)
         statuses.append(status if valid else "unknown")
     summary = summarize_values(samples)
     return {"status": "failed" if "failed" in statuses else
             "unknown" if summary["unknown_runs"] or not summary["valid_runs"] else "passed",
             "unit": "seconds", "run_maxima": [value for value, _ in samples],
+            "raw_run_maxima": raw_maxima, "raw_maximum": max((x for x in raw_maxima if x is not None), default=None),
+            "gc_pause_run_maxima": gc_pause_maxima,
+            "gc_pause_maximum": max((x for x in gc_pause_maxima if x is not None), default=None),
             "maximum": summary["max"], "valid_runs": summary["valid_runs"],
             "unknown_runs": summary["unknown_runs"], "unknown_reasons": summary["unknown_reasons"]}
 
