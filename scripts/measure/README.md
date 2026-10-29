@@ -72,11 +72,11 @@ Read-ExecutionState
 
 ## 逐项性能判定
 
-每份 `report.json` 的 `assessment` 按[设计 00「本阶段性能目标」](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 保持“待验收”，`reason` 说明尚缺目标配置实机与完整覆盖，`source` 指向设计目标。各项 `items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，需要时附 `observed_seconds`。阈值数值由报告代码单处维护。
+`report.json` 的 `assessment` 按[设计 00「本阶段性能目标」](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 为“待验收”，`reason` 说明缺目标配置实机与完整覆盖，`source` 指向设计目标。各项 `items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，可附 `observed_seconds`、`excess`。阈值由报告代码维护。
 
-`status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺少成对基线或观察截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 继续表示运行是否完成，原有 `timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
+`status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺成对基线或截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 表示运行是否完成，`timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
 
-路线帧耗时 p95、p99、最大值排除初始打开段：`identity.scene_budget.route.startup.first_operable_at` 与 `timing.frames[].elapsed_seconds` 共用起点，帧结束时刻≤可操作时刻的记录排除，首个可操作帧的间隔仍属打开。三项的 `window` 说明范围，`window_start_seconds` 记录相对起点，`excluded_frames` 记录排除数；缺可操作时刻或无后续帧时为 `unknown`，缺时刻时两字段为 `null`。可操作后补齐和途中切换照常计入；实际倍速用全窗。非路线和其他判定项的两字段为 `null`。原始 `timing` 和旁车均保留。
+路线帧耗时 p95、p99、最大值排除初始打开段：`identity.scene_budget.route.startup.first_operable_at` 与 `timing.frames[].elapsed_seconds` 共用起点，帧结束时刻≤可操作时刻的记录排除，首个可操作帧的间隔仍属打开。三项的 `window` 说明范围，`window_start_seconds` 记录相对起点，`excluded_frames` 记录排除数；缺可操作时刻或无后续帧时为 `unknown`，缺时刻时两字段为 `null`。可操作后补齐和途中切换照常计入；实际倍速用全窗。其他项两字段为 `null`，[场景准备](scene-preparation.md)的 `excluded_frames` 除外。保留 `timing` 和旁车。
 
 打开 p95 按类别至少需 30 个有效样本；最大值和补齐也只用有效打开。补齐从可操作起检查 5 秒内的 64 m 范围。`scene-memory` 不作正式打开时延证据，节点只观察约 5 秒，不按稳态判定。节点增量按 `click` 配对最近地图读数：首次取初始地图末 1 秒中位数，之后取最近 `natural-map.memory`；缺基线时增量 `unknown`。返回地图后强制 GC 的存活堆减 `cycle 0` 初值。原报告的 `steady` 只是末 1 秒统计，须另核对稳定性，未稳定时不据此宣称通过预算。
 

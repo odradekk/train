@@ -50,12 +50,12 @@ class DirectoryTests(unittest.TestCase):
             "measured": measured, "status": status, "reason": reason}]}}
 
     def test_preparation_preserves_each_run_maximum_and_never_hides_a_failed_run(self):
-        for measured, status in ((0.003, "passed"), (0.004, "passed"), (0.005, "failed")):
+        for measured, status in ((0.003, "passed"), (0.004, "passed"), (0.005, "failed"), (None, "unknown")):
             self.add_run(scenario="scene-node", report=self.preparation_report(measured, status))
         result = summarize.summarize_directories([self.root / "A"])
         preparation = result["scenarios"]["scene-node"]["scene_preparation"]["A"]
-        self.assertEqual([0.003, 0.004, 0.005], preparation["run_maxima"])
-        self.assertEqual(("failed", 0.005, 3, 0, "seconds"), tuple(preparation[key] for key in (
+        self.assertEqual([0.003, 0.004, 0.005, None], preparation["run_maxima"])
+        self.assertEqual(("failed", 0.005, 3, 1, "seconds"), tuple(preparation[key] for key in (
             "status", "maximum", "valid_runs", "unknown_runs", "unit")))
 
     def test_preparation_missing_or_unknown_runs_prevent_a_pass(self):

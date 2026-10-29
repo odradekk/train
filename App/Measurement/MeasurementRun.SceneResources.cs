@@ -28,11 +28,9 @@ internal sealed partial class MeasurementRun
     private void RecordSceneResourceFrame()
     {
         var scenes = _app.WorldScenes!;
-        var interactive = scenes.View.Interactive && scenes.Display?.DisplayedFrame is { } displayed &&
-            displayed.Update.Frame.Request == scenes.CurrentRequest;
         var frame = _resourceTimings.Draw(Engine.GetProcessFrames(), Seconds(),
             _routeSampling ? (_routeOperableGc is null ? "route-opening" : "route-follow") : _scenePhase,
-            _routeSampling ? "route" : _sceneOperation, interactive, scenes.Display?.DisplayedFrame?.Update.Frame.Space);
+            _routeSampling ? "route" : _sceneOperation, scenes.View.Interactive, scenes.Display?.DisplayedFrame?.Update.Frame.Space);
         if (frame is not null) _resourceFrames.Add(frame);
     }
 

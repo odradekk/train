@@ -233,7 +233,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `rebuilding_parts` | 部件旧 attempt 仍在 D 显示、最新 attempt 尚未显示时，按新 attempt 阶段单列重建数量，不计入 missing_parts |
 | `streaming-host.jsonl` | 每条含 `display`、`at` 和 `value`；`value` 含候选序号 `candidate`、完整 `frame`、可空 `object`、`stage` 和可空 `resource_objects`。`display` 区分重新创建的宿主显示实例 |
 | `ResourcesPrepared` | 仅当此对象至少一个视觉资源不能通过 `CanReuseVisual` 复用、需要新准备时记录；在该对象全部视觉资源就绪后发出，不等待整个候选。全复用的姿态更新、仅删除视觉与无视觉对象不记录 |
-| `FramePreparationStarted` / `FramePrepared` / `FrameCommitted` | 内部帧级通知，`object=null`；分别在冻结候选、完整 PreparedFrame 生成及实际 Commit 结束时发出。开始通知的 `resource_objects` 列出至少一个视觉资源需要新准备的对象，其余通知为 null。全复用和无视觉候选也发，不替代逐对象资源事件。逐部件资源准备时间取同一成功候选中、与 Admitted.Objects 匹配的 ResourcesPrepared 最大值；尚未提交时可取截止时仍有效且已完成该部件准备的候选。已取消候选不参与，无新视觉对象为 null |
+| `FramePreparationStarted` / `FramePrepared` / `FrameCommitted` | 帧级通知，`object=null`；分别在复用匹配完成、完整 PreparedFrame 生成及实际 Commit 结束时发出。开始通知的 `resource_objects` 列出至少一个视觉资源需要新准备的对象，其余通知为 null。全复用和无视觉候选也发，不替代逐对象资源事件。逐部件资源准备时间取同一成功候选中、与 Admitted.Objects 匹配的 ResourcesPrepared 最大值；尚未提交时可取截止时仍有效且已完成该部件准备的候选。已取消候选不参与，无新视觉对象为 null |
 | `HostCancelled` | 宿主放弃此候选，`object=null`；同一帧重试分配新的 `candidate`，不沿用被取消候选的准备时间 |
 | `streaming-coverage.jsonl` | 每次实际覆盖采样的 `seconds`、D 的完整 `frame`、`window`、`draw` 和 `sample`；无已提交帧时 `sample=null` |
 | `sample` | 仅保留 `eligible`、`terrain`、`simplified_terrain`、`fog_only`、`neither`、三类排除计数和缺地形／无雾缺口比例；空分母的比例为 null，不能当作 0。不保留逐点坐标；仅对 fog_only／neither 点调用绑定 D 帧布局的 `FindTerrainParts` 在线归属。`part_categories` 按 category 聚合，只保存 category、fog_only、neither，不保存完整 PartId 或 terrain 计数。分类为 not_needed、needed_<stage>、outside_terrain_domain、layout_unknown；重建时仍显示旧 attempt 的部件归 displayed。同一点对应多个部件时，每个不同类别各计一次，总计可能超过缺地形点数 |

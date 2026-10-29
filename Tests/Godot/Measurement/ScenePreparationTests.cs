@@ -136,6 +136,20 @@ public sealed class ScenePreparationTests
         Assert.AreEqual(JsonValueKind.Null, item.GetProperty("excluded_frames").ValueKind);
     });
 
+    [TestMethod]
+    [DataRow("scene-follow-8x")]
+    [DataRow("scene-memory")]
+    [DataRow("scene-soak")]
+    [DataRow("scene-map")]
+    [DataRow("scene-editor")]
+    public void UnrelatedScenariosDoNotAssessScenePreparation(string scenario) => InDirectory(directory =>
+    {
+        WriteFrames(directory, [Frame(1, 10, true, .005)]);
+        using var report = ReadReport(directory, 1, scenario);
+        Assert.IsFalse(report.RootElement.GetProperty("assessment").GetProperty("items").EnumerateArray()
+            .Any(item => item.GetProperty("metric").GetString() == "scene_preparation_maximum"));
+    });
+
     private static object Frame(int processFrame, double at, bool afterOperable, double seconds) =>
         new { process_frame = processFrame, at, frame_seconds = 1, after_operable = afterOperable, excluded_space_change = false,
             preparation_seconds = seconds, candidate_preparation_seconds = 0, commit_seconds = 0 };

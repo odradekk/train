@@ -9,3 +9,7 @@
 原始 `scene-resource-frames.jsonl` 的 `after_operable` 标明各帧是否参与统计，`excluded_space_change` 标明是否因新空间首帧而排除；排除帧的 `after_operable` 必须为 `false`。报告中 `scene_preparation_maximum` 的 `excluded_frames` 给出这类排除帧数，`identity.scene_budget.resource_work.frame_count` 用来核对原始记录数。缺文件、缺任一标记、标记冲突、无有效窗口帧、记录数不符或截断均为 `unknown`，此时 `excluded_frames` 为 `null`；旧报告没有这些证据时也不推算为通过。
 
 离线汇总的 `scene_preparation` 保留各轮最大值 `run_maxima`、总最大值和有效／未知轮数，采用报告的逐轮判定；单轮超限不能被跨轮中位数掩盖，有未知轮次不能判通过。已知超限与未知轮次并存时，汇总保留超限结论，同时列出未知轮次。
+
+`FramePreparationStarted` 在复用匹配完成后发出，可能比冻结候选晚几帧。因此 `missing_parts`／`rebuilding_parts`、`PreviewCounts`、覆盖采样分类和 `admitted_to_resources_prepared` 等流式诊断不能和 #813 直接比较。打开、补齐和帧耗时仍沿用原定义。
+
+#813 的 228.8 ms 从打开判定的 `first_operable` 起算，按 phase 拆分，且不排除新空间首帧；本项从首次完整提交且 `Interactive` 为真之后起算，排除新空间首帧，两者不能直接比较。

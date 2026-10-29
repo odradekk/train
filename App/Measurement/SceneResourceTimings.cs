@@ -34,7 +34,6 @@ internal sealed class SceneResourceTimings
         {
             _operation = operation;
             _operable = false;
-            _displayedSpace = null;
         }
         // 新空间正式首帧属于打开；只排除该 draw，不重开整个可操作窗口。
         var excludedSpace = _operable && displayedSpace is { } current && _displayedSpace is { } previous && current != previous;
