@@ -22,7 +22,7 @@ public partial class SceneDisplayTests
         var first = Frame(1, []);
         await Commit(display, first);
         var next = Frame(2, [Object(1, Mesh()), Object(2, Mesh()), Object(3, Mesh())], first.Update.Frame);
-        await Prime(display, next);
+        await ScenePackingTestDriver.StartFormal(display, next, TestScene);
         await new UiTestInput(TestScene).Frames(1);
         long now = 0;
         display.Timestamp = () => now += Stopwatch.Frequency;
@@ -116,7 +116,7 @@ public partial class SceneDisplayTests
         {
             var next = Frame(2, [Object(1, Peak(1)), Object(2, Peak(2)), Object(3, Peak(3))], space: (ulong)milliseconds);
             display.ReceiveCandidate(next.Update);
-            await PrimeCandidate(display);
+            await ScenePackingTestDriver.StartCandidate(display, TestScene);
             display.Timestamp = () => (display.CandidateProgress(next.Update.Frame)!.Value.Prepared * milliseconds) * Stopwatch.Frequency / 1000;
             display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             Require(display.CandidateProgress(next.Update.Frame) is (1, 3),
@@ -147,10 +147,10 @@ public partial class SceneDisplayTests
         var first = Frame(1, []);
         await Commit(display, first);
         var active = Frame(2, [Object(42, Peak(42))], first.Update.Frame);
-        await Prime(display, active);
+        await ScenePackingTestDriver.StartFormal(display, active, TestScene);
         var candidate = Frame(3, [Object(1, Peak(1)), Object(2, Peak(2))], space: 2);
         display.ReceiveCandidate(candidate.Update);
-        await PrimeCandidate(display);
+        await ScenePackingTestDriver.StartCandidate(display, TestScene);
         display.Timestamp = () => display.CandidateProgress(candidate.Update.Frame)!.Value.Prepared * Stopwatch.Frequency * 3 / 1000;
         display.PrepareCandidate(TimeSpan.FromMilliseconds(100));
         Require(display.CandidateProgress(candidate.Update.Frame) is (1, 2), "候选只能使用共享4ms额度中的3ms。");

@@ -27,33 +27,16 @@ public partial class SceneDisplayTests
         throw new InvalidOperationException("已配置的可显示帧准备超时。");
     }
 
-    private async Task Prime(SceneDisplay display, ISceneFrame frame)
+    private async Task CompleteCandidate(SceneDisplay display)
     {
-        await new UiTestInput(TestScene).Frames(1);
-        var timestamp = display.Timestamp;
-        try
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (display.IsPreparingCandidate && watch.Elapsed < TimeSpan.FromSeconds(30))
         {
-            display.Timestamp = () => 0;
-            using var prepared = display.Prepare(frame, TimeSpan.Zero);
-            Require(prepared is null, "零预算只能启动后台打包，不能完成有新视觉的同空间帧。");
-            await display.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30));
-        }
-        finally { display.Timestamp = timestamp; }
-        await new UiTestInput(TestScene).Frames(1);
-    }
-
-    private async Task PrimeCandidate(SceneDisplay display)
-    {
-        await new UiTestInput(TestScene).Frames(1);
-        var timestamp = display.Timestamp;
-        try
-        {
-            display.Timestamp = () => 0;
-            display.PrepareCandidate(TimeSpan.Zero);
+            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             await display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30));
+            if (display.IsPreparingCandidate) await new UiTestInput(TestScene).Frames(1);
         }
-        finally { display.Timestamp = timestamp; }
-        await new UiTestInput(TestScene).Frames(1);
+        Require(!display.IsPreparingCandidate, "候选准备必须在挂起保护内完成。");
     }
 
     private async Task Commit(SceneDisplay display, ISceneFrame frame)

@@ -122,7 +122,7 @@ internal sealed partial class SceneDisplay
             {
                 var key = pending.Value;
                 var source = _candidateSources[key];
-                if (!slice.Start(resource: true, estimate: VisualCost(source))) return;
+                if (!slice.Start(estimate: VisualCost(source))) return;
                 var resourceStarted = Timestamp();
                 var visual = _resources.TryPrepare(source, _candidatePacking);
                 if (visual is null) return;

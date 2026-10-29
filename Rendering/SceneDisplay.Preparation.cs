@@ -56,8 +56,7 @@ internal sealed partial class SceneDisplay
                 for (; preparation.Visual < visuals.Length; preparation.Visual++)
                 {
                     var i = preparation.Visual;
-                    if (!slice.Start(resource: reusedVisuals[i] is null,
-                        estimate: reusedVisuals[i] is null ? VisualCost(source.Visuals[i]) : default)) return null;
+                    if (!slice.Start(estimate: reusedVisuals[i] is null ? VisualCost(source.Visuals[i]) : default)) return null;
                     if (reusedVisuals[i] is { } reused) visuals[i] = reused;
                     else
                     {
@@ -338,13 +337,11 @@ internal sealed partial class SceneDisplay
     {
         internal long Timestamp() => owner.Timestamp();
 
-        internal bool Start(bool resource = false, TimeSpan estimate = default)
+        internal bool Start(TimeSpan estimate = default)
         {
             if (unlimited) { _budgetAdvanced = true; return true; }
-            // 零配额保留仅收集后台打包输入的调用方式。
-            if (resource && budget == TimeSpan.Zero) return false;
             var elapsed = Stopwatch.GetElapsedTime(started, owner.Timestamp());
-            var allowance = budget is { } value && value > TimeSpan.Zero ? value : PreparationBudget;
+            var allowance = budget ?? PreparationBudget;
             if (_budgetAdvanced && (elapsed >= allowance || _preparationTime + elapsed >= PreparationBudget ||
                 elapsed + estimate > allowance || _preparationTime + elapsed + estimate > PreparationBudget)) return false;
             _budgetAdvanced = true;

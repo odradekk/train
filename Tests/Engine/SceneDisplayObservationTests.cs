@@ -27,7 +27,7 @@ public partial class SceneDisplayTests
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var frame = Frame(2, [source], baseline.Update.Frame);
-        await Prime(display, frame);
+        await ScenePackingTestDriver.StartFormal(display, frame, TestScene);
         Require(display.Prepare(frame) is null && events.Count == 1 &&
             events[0].Stage == SceneDisplayStage.FramePreparationStarted && events[0].Object is null &&
             events[0].ResourceObjects is { } required && required.SequenceEqual(new[] { source.Id }),

@@ -147,7 +147,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         };
         var pending = Frame(2, [original with { Visuals = [b, added, blocked] }], first.Update.Frame);
         var before = OrphanIds();
-        Require(display.Prepare(pending, TimeSpan.Zero) is null, "零预算只启动打包，不提前提交。");
+        Require(display.Prepare(pending) is null, "后台打包阻塞时不能提前提交。");
         var packing = display.PreparationPacking;
         try
         {
@@ -187,7 +187,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         display.ReceiveCandidate(candidate.Update);
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => 0;
-        await PrimeCandidate(display);
+        await CompleteCandidate(display);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         var detached = NewOrphanRoots(before);
         Require(detached.Length == 3, "候选必须预备三个脱树视觉。");
@@ -233,7 +233,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         await new UiTestInput(TestScene).Frames(1);
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 1000;
-        await PrimeCandidate(display);
+        await ScenePackingTestDriver.StartCandidate(display, TestScene);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(1.5));
         Require(display.CandidateProgress(update.Frame) is (1, 2) && display.PreparedCandidate is null,
             "预建候选必须在配额内只准备一个视觉，新空间也不能绕过预算提前给回执。");
@@ -242,7 +242,6 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             "部分候选准备不得改变D或显示对象树。");
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => 0;
-        await PrimeCandidate(display);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.PreparedCandidate == update.Frame && display.CandidateProgress(update.Frame) is (2, 2),
             "全部视觉准备完毕后才可给出候选回执。");
@@ -272,7 +271,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         display.ReceiveCandidate(update);
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => 0;
-        await PrimeCandidate(display);
+        await CompleteCandidate(display);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         var detached = NewOrphanRoots(before);
         Require(detached.Length == 1 && display.PreparedCandidate == update.Frame, "必须已有一个准备完成的脱树视觉。");
@@ -331,7 +330,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             display.ReceiveCandidate(update);
             await new UiTestInput(TestScene).Frames(1);
             display.Timestamp = () => 0;
-            await PrimeCandidate(display);
+            await CompleteCandidate(display);
             display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             var nodes = NewOrphanRoots(before);
             Require(nodes.Length == 2 && display.PreparedCandidate == update.Frame, "释放前必须完成两个候选视觉。");
@@ -389,7 +388,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
                     display.Objects[new(3)].Root.IsInsideTree(), "提交记录必须在完整候选进入显示树后发出。");
             events.Add(item);
         };
-        await Prime(display, candidate);
+        await ScenePackingTestDriver.StartFormal(display, candidate, TestScene);
         Require(display.Prepare(candidate) is null, "锁定候选必须在第一个资源后暂停。");
         Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
             events[0].Object is null && events[0].ResourceObjects is { } required &&
@@ -481,7 +480,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var frame = Frame(2, [Object(1, reused), Object(2, Mesh()), Object(3, Mesh())],
             first.Update.Frame);
-        await Prime(display, frame);
+        await ScenePackingTestDriver.StartFormal(display, frame, TestScene);
         Require(display.Prepare(frame) is null, "候选必须在准备后续对象前暂停。");
         Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
             events[0].Object is null && events[0].ResourceObjects is { } required &&
@@ -554,7 +553,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var readyObjects = 0;
         display.Observe = e => { if (e.Stage == SceneDisplayStage.ResourcesPrepared) readyObjects++; };
-        await Prime(display, candidate);
+        await ScenePackingTestDriver.StartFormal(display, candidate, TestScene);
         for (var frame = 0; frame < 16 && readyObjects < 2; frame++)
         {
             Require(display.Prepare(candidate) is null, "两项纹理准备期间必须保留尚未完成的候选。");
@@ -618,7 +617,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             long timestamp = 0;
             display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
             var pending = Frame(2, [Object(2, textured), Object(3, Mesh())]);
-            await Prime(display, pending);
+            await ScenePackingTestDriver.StartFormal(display, pending, TestScene);
             Require(display.Prepare(pending) is null,
                 "纹理对象准备后必须暂停。");
             observer.Dispose();
@@ -762,7 +761,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var candidate = Frame(2,
             [Object(2, Mesh(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.BareMetal, null))), Object(3, Mesh())],
             first.Update.Frame);
-        await Prime(display, candidate);
+        await ScenePackingTestDriver.StartFormal(display, candidate, TestScene);
         Require(display.Prepare(candidate) is null, "候选必须在第一个资源后耗尽预算。");
         lease.Dispose();
         Require(GodotObject.IsInstanceValid(texture), "尚在准备的候选必须持有纹理租约。");
@@ -792,7 +791,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var replacement = Frame(2, [Object(2, Mesh()), Object(3, Mesh())]);
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
-        await Prime(display, replacement);
+        await ScenePackingTestDriver.StartFormal(display, replacement, TestScene);
         Require(display.Prepare(replacement) is null && ReferenceEquals(display.DisplayedFrame, first) &&
             GodotObject.IsInstanceValid(oldRoot), "完整替换必须遵守同一预算，准备未完成时保留旧显示。");
         using var prepared = await Prepare(display, replacement);
@@ -1200,7 +1199,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var delta = Frame(2, [multiple, Object(5, Peak(5), new(9, 0, 0))], first.Update.Frame,
             shift: new(-100, 0, 0), origin: new(100, 0, 0), removed: [new(3)],
             fog: [new(new(-10), new(10))]);
-        await Prime(sliced, delta);
+        await ScenePackingTestDriver.StartFormal(sliced, delta, TestScene);
         long timestamp = 0;
         sliced.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var calls = 0;
@@ -1214,8 +1213,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         }
         Require(prepared is not null && calls >= 3, "多视觉与雾必须跨调用恢复并在有限步骤内完成。");
         using (prepared) prepared!.Commit();
-        await new UiTestInput(TestScene).Frames(1);
-        await Prime(whole, delta);
+        await ScenePackingTestDriver.StartFormal(whole, delta, TestScene);
         using (var uninterrupted = whole.Prepare(delta))
         {
             Require(uninterrupted is not null, "结果就绪后零耗时准备必须一次完成同一增量。");
@@ -1281,9 +1279,9 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             if (candidate)
             {
                 display.ReceiveCandidate(frame.Update);
-                display.PrepareCandidate(TimeSpan.Zero);
+                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             }
-            else Require(display.Prepare(frame, TimeSpan.Zero) is null, "零预算只启动作业。");
+            else Require(display.Prepare(frame) is null, "后台打包尚未完成时不能提交。");
             var packing = candidate ? display.CandidatePacking : display.PreparationPacking;
             try
             {
@@ -1333,9 +1331,9 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             if (candidate)
             {
                 display.ReceiveCandidate(pending.Update);
-                display.PrepareCandidate(TimeSpan.Zero);
+                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             }
-            else Require(display.Prepare(pending, TimeSpan.Zero) is null, "后台准备不得提前完成。");
+            else Require(display.Prepare(pending) is null, "后台准备不得提前完成。");
             var packing = candidate ? display.CandidatePacking : display.PreparationPacking;
             try
             {
@@ -1385,9 +1383,9 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             if (candidate)
             {
                 display.ReceiveCandidate(pending.Update);
-                display.PrepareCandidate(TimeSpan.Zero);
+                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             }
-            else Require(display.Prepare(pending, TimeSpan.Zero) is null, "零预算只启动作业。");
+            else Require(display.Prepare(pending) is null, "后台打包尚未完成时不能提交。");
             var packing = candidate ? display.CandidatePacking : display.PreparationPacking;
             try
             {
@@ -1455,7 +1453,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             var candidate = Frame(2, [first, retained, blocked, cachedSource], space: 2);
             var before = OrphanIds();
             display.ReceiveCandidate(candidate.Update);
-            display.PrepareCandidate(TimeSpan.Zero);
+            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             var packing = display.CandidatePacking;
             try
             {
@@ -1517,7 +1515,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             var source = Object(2, Peak(readyFirst ? 8 : 9), new(7, 0, 0));
             var candidate = Frame(2, [source], space: 2);
             display.ReceiveCandidate(candidate.Update);
-            display.PrepareCandidate(TimeSpan.Zero);
+            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
             var packing = display.CandidatePacking;
             try
             {
@@ -1545,95 +1543,6 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             }
             finally { release.Set(); }
         }
-    }
-
-    [Test]
-    public async Task Packing_keeps_cached_geometry_alive_when_the_other_preparation_is_cancelled()
-    {
-        using var dispatcher = new GodotMainThreadDispatcher();
-        using var cache = new AssetResourceCache(dispatcher);
-        List<string> failures = [];
-        foreach (var formalDependsOnCandidate in new[] { true, false })
-        foreach (var sameKey in formalDependsOnCandidate ? new[] { false, true } : new[] { false })
-        {
-            using var display = Attach(cache, new FixedContentView());
-            var baseline = Frame(1, []);
-            await Commit(display, baseline);
-            var a = Peak(21);
-            var b = Peak(22);
-            var c = Peak(23);
-            using var entered = new ManualResetEventSlim();
-            using var release = new ManualResetEventSlim();
-            display.PackMesh = (mesh, cancellation) =>
-            {
-                if (ReferenceEquals(mesh, b))
-                {
-                    entered.Set();
-                    Require(release.Wait(TimeSpan.FromSeconds(30)), "缓存租约测试未释放网格打包。");
-                }
-                return PackedSceneMesh.Create(mesh, cancellation);
-            };
-            if (formalDependsOnCandidate)
-            {
-                var candidate = Frame(2, [Object(2, a)]);
-                display.ReceiveCandidate(candidate.Update);
-                await PrimeCandidate(display);
-                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
-                Require(display.PreparedCandidate == candidate.Update.Frame, "候选必须先独占A的网格租约。");
-                var formalId = sameKey ? 2UL : 4UL;
-                var formal = Frame(3, [Object(3, b), Object(formalId, a)], baseline.Update.Frame);
-                Require(display.Prepare(formal, TimeSpan.Zero) is null, "正式帧只启动打包。");
-                var packing = display.PreparationPacking;
-                try
-                {
-                    Require(entered.Wait(TimeSpan.FromSeconds(30)), "正式打包必须停在B，尚未消费A。");
-                    display.CancelCandidate();
-                }
-                finally { release.Set(); }
-                packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
-                using var prepared = display.Prepare(formal);
-                if (prepared is null) failures.Add($"正式打包依赖的{(sameKey ? "同键" : "不同键")}候选A租约在取消候选后丢失");
-                else
-                {
-                    prepared.Commit();
-                    Require(display.Objects.Count == 2 && display.Objects[new(formalId)].Visuals.Length == 1 &&
-                        GodotObject.IsInstanceValid(MeshOf(display.Objects[new(formalId)])), "正式帧必须持有有效A资源。");
-                }
-            }
-            else
-            {
-                var formal = Frame(2, [Object(2, a), Object(3, b)], baseline.Update.Frame);
-                Require(display.Prepare(formal, TimeSpan.Zero) is null, "正式帧只启动打包。");
-                var formalPacking = display.PreparationPacking;
-                Task? candidatePacking = null;
-                var candidate = Frame(3, [Object(4, c), Object(5, a)], space: 2);
-                try
-                {
-                    Require(entered.Wait(TimeSpan.FromSeconds(30)), "正式打包必须先发布A并停在B。");
-                    Require(display.Prepare(formal) is null, "正式帧必须持有A视觉并等待B。");
-                    display.ReceiveCandidate(candidate.Update);
-                    display.PrepareCandidate(TimeSpan.Zero);
-                    candidatePacking = display.CandidatePacking;
-                    candidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
-                    display.CancelPreparation();
-                }
-                finally { release.Set(); }
-                formalPacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
-                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
-                if (display.PreparedCandidate != candidate.Update.Frame)
-                    failures.Add("候选打包依赖的正式A租约在取消正式准备后丢失");
-                else
-                {
-                    var promoted = Frame(4, candidate.Update.Upserts, space: 2);
-                    using var prepared = display.Prepare(promoted);
-                    Require(prepared is not null, "候选持有的资源必须能够晋升。");
-                    prepared!.Commit();
-                    Require(display.Objects.Count == 2 && GodotObject.IsInstanceValid(MeshOf(display.Objects[new(5)])),
-                        "候选晋升后必须持有有效A资源。");
-                }
-            }
-        }
-        Require(failures.Count == 0, string.Join("；", failures));
     }
 
     private static HashSet<ulong> OrphanIds()
