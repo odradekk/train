@@ -11,6 +11,24 @@ namespace Train.Scenes.Tests;
 public sealed class RailwayDependencyTests
 {
     [TestMethod]
+    public void Dependency_fingerprint_storage_does_not_grow_with_design_size()
+    {
+        var small = RailwayDependencies.Values(SizedModel(1).Scene);
+        var large = RailwayDependencies.Values(SizedModel(1_024).Scene);
+        Assert.AreEqual(small.Length, large.Length,
+            "Dependency cache keys must not grow with the serialized design.");
+    }
+
+    [TestMethod]
+    public void Captured_railway_dependency_storage_does_not_grow_with_design_size()
+    {
+        var small = Capture(Snapshot(model: SizedModel(1)), models: [SceneFixtures.Design]);
+        var large = Capture(Snapshot(model: SizedModel(1_024)), models: [SceneFixtures.Design]);
+        Assert.AreEqual(small.Key.Length, large.Key.Length,
+            "Captured railway keys must not retain the full model and terrain JSON.");
+    }
+
+    [TestMethod]
     public void Dependency_values_distinguish_two_nonidentity_pose_rotations()
     {
         var first = new ScenePose(Vector3.Zero, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2));
@@ -85,6 +103,9 @@ public sealed class RailwayDependencyTests
 
     private static DesignEvaluation.Complete Model(CoreDefinitionReference reference) =>
         SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]), [Diagnostic(reference)]);
+
+    private static DesignEvaluation.Complete SizedModel(int cells) => SceneFixtures.Evaluation(
+        SceneFixtures.Projection([.. Enumerable.Range(0, cells).Select(x => SceneFixtures.Cell(new(x, 0, 0)))]));
 
     private static ContentDiagnostic Diagnostic(CoreDefinitionReference reference) =>
         new("test_diagnostic", ContentDiagnosticSeverity.Warning, "test", new ContentReference.Core(reference),

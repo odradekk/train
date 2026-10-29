@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -14,7 +15,8 @@ internal readonly record struct RailwayModelRead(TerrainTypeId Terrain, int Slot
 internal sealed class RailwayDependencies
 {
     private static readonly JsonSerializerOptions ValueOptions = CreateValueOptions();
-    internal static string Values(object? value) => JsonSerializer.Serialize(value, ValueOptions);
+    internal static string Values(object? value) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, ValueOptions)));
 
     private static JsonSerializerOptions CreateValueOptions()
     {
@@ -138,7 +140,7 @@ internal sealed class RailwayDependencies
                 new object[] { id, found.Value.AllowedOrientations, found.Value.Collision, found.Value.Presentation, found.Value.Behaviors } :
                 new object[] { id, lookup });
         }
-        return JsonSerializer.Serialize(values, ValueOptions);
+        return Values(values);
     }
     private static object[] Terrain(TerrainView value) => [value.TypeId, value.Relief, value.FeatureIds];
 }
