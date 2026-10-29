@@ -299,7 +299,7 @@ internal partial class DesignEditorPanel : Control
     public override void _Process(double delta)
     {
         Visible = _service.IsOpen; _scene.VisibleArea = FramingArea(); _scene.Process(delta);
-        if (!Visible) return;
+        if (!Visible) { _shownEvaluation = null; return; }
         _undo.Disabled = _service.State?.CanUndo != true;
         _redo.Disabled = _service.State?.CanRedo != true;
         _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
@@ -348,7 +348,7 @@ internal partial class DesignEditorPanel : Control
         if (changed || !ReferenceEquals(_shownEvaluation, state.CurrentEvaluation) ||
             _shownFrameDiagnostics != _service.FrameDiagnostics) ShowEvaluation(state);
     }
-    // Clear 会丢弃未变行的文字排版缓存；缩短列表前须清掉引擎不会平移的键盘焦点。
+    // Clear 重新排版未变行；删行前须清除引擎不会平移的焦点。
     private void ShowElements(ElementRow[] rows)
     {
         var change = RowChange.Between(_elementRows, rows);

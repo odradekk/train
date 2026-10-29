@@ -276,6 +276,7 @@ internal sealed class EditorSceneController : IDisposable
         _retrying = false;
         _overlay.Visible = false;
         _openingFramed = false;
+        View.CameraRig.ReleaseFrame();
         View.CameraRig.ZoomCeiling = WorldCamera.MaximumDistance;
         View.SetActive(false);
         View.SetLoading(false);
