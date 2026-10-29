@@ -19,6 +19,10 @@ internal sealed partial class SceneDisplay
     private Task? _candidatePackingTail;
     private bool _candidatePackingStarted;
     private readonly List<AssetLease<ArrayMesh>> _candidateCachedGeometry = [];
+    private bool _candidatePackingCursorInitialized;
+    private LinkedListNode<(SceneObjectId Object, int Index)>? _candidatePackingCursor;
+    private readonly HashSet<SceneMesh> _candidateSeenMeshes = new(ReferenceEqualityComparer.Instance);
+    private readonly List<SceneMesh> _candidateMeshes = [];
     internal Task CandidatePacking => _candidatePacking?.Completion ?? Task.CompletedTask;
     internal SceneFrameStamp? PreparedCandidate { get; private set; }
     internal SceneFrameStamp? CandidateScope => _candidateScope;
@@ -83,25 +87,64 @@ internal sealed partial class SceneDisplay
         var started = Timestamp();
         try
         {
+            var slice = new PreparationSlice(this, started, budget, false);
             if (!_candidatePackingStarted)
             {
-                _candidatePacking = StartPacking(_candidatePending.Select(key => _candidateSources[key]),
-                    _candidateCachedGeometry, ref _candidatePackingTail);
+                if (!_candidatePackingCursorInitialized)
+                {
+                    if (!slice.Start()) return;
+                    _candidatePackingCursor = _candidatePending.First;
+                    _candidatePackingCursorInitialized = true;
+                }
+                while (_candidatePackingCursor is { } cursor)
+                {
+                    if (!slice.Start()) return;
+                    if (_candidateSources[cursor.Value] is SceneVisual.Geometry geometry &&
+                        _candidateSeenMeshes.Add(geometry.Mesh))
+                    {
+                        // 对侧准备可随时取消；本次候选持有未列入打包作业的缓存网格。
+                        if (_resources.AcquireCachedGeometry(geometry.Mesh) is { } cached)
+                            _candidateCachedGeometry.Add(cached);
+                        else _candidateMeshes.Add(geometry.Mesh);
+                    }
+                    _candidatePackingCursor = cursor.Next;
+                }
+                if (!slice.Start()) return;
+                if (_candidateMeshes.Count > 0)
+                {
+                    _candidatePacking = new([.. _candidateMeshes], _candidatePackingTail, PackMesh);
+                    _candidatePackingTail = _candidatePacking.Completion;
+                }
                 _candidatePackingStarted = true;
             }
             _candidatePacking?.ThrowIfFailed();
             while (_candidatePending.First is { } pending)
             {
-                var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
-                // 候选始终受预算约束；新空间首帧的例外只属于实际显示帧。
-                if (elapsed >= budget || _preparationTime + elapsed >= PreparationBudget) return;
                 var key = pending.Value;
-                var visual = _resources.TryPrepare(_candidateSources[key], _candidatePacking);
+                var source = _candidateSources[key];
+                if (!slice.Start(resource: true, estimate: VisualCost(source))) return;
+                var resourceStarted = Timestamp();
+                var visual = _resources.TryPrepare(source, _candidatePacking);
                 if (visual is null) return;
                 _candidateVisuals.Add(key, visual);
                 _candidatePending.Remove(pending);
                 _candidatePendingNodes.Remove(key);
+                RecordVisualCost(source, resourceStarted);
             }
+            if (_candidatePacking is { } packing)
+            {
+                if (!slice.Start()) return;
+                packing.Dispose();
+                _candidatePacking = null;
+            }
+            while (_candidateCachedGeometry.Count > 0)
+            {
+                if (!slice.Start()) return;
+                var last = _candidateCachedGeometry.Count - 1;
+                _candidateCachedGeometry[last].Dispose();
+                _candidateCachedGeometry.RemoveAt(last);
+            }
+            if (!slice.Start()) return;
             PreparedCandidate = update.Frame;
             _candidateUpdate = null;
             CancelCandidatePacking();
@@ -158,5 +201,9 @@ internal sealed partial class SceneDisplay
         _candidateCachedGeometry.Clear();
         _candidatePacking = null;
         _candidatePackingStarted = false;
+        _candidatePackingCursorInitialized = false;
+        _candidatePackingCursor = null;
+        _candidateSeenMeshes.Clear();
+        _candidateMeshes.Clear();
     }
 }

@@ -18,7 +18,7 @@ public partial class SceneDisplayTests
         using var display = Attach(cache, new FixedContentView());
         var original = Object(1, Mesh());
         var baseline = Frame(1, [original]);
-        Commit(display, baseline);
+        await Commit(display, baseline);
         var reused = display.Objects[original.Id].Visuals[0];
         var added = Object(1, Mesh()).Visuals[0];
         var source = original with { Visuals = [original.Visuals[0], added, added] };
@@ -27,12 +27,12 @@ public partial class SceneDisplayTests
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var frame = Frame(2, [source], baseline.Update.Frame);
-        Prime(display, frame);
+        await Prime(display, frame);
         Require(display.Prepare(frame) is null && events.Count == 1 &&
             events[0].Stage == SceneDisplayStage.FramePreparationStarted && events[0].Object is null &&
             events[0].ResourceObjects is { } required && required.SequenceEqual(new[] { source.Id }),
             "复用一个、只新准备一个视觉资源不能记录整个对象资源就绪。");
-        using var prepared = Prepare(display, frame);
+        using var prepared = await Prepare(display, frame);
         Require(ReferenceEquals(prepared.Objects[source.Id].Visuals[0], reused) &&
             prepared.Objects[source.Id].Visuals.Length == 3,
             "多视觉对象必须保留已显示的视觉资源，并准备其余两个视觉资源。");
@@ -53,7 +53,7 @@ public partial class SceneDisplayTests
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache, new FixedContentView());
         var first = Frame(1, []);
-        Commit(display, first);
+        await Commit(display, first);
         long now = 0;
         display.Timestamp = () => now;
         display.Observe = value =>
@@ -66,7 +66,7 @@ public partial class SceneDisplayTests
         {
             if (work == SceneDisplayWork.Prepare) durations.Add(elapsed);
         };
-        var next = Frame(2, [], first.Update.Frame);
+        var next = Frame(2, [], first.Update.Frame, space: 2);
         using var prepared = display.Prepare(next);
         Require(durations.Count == 1 && Math.Abs(durations[0].TotalMilliseconds - 7) < .001,
             "完整复用匹配的观测及其 GC 必须处于 Prepare 的同一计时区间内。");
