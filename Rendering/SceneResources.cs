@@ -84,7 +84,7 @@ internal sealed class PreparedVisual : IDisposable
                 }
                 break;
             case SceneVisual.Model model:
-                Node.GetChild<MeshInstance3D>(0).SetInstanceShaderParameter("relative_height_plane",
+                Node.GetChild<MeshInstance3D>(0).SetInstanceShaderParameter(SceneResources.RelativeHeightPlane,
                     new Vector4(model.RelativeHeightPlane.X, model.RelativeHeightPlane.Y,
                         model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
                 break;
@@ -106,7 +106,7 @@ internal sealed class PreparedVisual : IDisposable
     }
 }
 
-internal sealed class SceneResources : IDisposable
+internal sealed partial class SceneResources : IDisposable
 {
     private sealed class GeometryResource(ArrayMesh mesh)
     {
@@ -213,7 +213,7 @@ internal sealed class SceneResources : IDisposable
                         var surface = result.Own(AcquireModelMaterial(model, index, asset.Surfaces[index])).Value;
                         instance.SetSurfaceOverrideMaterial(index, surface);
                     }
-                    instance.SetInstanceShaderParameter("relative_height_plane", new Vector4(model.RelativeHeightPlane.X,
+                    instance.SetInstanceShaderParameter(SceneResources.RelativeHeightPlane, new Vector4(model.RelativeHeightPlane.X,
                         model.RelativeHeightPlane.Y, model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
                     break;
                 case SceneVisual.Wheelset wheelset:
@@ -283,8 +283,8 @@ internal sealed class SceneResources : IDisposable
             try
             {
                 SetSurface(material, key.State);
-                material.SetShaderParameter("alpha_cutout", source.AlphaMode == AssetAlphaMode.Mask);
-                material.SetShaderParameter("alpha_cutoff", source.AlphaCutoff);
+                material.SetShaderParameter(_alphaCutout, source.AlphaMode == AssetAlphaMode.Mask);
+                material.SetShaderParameter(_alphaCutoff, source.AlphaCutoff);
             }
             catch { material.Dispose(); throw; }
             entry = new(material);
@@ -338,7 +338,7 @@ internal sealed class SceneResources : IDisposable
         {
             var texture = owner.Own(_cache.AcquireFaceTexture(Asset(voxel.Texture)));
             var surface = owner.Material(SurfaceMaterial(voxel.Category, Colors.White, texture.Value, voxel.Paint));
-            surface.SetShaderParameter("voxel_paint_mask", true);
+            surface.SetShaderParameter(_voxelPaintMask, true);
             return surface;
         }
         if (material is not SceneMaterial.BuiltIn builtIn) throw new ArgumentOutOfRangeException(nameof(material));
@@ -352,8 +352,8 @@ internal sealed class SceneResources : IDisposable
         });
         if (builtIn.Kind == BuiltInMaterial.RailSteel)
         {
-            preparedMaterial.SetShaderParameter("rail_steel", true);
-            preparedMaterial.SetShaderParameter("rail_head_color", Color.FromHtml("#b9bcbf"));
+            preparedMaterial.SetShaderParameter(_railSteel, true);
+            preparedMaterial.SetShaderParameter(_railHeadColor, Color.FromHtml("#b9bcbf"));
         }
         return preparedMaterial;
     }
@@ -375,37 +375,23 @@ internal sealed class SceneResources : IDisposable
         var material = new ShaderMaterial { Shader = shader ?? _surfaceShader };
         try
         {
-            material.SetShaderParameter("base_color", color);
-            material.SetShaderParameter("has_texture", texture is not null);
+            material.SetShaderParameter(_baseColor, color);
+            material.SetShaderParameter(_hasTexture, texture is not null);
             if (texture is not null)
             {
                 using var value = Variant.From(texture);
-                material.SetShaderParameter("base_texture", value);
+                material.SetShaderParameter(_baseTexture, value);
             }
-            material.SetShaderParameter("material_roughness", roughness);
-            material.SetShaderParameter("material_metallic", metallic);
-            material.SetShaderParameter("material_specular", specular);
-            material.SetShaderParameter("material_category", (int)category);
+            material.SetShaderParameter(_materialRoughness, roughness);
+            material.SetShaderParameter(_materialMetallic, metallic);
+            material.SetShaderParameter(_materialSpecular, specular);
+            material.SetShaderParameter(_materialCategory, (int)category);
             using (var value = Variant.From(_damageMask))
-                material.SetShaderParameter("damage_mask", value);
+                material.SetShaderParameter(_damageMaskParameter, value);
             SetPaint(material, paint);
             return material;
         }
         catch { material.Dispose(); throw; }
-    }
-
-    internal static void SetPaint(ShaderMaterial material, PaintColor? paint)
-    {
-        material.SetShaderParameter("has_paint", paint is not null);
-        material.SetShaderParameter("paint_color", paint is { } value ? Color.FromHtml(value.Value) : Colors.White);
-    }
-
-    internal static void SetSurface(ShaderMaterial material, SurfaceState surface)
-    {
-        material.SetShaderParameter("wear_enabled", surface.WearEnabled);
-        material.SetShaderParameter("wear_seed", new Vector2I(unchecked((int)(uint)surface.WearSeed), unchecked((int)(uint)(surface.WearSeed >> 32))));
-        material.SetShaderParameter("surface_damage", surface.Damage);
-        material.SetShaderParameter("scorched", surface.Scorched);
     }
 
     // 所有 PreparedVisual 必须先由显示组释放；共享资产仍由各自租约拥有。
