@@ -16,8 +16,8 @@ public sealed class ScenePreparationTests
         {
             File.WriteAllText(Path.Combine(directory, "scene-resource-frames.jsonl"),
                 """
-                {"process_frame":1,"at":10,"frame_seconds":1,"after_operable":false,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"commit_seconds":0.1}
-                {"process_frame":2,"at":11,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0.001,"commit_seconds":0.2}
+                {"excluded_space_change":false,"process_frame":1,"at":10,"frame_seconds":1,"after_operable":false,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"commit_seconds":0.1}
+                {"excluded_space_change":false,"process_frame":2,"at":11,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0.001,"commit_seconds":0.2}
                 """);
             using var report = ReadReport(directory, 2);
             var item = Item(report, "scene_preparation_maximum");
@@ -32,8 +32,8 @@ public sealed class ScenePreparationTests
     {
         File.WriteAllText(Path.Combine(directory, "scene-resource-frames.jsonl"),
             """
-            {"process_frame":1,"at":10,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0,"commit_seconds":0}
-            {"process_frame":2,"at":11,"frame_seconds":1,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"commit_seconds":0}
+            {"excluded_space_change":false,"process_frame":1,"at":10,"frame_seconds":1,"after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0,"commit_seconds":0}
+            {"excluded_space_change":false,"process_frame":2,"at":11,"frame_seconds":1,"preparation_seconds":0.2,"candidate_preparation_seconds":0,"commit_seconds":0}
             """);
         using var report = ReadReport(directory, 2);
         Assert.AreEqual("unknown", Item(report, "scene_preparation_maximum").GetProperty("status").GetString());
@@ -91,7 +91,7 @@ public sealed class ScenePreparationTests
     public void InvalidPreparationDurationsAreUnknown(string active, string candidate) => InDirectory(directory =>
     {
         File.WriteAllText(Path.Combine(directory, "scene-resource-frames.jsonl"),
-            $$"""{"after_operable":true,"preparation_seconds":{{active}},"candidate_preparation_seconds":{{candidate}}}""");
+            $$"""{"excluded_space_change":false,"after_operable":true,"preparation_seconds":{{active}},"candidate_preparation_seconds":{{candidate}}}""");
         using var report = ReadReport(directory, 1);
         Assert.AreEqual("unknown", Item(report, "scene_preparation_maximum").GetProperty("status").GetString());
     });
@@ -104,8 +104,40 @@ public sealed class ScenePreparationTests
         Assert.AreEqual(.002, Item(report, "scene_preparation_maximum").GetProperty("excess").GetDouble(), 1e-12);
     });
 
+    [TestMethod]
+    public void NewSpaceFramesAreReportedSeparatelyWithoutRemovingTheirNeighbours() => InDirectory(directory =>
+    {
+        WriteFrames(directory,
+        [
+            Frame(1, 10, true, .003),
+            new { process_frame = 2, at = 11, frame_seconds = 1, after_operable = false,
+                excluded_space_change = true, preparation_seconds = .2, candidate_preparation_seconds = .1, commit_seconds = .05 },
+            Frame(3, 12, true, .005)
+        ]);
+        using var report = ReadReport(directory, 3, "scene-route-1x");
+        var item = Item(report, "scene_preparation_maximum");
+        Assert.AreEqual(.005, item.GetProperty("measured").GetDouble());
+        Assert.AreEqual("failed", item.GetProperty("status").GetString());
+        Assert.AreEqual(1, item.GetProperty("excluded_frames").GetInt32());
+    });
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("null")]
+    [DataRow("true")]
+    public void MissingOrConflictingNewSpaceMarkersCannotPass(string? marker) => InDirectory(directory =>
+    {
+        var field = marker is null ? "" : $"\"excluded_space_change\":{marker},";
+        File.WriteAllText(Path.Combine(directory, "scene-resource-frames.jsonl"),
+            $$"""{ {{field}} "after_operable":true,"preparation_seconds":0.003,"candidate_preparation_seconds":0}""");
+        using var report = ReadReport(directory, 1);
+        var item = Item(report, "scene_preparation_maximum");
+        Assert.AreEqual("unknown", item.GetProperty("status").GetString());
+        Assert.AreEqual(JsonValueKind.Null, item.GetProperty("excluded_frames").ValueKind);
+    });
+
     private static object Frame(int processFrame, double at, bool afterOperable, double seconds) =>
-        new { process_frame = processFrame, at, frame_seconds = 1, after_operable = afterOperable,
+        new { process_frame = processFrame, at, frame_seconds = 1, after_operable = afterOperable, excluded_space_change = false,
             preparation_seconds = seconds, candidate_preparation_seconds = 0, commit_seconds = 0 };
 
     private static void WriteFrames(string directory, IEnumerable<object> frames) =>

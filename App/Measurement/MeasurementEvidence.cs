@@ -30,6 +30,7 @@ internal sealed class MeasurementEvidence
     internal double? PreparationMaximum { get; private set; }
     internal int PreparationFrames { get; private set; }
     internal int PreparationSamples { get; private set; }
+    internal int PreparationExcludedFrames { get; private set; }
     internal string? PreparationProblem { get; private set; }
 
     internal static bool UsesPreparation(string scenario) => (scenario is
@@ -106,6 +107,11 @@ internal sealed class MeasurementEvidence
             PreparationFrames++;
             if (At(record, "after_operable").ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 throw new JsonException("缺少场景准备窗口标记");
+            var excluded = At(record, "excluded_space_change");
+            if (excluded.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                excluded.ValueKind == JsonValueKind.True && At(record, "after_operable").ValueKind == JsonValueKind.True)
+                throw new JsonException("新空间首帧排除标记缺失或冲突");
+            if (excluded.ValueKind == JsonValueKind.True) PreparationExcludedFrames++;
             if (At(record, "after_operable").ValueKind == JsonValueKind.False) return;
             var active = Number(At(record, "preparation_seconds"));
             var candidate = Number(At(record, "candidate_preparation_seconds"));

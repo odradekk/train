@@ -90,9 +90,10 @@ internal static partial class MeasurementAssessment
             var reason = evidence?.PreparationProblem ??
                 (evidence is null || evidence.PreparationSamples == 0 ? "缺少可操作后的完整场景准备帧" :
                  Number(At(budget, "resource_work", "frame_count")) != evidence.PreparationFrames ? "场景准备帧缺失或观察截断" : null);
-            var item = Check("scene_preparation_maximum", "目标场景首次完整提交且可操作之后的下一绘制帧起",
+            var item = Check("scene_preparation_maximum", "目标场景首次完整提交且可操作之后的下一绘制帧起；新空间正式首帧单列排除",
                 evidence?.PreparationMaximum, reason);
-            items.Add(item with { Excess = item.Status == "unknown" ? null :
+            items.Add(item with { ExcludedFrames = item.Status == "unknown" ? null : evidence?.PreparationExcludedFrames,
+                Excess = item.Status == "unknown" ? null :
                 Math.Max(0, item.Measured!.Value - item.Threshold!.Value) });
         }
         AddMemory(items, scenario, budget, evidence);

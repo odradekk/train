@@ -131,6 +131,8 @@ internal sealed partial class SceneDisplay : IDisposable
              previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
              previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
             CancelPreparation();
+        ResetPreparationBudget();
+        var started = Timestamp();
         if (_preparation is null)
         {
             _preparation = new(frame);
@@ -147,8 +149,6 @@ internal sealed partial class SceneDisplay : IDisposable
         var spaceChanged = DisplayedFrame is { } displayed
             ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
             : _completeInitialFrame;
-        ResetPreparationBudget();
-        var started = Timestamp();
         var preparedResource = false;
         var update = frame.Update;
         // 首次打开或切换空间时一次提交首个可操作帧，避免列车继续驶出尚未接入的空间。

@@ -32,7 +32,7 @@ internal sealed partial class MeasurementRun
             displayed.Update.Frame.Request == scenes.CurrentRequest;
         var frame = _resourceTimings.Draw(Engine.GetProcessFrames(), Seconds(),
             _routeSampling ? (_routeOperableGc is null ? "route-opening" : "route-follow") : _scenePhase,
-            _routeSampling ? "route" : _sceneOperation, interactive);
+            _routeSampling ? "route" : _sceneOperation, interactive, scenes.Display?.DisplayedFrame?.Update.Frame.Space);
         if (frame is not null) _resourceFrames.Add(frame);
     }
 
