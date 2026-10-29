@@ -7,13 +7,8 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private SceneDisplay? _resourceDisplay;
-    private double _resourcePreparation, _resourceCandidatePreparation, _resourceCommit, _resourceLastDraw;
+    private readonly SceneResourceTimings _resourceTimings = new();
     private readonly List<SceneResourceFrame> _resourceFrames = [];
-    private sealed record SceneResourceFrame(ulong ProcessFrame, double At, string Phase, double FrameSeconds,
-        double PreparationSeconds, double CandidatePreparationSeconds, double CommitSeconds)
-    {
-        public double PreparationTotalSeconds => PreparationSeconds + CandidatePreparationSeconds;
-    }
 
     private void ObserveSceneResources()
     {
@@ -27,27 +22,18 @@ internal sealed partial class MeasurementRun
         if (_resourceDisplay is not null) _resourceDisplay.Measure = null;
         _resourceDisplay = display;
         if (display is null) return;
-        display.Measure = (work, elapsed) =>
-        {
-            switch (work)
-            {
-                case SceneDisplayWork.Prepare: _resourcePreparation += elapsed.TotalSeconds; break;
-                case SceneDisplayWork.PrepareCandidate: _resourceCandidatePreparation += elapsed.TotalSeconds; break;
-                case SceneDisplayWork.Commit: _resourceCommit += elapsed.TotalSeconds; break;
-            }
-        };
+        display.Measure = _resourceTimings.Measure;
     }
 
     private void RecordSceneResourceFrame()
     {
-        var now = Seconds();
-        if (_resourceLastDraw > 0)
-            _resourceFrames.Add(new(Engine.GetProcessFrames(), now,
-                _routeSampling ? (_routeOperableGc is null ? "route-opening" : "route-follow") : _scenePhase,
-                now - _resourceLastDraw,
-                _resourcePreparation, _resourceCandidatePreparation, _resourceCommit));
-        _resourceLastDraw = now;
-        _resourcePreparation = _resourceCandidatePreparation = _resourceCommit = 0;
+        var scenes = _app.WorldScenes!;
+        var interactive = scenes.View.Interactive && scenes.Display?.DisplayedFrame is { } displayed &&
+            displayed.Update.Frame.Request == scenes.CurrentRequest;
+        var frame = _resourceTimings.Draw(Engine.GetProcessFrames(), Seconds(),
+            _routeSampling ? (_routeOperableGc is null ? "route-opening" : "route-follow") : _scenePhase,
+            _routeSampling ? "route" : _sceneOperation, interactive);
+        if (frame is not null) _resourceFrames.Add(frame);
     }
 
     private void WriteSceneResourceTimings()
@@ -74,6 +60,7 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["resource_work"] = new
         {
             frames = Path.GetFileName(path),
+            frame_count = _resourceFrames.Count,
             scope = "Main-thread elapsed spans, including GC pauses; preparation reuses the shared budget clock. Calls are summed between actual draws; Prepare and PrepareCandidate exclude Commit. Not worker CPU time or streaming stage latency.",
             phases = _resourceFrames.GroupBy(frame => frame.Phase).Select(group => new
             {

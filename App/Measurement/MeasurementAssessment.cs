@@ -6,7 +6,7 @@ namespace Train.App.Measurement;
 
 internal sealed record MeasurementAssessmentItem(string Metric, string Window, string Unit, string Rule,
     double? Threshold, double? Measured, string Status, string? Reason, double? ObservedSeconds = null,
-    double? WindowStartSeconds = null, int? ExcludedFrames = null);
+    double? WindowStartSeconds = null, int? ExcludedFrames = null, double? Excess = null);
 
 /// <summary>报告逐项对照已确认目标；不代表目标配置或完整负载验收。
 /// Decision note: 2026-10-26-performance-measurement-system
@@ -22,6 +22,7 @@ internal static partial class MeasurementAssessment
         ["frame_p95"] = (0.0167, "seconds", "≤"),
         ["frame_p99"] = (0.025, "seconds", "≤"),
         ["frame_maximum"] = (0.1, "seconds", "≤"),
+        ["scene_preparation_maximum"] = (0.004, "seconds", "可操作后的每帧 Prepare + PrepareCandidate 主线程耗时，含 GC、不含 Commit；≤"),
         ["actual_speed"] = (8, "multiplier", "标准混合负载，整个窗口请求 8× 且未暂停；≥"),
         ["opening_p95"] = (0.5, "seconds", $"同类至少 {MinimumOpeningSamples} 次有效打开；≤"),
         ["opening_maximum"] = (1, "seconds", "所有有效打开；≤"),
@@ -84,10 +85,20 @@ internal static partial class MeasurementAssessment
             }
         }
         if (MeasurementEvidence.UsesSidecars(scenario) && scenario != "scene-memory") AddOpenings(items, scenario, evidence);
+        if (MeasurementEvidence.UsesPreparation(scenario))
+        {
+            var reason = evidence?.PreparationProblem ??
+                (evidence is null || evidence.PreparationSamples == 0 ? "缺少可操作后的完整场景准备帧" :
+                 Number(At(budget, "resource_work", "frame_count")) != evidence.PreparationFrames ? "场景准备帧缺失或观察截断" : null);
+            var item = Check("scene_preparation_maximum", "目标场景首次完整提交且可操作之后的下一绘制帧起",
+                evidence?.PreparationMaximum, reason);
+            items.Add(item with { Excess = item.Status == "unknown" ? null :
+                Math.Max(0, item.Measured!.Value - item.Threshold!.Value) });
+        }
         AddMemory(items, scenario, budget, evidence);
         var problem = failure is not null ? "运行失败：" + failure :
             route && At(budget, "route", "route_completed").ValueKind != JsonValueKind.True ? "路线未完成或缺少完成标记" : null;
-        return problem is null ? items : items.Select(item => item with { Status = "unknown", Reason = problem }).ToList();
+        return problem is null ? items : items.Select(item => item with { Status = "unknown", Reason = problem, Excess = null }).ToList();
     }
 
     private static void AddSoak(List<MeasurementAssessmentItem> items, JsonElement identity, JsonElement budget)

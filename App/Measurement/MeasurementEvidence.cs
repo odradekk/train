@@ -27,6 +27,14 @@ internal sealed class MeasurementEvidence
     internal double? InitialHeap { get; private set; }
     internal List<double?> RetiredHeaps { get; } = [];
     internal string? HeapProblem { get; private set; }
+    internal double? PreparationMaximum { get; private set; }
+    internal int PreparationFrames { get; private set; }
+    internal int PreparationSamples { get; private set; }
+    internal string? PreparationProblem { get; private set; }
+
+    internal static bool UsesPreparation(string scenario) => (scenario is
+        "scene-node" or "scene-node-first" or "scene-edge" or "scene-follow" ||
+        scenario.StartsWith("scene-route-", StringComparison.Ordinal)) && !scenario.Contains("capture", StringComparison.Ordinal);
 
     internal static bool UsesSidecars(string scenario) => scenario is
         "scene-node" or "scene-node-first" or "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-soak";
@@ -38,6 +46,7 @@ internal sealed class MeasurementEvidence
     internal static MeasurementEvidence Read(string scenario, string directory)
     {
         var result = new MeasurementEvidence();
+        if (UsesPreparation(scenario)) result.ReadPreparation(directory);
         result.OpeningProblem = ReadRecords(Path.Combine(directory, "scene-operations.jsonl"), record =>
         {
             if (scenario == "scene-memory" && At(record, "kind").ToString() == "natural-map")
@@ -88,6 +97,24 @@ internal sealed class MeasurementEvidence
                 result.Openings.Any(open => open.Node && open.End <= at)) result.RetiredHeaps.Add(live);
         });
         return result;
+    }
+
+    private void ReadPreparation(string directory)
+    {
+        PreparationProblem = ReadRecords(Path.Combine(directory, "scene-resource-frames.jsonl"), record =>
+        {
+            PreparationFrames++;
+            if (At(record, "after_operable").ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new JsonException("缺少场景准备窗口标记");
+            if (At(record, "after_operable").ValueKind == JsonValueKind.False) return;
+            var active = Number(At(record, "preparation_seconds"));
+            var candidate = Number(At(record, "candidate_preparation_seconds"));
+            var total = active + candidate;
+            if (total is null || !double.IsFinite(total.Value) || active < 0 || candidate < 0)
+                throw new JsonException("场景准备耗时缺失或无效");
+            PreparationSamples++;
+            PreparationMaximum = Math.Max(PreparationMaximum ?? 0, total.Value);
+        });
     }
 
     private static string? ReadRecords(string path, Action<JsonElement> read)
