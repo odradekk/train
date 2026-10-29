@@ -43,6 +43,8 @@ internal sealed partial class SceneDisplay : IDisposable
     internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
     internal Func<SceneMesh, CancellationToken, PackedSceneMesh> PackMesh { get; set; } = PackedSceneMesh.Create;
     private Task? _preparationPackingTail;
+    // 活动与候选沿用同一份最近成本，准备完成或取消后仍保留。
+    private readonly ScenePackingPreparation.Costs _packingCosts = new();
     internal Task PreparationPacking => _preparation?.Packing.Job?.Completion ?? Task.CompletedTask;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };

@@ -36,7 +36,7 @@ internal sealed partial class SceneDisplay
                 _budgetAdvanced = true;
                 CancelPreparation();
             }
-            if (_preparation is null) { _preparation = new(frame, _resources); _candidate++; }
+            if (_preparation is null) { _preparation = new(frame, _resources, _packingCosts); _candidate++; }
             var preparation = _preparation;
             frame = preparation.Frame;
             var update = frame.Update;
@@ -164,7 +164,7 @@ internal sealed partial class SceneDisplay
         }
     }
 
-    private sealed class Preparation(ISceneFrame frame, SceneResources resources)
+    private sealed class Preparation(ISceneFrame frame, SceneResources resources, ScenePackingPreparation.Costs costs)
     {
         internal ISceneFrame Frame { get; } = frame;
         internal ImmutableDictionary<SceneObjectId, DisplayObject>.Builder? Objects;
@@ -176,7 +176,7 @@ internal sealed partial class SceneDisplay
         internal int ValidateUpsert, ValidateRemoved;
         internal bool FogChecked, FogChanged, LinesChecked, LinesChanged;
         internal int FogComparison, LineComparison;
-        internal ScenePackingPreparation Packing { get; } = new(resources);
+        internal ScenePackingPreparation Packing { get; } = new(resources, costs);
         internal Dictionary<SceneObjectId, PreparedVisual?[]> ReusedVisuals { get; } = [];
     }
 
@@ -235,14 +235,15 @@ internal sealed partial class SceneDisplay
                 var reused = preparation.ReusedVisuals[source.Id];
                 for (; preparation.PackingVisual < source.Visuals.Length; preparation.PackingVisual++)
                 {
-                    if (!slice.Start()) return false;
-                    if (reused[preparation.PackingVisual] is null)
-                        preparation.Packing.Collect(source.Visuals[preparation.PackingVisual]);
+                    if (reused[preparation.PackingVisual] is not null)
+                    {
+                        if (!slice.Start()) return false;
+                    }
+                    else if (!preparation.Packing.Collect(source.Visuals[preparation.PackingVisual], slice)) return false;
                 }
                 preparation.PackingVisual = 0;
             }
-            if (!slice.Start()) return false;
-            _preparationPackingTail = preparation.Packing.Start(_preparationPackingTail, PackMesh);
+            if (!preparation.Packing.Start(_preparationPackingTail, PackMesh, slice, out _preparationPackingTail)) return false;
         }
         return true;
     }
@@ -326,6 +327,7 @@ internal sealed partial class SceneDisplay
     internal readonly struct PreparationSlice(SceneDisplay owner, long started, TimeSpan? budget, bool unlimited)
     {
         internal long Timestamp() => owner.Timestamp();
+        internal bool Unlimited => unlimited;
 
         internal bool Start(TimeSpan estimate = default)
         {

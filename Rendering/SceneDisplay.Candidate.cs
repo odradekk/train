@@ -86,7 +86,7 @@ internal sealed partial class SceneDisplay
             if (_candidatePacking is null)
             {
                 if (!slice.Start()) return;
-                _candidatePacking = new(_resources);
+                _candidatePacking = new(_resources, _packingCosts);
             }
             if (!_candidatePacking.Started)
             {
@@ -98,12 +98,10 @@ internal sealed partial class SceneDisplay
                 }
                 while (_candidatePackingCursor is { } cursor)
                 {
-                    if (!slice.Start()) return;
-                    _candidatePacking.Collect(_candidateSources[cursor.Value]);
+                    if (!_candidatePacking.Collect(_candidateSources[cursor.Value], slice)) return;
                     _candidatePackingCursor = cursor.Next;
                 }
-                if (!slice.Start()) return;
-                _candidatePackingTail = _candidatePacking.Start(_candidatePackingTail, PackMesh);
+                if (!_candidatePacking.Start(_candidatePackingTail, PackMesh, slice, out _candidatePackingTail)) return;
             }
             _candidatePacking.Job?.ThrowIfFailed();
             while (_candidatePending.First is { } pending)

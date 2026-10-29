@@ -24,9 +24,9 @@ public partial class SceneDisplayTests
         var source = Object(2, Peak(2)).Visuals[0];
         using var original = resources.Prepare(source);
         var mesh = original.Node.GetChild<MeshInstance3D>(0).Mesh;
-        using var packing = new ScenePackingPreparation(resources);
-        packing.Collect(source);
-        packing.Collect(source);
+        using var packing = new ScenePackingPreparation(resources, new());
+        var slice = new SceneDisplay.PreparationSlice(display, 0, null, true);
+        Require(packing.Collect(source, slice) && packing.Collect(source, slice), "收集必须接收重复网格并只保留一次租约。");
         original.Dispose();
         Require(GodotObject.IsInstanceValid(mesh), "收集后未启动的准备必须独立保活缓存网格。");
         packing.Dispose();
@@ -57,10 +57,10 @@ public partial class SceneDisplayTests
         var meshB = originalB.Node.GetChild<MeshInstance3D>(0).Mesh;
         var geometryA = ((Train.Scenes.Contracts.SceneVisual.Geometry)a).Mesh;
         using var sentinel = resources.AcquireCachedGeometry(geometryA)!;
-        using var packing = new ScenePackingPreparation(resources);
-        packing.Collect(a);
-        packing.Collect(b);
-        _ = packing.Start(null, PackedSceneMesh.Create);
+        using var packing = new ScenePackingPreparation(resources, new());
+        var unlimited = new SceneDisplay.PreparationSlice(display, 0, null, true);
+        Require(packing.Collect(a, unlimited) && packing.Collect(b, unlimited) &&
+            packing.Start(null, PackedSceneMesh.Create, unlimited, out _), "准备必须独立接收两个缓存租约。");
         originalA.Dispose();
         originalB.Dispose();
         await new UiTestInput(TestScene).Frames(1);

@@ -20,7 +20,7 @@ internal sealed partial class SceneDisplay
         private List<Box> _owned;
         private FogGroup? _source;
         private int _region, _removal;
-        private TimeSpan _regionCost, _removalCost;
+        private TimeSpan _reuseCost, _creationCost, _removalCost;
         private bool _ownsRoot, _ownsMaterial, _activated;
         private bool _disposed;
         private readonly ShaderMaterial _material;
@@ -29,6 +29,8 @@ internal sealed partial class SceneDisplay
         {
             _material = material;
             _source = source;
+            _reuseCost = source?._reuseCost ?? default;
+            _creationCost = source?._creationCost ?? default;
             Root = source?.Root ?? new() { Name = "LoadingFog" };
             _ownsRoot = _ownsMaterial = source is null;
             Regions = regions;
@@ -45,16 +47,18 @@ internal sealed partial class SceneDisplay
         {
             for (; _region < Regions.Length; _region++)
             {
-                if (!slice.Start(estimate: _regionCost)) return false;
-                var started = slice.Timestamp();
                 var region = Regions[_region];
                 var occurrence = _occurrences.GetValueOrDefault(region);
-                _occurrences[region] = occurrence + 1;
                 var key = (region, occurrence);
+                (Box Box, int Index) reused = default;
+                var reuse = _source is { } source && source._boxes.TryGetValue(key, out reused);
+                if (!slice.Start(estimate: reuse ? _reuseCost : _creationCost)) return false;
+                var started = slice.Unlimited ? 0 : slice.Timestamp();
+                _occurrences[region] = occurrence + 1;
                 Box box;
-                if (_source is { } source && source._boxes.TryGetValue(key, out var reused))
+                if (reuse)
                 {
-                    box = reused.Box;
+                    box = reused.Box!;
                     _kept[reused.Index] = true;
                 }
                 else
@@ -70,7 +74,12 @@ internal sealed partial class SceneDisplay
                 }
                 _boxes.Add(key, (box, _all.Count));
                 _all.Add(box);
-                _regionCost = Stopwatch.GetElapsedTime(started, slice.Timestamp());
+                if (!slice.Unlimited)
+                {
+                    var elapsed = Stopwatch.GetElapsedTime(started, slice.Timestamp());
+                    if (reuse) _reuseCost = elapsed;
+                    else _creationCost = elapsed;
+                }
             }
             if (_source is { } previous)
                 for (; _removal < _kept.Length; _removal++)
