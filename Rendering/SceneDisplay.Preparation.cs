@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using Godot;
-using Train.App.Assets;
 using Train.Scenes.Contracts;
 
 namespace Train.Rendering;
@@ -11,24 +10,32 @@ internal sealed partial class SceneDisplay
     internal PreparedFrame? Prepare(ISceneFrame frame, TimeSpan? budget = null)
     {
         _cache.RequireMainThread();
-        if (_candidatePromoted && !HasCandidateFor(frame.Update.Frame)) CancelCandidate();
-        if (frame.Readiness == SceneReadiness.Loading ||
-            frame.Update.Base is { } baseline && baseline != DisplayedFrame?.Update.Frame)
-        {
-            CancelPreparation();
-            return null;
-        }
-        if (_preparation is { Frame: var previousFrame } &&
-            (previousFrame.Update.Base != frame.Update.Base ||
-             previousFrame.Update.Frame.Session != frame.Update.Frame.Session ||
-             previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
-             previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
-            CancelPreparation();
         ResetPreparationBudget();
         var started = Timestamp();
         try
         {
-            if (_preparation is null) { _preparation = new(frame); _candidate++; }
+            if (_candidatePromoted && !HasCandidateFor(frame.Update.Frame))
+            {
+                _budgetAdvanced = true;
+                CancelCandidate();
+            }
+            if (frame.Readiness == SceneReadiness.Loading ||
+                frame.Update.Base is { } baseline && baseline != DisplayedFrame?.Update.Frame)
+            {
+                _budgetAdvanced |= _preparation is not null;
+                CancelPreparation();
+                return null;
+            }
+            if (_preparation is { Frame: var previousFrame } &&
+                (previousFrame.Update.Base != frame.Update.Base ||
+                 previousFrame.Update.Frame.Session != frame.Update.Frame.Session ||
+                 previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
+                 previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
+            {
+                _budgetAdvanced = true;
+                CancelPreparation();
+            }
+            if (_preparation is null) { _preparation = new(frame, _resources); _candidate++; }
             var preparation = _preparation;
             frame = preparation.Frame;
             var update = frame.Update;
@@ -38,7 +45,7 @@ internal sealed partial class SceneDisplay
             // 新空间正式首帧仍一次准备并原子提交，后续调用共享每进程帧的额度。
             var slice = new PreparationSlice(this, started, budget, spaceChanged);
             if (!InitializePreparation(preparation, slice, spaceChanged)) return null;
-            preparation.Packing?.ThrowIfFailed();
+            preparation.Packing.Job?.ThrowIfFailed();
             var next = preparation.Objects!;
             for (; preparation.Upsert < update.Upserts.Length; preparation.Upsert++)
             {
@@ -56,19 +63,26 @@ internal sealed partial class SceneDisplay
                 for (; preparation.Visual < visuals.Length; preparation.Visual++)
                 {
                     var i = preparation.Visual;
-                    if (!slice.Start(estimate: reusedVisuals[i] is null ? VisualCost(source.Visuals[i]) : default)) return null;
+                    var candidateVisual = reusedVisuals[i] is null
+                        ? CandidateVisual(update.Frame, (source.Id, i), source.Visuals[i]) : null;
+                    if (!slice.Start(estimate: reusedVisuals[i] is null && candidateVisual is null
+                        ? VisualCost(source.Visuals[i]) : default)) return null;
                     if (reusedVisuals[i] is { } reused) visuals[i] = reused;
                     else
                     {
                         preparation.NeedsResources = true;
-                        var resourceStarted = Timestamp();
-                        var visual = TakeCandidateVisual(update.Frame, (source.Id, i), source.Visuals[i]) ??
-                            (spaceChanged ? _resources.Prepare(source.Visuals[i]) :
-                                _resources.TryPrepare(source.Visuals[i], preparation.Packing));
+                        var visual = candidateVisual;
+                        if (visual is not null) _candidateVisuals.Remove((source.Id, i));
+                        else if (spaceChanged) visual = _resources.Prepare(source.Visuals[i]);
+                        else
+                        {
+                            var resourceStarted = Timestamp();
+                            visual = _resources.TryPrepare(source.Visuals[i], preparation.Packing.Job);
+                            if (visual is not null) RecordVisualCost(source.Visuals[i], resourceStarted);
+                        }
                         if (visual is null) return null;
                         _pendingVisuals.Add(visual);
                         visuals[i] = visual;
-                        RecordVisualCost(source.Visuals[i], resourceStarted);
                     }
                 }
                 next[source.Id] = new(source, root, visuals);
@@ -119,19 +133,7 @@ internal sealed partial class SceneDisplay
                 _pendingDebugLines = new(frame.DebugLines);
             }
             if (_pendingDebugLines is not null && !_pendingDebugLines.Prepare(slice)) return null;
-            if (preparation.Packing is { } packing)
-            {
-                if (!slice.Start()) return null;
-                packing.Dispose();
-                preparation.Packing = null;
-            }
-            while (preparation.CachedGeometry.Count > 0)
-            {
-                if (!slice.Start()) return null;
-                var index = preparation.CachedGeometry.Count - 1;
-                preparation.CachedGeometry[index].Dispose();
-                preparation.CachedGeometry.RemoveAt(index);
-            }
+            if (!preparation.Packing.Release(slice)) return null;
             if (!slice.Start(estimate: _finalizationCost)) return null;
             var finalizationStarted = Timestamp();
             var prepared = new PreparedFrame(this, _candidate, frame, next.ToImmutable(), _pendingVisuals,
@@ -159,7 +161,7 @@ internal sealed partial class SceneDisplay
         }
     }
 
-    private sealed class Preparation(ISceneFrame frame)
+    private sealed class Preparation(ISceneFrame frame, SceneResources resources)
     {
         internal ISceneFrame Frame { get; } = frame;
         internal ImmutableDictionary<SceneObjectId, DisplayObject>.Builder? Objects;
@@ -167,16 +169,12 @@ internal sealed partial class SceneDisplay
         internal int Removed, MatchUpsert, PackingUpsert, PackingVisual, Upsert, Visual;
         internal VisualMatching? Matching;
         internal PreparedVisual[]? Visuals;
-        internal bool NeedsResources, Started, PackingStarted;
+        internal bool NeedsResources, Started;
         internal int ValidateUpsert, ValidateRemoved;
         internal bool FogChecked, FogChanged, LinesChecked, LinesChanged;
         internal int FogComparison, LineComparison;
-        internal SceneMeshPacking? Packing;
-        internal List<AssetLease<ArrayMesh>> CachedGeometry { get; } = [];
+        internal ScenePackingPreparation Packing { get; } = new(resources);
         internal Dictionary<SceneObjectId, PreparedVisual?[]> ReusedVisuals { get; } = [];
-        internal List<SceneObjectId> Required { get; } = [];
-        internal HashSet<SceneMesh> SeenMeshes { get; } = new(ReferenceEqualityComparer.Instance);
-        internal List<SceneMesh> Meshes { get; } = [];
     }
 
     private bool InitializePreparation(Preparation preparation, PreparationSlice slice, bool spaceChanged)
@@ -217,17 +215,16 @@ internal sealed partial class SceneDisplay
                 matching.Advance();
             }
             preparation.ReusedVisuals.Add(source.Id, matching.Matched);
-            if (matching.NeedsResources) preparation.Required.Add(source.Id);
             preparation.Matching = null;
         }
         if (!preparation.Started)
         {
-            if (!slice.Start()) return false;
             Observe?.Invoke(new(_candidate, update.Frame, null, SceneDisplayStage.FramePreparationStarted,
-                [.. preparation.Required]));
+                [.. update.Upserts.Where(source => preparation.ReusedVisuals[source.Id].Any(visual => visual is null))
+                    .Select(source => source.Id)]));
             preparation.Started = true;
         }
-        if (!spaceChanged && !preparation.PackingStarted)
+        if (!spaceChanged && !preparation.Packing.Started)
         {
             for (; preparation.PackingUpsert < update.Upserts.Length; preparation.PackingUpsert++)
             {
@@ -236,21 +233,13 @@ internal sealed partial class SceneDisplay
                 for (; preparation.PackingVisual < source.Visuals.Length; preparation.PackingVisual++)
                 {
                     if (!slice.Start()) return false;
-                    if (reused[preparation.PackingVisual] is not null ||
-                        source.Visuals[preparation.PackingVisual] is not SceneVisual.Geometry geometry ||
-                        !preparation.SeenMeshes.Add(geometry.Mesh)) continue;
-                    if (_resources.AcquireCachedGeometry(geometry.Mesh) is { } cached) preparation.CachedGeometry.Add(cached);
-                    else preparation.Meshes.Add(geometry.Mesh);
+                    if (reused[preparation.PackingVisual] is null)
+                        preparation.Packing.Collect(source.Visuals[preparation.PackingVisual]);
                 }
                 preparation.PackingVisual = 0;
             }
             if (!slice.Start()) return false;
-            if (preparation.Meshes.Count > 0)
-            {
-                preparation.Packing = new([.. preparation.Meshes], _preparationPackingTail, PackMesh);
-                _preparationPackingTail = preparation.Packing.Completion;
-            }
-            preparation.PackingStarted = true;
+            _preparationPackingTail = preparation.Packing.Start(_preparationPackingTail, PackMesh);
         }
         return true;
     }
@@ -292,7 +281,6 @@ internal sealed partial class SceneDisplay
     private sealed class VisualMatching(DisplayObject? displayed, ImmutableArray<SceneVisual> visuals)
     {
         internal PreparedVisual?[] Matched { get; } = new PreparedVisual?[visuals.Length];
-        internal bool NeedsResources { get; private set; }
         private readonly Dictionary<SceneMesh, Queue<PreparedVisual>> _geometry = new(ReferenceEqualityComparer.Instance);
         private int _previous, _index;
         internal bool Complete => _previous == (displayed?.Visuals.Length ?? 0) && _index == visuals.Length;
@@ -317,7 +305,6 @@ internal sealed partial class SceneDisplay
             }
             else if (displayed is not null && _index < displayed.Visuals.Length && displayed.Visuals[_index].CanUpdate(visual))
                 Matched[_index] = displayed.Visuals[_index];
-            NeedsResources |= Matched[_index] is null;
             _index++;
         }
     }
@@ -342,8 +329,11 @@ internal sealed partial class SceneDisplay
             if (unlimited) { _budgetAdvanced = true; return true; }
             var elapsed = Stopwatch.GetElapsedTime(started, owner.Timestamp());
             var allowance = budget ?? PreparationBudget;
-            if (_budgetAdvanced && (elapsed >= allowance || _preparationTime + elapsed >= PreparationBudget ||
-                elapsed + estimate > allowance || _preparationTime + elapsed + estimate > PreparationBudget)) return false;
+            var remaining = TimeSpan.FromTicks(Math.Min((allowance - elapsed).Ticks,
+                (PreparationBudget - _preparationTime - elapsed).Ticks));
+            // 本帧预算尚未耗尽时，第一步总能开始，避免大项成本超过4ms后永久饿死。
+            if (_preparationTime >= PreparationBudget ||
+                _budgetAdvanced && (remaining <= TimeSpan.Zero || estimate > remaining)) return false;
             _budgetAdvanced = true;
             return true;
         }

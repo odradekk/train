@@ -43,7 +43,7 @@ internal sealed partial class SceneDisplay : IDisposable
     internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
     internal Func<SceneMesh, CancellationToken, PackedSceneMesh> PackMesh { get; set; } = PackedSceneMesh.Create;
     private Task? _preparationPackingTail;
-    internal Task PreparationPacking => _preparation?.Packing?.Completion ?? Task.CompletedTask;
+    internal Task PreparationPacking => _preparation?.Packing.Job?.Completion ?? Task.CompletedTask;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
@@ -209,11 +209,9 @@ internal sealed partial class SceneDisplay : IDisposable
     {
         _cache.RequireMainThread();
         var cancelled = _preparation?.Frame;
-        _preparation?.Packing?.Dispose();
+        _preparation?.Packing.Dispose();
         _preparation?.ShiftRoots?.Dispose();
         _preparation?.ValidationChildren?.Dispose();
-        if (_preparation is { } preparation)
-            foreach (var geometry in preparation.CachedGeometry) geometry.Dispose();
         foreach (var visual in _pendingVisuals) visual.Dispose();
         _pendingVisuals.Clear();
         _preparation = null;
