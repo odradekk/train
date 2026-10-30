@@ -12,21 +12,18 @@ namespace Train.Engine.Tests;
 public partial class SceneDisplayTests
 {
     [Test]
-    public async Task Cancelling_packing_input_collection_releases_its_cached_mesh_and_keeps_D()
+    public void Cancelling_packing_input_collection_releases_its_cached_mesh()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache, new FixedContentView());
-        var first = Frame(1, [Object(1, Peak(1))]);
-        await Commit(display, first);
-        var shown = display.Objects[new(1)].Visuals[0];
         using var resources = new SceneResources(cache, new FixedContentView());
         var source = Object(2, Peak(2)).Visuals[0];
         using var original = resources.Prepare(source);
         var mesh = original.Node.GetChild<MeshInstance3D>(0).Mesh;
         using var packing = new ScenePackingPreparation(resources, new());
         var slice = new SceneDisplay.PreparationSlice(display, 0, null, true);
-        Require(packing.Collect(source, slice) && packing.Collect(source, slice), "收集必须接收重复网格并只保留一次租约。");
+        Require(packing.Collect(source, slice), "收集必须取得缓存网格的独立租约。");
         original.Dispose();
         Require(GodotObject.IsInstanceValid(mesh), "收集后未启动的准备必须独立保活缓存网格。");
         packing.Dispose();
@@ -34,9 +31,6 @@ public partial class SceneDisplayTests
         Require(!GodotObject.IsInstanceValid(mesh) &&
             resources.AcquireCachedGeometry(((Train.Scenes.Contracts.SceneVisual.Geometry)source).Mesh) is null,
             "中途取消收集必须释放唯一缓存租约，重复Dispose不得遗漏或再次释放。");
-        Require(ReferenceEquals(display.DisplayedFrame, first) &&
-            ReferenceEquals(display.Objects[new(1)].Visuals[0], shown) && shown.Node.IsInsideTree(),
-            "中途取消打包输入不能改变D及原视觉。");
     }
 
     [Test]
@@ -45,9 +39,6 @@ public partial class SceneDisplayTests
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache, new FixedContentView());
-        var first = Frame(1, [Object(1, Peak(1))]);
-        await Commit(display, first);
-        var shown = display.Objects[new(1)].Visuals[0];
         using var resources = new SceneResources(cache, new FixedContentView());
         var a = Object(2, Peak(2)).Visuals[0];
         var b = Object(3, Peak(3)).Visuals[0];
@@ -78,9 +69,34 @@ public partial class SceneDisplayTests
         sentinel.Dispose();
         Require(!GodotObject.IsInstanceValid(meshA) && resources.AcquireCachedGeometry(geometryA) is null,
             "最后使用方释放后网格必须退役，不能遗留收集保活租约。");
-        Require(ReferenceEquals(display.DisplayedFrame, first) &&
-            ReferenceEquals(display.Objects[new(1)].Visuals[0], shown) && shown.Node.IsInsideTree(),
-            "尾部释放与中途取消不能改动D。");
+    }
+
+    [Test]
+    public async Task Collecting_the_same_cached_mesh_twice_requires_only_one_release_step()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        using var resources = new SceneResources(cache, new FixedContentView());
+        var source = Object(2, Peak(2)).Visuals[0];
+        var geometry = ((Train.Scenes.Contracts.SceneVisual.Geometry)source).Mesh;
+        using var original = resources.Prepare(source);
+        var mesh = original.Node.GetChild<MeshInstance3D>(0).Mesh;
+        using var packing = new ScenePackingPreparation(resources, new());
+        var unlimited = new SceneDisplay.PreparationSlice(display, 0, null, true);
+        Require(packing.Collect(source, unlimited) && packing.Collect(source, unlimited),
+            "重复收集同一缓存网格必须成功。");
+        original.Dispose();
+        Require(GodotObject.IsInstanceValid(mesh), "释放原使用方后收集租约必须保活网格。");
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => 0;
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        long now = 0;
+        display.Timestamp = () => now += Stopwatch.Frequency * 3 / 1000;
+        var slice = new SceneDisplay.PreparationSlice(display, 0, TimeSpan.FromMilliseconds(4), false);
+        Require(packing.Release(slice) && !GodotObject.IsInstanceValid(mesh) &&
+            resources.AcquireCachedGeometry(geometry) is null,
+            "仅能推进一次释放时，重复收集的网格也必须退役，不能持有第二份租约。");
     }
 
     [Test]

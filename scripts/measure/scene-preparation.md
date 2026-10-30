@@ -2,13 +2,13 @@
 
 四个打开场景（`scene-node-first`、`scene-node`、`scene-edge`、`scene-follow`）和 `scene-route-*` 的报告包含 `scene_preparation_maximum`。capture/reference 场景不作性能判定。
 
-目标场景第一次整帧提交到显示且 `View.Interactive` 为真后，从下一绘制帧开始统计。每次 `Prepare` 和 `PrepareCandidate` 在计时起止各读一次 `GC.GetTotalPauseDuration()`，以差值记录计时内的 GC 暂停。每帧累计这些调用的主线程墙钟耗时和暂停差值，先相减，再取最大值；排除 `Commit`。按[用户决定](https://github.com/odradekk/train/issues/859#issuecomment-6498312019)，该值对照[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)的 ≤4 ms 判定，GC 引起的超时归 #864。`excess` 给出扣除后超出预算的秒数，通过时为 0，未知时为 `null`。生产准备预算仍用含 GC 的墙钟，不改变准备行为。
+目标场景第一次整帧提交到显示且 `View.Interactive` 为真后，从下一绘制帧开始统计。每次 `Prepare` 和 `PrepareCandidate` 在计时起止各读一次 `GC.GetTotalPauseDuration()`，以差值记录计时内的 GC 暂停。每帧累计这些调用的主线程墙钟耗时和暂停差值，先相减，再取最大值；排除 `Commit`。按[用户决定](https://github.com/odradekk/train/issues/859#issuecomment-6498312019)，该值对照[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)的 ≤4 ms 判定，GC 引起的超时归 #864。`excess` 给出扣除后超出预算的秒数，通过时为 0，未知时为 `null`。生产准备预算仍用含 GC 的墙钟。
 
-暂停量采用 .NET 的进程累计计数差，不是 EventPipe 从请求挂起到完成恢复的整个包络；不另行扣除恢复尾部，也不把两者当作精确相同的暂停量。GC 读数放在墙钟起止内，避免扣入结束快照之后发生的暂停。
+暂停量采用 .NET 的进程累计计数差，不是 EventPipe 从请求挂起到完成恢复的整个区间；不另行扣除恢复尾部，也不把两者当作精确相同的暂停量。GC 读数放在墙钟起止内，避免扣入结束快照之后发生的暂停。
 
 首次提交帧属于打开耗时。之后每次切换空间，只排除新空间正式显示的首个绘制帧；前后的补齐和候选资源准备照常计入，不重新开始整个统计窗口。本项起点使用宿主的 `View.Interactive` 状态标记；原有打开时延还会验证附近对象的实际交互与镜头拖动响应，因此起点更晚。现有打开时延和路线帧耗时指标保持原定义。
 
-原始 `scene-resource-frames.jsonl` 保留含 GC 的 `preparation_seconds`、`candidate_preparation_seconds` 及其和 `preparation_total_seconds`，新增两类调用累计的 `preparation_gc_pause_seconds`。`preparation_calls`、`candidate_preparation_calls` 记录该绘制帧内的两类调用次数，含没有推进资源的空调用；耗时仍按同帧所有调用之和统计。报告的 `resource_work.phases` 同时保留总调用次数，以及原始准备总耗时、候选耗时分别最大的整条帧记录，供核对一次长调用与多次累加。
+原始 `scene-resource-frames.jsonl` 保留含 GC 的 `preparation_seconds`、`candidate_preparation_seconds` 及其和 `preparation_total_seconds`，记录两类调用累计的 `preparation_gc_pause_seconds`。`preparation_calls`、`candidate_preparation_calls` 记录该绘制帧内的两类调用次数，含没有推进资源的空调用；耗时仍按同帧所有调用之和统计。报告的 `resource_work.phases` 同时保留总调用次数，以及原始准备总耗时、候选耗时分别最大的整条帧记录，供核对一次长调用与多次累加。
 
 `after_operable` 标明各帧是否参与统计，`excluded_space_change` 标明是否因新空间首帧而排除；排除帧的 `after_operable` 必须为 `false`。报告中 `scene_preparation_maximum.measured` 为扣除后的最大值，`raw_maximum`、`gc_pause_maximum` 分别保留原始最大值和最大暂停量；三者可能来自不同帧，不能用两个最大值相减。`excluded_frames` 给出排除帧数，`identity.scene_budget.resource_work.frame_count` 核对原始记录数。缺文件、缺标记、标记冲突、缺暂停数据、耗时或暂停量无效、无有效窗口帧、记录数不符或截断均为 `unknown`，此时 `excluded_frames` 为 `null`。
 

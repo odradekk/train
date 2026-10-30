@@ -1,5 +1,4 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Text.Json;
 using Train.App.Measurement;
 using Train.Rendering;
 
@@ -16,13 +15,12 @@ public sealed class SceneResourceTimingsTests
         for (var call = 0; call < 3; call++) timings.Measure(SceneDisplayWork.Prepare, TimeSpan.Zero, TimeSpan.Zero);
         for (var call = 0; call < 2; call++) timings.Measure(SceneDisplayWork.PrepareCandidate, TimeSpan.Zero, TimeSpan.Zero);
         timings.Measure(SceneDisplayWork.Commit, TimeSpan.Zero, TimeSpan.Zero);
-        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-        var frame = JsonSerializer.SerializeToElement(timings.Draw(2, 11, "node", "node", true, new(1)), options);
-        Assert.AreEqual(3, frame.GetProperty("preparation_calls").GetInt32());
-        Assert.AreEqual(2, frame.GetProperty("candidate_preparation_calls").GetInt32());
-        var next = JsonSerializer.SerializeToElement(timings.Draw(3, 12, "node", "node", true, new(1)), options);
-        Assert.AreEqual(0, next.GetProperty("preparation_calls").GetInt32());
-        Assert.AreEqual(0, next.GetProperty("candidate_preparation_calls").GetInt32());
+        var frame = timings.Draw(2, 11, "node", "node", true, new(1))!;
+        Assert.AreEqual(3, frame.PreparationCalls);
+        Assert.AreEqual(2, frame.CandidatePreparationCalls);
+        var next = timings.Draw(3, 12, "node", "node", true, new(1))!;
+        Assert.AreEqual(0, next.PreparationCalls);
+        Assert.AreEqual(0, next.CandidatePreparationCalls);
     }
 
     [TestMethod]

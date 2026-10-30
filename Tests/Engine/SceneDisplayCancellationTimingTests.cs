@@ -30,7 +30,7 @@ public partial class SceneDisplayTests
     }
 
     [Test]
-    public async Task Idle_candidate_calls_are_measured_without_including_the_measure_callback()
+    public void Idle_candidate_calls_are_measured_without_including_the_measure_callback()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);

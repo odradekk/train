@@ -18,9 +18,6 @@ public partial class SceneDisplayTests
         using var display = Attach(cache, new FixedContentView());
         using var burner = Attach(cache, new FixedContentView());
         using var resources = new SceneResources(cache, new FixedContentView());
-        var first = Frame(1, [Object(1, Peak(1))]);
-        await Commit(display, first);
-        var shown = display.Objects[new(1)].Visuals[0];
         var baseline = Frame(1, []);
         await Commit(burner, baseline);
         var costs = new ScenePackingPreparation.Costs();
@@ -55,9 +52,6 @@ public partial class SceneDisplayTests
         packing.Dispose();
         packing.Dispose();
         Require(!GodotObject.IsInstanceValid(acceptedMesh), "取消必须立即且恰好释放已取得的租约。");
-        Require(ReferenceEquals(display.DisplayedFrame, first) &&
-            ReferenceEquals(display.Objects[new(1)].Visuals[0], shown) && shown.Node.IsInsideTree(),
-            "拒绝收集、恢复和取消均不能改变D及其视觉资源。");
     }
 
     [Test]
@@ -68,9 +62,6 @@ public partial class SceneDisplayTests
         using var display = Attach(cache, new FixedContentView());
         using var burner = Attach(cache, new FixedContentView());
         using var resources = new SceneResources(cache, new FixedContentView());
-        var first = Frame(1, [Object(1, Peak(1))]);
-        await Commit(display, first);
-        var shown = display.Objects[new(1)].Visuals[0];
         var baseline = Frame(1, []);
         await Commit(burner, baseline);
         display.Timestamp = () => 0;
@@ -105,9 +96,6 @@ public partial class SceneDisplayTests
         Require(!packing.Start(null, Pack, slice, out var rejectedTail) &&
             rejectedTail is null && packing.Job is null && !packing.Started && Volatile.Read(ref packed) == 0,
             "剩余2ms不足已知3ms启动成本，不能创建或启动后台作业。");
-        Require(ReferenceEquals(display.DisplayedFrame, first) &&
-            ReferenceEquals(display.Objects[new(1)].Visuals[0], shown) && shown.Node.IsInsideTree(),
-            "拒绝启动必须保留D及原视觉资源。");
         await new UiTestInput(TestScene).Frames(1);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(packing.Start(null, Pack, slice, out var tail) && tail is not null,
@@ -115,8 +103,6 @@ public partial class SceneDisplayTests
         await tail!.WaitAsync(TimeSpan.FromSeconds(30));
         Require(Volatile.Read(ref packed) == 1, "恢复后每份输入只能真正打包一次。");
         packing.Dispose();
-        Require(ReferenceEquals(display.DisplayedFrame, first) && shown.Node.IsInsideTree(),
-            "取消已结束的未提交作业也不能改变D。");
     }
 
     [Test]

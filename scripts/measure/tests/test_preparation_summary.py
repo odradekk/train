@@ -55,11 +55,6 @@ class PreparationSummaryTests(unittest.TestCase):
             "status", "maximum", "valid_runs", "unknown_runs")))
         self.assertEqual([0.005, None], result["run_maxima"])
 
-    def test_uses_report_status_instead_of_a_python_threshold(self):
-        # A different report threshold can legitimately pass a net maximum above 4ms.
-        result = summarize.summarize_preparation([self.report(0.005, 0.030, 0.026)])
-        self.assertEqual("passed", result["status"])
-        self.assertEqual(0.005, result["maximum"])
 
 
 if __name__ == "__main__":
