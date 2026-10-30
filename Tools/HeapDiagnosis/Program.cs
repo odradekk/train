@@ -17,19 +17,11 @@ try
         Console.WriteLine("preflight analysis complete");
         return 0;
     }
-    if (args is ["analyze", var first, var second, var matchingDac, var output])
+    if (args is ["analyze-one", var dumpPath, var matchingDac, var output])
     {
-        var before = new HeapReport(first, matchingDac, false);
-        var after = new HeapReport(second, matchingDac, false);
-        var difference = before.Types.Keys.Union(after.Types.Keys).Order().Select(type =>
-        {
-            before.Types.TryGetValue(type, out var a);
-            after.Types.TryGetValue(type, out var b);
-            return new { Type = type, Count = (b?.Count ?? 0) - (a?.Count ?? 0),
-                Bytes = (b?.Bytes ?? 0) - (a?.Bytes ?? 0) };
-        }).ToArray();
+        var report = new HeapReport(dumpPath, matchingDac, false);
         Directory.CreateDirectory(output);
-        File.WriteAllText(Path.Combine(output, "heap.json"), JsonSerializer.Serialize(new { Before = before, After = after, Difference = difference }, JsonOptions.Value));
+        File.WriteAllText(Path.Combine(output, "heap.json"), JsonSerializer.Serialize(report, JsonOptions.Value));
         Console.WriteLine("heap analysis complete");
         return 0;
     }

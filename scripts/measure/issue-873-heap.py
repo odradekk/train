@@ -113,10 +113,11 @@ def matching_dac(process_id):
     return path
 
 
-def collect(tool, process_id, dump, scratch, label):
+def collect(tool, process_id, dump, scratch, label, deadline=None):
     started = time.monotonic()
+    timeout = 180 if deadline is None else min(180, max(1, deadline - started))
     run([str(tool), "collect", "--type", "Heap", "--process-id", str(process_id),
-         "--output", str(dump)], scratch / f"{label}-collect.log", timeout=180)
+         "--output", str(dump)], scratch / f"{label}-collect.log", timeout=timeout)
     if not dump.is_file() or dump.stat().st_size == 0:
         raise RuntimeError("empty dump")
     return {"collection_seconds": time.monotonic() - started, "dump_bytes": dump.stat().st_size}
@@ -127,7 +128,76 @@ def available_memory():
     return int(values["MemAvailable"].split()[0]) * 1024
 
 
+def record_failure(report, error):
+    report["failure_type"] = type(error).__name__
+    if isinstance(error, ChildFailure):
+        report.update(failed_step=error.step, child_exit_code=error.code, exception_types=error.exception_types)
+
+
+def stop_games(game_ids, scratch):
+    if sys.platform != "linux":
+        return
+    for process_id in game_ids:
+        try:
+            values = Path(f"/proc/{process_id}/environ").read_bytes().split(b"\0")
+            if ("TRAIN_HEAP_DIAGNOSIS=" + str(scratch)).encode() in values:
+                os.kill(process_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except FileNotFoundError:
+            pass
+
+
+def stop_capture(measurement, game_ids, scratch, report):
+    report["measurement_exit_before_stop"] = measurement.poll()
+    try:
+        stop(measurement)
+    except Exception as error:
+        report["measurement_stop_error"] = type(error).__name__
+    try:
+        stop_games(game_ids, scratch)
+    except Exception as error:
+        report["game_stop_error"] = type(error).__name__
+    report["measurement_exit_after_stop"] = measurement.poll()
+
+
+def analyze_captures(analyzer, dac, scratch, output, report):
+    reports = []
+    report["analyses"] = []
+    for cycle in (1, 2):
+        entry = {"cycle": cycle, "succeeded": False, "timeout_seconds": 420}
+        report["analyses"].append(entry)
+        dump = scratch / f"heap-{cycle}.dmp"
+        directory = output / f"snapshot-{cycle}"
+        if not dump.is_file() or dac is None:
+            entry["not_started"] = True
+            continue
+        started = time.monotonic()
+        try:
+            run(["dotnet", str(analyzer), "analyze-one", str(dump), str(dac), str(directory)],
+                scratch / f"heap-{cycle}-analysis.log", timeout=420)
+            heap_report = json.loads((directory / "heap.json").read_text(encoding="utf-8"))
+            reports.append(heap_report)
+            entry["succeeded"] = True
+            entry["issue_count"] = sum(heap_report["Issues"].values())
+        except Exception as error:
+            record_failure(entry, error)
+        entry["seconds"] = time.monotonic() - started
+        write_json(output / "acquisition.json", report)
+    succeeded = all(entry["succeeded"] for entry in report["analyses"])
+    if succeeded:
+        before, after = (item["Types"] for item in reports)
+        difference = []
+        for name in sorted(before.keys() | after.keys()):
+            a, b = before.get(name, {}), after.get(name, {})
+            difference.append({"Type": name, "Count": b.get("Count", 0) - a.get("Count", 0),
+                               "Bytes": b.get("Bytes", 0) - a.get("Bytes", 0)})
+        write_json(output / "difference.json", {"partial": any(item["Issues"] for item in reports), "types": difference})
+    return succeeded
+
+
 def main():
+    started = time.monotonic()
     parser = argparse.ArgumentParser()
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -193,68 +263,74 @@ def main():
             "-InputPath", "examples/standard-world/save.json", "-Repeat", "1",
             "-DurationSeconds", "9000", "-Root", str(root),
         ], scratch / "measurement-process.log", environment)
-        deadline = time.monotonic() + 40 * 60
+        # 36 minutes for preparation/collection + 2 x 7-minute analyses leaves cleanup within 52 minutes.
+        deadline = started + 36 * 60
         game_dac = None
-        for cycle in (1, 2):
-            marker = scratch / f"reset-{cycle}.ready"
-            wait_file(marker, measurement, deadline)
-            process_id = int(marker.read_text())
-            game_ids.add(process_id)
-            sample = {"cycle": cycle, "gate_observed_utc": datetime.now(timezone.utc).isoformat()}
-            gate_started = time.monotonic()
-            try:
-                if available_memory() < 2 * 1024**3:
-                    raise RuntimeError("collection memory reserve exhausted")
-                current_dac = matching_dac(process_id)
-                if game_dac is not None and game_dac != current_dac:
-                    raise RuntimeError("game runtime changed")
-                game_dac = current_dac
-                sample.update(collect(tool, process_id, scratch / f"heap-{cycle}.dmp", scratch, f"reset-{cycle}"))
-                release_marker(scratch / f"reset-{cycle}.release", "continue")
-                sample["released"] = True
-            finally:
-                release = scratch / f"reset-{cycle}.release"
-                if not release.exists():
-                    release_marker(release, "abort")
-                sample["gate_seconds"] = time.monotonic() - gate_started
-                report["samples"].append(sample)
-                write_json(output / "acquisition.json", report)
-        if measurement.wait(timeout=180) != 0:
-            raise RuntimeError("diagnostic soak failed")
-        stop(measurement)
-        measurement = None
+        game_dac_source = None
+        capture_succeeded = False
+        try:
+            for cycle in (1, 2):
+                marker = scratch / f"reset-{cycle}.ready"
+                wait_file(marker, measurement, deadline)
+                process_id = int(marker.read_text())
+                game_ids.add(process_id)
+                sample = {"cycle": cycle, "gate_observed_utc": datetime.now(timezone.utc).isoformat()}
+                gate_started = time.monotonic()
+                try:
+                    current_dac = matching_dac(process_id)
+                    if game_dac_source is not None and game_dac_source != current_dac:
+                        raise RuntimeError("game runtime changed")
+                    game_dac_source = current_dac
+                    if game_dac is None:
+                        # The measurement runner may delete its export when stopped; retain the exact DAC first.
+                        game_dac = scratch / current_dac.name
+                        shutil.copyfile(current_dac, game_dac)
+                    sample.update(collect(tool, process_id, scratch / f"heap-{cycle}.dmp", scratch,
+                                          f"reset-{cycle}", deadline))
+                    if cycle == 1:
+                        release_marker(scratch / f"reset-{cycle}.release", "continue")
+                    sample["released"] = cycle == 1
+                finally:
+                    sample["gate_seconds"] = time.monotonic() - gate_started
+                    report["samples"].append(sample)
+                    write_json(output / "acquisition.json", report)
+            capture_succeeded = True
+        except Exception as error:
+            record_failure(report, error)
+        finally:
+            stop_capture(measurement, game_ids, scratch, report)
         report["stage"] = "analysis"
-        run(["dotnet", str(analyzer), "analyze", str(scratch / "heap-1.dmp"),
-             str(scratch / "heap-2.dmp"), str(game_dac), str(output)],
-            scratch / "heap-analysis.log", timeout=300)
-        report.update(stage="completed", succeeded=True)
-        return 0
+        analyses_succeeded = analyze_captures(analyzer, game_dac, scratch, output, report)
+        report.update(stage="completed", succeeded=capture_succeeded and analyses_succeeded)
+        return 0 if report["succeeded"] else 1
     except Exception as error:
-        report["failure_type"] = type(error).__name__
-        if isinstance(error, ChildFailure):
-            report.update(failed_step=error.step, child_exit_code=error.code, exception_types=error.exception_types)
+        record_failure(report, error)
         print("heap diagnosis failed", report["stage"], report["failure_type"])
         return 1
     finally:
         for cycle in (1, 2):
             release_marker(scratch / f"reset-{cycle}.release", "abort")
-        stop(preflight)
-        stop(measurement)
-        if sys.platform == "linux":
-            for process_id in game_ids:
-                environ = Path(f"/proc/{process_id}/environ")
-                if environ.exists() and ("TRAIN_HEAP_DIAGNOSIS=" + str(scratch)).encode() in environ.read_bytes().split(b"\0"):
-                    try:
-                        os.kill(process_id, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+        cleanup_errors = []
+        for cleanup in (lambda: stop(preflight), lambda: stop(measurement), lambda: stop_games(game_ids, scratch)):
+            try:
+                cleanup()
+            except Exception as error:
+                cleanup_errors.append(type(error).__name__)
         for dump in scratch.glob("*.dmp"):
-            dump.unlink()
+            try:
+                dump.unlink()
+            except Exception as error:
+                cleanup_errors.append(type(error).__name__)
+        report["cleanup_error_types"] = cleanup_errors
+        if cleanup_errors:
+            report["succeeded"] = False
         if (scratch / "recording.jsonl").is_file():
             shutil.copyfile(scratch / "recording.jsonl", output / "recording.jsonl")
         for path in root.glob("TestResults/measure-*/scenarios/scene-soak-1/scene-collections.jsonl"):
             shutil.copyfile(path, output / "collections.jsonl")
         write_json(output / "acquisition.json", report)
+        if cleanup_errors:
+            raise RuntimeError("diagnostic cleanup failed")
 
 
 if __name__ == "__main__":

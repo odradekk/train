@@ -229,7 +229,7 @@ internal sealed class RecordingService : IDisposable
     {
         lock (DiagnosisTraceLock)
             File.AppendAllText(Path.Combine(directory, "recording.jsonl"),
-                System.Text.Json.JsonSerializer.Serialize(new { id, phase, same_binding = sameBinding,
+                System.Text.Json.JsonSerializer.Serialize(new { process_id = Environment.ProcessId, id, phase, same_binding = sameBinding,
                     utc = DateTimeOffset.UtcNow, timestamp = System.Diagnostics.Stopwatch.GetTimestamp() }) + "\n");
     }
 
