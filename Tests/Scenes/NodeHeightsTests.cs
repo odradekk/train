@@ -9,6 +9,21 @@ namespace Train.Scenes.Tests;
 public sealed class NodeHeightsTests
 {
     [TestMethod]
+    public void Published_terrain_columns_cannot_be_changed_through_a_mutable_dictionary_interface()
+    {
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: []);
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var part = prepared.BuildChunk(new(0, 0));
+        var column = part.Heights.Keys.First();
+        var height = part.Heights[column];
+        var frame = NodeHeights.Empty.WithPart((1, 0, 0, "terrain"), part);
+
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            ((IDictionary<GridColumn, double>)part.Heights)[column] = height + 1);
+        Assert.AreEqual(height, frame.At(column.X + .5, column.Z + .5));
+    }
+
+    [TestMethod]
     public void Indexed_columns_preserve_part_order_origins_and_older_snapshots_after_changes()
     {
         var geometry = WorldSceneSession.BuildGeometry(_ => new([], [], []));

@@ -52,11 +52,10 @@ internal readonly record struct SceneCell(GridPosition At, CellProperties Proper
     internal bool Occludes => Properties.Occludes;
 }
 
-internal sealed class VoxelGrid
+internal sealed partial class VoxelGrid
 {
     internal const int ChunkSize = 32;
-    private const int HalfSize = ChunkSize * ChunkSize * ChunkSize / 2;
-    private readonly Dictionary<GridPosition, int[][]> chunks = [];
+    private readonly Dictionary<GridPosition, Indices[]> chunks = [];
     private readonly ImmutableArray<CellProperties?> entries;
     internal IEnumerable<SceneCell> Cells
     {
@@ -74,18 +73,21 @@ internal sealed class VoxelGrid
         {
             var values = halves[half];
             for (var offset = 0; offset < values.Length; offset++)
-                if (values[offset] != 0)
+            {
+                var id = values[offset];
+                if (id != 0)
                 {
                     var index = half * HalfSize + offset;
                     yield return new(new((key.X << 5) + (index & 31),
-                        (key.Y << 5) + ((index >> 5) & 31), (key.Z << 5) + (index >> 10)), entries[values[offset]]!);
+                        (key.Y << 5) + ((index >> 5) & 31), (key.Z << 5) + (index >> 10)), entries[id]!);
                 }
+            }
         }
     }
     internal SceneBounds? Bounds { get; }
     internal IEnumerable<GridPosition> Chunks => chunks.Keys;
     internal long ArrayBytes => chunks.Values.Sum(halves => (long)halves.Length * IntPtr.Size +
-        halves.Sum(values => (long)values.Length * sizeof(int))) +
+        halves.Sum(values => values.ArrayBytes)) +
         (long)entries.Length * IntPtr.Size + entries.Sum(entry => (long)(entry?.Path.Length ?? 0) * sizeof(int)) +
         entries.Where(entry => entry?.Appearance is not null).Select(entry => entry!.Appearance!).Distinct()
             .Sum(appearance => appearance.Presentation switch
@@ -104,7 +106,7 @@ internal sealed class VoxelGrid
         var minimum = new GridPosition(int.MaxValue, int.MaxValue, int.MaxValue);
         var maximum = new GridPosition(int.MinValue, int.MinValue, int.MinValue);
         var previousChunk = default(GridPosition);
-        int[][]? values = null;
+        Indices[]? values = null;
         CellProperties? previousProperties = null;
         var previousId = 0;
         foreach (var cell in cells)
@@ -113,7 +115,7 @@ internal sealed class VoxelGrid
             if (values is null || key != previousChunk)
             {
                 if (!chunks.TryGetValue(key, out values))
-                    chunks.Add(key, values = [new int[HalfSize], new int[HalfSize]]);
+                    chunks.Add(key, values = [new(), new()]);
                 previousChunk = key;
             }
             var index = Index(cell.At);
@@ -213,12 +215,11 @@ internal sealed class VoxelGrid
                 buffer[index] = id;
             }
             previous.chunks.TryGetValue(key, out var old);
-            if (old is not null && buffer.AsSpan(0, HalfSize).SequenceEqual(old[0]) &&
-                buffer.AsSpan(HalfSize).SequenceEqual(old[1]))
+            if (old is not null && old[0].Matches(buffer.AsSpan(0, HalfSize)) && old[1].Matches(buffer.AsSpan(HalfSize)))
                 chunks.Add(key, old);
             else
             {
-                chunks.Add(key, [buffer[..HalfSize], buffer[HalfSize..]]);
+                chunks.Add(key, [new(buffer.AsSpan(0, HalfSize)), new(buffer.AsSpan(HalfSize))]);
                 for (var i = 0; i < buffer.Length; i++)
                     if (buffer[i] != (old is null ? 0 : old[i / HalfSize][i % HalfSize]))
                         changed.Add(new((key.X << 5) + (i & 31), (key.Y << 5) + ((i >> 5) & 31), (key.Z << 5) + (i >> 10)));

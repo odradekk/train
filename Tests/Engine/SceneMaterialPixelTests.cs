@@ -14,7 +14,7 @@ using NVector3 = System.Numerics.Vector3;
 
 namespace Train.Engine.Tests;
 
-public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
+public partial class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
 {
     [Test]
     public async Task Face_alpha_is_linear_paint_weight_and_never_transparency()
@@ -235,7 +235,7 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
         return distance;
     }
 
-    private sealed class PixelFixture : IDisposable
+    private sealed partial class PixelFixture : IDisposable
     {
         private readonly Node _scene;
         private readonly GodotMainThreadDispatcher _dispatcher = new();

@@ -19,7 +19,7 @@ internal sealed class NodeTerrainCaps
         this.completed = completed;
         this.prepared = prepared;
         node = prepared.Snapshot.Core.World.Nodes.Single(item => item.Id == prepared.Global.Layout.Node);
-        boundaries = prepared.Global.Parts.Where(item => NodePartKeys.IsBoundary(item.Key) && !item.Value.Heights.IsEmpty).Select(item =>
+        boundaries = prepared.Global.Parts.Where(item => NodePartKeys.IsBoundary(item.Key) && item.Value.Heights.Count != 0).Select(item =>
         {
             var part = item.Value;
             var minX = int.MaxValue; var minZ = int.MaxValue;
