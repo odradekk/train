@@ -16,9 +16,9 @@ dotnet Train.HeapDiagnosis.dll analyze-one <dump> <matching-dac> <output-directo
 
 `analyze-preflight` 严格检查三个派生状态的集合、视图和数组数量及根路径、20,000 个链表节点，以及对象分类的总数和总大小。任何问题都判失败，不使用耗时断言。成功写出 `preflight.json`，只证明诊断链可用。
 
-`analyze-one` 每次进程只读一份转储，写出输出目录下的 `heap.json`。报告包含类型数量和大小、强根可达／无根／Free 统计、工厂和 ContentView 统计、ContentView 根链、大于等于 1 MiB 的 byte／char 数组根链及分类。控制器分别调用两次，每次各设 420 秒上限，再按 `Types` 字典计算类型差。一份失败仍继续另一份；报告有问题计数时，差分标记为 partial。
+`analyze-one` 每次进程只读一份转储，写出输出目录下的 `heap.json`。报告包含类型数量和大小、强根可达／无根／Free 统计、工厂和 ContentView 统计、ContentView 根链、大于等于 1 MiB 的 byte／char 数组根链及分类。控制器分别调用两次，每次各设 360 秒上限，再按 `Types` 字典计算类型差。一份失败仍继续另一份；报告有问题计数时，差分标记为 partial。
 
-控制器在第二份采集完成后结束测量进程组和游戏，再分析转储；长测退出码只作记录。结束测量前，先把匹配的 DAC 复制到本任务临时目录，避免测量入口清理导出目录后找不到它。准备与采集最多 36 分钟，两次分析最多 14 分钟，为 52 分钟步骤上限留下收尾时间。
+控制器在第二次 idle 门控后结束测量进程组和游戏，再分析已完整采集的转储；长测退出码只作记录。结束测量前，先把匹配的 DAC 复制到本任务临时目录，避免测量入口清理导出目录后找不到它。
 
 强根遍历包含 ClrMD 的普通根、线程静态根及 dependent handle（条件依赖引用）。BFS 首次发现对象时，从父对象传下分类和最近的 ContentView，每个对象只归类、计数一次，不反复回溯父链。分类优先级是数组池、线程本地存储（TLS）、内容、根种类。共享对象归入第一次发现它的根路径，分组依赖枚举顺序，不代表独占保留大小。
 
@@ -31,3 +31,13 @@ dotnet Train.HeapDiagnosis.dll analyze-one <dump> <matching-dac> <output-directo
 游戏转储的堆校验问题、坏对象、缺失目标、坏引用和字段异常按问题类别及类型累计到 `Issues`，继续统计能读到的部分。若枚举器异常终止，该次枚举剩余内容不可恢复；此前数据和其他枚举仍保留。因此总数只涵盖成功读取的对象，出现问题时可达性和类型数都可能不完整，不能当作完整堆结论。preflight 对任何 `Issues` 保持严格失败。
 
 报告不写对象地址、字符串内容、原始字段值、文件路径或环境变量。问题计数只包含固定类别、类型名和堆校验问题种类。致命异常输出异常类型、HResult，以及 `new StackTrace(error)` 中的声明类型和方法名；不输出 Message、文件名或行号。ClrMD `4.2.751201` 的 `ClrDiagnosticsException` 没有 Kind 属性，因此明确输出 `kind: null`、`kind_available: false`。控制器把这些字段保存到 `acquisition.json`。严格预检保留原始异常栈；游戏堆中的可恢复读取问题仍只计入 `Issues`。参数错误只写固定文字。Linux 的诊断通道、DAC 加载及字段读取须由同一次 GitHub Actions 任务的 preflight 验证，本机编译通过不能代替这项验证。
+
+控制器的转储门控位于每轮 `reset-map-idle` GC 之后。原 `reset-map` GC 后先读录制状态，再异步等待录制和存档空闲，最多等待 60 秒；超时也保留状态、等待时长和后续 idle GC。第二次 idle 门控之后结束测量，不等待游戏正常退出。
+
+第一份游戏转储失败或超时时，控制器记录失败，向第一轮写入 `continue`，跳过后续转储，继续等待第二轮 idle 门控。到达门控只能证明已走完该边界；`gc_data_succeeded` 还要求输出包含同一游戏 PID 的两轮原 GC 和 idle GC。任何采集失败均保留 `captures_succeeded: false`，不能算完整采集成功。已经完整采集的转储仍各自分析；不分析失败采集留下的部分文件。
+
+准备与采集共用从控制器启动计时的 40 分钟硬截止，包含准备、两段负载、两次最多 60 秒空闲等待，以及两份各最多 300 秒游戏 Heap 采集。两份分析各自最多 360 秒，共 12 分钟，主体预算合计 52 分钟。另留 2 分钟收尾，workflow 步骤上限 54 分钟、job 上限 60 分钟，为 checkout、SDK 准备、删除、扫描和上传留出余量。硬截止保证预算内停止等待，不能保证负载变慢时仍采齐第二轮；未到达门控或记录不齐均明确报告失败或 partial。
+
+每次采集从开始起每 5 秒记录 UTC、经过秒数和 `dump_bytes`（文件不存在为 0），结束时补末次读数。失败或超时先读取采集器的 createdump 后代 PID/状态字母和游戏线程状态计数，分别标明 game 与 collector 祖先，再终止采集器。失败后通过 `TRAIN_HEAP_DIAGNOSIS` 验证游戏归属；再次核对直接父 PID 和进程名，只向该游戏直接拉起的 createdump 发 SIGKILL，最多等待 2 秒，然后向游戏发 SIGCONT，最后写 `continue`。`acquisition.json` 的 sample.collection_diagnostics 包含停止前状态、SIGKILL 发送结果、仍未退出的 createdump 和 SIGCONT 结果，sample.released 记录放行；`*-telemetry.json` 同时保存这些读数与脱敏后的 dotnet-dump 输出。原始日志只留在私有 scratch，scratch 路径替换为 `<scratch>`，其他绝对路径和当前身份替换为占位符，涉及环境或 sudo 的行不发布。最终发布仍必须通过 `publish-measurement.ps1` 的扫描，不上传原始日志或转储。
+
+`heap-observations.jsonl`、`collections.jsonl`、`recording.jsonl` 与 `timeline.md` 一同输出。recording 保留本任务全部 PID 的有效行，包括 scene-reference，供比较录制耗时；仅时间线过滤游戏 PID。JSONL 坏行单独记入 source_errors，不覆盖原采集失败，GC 数据标记不完整。时间线只关联门控记录的同一游戏 PID，原 collections schema 保持不变，按 cycle、phase、at 与 observation.collection_at 精确配对，并核对来源文件修改时间属于本次运行；以 collection.at × 同一 observation 的 Stopwatch frequency 对齐录制 timestamp，比较原 GC、GC 后状态读数、idle 等待和 idle GC。录制操作按时间关联，不能把操作 id 当作 cycle。表中保留原 GC 到 idle GC 的边界差和 live 数据，并列出 started、capture-completed、write-completed、validate-completed、work-completed、cleared 事件。GC 后读到的 Task 状态不代表 GC 当时的状态；缺失时钟或记录保留 unknown，不用 scene-reference 或另一进程补齐。

@@ -150,7 +150,6 @@ internal sealed partial class MeasurementRun
         });
         _soakLoadAttempts++;
         _soakLoads++;
-        // 读档换了会话，场景会话随之重建；之后的首次打开是冷打开。
         _sceneOpenedTargets.Clear();
         var host = _app.Host!;
         host.SetPaused(true);
@@ -160,6 +159,7 @@ internal sealed partial class MeasurementRun
         _soakResetSteps = host.GetStatus()!.View.Position.CompletedSteps;
         // 每段都在刚读入的同一保存点、暂停的地图上强制回收，作为相同状态下的存活堆读数。
         _soakHeaps.Add((_soakSegment, "reset", Seconds(), CollectSceneHeap(_soakSegment, "reset-map")));
+        await CollectIdleSceneHeap(_soakSegment);
         if (_heapDiagnosisFinished) return;
         await HoldSoakMap(2);
         await SoakOpen("reset-line", SoakLineBattle, _sceneLoadButton);

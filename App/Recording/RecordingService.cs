@@ -13,7 +13,7 @@ internal sealed class RecordingService : IDisposable
     internal const ulong StartIntervalSteps = 18_000;
     private readonly HostCoordinator _host;
     private readonly ulong _interval;
-    private readonly Func<RecordingSnapshot, string, bool, CancellationToken, Task<FileWriteResult>> _write;
+    private readonly Func<RecordingSnapshot, string, bool, CancellationToken, int, Task<FileWriteResult>> _write;
     private readonly Queue<(RecordingSnapshot Snapshot, string Path)> _faults = [];
     private readonly HashSet<HostBinding> _faultBindings = [];
     private PendingWrite? _pending;
@@ -38,11 +38,21 @@ internal sealed class RecordingService : IDisposable
         _host = host; _interval = intervalSteps;
         EvidenceDirectory = Path.Combine(store.Root, "recordings");
         SnapshotPath = Path.Combine(EvidenceDirectory, "snapshot.zip");
-        _write = write ?? ((snapshot, path, overwrite, cancellation) => Task.Run(() =>
-        {
-            var package = RecordingPackage.Capture(snapshot.Window, snapshot.Content, snapshot.Runtime);
-            return store.Write(path, package.Write, package.Validate, overwrite, cancellation);
-        }));
+        _write = write is not null ? (snapshot, path, overwrite, cancellation, _) => write(snapshot, path, overwrite, cancellation)
+            : (snapshot, path, overwrite, cancellation, id) => Task.Run(() =>
+            {
+                var package = RecordingPackage.Capture(snapshot.Window, snapshot.Content, snapshot.Runtime);
+                TraceDiagnosis(id, "capture-completed", null);
+                return store.Write(path, candidate =>
+                {
+                    package.Write(candidate);
+                    TraceDiagnosis(id, "write-completed", null);
+                }, candidate =>
+                {
+                    package.Validate(candidate);
+                    TraceDiagnosis(id, "validate-completed", null);
+                }, overwrite, cancellation);
+            });
         host.BoundaryCompleted += OnBoundary;
     }
 
@@ -55,6 +65,9 @@ internal sealed class RecordingService : IDisposable
         private set => _lastMessage = value;
     }
     internal bool IsBusy => _pending is not null || _faults.Count != 0 || _closing || _host.IsBusy;
+    internal (bool PendingIsNull, bool? SnapshotBindingEqualsCurrent, bool? WorkIsCompleted) DiagnosisState =>
+        _pending is { } pending ? (false, pending.Snapshot.Binding == _host.GetStatus()?.Binding, pending.Work.IsCompleted)
+            : (true, null, null);
     internal bool IsReplay => _host.GetStatus() is { IsReplay: true };
     private HostStatus? OrdinaryStatus => _host.GetStatus() is { IsReplay: false } status ? status : null;
     internal RecordingStatus? Status => OrdinaryStatus is not { } status ? null : new(
@@ -175,7 +188,7 @@ internal sealed class RecordingService : IDisposable
         var cancellation = new CancellationTokenSource();
         var diagnosisId = ++_diagnosisSequence;
         TraceDiagnosis(diagnosisId, "started", snapshot.Binding == _host.GetStatus()?.Binding);
-        var work = _write(snapshot, path, overwrite, cancellation.Token);
+        var work = _write(snapshot, path, overwrite, cancellation.Token, diagnosisId);
         _pending = new(snapshot, Path.GetFullPath(path), point, fault, cancellation, work, diagnosisId);
         if (Environment.GetEnvironmentVariable("TRAIN_HEAP_DIAGNOSIS") is { Length: > 0 } directory)
             _ = work.ContinueWith(static (task, state) =>
@@ -219,7 +232,7 @@ internal sealed class RecordingService : IDisposable
     private static async Task FinishAfterRemoval(PendingWrite pending)
     { try { await pending.Work.ConfigureAwait(false); } catch { } finally { pending.Cancellation.Dispose(); } }
 
-    private static void TraceDiagnosis(int id, string phase, bool sameBinding)
+    private static void TraceDiagnosis(int id, string phase, bool? sameBinding)
     {
         if (Environment.GetEnvironmentVariable("TRAIN_HEAP_DIAGNOSIS") is { Length: > 0 } directory)
             WriteDiagnosis(directory, id, phase, sameBinding);
