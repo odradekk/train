@@ -44,6 +44,98 @@ class DirectoryTests(unittest.TestCase):
     def metrics(self, result, scenario="scene-test"):
         return result["scenarios"][scenario]["metrics"]
 
+    def preparation_report(self, measured, status="passed", reason=None):
+        return {**self.report(), "assessment": {"items": [{
+            "metric": "scene_preparation_maximum", "unit": "seconds", "threshold": 0.004,
+            "measured": measured, "raw_maximum": measured, "gc_pause_maximum": 0,
+            "status": status, "reason": reason}]}}
+
+    def test_preparation_preserves_each_run_maximum_and_never_hides_a_failed_run(self):
+        for measured, status in ((0.003, "passed"), (0.004, "passed"), (0.005, "failed"), (None, "unknown")):
+            self.add_run(scenario="scene-node", report=self.preparation_report(measured, status))
+        result = summarize.summarize_directories([self.root / "A"])
+        preparation = result["scenarios"]["scene-node"]["scene_preparation"]["A"]
+        self.assertEqual([0.003, 0.004, 0.005, None], preparation["run_maxima"])
+        self.assertEqual(("failed", 0.005, 3, 1, "seconds"), tuple(preparation[key] for key in (
+            "status", "maximum", "valid_runs", "unknown_runs", "unit")))
+
+    def test_preparation_missing_or_unknown_runs_prevent_a_pass(self):
+        self.add_run(scenario="scene-route-8x", report=self.preparation_report(0.003))
+        self.add_run(scenario="scene-route-8x")
+        self.add_run(scenario="scene-route-8x", report=self.preparation_report(
+            0.002, "unknown", "observation_truncated"))
+        preparation = summarize.summarize_directories([self.root / "A"])["scenarios"][
+            "scene-route-8x"]["scene_preparation"]["A"]
+        self.assertEqual([0.003, None, None], preparation["run_maxima"])
+        self.assertEqual(("unknown", 1, 2), tuple(preparation[key] for key in (
+            "status", "valid_runs", "unknown_runs")))
+        self.assertEqual({"missing_or_invalid_assessment": 1, "observation_truncated": 1},
+                         preparation["unknown_reasons"])
+
+    def test_preparation_invalid_assessment_cannot_certify_a_run(self):
+        for index, changes in enumerate((
+                {"unit": "milliseconds"}, {"status": "known"}, {"measured": -1},
+                {"measured": None}, {"measured": True}, {"measured": float("nan")})):
+            with self.subTest(changes=changes):
+                report = self.preparation_report(0.003)
+                report["assessment"]["items"][0].update(changes)
+                side = f"invalid-{index}"
+                self.add_run(side=side, scenario="scene-node", report=report)
+                preparation = summarize.summarize_directories([self.root / side])["scenarios"][
+                    "scene-node"]["scene_preparation"]["A"]
+                self.assertEqual(("unknown", [None], 0, 1), tuple(preparation[key] for key in (
+                    "status", "run_maxima", "valid_runs", "unknown_runs")))
+
+    def test_preparation_reuses_report_status_and_keeps_sides_independent(self):
+        report = self.preparation_report(0.005)
+        report["assessment"]["items"][0]["threshold"] = 0.006
+        self.add_run(scenario="scene-node", report=report)
+        self.add_run(side="B", scenario="scene-route-1x", report=self.preparation_report(0, "passed"))
+        result = summarize.summarize_directories([self.root / "A", self.root / "B"])
+        preparation = result["scenarios"]["scene-node"]["scene_preparation"]
+        self.assertEqual(("passed", [0.005]), (preparation["A"]["status"], preparation["A"]["run_maxima"]))
+        self.assertEqual(("unknown", [], 0, 0), tuple(preparation["B"][key] for key in (
+            "status", "run_maxima", "valid_runs", "unknown_runs")))
+        self.assertEqual("passed", result["scenarios"]["scene-route-1x"]["scene_preparation"]["B"]["status"])
+
+    def test_preparation_applies_only_to_opening_and_route_scenarios(self):
+        scenarios = ("scene-node-first", "scene-edge", "scene-follow", "scene-node", "scene-route-4x",
+                     "scene-follow-8x", "scene-reference", "scene-route-capture-1x", "scene-map", "scene-memory", "scene-soak")
+        for scenario in scenarios:
+            self.add_run(scenario=scenario, report=self.preparation_report(0.001))
+        result = summarize.summarize_directories([self.root / "A"])
+        applicable = {scenario for scenario, value in result["scenarios"].items() if "scene_preparation" in value}
+        self.assertEqual({"scene-node-first", "scene-edge", "scene-follow", "scene-node", "scene-route-4x"}, applicable)
+
+    def test_preparation_run_and_process_failures_override_a_passing_assessment(self):
+        for index, condition in enumerate(("run_failed", "report_failed", "exit", "timeout", "cleanup",
+                                           "missing_process", "missing_report", "bad_report")):
+            with self.subTest(condition=condition):
+                side = f"failed-{index}"
+                report = self.preparation_report(0.003)
+                if condition == "report_failed":
+                    report["outcome"] = "failed"
+                path = self.add_run(side=side, scenario="scene-node", report=report,
+                                    succeeded=condition != "run_failed")
+                process_path = path.parent / "process.json"
+                if condition == "missing_process":
+                    process_path.unlink()
+                elif condition == "missing_report":
+                    path.unlink()
+                elif condition == "bad_report":
+                    path.write_text('{"assessment":')
+                else:
+                    process = json.loads(process_path.read_text())
+                    process.update({"exit_code": 2} if condition == "exit" else
+                                   {"timed_out": True} if condition == "timeout" else
+                                   {"cleanup_succeeded": False} if condition == "cleanup" else {})
+                    process_path.write_text(json.dumps(process))
+                preparation = summarize.summarize_directories([self.root / side])["scenarios"][
+                    "scene-node"]["scene_preparation"]["A"]
+                self.assertEqual(("unknown", [None], 0, 1), tuple(preparation[key] for key in (
+                    "status", "run_maxima", "valid_runs", "unknown_runs")))
+                self.assertTrue(preparation["unknown_reasons"])
+
     def test_groups_only_by_scenario_and_uses_each_reports_fixed_timing_values(self):
         self.add_run(report=self.report(2), route_camera="a")
         self.add_run(report=self.report(8), route_camera="b", report_unused="ignored")

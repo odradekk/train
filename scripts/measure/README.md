@@ -1,6 +1,6 @@
 # 测量辅助脚本
 
-测量入口为 `measure.ps1`，导出入口为 `export-measurement.ps1`。`measure.ps1` 默认运行无需参考文件的 `scene-route-1x`、`scene-route-8x`；其余场景按需显式选择。测量场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。辅助脚本使用 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
+`measure.ps1` 默认测量无需参考文件的 `scene-route-1x`、`scene-route-8x`，其余场景须显式选择；`export-measurement.ps1` 用于导出。场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。脚本使用 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
 
 `-NodeReadyHold` 仅使 `scene-node-first` 和参考运行的指定节点 Ready 后保持 60 秒，其余场景忽略。runner 的 `measure_node_ready_hold` 默认 false，仅传给 `measure` 的参考和场景运行。首开 `measure_seconds` 为 0–120，不改保持时长（默认 5 秒，开启后 60 秒）；混选路线须为 0。`scene-map` 末段纯地图固定保持 60 秒，不受此参数控制；其他地图保持仍为 5 秒。旧 `scene-map` 读数不可比；已提交的基线见 [baselines/](baselines/)。
 
@@ -72,13 +72,15 @@ Read-ExecutionState
 
 ## 逐项性能判定
 
-每份 `report.json` 的 `assessment` 按[设计 00「本阶段性能目标」](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 保持“待验收”，`reason` 说明尚缺目标配置实机与完整覆盖，`source` 指向设计目标。各项 `items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，需要时附 `observed_seconds`。阈值数值由报告代码单处维护。
+`report.json` 的 `assessment` 按[设计 00「本阶段性能目标」](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 为“待验收”，`reason` 说明缺目标配置实机与完整覆盖，`source` 指向设计目标。各项 `items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，可附 `observed_seconds`、`excess`。阈值由报告代码维护。
 
-`status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺少成对基线或观察截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 继续表示运行是否完成，原有 `timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
+`status` 为 `passed`、`failed` 或 `unknown`。缺字段、无效数值、缺成对基线或截断均为 `unknown`；运行失败时各项均为 `unknown`。capture/reference 场景不作性能判定。`outcome` 表示运行是否完成，`timing`、`identity` 和 `scope.final_performance=false` 保持原义；逐项通过不能代替整体验收。
 
-路线帧耗时 p95、p99、最大值排除初始打开段：`identity.scene_budget.route.startup.first_operable_at` 与 `timing.frames[].elapsed_seconds` 共用起点，帧结束时刻≤可操作时刻的记录排除，首个可操作帧的间隔仍属打开。三项的 `window` 说明范围，`window_start_seconds` 记录相对起点，`excluded_frames` 记录排除数；缺可操作时刻或无后续帧时为 `unknown`，缺时刻时两字段为 `null`。可操作后补齐和途中切换照常计入；实际倍速用全窗。非路线和其他判定项的两字段为 `null`。原始 `timing` 和旁车均保留。
+路线帧耗时 p95、p99、最大值排除初始打开：`identity.scene_budget.route.startup.first_operable_at` 与 `timing.frames[].elapsed_seconds` 同起点，排除帧结束时刻≤可操作时刻的记录，首个可操作帧间隔仍属打开。三项用 `window` 说明范围、`window_start_seconds` 记录相对起点、`excluded_frames` 记录排除数；缺可操作时刻或后续帧则为 `unknown`，缺时刻则两字段为 `null`。计入可操作后补齐和途中切换；实际倍速用全窗。其他项两字段为 `null`，[场景准备](scene-preparation.md)的 `excluded_frames` 除外。保留 `timing` 和旁车。
 
 打开 p95 按类别至少需 30 个有效样本；最大值和补齐也只用有效打开。补齐从可操作起检查 5 秒内的 64 m 范围。`scene-memory` 不作正式打开时延证据，节点只观察约 5 秒，不按稳态判定。节点增量按 `click` 配对最近地图读数：首次取初始地图末 1 秒中位数，之后取最近 `natural-map.memory`；缺基线时增量 `unknown`。返回地图后强制 GC 的存活堆减 `cycle 0` 初值。原报告的 `steady` 只是末 1 秒统计，须另核对稳定性，未稳定时不据此宣称通过预算。
+
+场景准备的判定、旁车与汇总见 [scene-preparation.md](scene-preparation.md)。
 
 `scene-soak` 的打开判定和整个游戏稳态绝对值读取 `scene-operations.jsonl`，复用有效打开分组和稳态读数；帧耗时、8× 倍速和增长使用内嵌汇总。节点稳态增量和退出存活堆保持 `unknown`，不读帧和 GC 旁车，也不用峰值或重置堆替代。“两小时不得持续增长”尚未定义判定规则，即使斜率和时长齐全也为 `unknown`；报告保留已有斜率和实际时长，不把短测斜率外推成完整长测结论。
 
