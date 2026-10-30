@@ -109,8 +109,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => (display.CandidateProgress(first.Frame)?.Prepared ?? 0) *
             (System.Diagnostics.Stopwatch.Frequency / 1000);
-        display.PrepareCandidate(TimeSpan.Zero);
-        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        await ScenePackingTestDriver.StartCandidate(display, TestScene);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.CandidateProgress(first.Frame) is (4, 10) && display.PendingCandidateVisuals == 6,
             "预算中断后，待准备项必须与剩余来源一一对应。");
@@ -127,8 +126,6 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         }
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => 0;
-        display.PrepareCandidate(TimeSpan.Zero);
-        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.PreparedCandidate == latest.Frame && display.PendingCandidateVisuals == 0 &&
             display.CandidateProgress(latest.Frame) is (3, 3),
@@ -138,8 +135,6 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         display.ReceiveCandidate(delta);
         Require(display.CandidateProgress(delta.Frame) is (2, 3) && display.PendingCandidateVisuals == 1,
             "增量必须只撤销指定对象并排入新增视觉。");
-        display.PrepareCandidate(TimeSpan.Zero);
-        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.PreparedCandidate == delta.Frame && display.PendingCandidateVisuals == 0,
             "增量完成后待准备队列必须为空。");

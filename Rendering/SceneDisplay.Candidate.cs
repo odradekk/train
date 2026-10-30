@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using Godot;
-using Train.App.Assets;
 using Train.Scenes.Contracts;
 
 namespace Train.Rendering;
@@ -15,11 +13,11 @@ internal sealed partial class SceneDisplay
     private readonly LinkedList<(SceneObjectId Object, int Index)> _candidatePending = [];
     private readonly Dictionary<(SceneObjectId Object, int Index), LinkedListNode<(SceneObjectId Object, int Index)>> _candidatePendingNodes = [];
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _candidateVisuals = [];
-    private SceneMeshPacking? _candidatePacking;
+    private ScenePackingPreparation? _candidatePacking;
     private Task? _candidatePackingTail;
-    private bool _candidatePackingStarted;
-    private readonly List<AssetLease<ArrayMesh>> _candidateCachedGeometry = [];
-    internal Task CandidatePacking => _candidatePacking?.Completion ?? Task.CompletedTask;
+    private bool _candidatePackingCursorInitialized;
+    private LinkedListNode<(SceneObjectId Object, int Index)>? _candidatePackingCursor;
+    internal Task CandidatePacking => _candidatePacking?.Job?.Completion ?? Task.CompletedTask;
     internal SceneFrameStamp? PreparedCandidate { get; private set; }
     internal SceneFrameStamp? CandidateScope => _candidateScope;
     internal bool IsPreparingCandidate => _candidateUpdate is not null;
@@ -78,39 +76,60 @@ internal sealed partial class SceneDisplay
     internal void PrepareCandidate(TimeSpan budget)
     {
         _cache.RequireMainThread();
-        if (_candidateUpdate is not { } update) return;
         ResetPreparationBudget();
         var started = Timestamp();
+        var pauseStarted = GC.GetTotalPauseDuration();
         try
         {
-            if (!_candidatePackingStarted)
+            if (_candidateUpdate is not { } update) return;
+            var slice = new PreparationSlice(this, started, budget, false);
+            if (_candidatePacking is null)
             {
-                _candidatePacking = StartPacking(_candidatePending.Select(key => _candidateSources[key]),
-                    _candidateCachedGeometry, ref _candidatePackingTail);
-                _candidatePackingStarted = true;
+                if (!slice.Start()) return;
+                _candidatePacking = new(_resources, _packingCosts);
             }
-            _candidatePacking?.ThrowIfFailed();
+            if (!_candidatePacking.Started)
+            {
+                if (!_candidatePackingCursorInitialized)
+                {
+                    if (!slice.Start()) return;
+                    _candidatePackingCursor = _candidatePending.First;
+                    _candidatePackingCursorInitialized = true;
+                }
+                while (_candidatePackingCursor is { } cursor)
+                {
+                    if (!_candidatePacking.Collect(_candidateSources[cursor.Value], slice)) return;
+                    _candidatePackingCursor = cursor.Next;
+                }
+                if (!_candidatePacking.Start(_candidatePackingTail, PackMesh, slice, out _candidatePackingTail)) return;
+            }
+            _candidatePacking.Job?.ThrowIfFailed();
             while (_candidatePending.First is { } pending)
             {
-                var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
-                // 候选始终受预算约束；新空间首帧的例外只属于实际显示帧。
-                if (elapsed >= budget || _preparationTime + elapsed >= PreparationBudget) return;
                 var key = pending.Value;
-                var visual = _resources.TryPrepare(_candidateSources[key], _candidatePacking);
+                var source = _candidateSources[key];
+                if (!slice.Start(estimate: VisualCost(source))) return;
+                var resourceStarted = Timestamp();
+                var visual = _resources.TryPrepare(source, _candidatePacking.Job);
                 if (visual is null) return;
                 _candidateVisuals.Add(key, visual);
                 _candidatePending.Remove(pending);
                 _candidatePendingNodes.Remove(key);
+                RecordVisualCost(source, resourceStarted);
             }
+            if (!_candidatePacking.Release(slice)) return;
+            if (!slice.Start()) return;
             PreparedCandidate = update.Frame;
             _candidateUpdate = null;
             CancelCandidatePacking();
         }
         finally
         {
-            var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
+            var pause = GC.GetTotalPauseDuration() - pauseStarted;
+            var ended = Timestamp();
+            var elapsed = Stopwatch.GetElapsedTime(started, ended);
             _preparationTime += elapsed;
-            Measure?.Invoke(SceneDisplayWork.PrepareCandidate, elapsed);
+            Measure?.Invoke(SceneDisplayWork.PrepareCandidate, elapsed, pause);
         }
     }
 
@@ -127,11 +146,10 @@ internal sealed partial class SceneDisplay
         if (_candidatePendingNodes.Remove(key, out var pending)) _candidatePending.Remove(pending);
     }
 
-    private PreparedVisual? TakeCandidateVisual(SceneFrameStamp frame, (SceneObjectId Object, int Index) key, SceneVisual visual)
+    private PreparedVisual? CandidateVisual(SceneFrameStamp frame, (SceneObjectId Object, int Index) key, SceneVisual visual)
     {
         if (!HasCandidateFor(frame) || !_candidateVisuals.TryGetValue(key, out var prepared) || !prepared.CanUpdate(visual))
             return null;
-        _candidateVisuals.Remove(key);
         return prepared;
     }
 
@@ -154,9 +172,8 @@ internal sealed partial class SceneDisplay
     private void CancelCandidatePacking()
     {
         _candidatePacking?.Dispose();
-        foreach (var geometry in _candidateCachedGeometry) geometry.Dispose();
-        _candidateCachedGeometry.Clear();
         _candidatePacking = null;
-        _candidatePackingStarted = false;
+        _candidatePackingCursorInitialized = false;
+        _candidatePackingCursor = null;
     }
 }
