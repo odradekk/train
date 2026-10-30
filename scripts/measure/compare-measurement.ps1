@@ -11,6 +11,9 @@ param(
     [string] $BReferencePath,
     [ValidateRange(1, 2147483647)][int] $Repeat = 5,
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
+    [switch] $NodeReadyHold,
+    [ValidateRange(1, 9223372036854775807)][long] $TrainId,
+    [ValidateRange(1, 9223372036854775807)][long] $NodeId,
     [ValidateRange(0, 100)][double] $CpuMeanThresholdPercent = 25,
     [ValidateRange(0, 100)][double] $CpuConsecutiveThresholdPercent = 40
 )
@@ -93,6 +96,9 @@ function Invoke-ComparisonSlot($Slot, [int] $Attempt) {
         $arguments = @('-NoProfile', '-File', $measurementScript, '-ExecutablePath', $executables[$Slot.side],
             '-InputPath', $InputPath, '-OutputDirectory', $measurement, '-Scenario', $Slot.scenario,
             '-Repeat', '1', '-DurationSeconds', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture))
+        if ($NodeReadyHold) { $arguments += '-NodeReadyHold' }
+        if ($script:PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('-TrainId', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+        if ($script:PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('-NodeId', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
         if ($references[$Slot.side]) { $arguments += @('-ReferencePath', $references[$Slot.side]) }
         try {
             & (Join-Path $PSHOME 'pwsh.exe') @arguments *> (Join-Path $directory 'measurement.log')
