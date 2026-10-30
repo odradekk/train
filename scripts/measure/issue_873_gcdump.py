@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
-from issue_873_diagnostics import publish_sources, safe_log
+from issue_873_diagnostics import ChildFailure, publish_sources, safe_log
 from issue_873_processes import launch, stop, stop_capture
 from issue_873_progress import ObservationProgress, emit_progress
 
@@ -120,7 +120,18 @@ def run_gcdump(host, options, root, scratch, output, started, started_utc):
     progress = ObservationProgress(scratch, game_ids, started, cycles)
     deadline = started + report["acquisition_timeout_seconds"]
     try:
-        host.run(["dotnet", "build", str(root / "Tools/HeapDiagnosis/Train.HeapDiagnosis.csproj"),
+        project = str(root / "Tools/HeapDiagnosis/Train.HeapDiagnosis.csproj")
+        for attempt in range(2):
+            try:
+                host.run(["dotnet", "restore", project, "--nologo"], scratch / f"analyzer-restore-{attempt+1}.log")
+                break
+            except ChildFailure as error:
+                if attempt or not any(re.search(r"\berror\s+NU1301\s*:", line, re.I) for line in error.build_errors):
+                    raise
+                failure = {}
+                report.setdefault("restore_failures", []).append(failure)
+                host.record_failure(failure, error)
+        host.run(["dotnet", "build", project, "--no-restore",
                   "-c", "Release", "--nologo", "-o", str(scratch / "analyzer")], scratch / "analyzer-build.log")
         analyzer = scratch / "analyzer/Train.HeapDiagnosis.dll"
         host.run(["dotnet", "tool", "install", "dotnet-gcdump", "--version", "10.0.750501",

@@ -79,6 +79,8 @@ Linux 正式运行先执行同 job 的小进程预检：两份图分别严格核
 
 准备、Linux 小预检、等待三轮和两次各最多 180 秒采集共用从控制器启动起 44 分钟截止；结束自有测量进程和游戏后分析最多 360 秒，另留 2 分钟收尾，控制器不超过 52 分钟。workflow 步骤 54 分钟、job 60 分钟。每个门控在 finally 写 continue；采集和分析失败分别记录，GC 文本不因此丢失。扫描后日志回显差分和两份图的摘要、根类别及 ContentView 路径，完整类型表保留在 artifact，上传失败重试一次。
 
+分析器先单独 `dotnet restore`，仅遇到 `NU1301` 时重试一次，再以 `--no-restore` 构建。工具程序集的 HintPath 显式加路径分隔符，不依赖 `NuGetPackageRoot` 末尾带斜线。子进程失败时保留最多 20 条带错误代码的错误行，脱敏后同时写入 `acquisition.json` 的 `build_errors` 和 failure 进度记录；重试前的失败单独保存在 `restore_failures`。编译错误和超时不重试。
+
 Windows 真实游戏验证仅在协调者放行的开发机窗口执行：
 
 ```text

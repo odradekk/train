@@ -11,8 +11,14 @@ import time
 from issue_873_progress import emit_progress, valid_observation
 
 
-def safe_log(raw, scratch):
-    text = raw.replace(str(scratch), "<scratch>").replace(str(scratch).replace("\\", "/"), "<scratch>")
+def safe_log(raw, scratch, root=None):
+    text = raw
+    prefixes = [(scratch, "<scratch>"), (Path.home(), "<home>")]
+    if root is not None:
+        prefixes.append((root, "<repository>"))
+    for path, placeholder in sorted(prefixes, key=lambda item: len(str(item[0])), reverse=True):
+        for spelling in {str(path), str(path).replace("\\", "/")}:
+            text = re.sub(re.escape(spelling), lambda _: placeholder, text, flags=re.IGNORECASE)
     # Paths are removed before identity strings so a username cannot leave a partial path.
     text = re.sub(r'''(["'])(?:[A-Za-z]:[\\/]|\\\\|/)[^\r\n]*?\1''', "<path>", text)
     text = re.sub(r"[A-Za-z]:[\\/][^\r\n\"'<>]*|\\\\[^\r\n\"'<>]+|(?<![\w<])/[^\s\"'<>]*", "<path>", text)
@@ -227,3 +233,34 @@ def publish_sources(root, scratch, output, game_ids, started_utc, report=None, e
     if report is not None:
         report["source_errors"] = errors
     return not errors and bool(game_ids)
+
+
+class ChildFailure(Exception):
+    def __init__(self, log, code):
+        self.step = log.stem
+        self.code = code
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        self.exception_types = [line for line in lines
+                                if re.fullmatch(r"(?:System|Microsoft)\.[A-Za-z0-9.]+Exception", line)]
+        self.build_errors = []
+        root = Path(__file__).resolve().parents[2]
+        for line in lines:
+            match = re.search(r"\berror\s+[A-Za-z]+[0-9]+\s*:", line, re.IGNORECASE)
+            if match and len(self.build_errors) < 20:
+                # Sanitize separately: an unquoted Windows path can consume the error text.
+                self.build_errors.append(safe_log(line[:match.start()], log.parent, root)
+                                         + safe_log(line[match.start():], log.parent, root))
+        self.diagnostics = []
+        for line in lines:
+            if line.startswith("DIAGNOSTIC_FAILURE "):
+                diagnostic = json.loads(line.removeprefix("DIAGNOSTIC_FAILURE "))
+                self.diagnostics.append({key: diagnostic[key] for key in ("exception_type", "kind", "kind_available", "hresult", "locations")})
+
+
+def record_failure(report, error):
+    report["failure_type"] = type(error).__name__
+    if isinstance(error, ChildFailure):
+        report.update(failed_step=error.step, child_exit_code=error.code,
+                      exception_types=error.exception_types, diagnostics=error.diagnostics, build_errors=error.build_errors)
+    emit_progress("failure", cycle=report.get("cycle"), failure_type=type(error).__name__,
+                  build_errors=error.build_errors if isinstance(error, ChildFailure) else None)

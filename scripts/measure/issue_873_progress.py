@@ -19,7 +19,7 @@ def valid_observation(row, expected_cycles):
             and all(key in row["recording"] and (row["recording"][key] is None or type(row["recording"][key]) is bool) for key in STATES))
 
 
-def emit_progress(phase, *, cycle=None, seconds=None, live=None, recording=None, failure_type=None, succeeded=None):
+def emit_progress(phase, *, cycle=None, seconds=None, live=None, recording=None, failure_type=None, succeeded=None, build_errors=None):
     if phase not in PHASES:
         raise ValueError("unknown progress phase")
     if seconds is None:
@@ -33,6 +33,8 @@ def emit_progress(phase, *, cycle=None, seconds=None, live=None, recording=None,
     if failure_type is not None:
         # Exception class names only; never Message, log text, or a source path.
         value["failure_type"] = failure_type if failure_type.isidentifier() else "InvalidFailureType"
+    if build_errors is not None:
+        value["build_errors"] = build_errors
     if type(succeeded) is bool:
         value["succeeded"] = succeeded
     print(json.dumps(value, separators=(",", ":")), flush=True)

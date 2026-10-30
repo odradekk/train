@@ -11,7 +11,7 @@
     <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.750501" />
     <PackageDownload Include="dotnet-gcdump" Version="[10.0.750501]" />
     <Reference Include="dotnet-gcdump">
-      <HintPath>$(NuGetPackageRoot)dotnet-gcdump/10.0.750501/tools/net8.0/any/dotnet-gcdump.dll</HintPath>
+      <HintPath>$(NuGetPackageRoot)/dotnet-gcdump/10.0.750501/tools/net8.0/any/dotnet-gcdump.dll</HintPath>
     </Reference>
   </ItemGroup>
 </Project>
