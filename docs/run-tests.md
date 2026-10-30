@@ -146,7 +146,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 | 情景 | 实际路径 |
 | --- | --- |
-| `scene-reference` | 独立参考运行，暂停至初始 Ready 后恢复仿真，再观察 10 秒；各空间首次 Ready 及焦点再移动 16 m 后的 Ready 帧记录公开对象和地形，输出 `scene-reference.json`，不作性能样本。世界里有节点 3 和边 15 时一并记录，供 `scene-soak` 使用 |
+| `scene-reference` | 参考运行暂停至初始 Ready，恢复仿真观察 10 秒；各空间首次 Ready 和焦点移动 16 m 后的 Ready 帧记录对象、地形，输出 `scene-reference.json`，不计性能样本。仅 `standard-world` 额外记录存在的节点 3、边 15 |
 | `scene-map` | 同存档新进程纯地图内存；末段固定保持 60 秒，不受 `measure_seconds` 控制；其他地图保持仍为 5 秒，旧 5 秒读数不可比。无需新增测量参数。 |
 | `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
@@ -156,11 +156,11 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `scene-route-1x`、`scene-route-2x`、`scene-route-4x`、`scene-route-8x` | seed 40 起步贸易存档，跟随列车 1 完成线路→节点→线路；终点节点显示帧定位到车头（按编组朝向取首车或末车）后，补齐交接后的车身轨迹。记录 Scenes／实际显示的前方覆盖、车身覆盖、边界截断和未知；倍率取自原生帧循环。仅 `scene-route-8x` 将遇敌自动降速设为 `None` |
 | `scene-route-capture-1x`、`scene-route-capture-8x` | 同一路线的独立截图运行，截图开销不计作计时证据 |
 | `scene-memory` | 重复打开节点并返回地图；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
-| `scene-soak` | 正式窗口长测，输入为 `examples/standard-world/save.json`，见下文[窗口长测](#窗口长测) |
+| `scene-soak` | 窗口长测，配置见[测量目标](../scripts/measure/targets.md)及下文[窗口长测](#窗口长测) |
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
 | `scene-editor` | 地图稳态 5 秒并强制 GC 后，经蓝图库「复制到本局…」打开泰坦样机 `core:titan-armed-vehicle`，记录点击到会话就绪和首个 Ready 编辑帧绘制的时间、样机格数、部件数与编辑帧几何量；保持编辑器 30 秒采样帧时间与内存（`DurationSeconds` 可改为 1–120 秒）；再执行与 `Tests/Engine/TitanEditingTests.cs` 相同的编辑序列：样机内一块空长方体整块加入 5,000 格（确认），49 次单格删除凑满 50 步，连续撤销 50 步、重做 50 步，每步等新修订实际绘制后才做下一步，`editor-step` 记录调用耗时、调用到新修订绘制的时延、新修订首次 `session.Present` 耗时（含几何构建与帧差分，并非纯几何）、首个 Present 至首次提交的 process 帧数（两端包含，同帧提交为 1）与该帧区间的实际绘制最长帧（含 Present 阻塞帧）、行文本生成及 `ShowElements` 列表更新耗时；编辑器自身 `SceneDisplay` 的准备与提交耗时沿用 `scene-resource-frames.jsonl`，格数、步数或撤销重做结果不符时测量失败；最后经「退出」「放弃本次修改」回到地图，地图稳态 5 秒后再强制 GC |
 
-`-TrainId`、`-NodeId`（应用参数 `--measure-train`、`--measure-node`）分别替换上表的列车 1 和节点 2，线路仍为 11；跟随对象与地图点击相同，是该列车参考中心所在的车辆（见[设计 01](design/01-voxel-engine-and-scenes.md#跟随列车时的场景切换)）。目标列车不存在或编组为空、目标节点不存在时测量失败。参考运行按同样的目标打开，因此每个列车或节点目标各需一份参考。`ready-geometry` 的 `followed_train` 按成员记录已发布车体及其子对象的网格、顶点和三角形数；`active-load` 的列车状态带编组车辆数和位置。负载计数还记录战斗（地点和参战方数）、生物群（地点、活动、数量和存活数）及生物总数；打开记录在点击时（`load_at_click`）和观察结束时（`load`）各记一次，`scene-follow-8x` 在采样窗口开始和结束各写一条 `sample-load`。
+`-TrainId`／`-NodeId`／`-EdgeId` 替换列车、节点、线路目标；默认值、`-SoakProfile` 见[测量目标](../scripts/measure/targets.md)。跟随对象为列车参考中心所在车辆（[设计 01](design/01-voxel-engine-and-scenes.md#跟随列车时的场景切换)）。目标不存在或空编组即失败；每组目标使用同一份参考。`ready-geometry` 的 `followed_train` 按成员记录已发布车体及其子对象的网格、顶点和三角形数；`active-load` 的列车状态带编组车辆数和位置。负载计数还记录战斗（地点和参战方数）、生物群（地点、活动、数量和存活数）及生物总数；打开记录在点击时（`load_at_click`）和观察结束时（`load`）各记一次，`scene-follow-8x` 在采样窗口开始和结束各写一条 `sample-load`。
 
 `Repeat` 控制每情景的新进程数量，默认是 3；`DurationSeconds=0` 使用情景默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短默认的 120 秒采样窗口。输入规模及测量、探针和判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
 
@@ -254,15 +254,17 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 ### 窗口长测
 
-`scene-soak` 在默认录制和测量设定的 5 分钟自动存档下按段循环，直到 `DurationSeconds`（默认 7200 秒）用完，再跑完当前一段。产品默认间隔为 1 小时，长测为在段内观察到自动存档轮换而缩短。每段：
+`scene-soak` 保持默认录制，将自动存档从产品默认的 1 小时缩为 5 分钟，以观察轮换。循环至 `DurationSeconds`（默认 7200 秒）后跑完当前段。`standard-world` 每段：
 
 1. 把标准世界存档复制回用户目录并经存档面板读取，暂停后核对节点 2 是玩家聚居地、节点 3 与边 15 各有玩家武装参战的战斗、列车 1 在运行，任一不成立即失败；随后强制 GC，作为相同地图状态下的存活堆读数，再打开边 15 采样线路战斗。
 2. 主体至少 12 分钟、不读档，让自动存档槽和录制起点在同一会话里轮换。每轮依次：地图、地图→节点 2、节点→边 15、边 15→节点 3、返回地图、地图→边 15、跟随列车 1、设计编辑器（打开列车 1 首车，上色一格、撤销、重做后放弃）。每个视图取 10 秒 8× 样本，每段首轮另取 1× 样本；编辑器打开时宿主暂停模拟。
 3. 段末 8 次保存并读取玩家自己的存档，读档后首个打开的场景在节点 2 与边 15 之间交替。
 
-`scene-soak` 也将遇敌自动降速设为 `None`。负载按保存点的配方期望计数，后台线程每秒最多计数一次；每帧按最近结果分为 `full`、`all-but-line-battle` 和 `below-recipe`，计数耗时写入 `scene-probe-costs.jsonl`。自动存档按槽文件头的保存时间计数；录制裁剪要求同一会话前后都有可用起点，按最早起点前移计数。玩家存档读档被拒绝时，记录操作、保存位置、状态和问题字段，在原对局继续，不取读档后首显样本，并将 `round_trips.evidence` 记为 `failed`；标准世界重置失败仍使运行失败。每段主体按首轮实测的每真实秒步数定长，让同一会话积累足够起点并发生裁剪（`body_sizing`）。`identity.scene_budget.soak` 汇总各视图与倍速的帧耗时分位数、超过 16.7 ms 的帧比例、实际步数／秒与负载分类比例、操作的时延分布、前后三分之一中位数、每小时斜率、相对前一地图稳态的峰值增量、内存斜率和每段存活堆。Godot 显存读数在集成显卡上是共享系统内存。
+重负载每段暂停读入原存档、准备主视图，按 1×、8× 各采 10 秒；主体依次采地图、节点、线路、跟随、编辑器（[目标及缺失战斗](../scripts/measure/targets.md)）。
 
-测量窗口和视口必须在整段运行中保持 1920×1080，适配器不能是软件渲染，否则立即失败。Linux 上 `measure.ps1` 总在 gamescope 嵌套合成器中启动游戏，找不到 gamescope 时失败。进程首次打开节点、线路和首次跟随需要新进程，不在长测范围内。测试机器上的触发方式见[远端检查](#远端检查)和 [CI](ci.md#linux-夜间运行)。
+遇敌自动降速设为 `None`。负载读取不晚于保存点的最近一组配方期望，保留 `node` 统计范围；后台线程每秒最多计数一次。重负载用本会话采样窗开始后的计数，此前为 `unknown`；标准世界用最近完成计数。结果分为 `full`、`below-recipe`，标准世界另有 `all-but-line-battle`。计数耗时写入 `scene-probe-costs.jsonl`。自动存档按槽文件头的保存时间计数；裁剪要求同会话前后都有可用起点，按最早起点前移计数。玩家读档被拒绝时记录操作、保存位置、状态和问题字段，继续原对局，跳过读档后首显样本，将 `round_trips.evidence` 记为 `failed`；原存档重置失败使运行失败。主体按首轮实测步数／秒定长，使同一会话积累起点并触发裁剪（`body_sizing`）。`identity.scene_budget.soak` 汇总各视图与倍速的帧耗时分位数、超过 16.7 ms 的帧比例、实际步数／秒与负载分类比例、操作的时延分布、前后三分之一中位数、每小时斜率、相对前一地图稳态的峰值增量、内存斜率和每段存活堆。Godot 显存读数在集成显卡上是共享系统内存。
+
+整段窗口和视口须保持 1920×1080，软件渲染立即失败。Linux 的 `measure.ps1` 使用 gamescope 嵌套合成器，缺失即失败。进程首次打开节点、线路及首次跟随另用新进程测量，不属长测。触发方式见[远端检查](#远端检查)和 [CI](ci.md#linux-夜间运行)。
 
 ### 内容加载与设计求值成本
 

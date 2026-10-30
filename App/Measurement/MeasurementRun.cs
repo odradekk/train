@@ -27,6 +27,8 @@ internal sealed partial class MeasurementRun : IDisposable
     private bool _disposed;
     private readonly TrainId _train;
     private readonly NodeId _node;
+    private readonly EdgeId _edge;
+    private readonly SoakTargets _soakTargets;
     private int SampleSeconds => _sceneDuration > 0 ? _sceneDuration : 30;
     private static readonly Vector2I WindowSize = new(1920, 1080);
     private static readonly string[] SoftwareAdapters = ["llvmpipe", "lavapipe", "softpipe", "swiftshader"];
@@ -44,7 +46,7 @@ internal sealed partial class MeasurementRun : IDisposable
             if (arguments[i].StartsWith("--measure=", StringComparison.Ordinal)) continue;
             if (arguments[i] is "--measure-streaming" or "--measure-node-ready-hold") { values.Add(arguments[i], "true"); continue; }
             if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration" or "--measure-reference" or
-                    "--measure-train" or "--measure-node" or "--measure-route-camera") ||
+                    "--measure-train" or "--measure-node" or "--measure-edge" or "--measure-soak-profile" or "--measure-route-camera") ||
                 ++i >= arguments.Count) throw new ArgumentException("测量需要情景、输入存档、输出报告和构建身份路径。");
             values.Add(arguments[i - 1], arguments[i]);
         }
@@ -67,6 +69,11 @@ internal sealed partial class MeasurementRun : IDisposable
         }
         _train = new(TargetId(values, "--measure-train", 1));
         _node = new(TargetId(values, "--measure-node", 2));
+        _edge = new(TargetId(values, "--measure-edge", SoakTargets.DefaultEdgeId));
+        _soakTargets = SoakTargets.Create(values.GetValueOrDefault("--measure-soak-profile", "standard-world"),
+            _train, _node, values.ContainsKey("--measure-edge") ? _edge : null);
+        _soakNode = new(_soakTargets.Node);
+        _soakEdge = new(_soakTargets.Edge);
         _input = Path.GetFullPath(values["--measure-input"]);
         _sceneReferencePath = values.TryGetValue("--measure-reference", out var reference) ? Path.GetFullPath(reference) : null;
         _output = Path.GetFullPath(values["--measure-output"]);
