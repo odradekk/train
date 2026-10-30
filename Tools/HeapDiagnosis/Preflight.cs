@@ -4,20 +4,23 @@ internal static class Preflight
 {
     internal static RecordingService[] Root = [];
 
-    internal static void Run(string ready, string release)
+    internal static void Run(string ready, string release, bool gcGraph = false, int seconds = 120)
     {
+        if (seconds is < 1 or > 600) throw new ArgumentOutOfRangeException(nameof(seconds));
         var binding = new HostBinding(Guid.NewGuid());
         var host = new HostCoordinator(new ActiveGroup(binding));
         Root = [new(host, null),
             new(host, new PendingWrite(new RecordingSnapshot(binding, new ContentView()), Task.CompletedTask)),
             new(host, new PendingWrite(new RecordingSnapshot(new HostBinding(Guid.NewGuid()), new ContentView()),
                 new TaskCompletionSource().Task))];
+        if (gcGraph) host._content = Root[1]._pending!.Snapshot.Content;
         using var stop = new ManualResetEventSlim();
-        var background = new Thread(() => stop.Wait(TimeSpan.FromSeconds(120))) { IsBackground = true };
+        var background = new Thread(() => stop.Wait(TimeSpan.FromSeconds(seconds))) { IsBackground = true };
         background.Start();
+        File.WriteAllText(ready + ".live", GC.GetTotalMemory(true).ToString(System.Globalization.CultureInfo.InvariantCulture));
         File.WriteAllText(ready + ".partial", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         File.Move(ready + ".partial", ready);
-        var until = Environment.TickCount64 + 120_000;
+        var until = Environment.TickCount64 + seconds * 1000L;
         while (!File.Exists(release) && Environment.TickCount64 < until) Thread.Sleep(50);
         stop.Set();
         background.Join();
@@ -30,6 +33,7 @@ internal sealed record ActiveGroup(HostBinding Binding);
 internal sealed class HostCoordinator(ActiveGroup active)
 {
     internal readonly ActiveGroup _active = active;
+    internal ContentView? _content;
 }
 internal sealed record RecordingSnapshot(HostBinding Binding, ContentView Content);
 internal sealed record PendingWrite(RecordingSnapshot Snapshot, Task Work);

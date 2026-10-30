@@ -214,19 +214,32 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--preflight-only", action="store_true")
     modes.add_argument("--no-dumps", action="store_true")
+    modes.add_argument("--gcdump", action="store_true")
+    modes.add_argument("--gcdump-preflight-only", action="store_true")
+    parser.add_argument("--first-idle-only", action="store_true")
+    parser.add_argument("--executable", type=Path)
     options = parser.parse_args()
+    if (options.first_idle_only or options.executable) and not options.gcdump:
+        parser.error("--first-idle-only and --executable require --gcdump")
+    if options.first_idle_only != bool(options.executable):
+        parser.error("--first-idle-only and --executable must be used together")
     root = Path(__file__).resolve().parents[2]
     scratch = options.scratch.resolve()
     output = options.output.resolve()
     if scratch == root or root in scratch.parents:
         raise ValueError("dumps must be outside the checkout")
-    if not options.preflight_only:
+    if not (options.preflight_only or options.gcdump_preflight_only or (options.gcdump and options.first_idle_only and sys.platform == "win32")):
         if sys.platform != "linux" or not os.environ.get("RUNNER_TEMP"):
             raise ValueError("game collection requires Linux runner")
         if Path(os.environ["RUNNER_TEMP"]).resolve() not in scratch.parents:
             raise ValueError("dumps must be in RUNNER_TEMP")
     scratch.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
+    if options.gcdump or options.gcdump_preflight_only:
+        from issue_873_gcdump import run_gcdump
+        from types import SimpleNamespace
+        host = SimpleNamespace(run=run, wait_file=wait_file, release_marker=release_marker, record_failure=record_failure)
+        return run_gcdump(host, options, root, scratch, output, started, started_utc)
     if options.no_dumps:
         from issue_873_no_dumps import run_no_dumps
         return run_no_dumps(options, root, scratch, output, started, started_utc)

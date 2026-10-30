@@ -44,7 +44,7 @@ dotnet Train.HeapDiagnosis.dll analyze-one <dump> <matching-dac> <output-directo
 
 ## 三轮无转储观测
 
-下一次诊断使用 `--no-dumps`；它与 `--preflight-only` 互斥。该模式不构建堆分析器、不安装 dotnet-dump、不预检、不采集或分析转储，也不执行内存或磁盘容量门槛（等待同步点时也不检查剩余内存）。仍通过原 `run-measurement.ps1` 跑 scene-reference → scene-soak，Repeat 为 1、DurationSeconds 为 9000。控制器只设置原有的 `TRAIN_HEAP_DIAGNOSIS`，不新增游戏开关。
+无转储观测使用 `--no-dumps`；它与 `--preflight-only` 互斥。该模式不构建堆分析器、不安装 dotnet-dump、不预检、不采集或分析转储，也不执行内存或磁盘容量门槛（等待同步点时也不检查剩余内存）。仍通过原 `run-measurement.ps1` 跑 scene-reference → scene-soak，Repeat 为 1、DurationSeconds 为 9000。控制器只设置原有的 `TRAIN_HEAP_DIAGNOSIS`，不新增游戏开关。
 
 三次 idle 同步点到达后均先写 `continue`；第三次写完后停止自有测量进程和游戏。成功必须有同一游戏 PID 的三轮共六条原 GC／idle GC 与对应状态，且来源配对完整、无坏行。仅到达三个同步点不算数据成功。`acquisition.json` 写出 `no_dumps`、`expected_cycles`、`reached_cycles` 和 `gc_data_succeeded`；不适用的 `captures_succeeded` 为 null，`analyses` 为空，不伪造转储成功。
 
@@ -53,3 +53,36 @@ dotnet Train.HeapDiagnosis.dll analyze-one <dump> <matching-dac> <output-directo
 两种模式在等待 ready 时持续读取私有 `heap-observations.jsonl`，只消费以换行结束的完整行。每次原 GC、idle GC、同步点、失败和最终摘要都立即向 stdout 写一行并 flush。stdout 只含固定 phase、cycle、相对秒数、live 字节、三个录制状态、失败类型或成功布尔值，不回显原日志、异常 Message、路径或身份。同步点状态取自同 cycle 最近的 idle 读数。即使尚未到第一个 idle 同步点，也从自有 observation 保留原 GC 和游戏 PID；写到一半的尾行不会在等待期间误报坏行，最终仍未写完则记为不完整来源。
 
 时间线按 `expected_cycles` 展示各轮事件，并汇总六次 GC live、原与 idle 各自相对首轮的增量，以及每轮从原 GC 到 idle GC 的下降量。recording 原输出保留本任务各 PID，时间线仅使用长测游戏 PID。控制器拆成具体职责：`issue_873_processes.py` 管自有进程生命周期，`issue_873_progress.py` 管完整行和安全进度，`issue_873_no_dumps.py` 管三轮无转储流程，`issue_873_diagnostics.py` 管来源、时间线及原堆诊断辅助；主入口保留转储模式。
+
+## EventPipe GC 图
+
+当前 workflow 使用 `--gcdump`：标准存档的三次读档仍各保留原 GC 和 idle GC，仅在第 1、3 次 idle 门控各采一份，第 2 次直接放行。首份失败或超时后跳过后续采集，继续收齐三轮数据；已完整采到的一份仍可单独分析。失败的部分文件不分析。原 `--no-dumps` 和 ClrMD 模式保留，本轮不改产品，也不把 idle 读数替换为正式指标。
+
+工具固定为 `dotnet-gcdump 10.0.750501`，安装到本任务 scratch/tools。分析器仅在本临时项目内固定 TraceEvent `3.1.23` 和 NETCore.Client `0.2.750501`；GCHeapDump/MemoryGraph 由同版本 dotnet-gcdump 包公开，因此 PackageDownload 也固定该包，引用 tools/net8.0/any/dotnet-gcdump.dll，不进入游戏程序集。
+
+```text
+python scripts/measure/issue-873-heap.py --gcdump-preflight-only --scratch <outside-checkout> --output <anonymous-output>
+python scripts/measure/issue-873-heap.py --gcdump --scratch <job-scratch> --output <anonymous-output> --cache <measurement-cache>
+dotnet Train.HeapDiagnosis.dll analyze-gc-one <gcdump> <idle-live-bytes> <output>
+dotnet Train.HeapDiagnosis.dll analyze-gc-pair <before.gcdump> <after.gcdump> <before-live> <after-live> <output>
+```
+
+Linux 正式运行先执行同 job 的小进程预检：两份图分别严格核对已知视图、大数组、链节点及路径，再验证双图分析；失败不启动游戏。预检另写 ready.live，PID ready 格式不变。开发机的小进程预检不启动游戏。所有原始图和原始工具日志仅放工作树外的 scratch；Linux scratch 必须在 RUNNER_TEMP。控制器 finally 删除所有 gcdump，workflow always 删除整个私有目录，只上传扫描后的 JSON/JSONL/Markdown。
+
+单图写 gc-heap.json，含类型数量/大小、根类别、ContentView 路径、完整性和与传入 idle live 的字节差。双图串行读取，释放第一份图后读第二份，写 snapshot-1、snapshot-3 和 gc-difference.json；差分按字节增量降序取 30 项，附第二份图中该类型从根出发的第一条路径。根类别按 BFS 第一条根路径互斥归属，不能当独占保留大小；路径最多保留末端 128 步，截断明确标记。根类别另记直接目标数量和字节。图中的类型大小 bucket 按该版本工具的六种固定后缀归并回类型名。来源模块、地址、原始根标签、CollectionLog 和字符串内容不输出。
+
+图不含普通实例字段元数据，字段名为 null。只有强根可达的 HostCoordinator 恰有一个、它直接引用的 ContentView 目标也恰有一个时，才根据已审源码中唯一直接 IContentView 字段 _content 推断 current；报告标为 current_inferred_from_unique_host_direct_edge，路径恰经过该边时可标 _content/source-verified-inference。其他视图为 non-current，不代表旧局；条件不满足则 current/non-current 为 null、全部列 unknown，不按视图顺序猜测。
+
+完整性比较来自两个相近时点：idle GC 的 live 和随后 gcdump 额外 Gen2 GC 的对象图，不声称是同一次 GC。图若采样，类型数量、大小和差分明确为未缩放的原始采样图统计；另列 graph.TotalSize × AverageSizeMultiplier 的堆大小估计，不能把估计写成完整对象统计。倍率语义来自固定工具源码 GCHeapDump.cs。真实地址的 undefined 节点、无效边、损坏/未转储区域和合成零地址节点分开记录。
+
+固定工具在 .NET 10 下会警告不支持非丢失缓冲、回退到有损模式。能力警告与实际丢事件计数分开；工具没有报告实际计数时为 unknown/null，成功退出也不证明完整。报告保留采样倍率、对象字节总量、与 idle live 的差和可得的损坏信息，不凭空设“差多少就完整”的阈值。真实游戏规模的合理性由开发机窗口验证，再申请 runner。
+
+准备、Linux 小预检、等待三轮和两次各最多 180 秒采集共用从控制器启动起 44 分钟截止；结束自有测量进程和游戏后分析最多 360 秒，另留 2 分钟收尾，控制器不超过 52 分钟。workflow 步骤 54 分钟、job 60 分钟。每个门控在 finally 写 continue；采集和分析失败分别记录，GC 文本不因此丢失。扫描后日志回显差分和两份图的摘要、根类别及 ContentView 路径，完整类型表保留在 artifact，上传失败重试一次。
+
+Windows 真实游戏验证仅在协调者放行的开发机窗口执行：
+
+```text
+python scripts/measure/issue-873-heap.py --gcdump --first-idle-only --executable <clean-export/train.exe> --scratch <outside-checkout> --output <anonymous-output>
+```
+
+该显式模式先通过原 measure.ps1 跑一次参考，再跑 scene-soak 到首次 idle，采一份后结束，不等待 9000 秒。measure.ps1 隔离用户数据；停止只针对本次子进程树和门控 PID。准备/参考/首轮/采集共 540 秒截止，分析最多 360 秒，加收尾约 16 分钟以内，申请 20 分钟窗口；预期耗时须用实际结果复核。验证只证明诊断链，不作为性能验收。未获窗口前不得运行此命令。

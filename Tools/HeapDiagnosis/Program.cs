@@ -4,6 +4,36 @@ using Train.HeapDiagnosis;
 
 try
 {
+    if (args is ["check-gc-report", var checks])
+    {
+        GcReportChecks.Run(checks);
+        return 0;
+    }
+    if (args is ["preflight-gc", var timedReady, var timedRelease, var seconds])
+    {
+        Preflight.Run(timedReady, timedRelease, true, int.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture));
+        return 0;
+    }
+    if (args is ["preflight-gc", var gcReady, var gcRelease])
+    {
+        Preflight.Run(gcReady, gcRelease, true);
+        return 0;
+    }
+    if (args is ["analyze-gc-one", var gcDump, var gcLive, var gcOutput])
+    {
+        GcReport.WriteOne(gcDump, GcReport.Live(gcLive), gcOutput);
+        return 0;
+    }
+    if (args is ["analyze-gc-pair", var before, var after, var beforeLive, var afterLive, var pairOutput])
+    {
+        GcReport.WritePair(before, after, GcReport.Live(beforeLive), GcReport.Live(afterLive), pairOutput);
+        return 0;
+    }
+    if (args is ["verify-gc-preflight", var gcFixture, var fixtureLive, var fixtureOutput])
+    {
+        GcReport.WriteOne(gcFixture, GcReport.Live(fixtureLive), fixtureOutput, true);
+        return 0;
+    }
     if (args is ["preflight", var ready, var release])
     {
         Preflight.Run(ready, release);

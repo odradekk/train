@@ -34,7 +34,11 @@ def stop(process):
         except ProcessLookupError:
             pass
     elif process.poll() is None:
-        process.kill()
+        result = subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+        if result.returncode not in (0, 128):
+            raise RuntimeError("owned process tree stop failed")
     process.wait(timeout=10)
 
 def stop_games(game_ids, scratch):
