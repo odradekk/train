@@ -19,6 +19,11 @@ class ChildFailure(Exception):
         self.code = code
         self.exception_types = [line for line in log.read_text(encoding="utf-8", errors="replace").splitlines()
                                 if re.fullmatch(r"(?:System|Microsoft)\.[A-Za-z0-9.]+Exception", line)]
+        self.diagnostics = []
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("DIAGNOSTIC_FAILURE "):
+                diagnostic = json.loads(line.removeprefix("DIAGNOSTIC_FAILURE "))
+                self.diagnostics.append({key: diagnostic[key] for key in ("exception_type", "kind", "kind_available", "hresult", "locations")})
 
 
 def write_json(path, value):
@@ -131,7 +136,8 @@ def available_memory():
 def record_failure(report, error):
     report["failure_type"] = type(error).__name__
     if isinstance(error, ChildFailure):
-        report.update(failed_step=error.step, child_exit_code=error.code, exception_types=error.exception_types)
+        report.update(failed_step=error.step, child_exit_code=error.code,
+                      exception_types=error.exception_types, diagnostics=error.diagnostics)
 
 
 def stop_games(game_ids, scratch):

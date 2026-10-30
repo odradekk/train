@@ -1,4 +1,4 @@
-using Microsoft.Diagnostics.Runtime;
+using System.Diagnostics;
 using System.Text.Json;
 using Train.HeapDiagnosis;
 
@@ -31,6 +31,22 @@ try
 catch (Exception error)
 {
     Console.Error.WriteLine(error.GetType().FullName);
+    var locations = new StackTrace(error).GetFrames().Select(frame => frame.GetMethod())
+        .Where(method => method?.DeclaringType is not null)
+        .Select(method =>
+        {
+            var type = method!.DeclaringType!;
+            return (type.IsGenericType ? type.GetGenericTypeDefinition() : type).FullName + "." + method.Name;
+        }).ToArray();
+    Console.Error.WriteLine("DIAGNOSTIC_FAILURE " + JsonSerializer.Serialize(new
+    {
+        exception_type = error.GetType().FullName,
+        // 固定的 ClrMD 4.2 不公开 Kind；不能把 HResult 当作 Kind。
+        kind = (string?)null,
+        kind_available = false,
+        hresult = $"0x{error.HResult:X8}",
+        locations
+    }));
     return 1;
 }
 

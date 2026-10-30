@@ -4,6 +4,8 @@
 
 `scripts/measure/issue-873-heap.py` 负责启动进程、采集、分析和清理。Linux 控制器从目标进程已加载的运行时找到匹配的 DAC（运行时诊断库），传给下面的命令；不能拿另一个运行时的库代替。
 
+固定版本 ClrMD 在 Linux Heap 转储中识别出的运行时版本，可能与同一 SDK 包内的 coreclr 和 DAC 文件版本不同。已用配套文件版本一致的布尔探针复现：默认 `CreateRuntime(dac)` 在加载 DAC 前报版本不匹配。Linux 分析因此只跳过这项版本预检查，仍加载控制器从目标 coreclr 旁取得的配套 DAC，并由严格预检验证完整分析。Windows 保留版本检查；不改用 Full 转储。
+
 ```text
 dotnet Train.HeapDiagnosis.dll preflight <ready-marker> <release-marker>
 dotnet Train.HeapDiagnosis.dll analyze-preflight <dump> <matching-dac> <output-directory>
@@ -28,4 +30,4 @@ dotnet Train.HeapDiagnosis.dll analyze-one <dump> <matching-dac> <output-directo
 
 游戏转储的堆校验问题、坏对象、缺失目标、坏引用和字段异常按问题类别及类型累计到 `Issues`，继续统计能读到的部分。若枚举器异常终止，该次枚举剩余内容不可恢复；此前数据和其他枚举仍保留。因此总数只涵盖成功读取的对象，出现问题时可达性和类型数都可能不完整，不能当作完整堆结论。preflight 对任何 `Issues` 保持严格失败。
 
-报告不写对象地址、字符串内容、原始字段值、文件路径或环境变量。问题计数只包含固定类别、类型名和堆校验问题种类。无法加载转储或 DAC 等致命异常只向 stderr 写异常类型，参数错误只写固定文字。Linux 的诊断通道、DAC 加载及字段读取须由同一次 GitHub Actions 任务的 preflight 验证，本机编译通过不能代替这项验证。
+报告不写对象地址、字符串内容、原始字段值、文件路径或环境变量。问题计数只包含固定类别、类型名和堆校验问题种类。致命异常输出异常类型、HResult，以及 `new StackTrace(error)` 中的声明类型和方法名；不输出 Message、文件名或行号。ClrMD `4.2.751201` 的 `ClrDiagnosticsException` 没有 Kind 属性，因此明确输出 `kind: null`、`kind_available: false`。控制器把这些字段保存到 `acquisition.json`。严格预检保留原始异常栈；游戏堆中的可恢复读取问题仍只计入 `Issues`。参数错误只写固定文字。Linux 的诊断通道、DAC 加载及字段读取须由同一次 GitHub Actions 任务的 preflight 验证，本机编译通过不能代替这项验证。

@@ -4,6 +4,7 @@ namespace Train.HeapDiagnosis;
 
 internal sealed class HeapReport
 {
+    private readonly bool _strict;
     public string Attribution => "Readable objects are counted once using the first enumerated strong-root path. Groups are not exclusive retained sizes. Missing roots or references can make reachability incomplete; inspect Issues. Paths retain at most the final 128 steps; PathTruncated marks an omitted prefix.";
     public Dictionary<string, Tally> Types { get; } = [];
     public Dictionary<string, Tally> States { get; } = [];
@@ -18,8 +19,10 @@ internal sealed class HeapReport
 
     internal HeapReport(string dump, string dac, bool preflight)
     {
+        _strict = preflight;
         using var target = DataTarget.LoadDump(dump);
-        using var runtime = target.ClrVersions.Single().CreateRuntime(dac);
+        // Linux Heap 转储的版本识别可能与配套库不同；控制器只传目标 coreclr 旁的 DAC。
+        using var runtime = target.ClrVersions.Single().CreateRuntime(dac, ignoreMismatch: OperatingSystem.IsLinux());
         var heap = runtime.Heap;
         var viewType = preflight ? "Train.HeapDiagnosis.ContentView" : "Train.Content.Loading.ContentView";
         if (!heap.CanWalkHeap) Issue("HeapWalk", typeof(InvalidDataException).FullName!);
@@ -165,7 +168,11 @@ internal sealed class HeapReport
     private bool Read<T>(Func<T> read, string stage, out T value)
     {
         try { value = read(); return true; }
-        catch (Exception error) { Issue(stage, error.GetType().FullName!); value = default!; return false; }
+        catch (Exception error)
+        {
+            if (_strict) throw;
+            Issue(stage, error.GetType().FullName!); value = default!; return false;
+        }
     }
 
     private void Scan<T>(Func<IEnumerable<T>> source, string stage, Action<T> visit)
@@ -174,9 +181,17 @@ internal sealed class HeapReport
         {
             foreach (var value in source())
                 try { visit(value); }
-                catch (Exception error) { Issue(stage, error.GetType().FullName!); }
+                catch (Exception error)
+                {
+                    if (_strict) throw;
+                    Issue(stage, error.GetType().FullName!);
+                }
         }
-        catch (Exception error) { Issue(stage, error.GetType().FullName!); }
+        catch (Exception error)
+        {
+            if (_strict) throw;
+            Issue(stage, error.GetType().FullName!);
+        }
     }
 
     private static Guid Binding(ClrObject owner)
