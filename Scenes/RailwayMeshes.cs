@@ -266,19 +266,30 @@ internal static class RailwayMeshes
         }
         internal void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, bool railHead = false)
         {
-            Triangle(a, b, c, railHead);
-            Triangle(a, c, d, railHead);
-        }
-        private void Triangle(Vector3 a, Vector3 b, Vector3 c, bool railHead)
-        {
-            var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
-            Add(a); Add(b); Add(c);
-            void Add(Vector3 point)
+            var firstNormal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
+            var secondNormal = Vector3.Normalize(Vector3.Cross(c - a, d - a));
+            var firstA = Vertex(a, firstNormal);
+            var firstC = Vertex(c, firstNormal);
+            var secondA = Vertex(a, secondNormal);
+            var secondC = Vertex(c, secondNormal);
+            var start = vertices.Count;
+            Add(firstA); Add(Vertex(b, firstNormal)); Add(firstC);
+            if (firstA == secondA && firstC == secondC)
+            {
+                indices.Add(start);
+                indices.Add(start + 2);
+            }
+            else { Add(secondA); Add(secondC); }
+            Add(Vertex(d, secondNormal));
+
+            void Add(SceneVertex vertex)
             {
                 indices.Add(vertices.Count);
-                // Built-in steel uses UV.x to distinguish the running surface from the rusty section.
-                vertices.Add(new(point, normal, new(railHead ? 1 : 0, 0), Vector2.Zero, ExposedFaceEdges.None, 0, 0));
+                vertices.Add(vertex);
             }
+            // Built-in steel uses UV.x to distinguish the running surface from the rusty section.
+            SceneVertex Vertex(Vector3 point, Vector3 normal) =>
+                new(point, normal, new(railHead ? 1 : 0, 0), Vector2.Zero, ExposedFaceEdges.None, 0, 0);
         }
         internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.DrainToImmutable(), indices.DrainToImmutable());
     }
