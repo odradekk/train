@@ -17,12 +17,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.selection == 'heap-diagnose'
     runs-on: [self-hosted, linux, nightly]
     timeout-minutes: 60
-    env:
-      HEAP_RUN_DIRECTORY: ${{ runner.temp }}/issue-873-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Mask runner identity
         shell: bash
         run: |
+          echo "HEAP_RUN_DIRECTORY=$RUNNER_TEMP/issue-873-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
           values=("$HOME" "$(id -un)" "$(uname -n)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE")
           if [ -n "$RUNNER_WORKSPACE" ]; then values+=("$(dirname "$(dirname "$RUNNER_WORKSPACE")")"); fi
           if [ -n "$GODOT" ]; then values+=("$(dirname "$GODOT")"); fi
