@@ -58,7 +58,6 @@
     "App/Measurement/MeasurementRun.SceneInteraction.cs": 7308,
     "App/Measurement/MeasurementRun.WindowSoak.cs": 7445,
     "App/Saves/SaveService.cs": 5473,
-    "App/WorldSceneController.cs": 5590,
     "Content/Authoring/DefinitionDraftJson.cs": 7674,
     "Content/Designs/DesignEvaluator.cs": 9667,
     "Content/Loading/BlueprintParser.cs": 6601,

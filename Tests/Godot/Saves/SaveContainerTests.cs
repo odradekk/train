@@ -31,6 +31,22 @@ public sealed class SaveContainerTests
     }
 
     [TestMethod]
+    public void Encoding_preserves_default_serializer_text_for_opaque_payloads()
+    {
+        string[] payloads = ["", "{}", "中文 🚂 <>&\"\\\n\r\t\0", new string('x', 4096),
+            new string('x', 4095) + "🚂tail", new string('x', 4095) + "\ud83dX",
+            new string('x', 4095) + "\ude82X", "\ud83d", "\ude82", new string('\"', 12000)];
+        foreach (var payload in payloads)
+        foreach (var document in new[] { Document(payload) with { ContentPayload = "content:" + payload },
+            Document(payload) with { CorePayload = "core:" + payload } })
+        {
+            var expected = JsonSerializer.Serialize(document);
+            var actual = SaveContainer.Encode(document);
+            Assert.AreEqual(expected, actual);
+        }
+    }
+
+    [TestMethod]
     public void Header_reader_stops_before_payload_and_accepts_json_whitespace()
     {
         var original = Document("not module JSON");

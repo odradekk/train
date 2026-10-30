@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 
 namespace Train.App.Saves;
@@ -22,7 +23,32 @@ internal static class SaveContainer
         ValidateHeader(JsonSerializer.SerializeToElement(document.Header));
         ArgumentNullException.ThrowIfNull(document.CorePayload);
         ArgumentNullException.ThrowIfNull(document.ContentPayload);
-        return JsonSerializer.Serialize(document);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName(nameof(document.Header));
+            JsonSerializer.Serialize(writer, document.Header);
+            WritePayload(writer, nameof(document.CorePayload), document.CorePayload);
+            WritePayload(writer, nameof(document.ContentPayload), document.ContentPayload);
+            writer.WriteEndObject();
+            writer.Flush();
+        }
+        return Encoding.UTF8.GetString(stream.GetBuffer(), 0, checked((int)stream.Length));
+    }
+
+    private static void WritePayload(Utf8JsonWriter writer, string name, string value)
+    {
+        writer.WritePropertyName(name);
+        // 整段转义会按最坏 6 倍长度租池数组，归还后仍留在写出线程里。
+        var offset = 0;
+        do
+        {
+            var length = Math.Min(4096, value.Length - offset);
+            writer.WriteStringValueSegment(value.AsSpan(offset, length), offset + length == value.Length);
+            offset += length;
+            writer.Flush();
+        } while (offset < value.Length);
     }
 
     internal static SaveDocument Decode(string text)
