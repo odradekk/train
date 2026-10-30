@@ -7,20 +7,10 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal sealed class NodeScene : IAsyncDisposable
+internal sealed partial class NodeScene : IAsyncDisposable
 {
     internal sealed record FollowedPath(ScenePoint Ahead, IReadOnlyList<ScenePoint> Priority, IReadOnlyList<ScenePoint> Loading);
 
-    internal sealed record Part(string Inputs, BuiltGeometry Geometry, ImmutableDictionary<GridColumn, double> Heights,
-        ScenePoint Origin = default, SceneBounds? Bounds = null)
-    {
-        internal long ArrayBytes { get; } = Geometry.Geometry.Objects.Sum(item => (long)IntPtr.Size *
-            (1 + item.Visuals.Length + item.Lights.Length + item.Effects.Length) + item.Visuals.OfType<SceneVisual.Geometry>()
-                .Select(visual => visual.Mesh).Distinct<SceneMesh>(ReferenceEqualityComparer.Instance)
-                .Sum(mesh => (long)mesh.Vertices.Length * Unsafe.SizeOf<SceneVertex>() + (long)mesh.TriangleIndices.Length * sizeof(int))) +
-            Geometry.Geometry.Picking.Select(pick => pick.Grid).Distinct().Sum(grid => grid.ArrayBytes) +
-            (long)Geometry.Geometry.Picking.Length * IntPtr.Size + ProblemBytes(Geometry.Geometry.Diagnostics);
-    }
     internal sealed record Built(NodeLayout Layout, ImmutableDictionary<string, Part> Parts,
         ImmutableDictionary<EdgeId, RailwayTerrain.BoundaryData> Boundaries);
     internal sealed record Cached(string LayoutInputs, ImmutableDictionary<string, Part> Parts,
@@ -1642,7 +1632,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var cellCount = terrain is null ? 0 :
             (VoxelGrid.ChunkSize * VoxelGrid.ChunkSize - boundaryColumns.Count) * RailwayCoordinates.TerrainDepthCells;
         var cells = ImmutableArray.CreateBuilder<SceneCell>(cellCount);
-        var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
+        var heights = new Dictionary<GridColumn, double>(VoxelGrid.ChunkSize * VoxelGrid.ChunkSize);
         var subject = new PickSubject.Terrain(new WorldLocation.Node(node.Id));
         var layers = RailwayTerrain.PrepareLayers(terrain, id => appearances.GetValueOrDefault(id), subject);
         var ballast = bed.Count > 0 ? RailwayTerrain.PrepareVoxel(ballastVoxel, id => appearances.GetValueOrDefault(id), subject) : null;
@@ -1676,7 +1666,8 @@ internal sealed class NodeScene : IAsyncDisposable
         var occupied = modelCells.Select(cell => cell.At).ToHashSet();
         cells.RemoveAll(cell => occupied.Contains(cell.At));
         cells.AddRange(modelCells);
-        return GridPart(cells.DrainToImmutable(), heights.ToImmutable(), []);
+        heights.TrimExcess();
+        return GridPart(cells.DrainToImmutable(), heights.AsReadOnly(), []);
 
         (int Height, double Distance) At(GridColumn column)
         {
@@ -1711,7 +1702,7 @@ internal sealed class NodeScene : IAsyncDisposable
         return ((int)Math.Floor(raw), rail?.Distance ?? double.PositiveInfinity);
     }
 
-    private static Part GridPart(ImmutableArray<SceneCell> cells, ImmutableDictionary<GridColumn, double> heights,
+    private static Part GridPart(ImmutableArray<SceneCell> cells, IReadOnlyDictionary<GridColumn, double> heights,
         ImmutableArray<SceneProblem> problems, ScenePoint origin = default) => new("", WorldSceneSession.BuildGeometry(id =>
         {
             var grid = new VoxelGrid(cells); var root = id("");
