@@ -9,8 +9,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.App.Measurement;
 
-// 窗口长测按段循环。每段先把标准世界重置到配方保存点；主体内不读档，让测量设定的 5 分钟自动存档和
-// 每 18,000 步的录制起点都能在同一会话里累积到轮换；段末反复保存并读取玩家自己的存档。
+// 每段重置到标准存档；主体不读档，以覆盖自动存档和录制轮换；段末保存读档往返。
 internal sealed partial class MeasurementRun
 {
     private const int SoakBodySeconds = 720;
@@ -92,6 +91,7 @@ internal sealed partial class MeasurementRun
             {
                 _soakSegment++;
                 await ResetSoakSegment();
+                if (_heapDiagnosisFinished) break;
                 var bodyStarted = Seconds();
                 var round = 0;
                 do
@@ -160,6 +160,7 @@ internal sealed partial class MeasurementRun
         _soakResetSteps = host.GetStatus()!.View.Position.CompletedSteps;
         // 每段都在刚读入的同一保存点、暂停的地图上强制回收，作为相同状态下的存活堆读数。
         _soakHeaps.Add((_soakSegment, "reset", Seconds(), CollectSceneHeap(_soakSegment, "reset-map")));
+        if (_heapDiagnosisFinished) return;
         await HoldSoakMap(2);
         await SoakOpen("reset-line", SoakLineBattle, _sceneLoadButton);
         // 只认采样开始后取得的计数；上一段末尾的计数里线路战斗早已结束。

@@ -27,6 +27,8 @@ internal sealed class RecordingService : IDisposable
     private bool _disposed;
     private bool _closing;
     private Action? _closed;
+    private int _diagnosisSequence;
+    private static readonly object DiagnosisTraceLock = new();
 
     internal RecordingService(HostCoordinator host, FileSaveStore store,
         ulong intervalSteps = StartIntervalSteps,
@@ -68,9 +70,12 @@ internal sealed class RecordingService : IDisposable
         if (_pending is { } completed && completed.Work.IsCompleted)
         {
             _pending = null;
+            TraceDiagnosis(completed.DiagnosisId, "cleared", completed.Snapshot.Binding == _binding);
             FileWriteResult result;
             try { result = completed.Work.GetAwaiter().GetResult(); }
             catch (Exception error) { result = new(false, "recording-fault", error.Message); }
+            TraceDiagnosis(completed.DiagnosisId, result.Published ? "published" : "publication-failed",
+                completed.Snapshot.Binding == _binding);
             completed.Cancellation.Dispose();
             if (completed.Point is { } point)
             {
@@ -168,8 +173,16 @@ internal sealed class RecordingService : IDisposable
         RecordingPointId? point = null, bool fault = false)
     {
         var cancellation = new CancellationTokenSource();
+        var diagnosisId = ++_diagnosisSequence;
+        TraceDiagnosis(diagnosisId, "started", snapshot.Binding == _host.GetStatus()?.Binding);
         var work = _write(snapshot, path, overwrite, cancellation.Token);
-        _pending = new(snapshot, Path.GetFullPath(path), point, fault, cancellation, work);
+        _pending = new(snapshot, Path.GetFullPath(path), point, fault, cancellation, work, diagnosisId);
+        if (Environment.GetEnvironmentVariable("TRAIN_HEAP_DIAGNOSIS") is { Length: > 0 } directory)
+            _ = work.ContinueWith(static (task, state) =>
+            {
+                var (traceDirectory, id) = ((string, int))state!;
+                WriteDiagnosis(traceDirectory, id, task.Status == TaskStatus.RanToCompletion ? "work-completed" : "work-failed", null);
+            }, (directory, diagnosisId), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         LastMessage = "正在写入复现资料…";
         Changed?.Invoke();
     }
@@ -194,6 +207,7 @@ internal sealed class RecordingService : IDisposable
         _host.BoundaryCompleted -= OnBoundary;
         if (_pending is { } pending)
         {
+            TraceDiagnosis(pending.DiagnosisId, "cancelled", pending.Snapshot.Binding == _binding);
             pending.Cancellation.Cancel();
             // 正常退出先 Close 等待确认；强制移除节点时只保留已发布文件，不阻塞引擎线程。
             _ = FinishAfterRemoval(pending);
@@ -205,6 +219,20 @@ internal sealed class RecordingService : IDisposable
     private static async Task FinishAfterRemoval(PendingWrite pending)
     { try { await pending.Work.ConfigureAwait(false); } catch { } finally { pending.Cancellation.Dispose(); } }
 
+    private static void TraceDiagnosis(int id, string phase, bool sameBinding)
+    {
+        if (Environment.GetEnvironmentVariable("TRAIN_HEAP_DIAGNOSIS") is { Length: > 0 } directory)
+            WriteDiagnosis(directory, id, phase, sameBinding);
+    }
+
+    private static void WriteDiagnosis(string directory, int id, string phase, bool? sameBinding)
+    {
+        lock (DiagnosisTraceLock)
+            File.AppendAllText(Path.Combine(directory, "recording.jsonl"),
+                System.Text.Json.JsonSerializer.Serialize(new { id, phase, same_binding = sameBinding,
+                    utc = DateTimeOffset.UtcNow, timestamp = System.Diagnostics.Stopwatch.GetTimestamp() }) + "\n");
+    }
+
     private sealed record PendingWrite(RecordingSnapshot Snapshot, string Path, RecordingPointId? Point,
-        bool Fault, CancellationTokenSource Cancellation, Task<FileWriteResult> Work);
+        bool Fault, CancellationTokenSource Cancellation, Task<FileWriteResult> Work, int DiagnosisId);
 }

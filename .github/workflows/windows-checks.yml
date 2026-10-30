@@ -1,226 +1,26 @@
-name: Windows checks
-run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak' || inputs.selection == 'measure') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
+name: Temporary Issue 873 heap diagnosis
+run-name: Linux heap diagnosis · ${{ github.sha }}
 
 on:
-  push:
-    branches: [master]
-  schedule:
-    - cron: '23 20 * * *' # 04:23 Asia/Shanghai
-  pull_request:
-    branches: [master]
-    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       selection:
-        description: Check selection
         type: choice
-        options: [routine, correctness, nightly, long-example, window-soak, measure]
-        default: routine
-      example:
-        description: Long example (used only by long-example)
-        type: choice
-        options: [starting-trade, lease-expiry, rail-repair, conquest, clearance, operating-failure, long-consist, standard-world, busy-combat, crowded-station]
-        default: starting-trade
-      soak_seconds:
-        description: 窗口长测循环时长（秒，仅 window-soak 使用）
-        type: string
-        default: '7200'
-      commit:
-        description: 要测试的完整 40 位提交 SHA，留空则测试触发的 ref
-        type: string
-        required: false
-      measure_scenarios:
-        description: 测量场景，逗号分隔（仅 measure）
-        type: string
-        default: scene-reference
-      measure_input:
-        description: examples/ 下的输入存档（仅 measure 的 example 输入集）
-        type: string
-        default: examples/standard-world/save.json
-      measure_input_set:
-        description: 测量输入集（仅 measure）
-        type: choice
-        options: [example, scene-scale]
-        default: example
-      measure_repeat:
-        description: 每场景轮数（仅 measure）
-        type: string
-        default: '3'
-      measure_node_ready_hold:
-        description: 节点首次就绪后保持观察（仅 measure 的参考和首开场景）
-        type: boolean
-        default: false
-      measure_seconds:
-        description: 每轮秒数，0 使用场景默认值（仅 measure）
-        type: string
-        default: '0'
+        options: [heap-diagnose]
+        default: heap-diagnose
 
 permissions:
   contents: read
 
 jobs:
-  checks:
-    name: Windows ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }}
-    # A label is a one-shot request; leaving it on a PR does not make pushes heavy.
-    if: (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:correctness')) || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'routine' || inputs.selection == 'correctness'))
-    runs-on: windows-2025
-    timeout-minutes: 115
-    env:
-      CI_SELECTION: ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || 'routine' }}
-    steps:
-      - name: Checkout tested head
-        id: checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Prepare PowerShell 7.6.6
-        id: powershell
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path TestResults/ci -Force | Out-Null
-          @"
-          run=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
-          attempt=$env:GITHUB_RUN_ATTEMPT
-          event=$env:GITHUB_EVENT_NAME
-          selection=$env:CI_SELECTION
-          head=$(git rev-parse HEAD)
-          workflow=$env:GITHUB_SHA
-          runner=$env:RUNNER_OS/$env:RUNNER_ARCH
-          image=$env:ImageOS/$env:ImageVersion
-          "@ | Set-Content TestResults/ci/environment.txt
-          $archive = Join-Path $env:RUNNER_TEMP 'powershell.zip'
-          Invoke-WebRequest 'https://github.com/PowerShell/PowerShell/releases/download/v7.6.6/PowerShell-7.6.6-win-x64.zip' -OutFile $archive
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '02fe458be20493fbdf43f61ea20610b811ee6c738ab1676c61b9cfcd1a33c860') { throw 'PowerShell archive SHA256 mismatch' }
-          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/pwsh"
-          "$env:RUNNER_TEMP/pwsh" | Add-Content $env:GITHUB_PATH
-
-      - name: Prepare locked .NET SDK
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
-        with:
-          global-json-file: global.json
-
-      - name: Prepare Python 3.11
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: '3.11'
-
-      - name: Check file sizes
-        shell: pwsh
-        run: python .agents/scripts/check_file_size.py --all
-
-      - name: Restore locked .NET tools
-        shell: pwsh
-        run: dotnet tool restore
-
-      - name: Install Schema validator
-        shell: pwsh
-        run: python -m pip install --disable-pip-version-check jsonschema==4.25.1
-
-      - name: Record tool versions
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' }}
-        shell: pwsh
-        run: |
-          "powershell=$($PSVersionTable.PSVersion)" | Add-Content TestResults/ci/environment.txt
-          "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
-
-      # Only forward explicit selections. The entry owns discovery, preparation,
-      # assertions, evidence and exit status, including missing prerequisites.
-      - name: Routine fast and integration checks
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}
-        shell: pwsh
-        run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -Layer fast,integration
-          exit $LASTEXITCODE
-
-      - name: Prepare Godot 4.7.2 .NET
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' }}
-        continue-on-error: ${{ env.CI_SELECTION == 'routine' }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:CI_SELECTION -eq 'routine') {
-            try {
-              $summaries = @(Get-ChildItem TestResults -Directory -ErrorAction Stop |
-                Where-Object Name -Match '^fast-integration-\d{8}T\d{9}-[0-9a-f]{7}$' |
-                ForEach-Object { Join-Path $_.FullName 'summary.json' })
-              if ($summaries.Count -ne 1) { throw 'Expected one routine fast/integration summary.' }
-              $summary = Get-Content -LiteralPath $summaries[0] -Raw | ConvertFrom-Json
-              if ($summary.selection.engine -isnot [bool]) { throw 'Summary has no Boolean engine selection.' }
-              if (-not $summary.selection.engine) {
-                Write-Host 'Engine not selected by the unified entry; skipping Godot download.'
-                exit 0
-              }
-              Write-Host 'Engine selected by the unified entry; preparing Godot.'
-            } catch {
-              Write-Host "Cannot read engine selection; preparing Godot: $($_.Exception.Message)"
-            }
-          }
-          $archive = Join-Path $env:RUNNER_TEMP 'godot.zip'
-          Invoke-WebRequest 'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_win64.zip' -OutFile $archive
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'a2a48473a7414c5f19fab690518caebb738c09ef9601f6bd2388676a7f53b3c0') { throw 'Godot archive SHA256 mismatch' }
-          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/godot"
-          $godot = "$env:RUNNER_TEMP/godot/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
-          "GODOT=$godot" | Add-Content $env:GITHUB_ENV
-          "godot=$(& $godot --headless --version)" | Add-Content TestResults/ci/environment.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Routine engine checks (non-blocking)
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -Layer engine
-          exit $LASTEXITCODE
-
-      - name: Explicit correctness regression
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'correctness' }}
-        shell: pwsh
-        run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -All -Layer all
-          exit $LASTEXITCODE
-
-      - name: Publish available reports
-        if: always()
-        shell: pwsh
-        run: |
-          Get-ChildItem TestResults -Directory -ErrorAction SilentlyContinue |
-            Where-Object Name -Match '^[a-z-]+-\d{8}T\d{9}-[0-9a-f]{7}$' |
-            ForEach-Object {
-              $summary = Join-Path $_.FullName 'summary.json'
-              if (Test-Path -LiteralPath $summary) {
-                "### $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
-                '```json' | Add-Content $env:GITHUB_STEP_SUMMARY
-                Get-Content -LiteralPath $summary -Raw | Add-Content $env:GITHUB_STEP_SUMMARY
-                '```' | Add-Content $env:GITHUB_STEP_SUMMARY
-              }
-            }
-
-      - name: Upload available evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: windows-${{ env.CI_SELECTION }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: TestResults/
-          include-hidden-files: true
-          if-no-files-found: warn
-          retention-days: 14
-
-  nightly:
-    name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak' || inputs.selection == 'measure'))
+  diagnosis:
+    if: github.event_name == 'workflow_dispatch' && inputs.selection == 'heap-diagnose'
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || inputs.selection == 'window-soak' && 200 || inputs.selection == 'measure' && 720 || 138 }}
-    permissions:
-      contents: read
+    timeout-minutes: 60
     env:
-      CI_SELECTION: ${{ inputs.selection || 'nightly' }}
-      LONG_EXAMPLE: ${{ inputs.example }}
+      HEAP_RUN_DIRECTORY: ${{ runner.temp }}/issue-873-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Mask runner host identity
+      - name: Mask runner identity
         shell: bash
         run: |
           values=("$HOME" "$(id -un)" "$(uname -n)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE")
@@ -233,22 +33,11 @@ jobs:
             if [ -n "$value" ]; then echo "::add-mask::$value"; fi
           done
 
-      - name: Checkout tested head
+      - name: Checkout diagnostic head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ inputs.commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Prepare publication and measurement scripts from workflow commit
-        shell: pwsh
-        run: |
-          $directory = Join-Path $env:RUNNER_TEMP 'measure-tools'
-          New-Item -ItemType Directory -Path $directory -Force | Out-Null
-          git archive --format=tar --output="$directory/scripts.tar" $env:GITHUB_SHA scripts
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          tar -xf "$directory/scripts.tar" -C $directory
-          exit $LASTEXITCODE
 
       - name: Prepare locked .NET SDK
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
@@ -257,120 +46,40 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
 
-      - name: Record runner environment
-        shell: pwsh
+      - name: Collect and analyze owned heaps
+        timeout-minutes: 52
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path TestResults/ci -Force | Out-Null
-          @"
-          run=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
-          attempt=$env:GITHUB_RUN_ATTEMPT
-          event=$env:GITHUB_EVENT_NAME
-          selection=$env:CI_SELECTION
-          workflow=$env:GITHUB_SHA
-          runner=$env:RUNNER_OS/$env:RUNNER_ARCH
-          powershell=$($PSVersionTable.PSVersion)
-          "@ | Set-Content TestResults/ci/environment.txt
-          "head=$(git rev-parse HEAD)" | Add-Content TestResults/ci/environment.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "DOTNET_ROOT=$env:DOTNET_ROOT" | Add-Content TestResults/ci/environment.txt
-          "godot=$(& $env:GODOT --headless --version)" | Add-Content TestResults/ci/environment.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-Command python, python3 -ErrorAction SilentlyContinue |
-            ForEach-Object { "$($_.Name)=$($_.Source)" | Add-Content TestResults/ci/environment.txt }
-          "python3=$(python3 --version)" | Add-Content TestResults/ci/environment.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "jsonschema=$(python3 -c 'import importlib.metadata; print(importlib.metadata.version("jsonschema"))')" | Add-Content TestResults/ci/environment.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python3 scripts/measure/issue-873-heap.py \
+            --scratch "$HEAP_RUN_DIRECTORY" \
+            --output TestResults/issue-873-diagnosis \
+            --cache "$RUNNER_TOOL_CACHE/train-measure"
 
-      - name: Restore locked .NET tools
-        if: env.CI_SELECTION == 'nightly'
-        shell: pwsh
-        run: dotnet tool restore
-
-      - name: All correctness and stage checks
-        if: env.CI_SELECTION == 'nightly'
-        shell: pwsh
+      - name: Delete private diagnostic files
+        if: always()
+        shell: bash
         run: |
-          pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
-          exit $LASTEXITCODE
+          target="$(realpath -m "$HEAP_RUN_DIRECTORY")"
+          parent="$(realpath -m "$RUNNER_TEMP")"
+          case "$target" in
+            "$parent"/issue-873-*) rm -rf -- "$target" ;;
+            *) echo 'Diagnostic cleanup path rejected'; exit 1 ;;
+          esac
 
-      - name: Long example validation
-        if: env.CI_SELECTION == 'long-example'
-        shell: pwsh
-        run: |
-          $directory = Join-Path $env:RUNNER_TEMP 'long-example'
-          New-Item -ItemType Directory -Path $directory -Force | Out-Null
-          foreach ($name in @('run-long-example.ps1', 'Invoke-HiddenProcess.ps1')) {
-            $source = git show "$($env:GITHUB_SHA):scripts/checks/$name"
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            $source | Set-Content -LiteralPath (Join-Path $directory $name) -Encoding utf8
-          }
-          pwsh -NoProfile -File (Join-Path $directory 'run-long-example.ps1') -Example $env:LONG_EXAMPLE -Root $env:GITHUB_WORKSPACE
-          exit $LASTEXITCODE
-
-      # The test machine's live desktop session provides the real 1080p window; see docs/ci.md.
-      - name: Window measurement
-        if: env.CI_SELECTION == 'window-soak' || env.CI_SELECTION == 'measure'
-        shell: pwsh
-        env:
-          SOAK_SECONDS: ${{ inputs.soak_seconds }}
-          MEASURE_SCENARIOS: ${{ inputs.measure_scenarios }}
-          MEASURE_INPUT: ${{ inputs.measure_input }}
-          MEASURE_INPUT_SET: ${{ inputs.measure_input_set }}
-          MEASURE_REPEAT: ${{ inputs.measure_repeat }}
-          MEASURE_SECONDS: ${{ inputs.measure_seconds }}
-          MEASURE_NODE_READY_HOLD: ${{ inputs.measure_node_ready_hold }}
-        run: |
-          $parameters = @{ Scenario = $env:MEASURE_SCENARIOS; InputSet = $env:MEASURE_INPUT_SET; InputPath = $env:MEASURE_INPUT; Repeat = $env:MEASURE_REPEAT; DurationSeconds = $env:MEASURE_SECONDS }
-          if ($env:CI_SELECTION -eq 'measure' -and $env:MEASURE_NODE_READY_HOLD -eq 'true') { $parameters.NodeReadyHold = $true }
-          if ($env:CI_SELECTION -eq 'window-soak') {
-            $parameters = @{ Scenario = 'scene-soak'; InputPath = 'examples/standard-world/save.json'; Repeat = 1; DurationSeconds = $env:SOAK_SECONDS }
-          }
-          & "$env:RUNNER_TEMP/measure-tools/scripts/measure/run-measurement.ps1" @parameters -Root $env:GITHUB_WORKSPACE -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable')
-          exit $LASTEXITCODE
-
-      - name: Publish available reports
+      - name: Scan publication allowlist
         id: publish
         if: always()
         shell: pwsh
         run: |
-          & "$env:RUNNER_TEMP/measure-tools/scripts/measure/publish-measurement.ps1" -Directory TestResults
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-ChildItem TestResults -Directory -ErrorAction SilentlyContinue |
-            Where-Object Name -Match '^[a-z-]+-\d{8}T\d{9}-[0-9a-f]{7}$' |
-            ForEach-Object {
-              $summary = Join-Path $_.FullName 'summary.json'
-              if (Test-Path -LiteralPath $summary) {
-                "### $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
-                '```json' | Add-Content $env:GITHUB_STEP_SUMMARY
-                Get-Content -LiteralPath $summary -Raw | Add-Content $env:GITHUB_STEP_SUMMARY
-                '```' | Add-Content $env:GITHUB_STEP_SUMMARY
-              }
-            }
+          if (-not (Test-Path -LiteralPath TestResults/issue-873-diagnosis)) { exit 1 }
+          & ./scripts/measure/publish-measurement.ps1 -Directory TestResults/issue-873-diagnosis
+          exit $LASTEXITCODE
 
-      - name: Upload available evidence
+      - name: Upload anonymous text only
         if: always() && steps.publish.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: linux-${{ github.event_name == 'push' && 'post-merge' || env.CI_SELECTION }}${{ inputs.selection == 'long-example' && format('-{0}', inputs.example) || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: TestResults/
-          include-hidden-files: true
-          if-no-files-found: warn
+          name: issue-873-heap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: TestResults/issue-873-diagnosis/
+          if-no-files-found: error
           retention-days: 14
-
-      - name: Clean runner workspace
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE).Path
-          if ((Get-Location).Path -cne $workspace) { throw 'Cleanup requires the current GitHub workspace directory.' }
-          $repository = git rev-parse --show-toplevel
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ((Resolve-Path -LiteralPath $repository).Path -cne $workspace) { throw 'Cleanup requires the GitHub workspace repository root.' }
-          git clean -ffdx
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-ChildItem -LiteralPath $workspace -Force | Format-Table Mode, Name

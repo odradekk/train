@@ -56,7 +56,7 @@
     "App/Measurement/FollowRouteAnalysis.cs": 6034,
     "App/Measurement/MeasurementRun.SceneBudget.cs": 10650,
     "App/Measurement/MeasurementRun.SceneInteraction.cs": 7308,
-    "App/Measurement/MeasurementRun.WindowSoak.cs": 7445,
+    "App/Measurement/MeasurementRun.WindowSoak.cs": 7431,
     "App/Saves/SaveService.cs": 5473,
     "Content/Authoring/DefinitionDraftJson.cs": 7674,
     "Content/Designs/DesignEvaluator.cs": 9667,
