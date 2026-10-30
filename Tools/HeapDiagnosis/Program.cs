@@ -4,6 +4,16 @@ using Train.HeapDiagnosis;
 
 try
 {
+    if (args is ["check-gc-arrays", var arrayChecks])
+    {
+        GcArrayChecks.Run(arrayChecks);
+        return 0;
+    }
+    if (args is ["check-gc-array-scale", var scaleChecks, var count])
+    {
+        GcArrayChecks.RunScale(scaleChecks, int.Parse(count, System.Globalization.CultureInfo.InvariantCulture));
+        return 0;
+    }
     if (args is ["check-gc-report", var checks])
     {
         GcReportChecks.Run(checks);

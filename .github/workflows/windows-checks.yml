@@ -99,7 +99,7 @@ jobs:
             if (Test-Path -LiteralPath $file) {
               Write-Host "::group::snapshot-$cycle GC summary"
               $heap = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-              $heap | Select-Object Summary, Completeness, RootCategories, ContentViews |
+              $heap | Select-Object Summary, Completeness, RootCategories, ContentViews, Arrays |
                 ConvertTo-Json -Depth 100 | ForEach-Object { Write-Host $_ }
               Write-Host '::endgroup::'
             }

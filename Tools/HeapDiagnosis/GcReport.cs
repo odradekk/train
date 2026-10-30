@@ -13,6 +13,7 @@ internal sealed class GcReport
     public List<GcView> ContentViews { get; } = [];
     public object Summary { get; private set; } = new();
     public object Completeness { get; private set; } = new();
+    public GcArrays Arrays { get; private set; } = null!;
     private readonly Dictionary<string, GcPath> _firstPaths = [];
 
     internal static long Live(string text) => long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value)
@@ -29,10 +30,12 @@ internal sealed class GcReport
     {
         // Read returns only anonymous aggregates: the first graph is no longer retained when reading the second.
         var first = Read(before, beforeLive, false);
+        first.Arrays.MatchSizes(first.Arrays);
         Write(Path.Combine(directory, "snapshot-1"), "gc-heap.json", first);
         GC.Collect();
         GC.WaitForPendingFinalizers();
         var last = Read(after, afterLive, false);
+        last.Arrays.MatchSizes(first.Arrays);
         Write(Path.Combine(directory, "snapshot-3"), "gc-heap.json", last);
         var growth = first.Types.Keys.Union(last.Types.Keys).Select(type =>
         {
@@ -46,7 +49,7 @@ internal sealed class GcReport
             .ThenBy(x => x.type, StringComparer.Ordinal).Take(30).ToArray();
         Write(directory, "gc-difference.json", new { before_summary = first.Summary, after_summary = last.Summary,
             ordering = "bytes_delta_desc_then_count_delta_desc_then_type_ordinal; includes zero or negative deltas if fewer than 30 growing types",
-            top_30 = growth });
+            top_30 = growth, arrays = GcArrays.Difference(first.Arrays, last.Arrays) });
         Console.WriteLine("gc pair analysis complete");
     }
 
@@ -174,12 +177,17 @@ internal sealed class GcReport
             reachable_host_count = hosts.Count, unique_direct_view_targets = directCandidates.Count,
             instance_field_metadata_available = false, completeness = report.Completeness, root_categories = report.RootCategories
         };
+        report.Arrays = GcArrays.Read(graph, names, parents, categories, index => PathTo(index, -1, -1));
         if (strict)
         {
             var chains = report.Types.Where(x => x.Key.StartsWith("System.Collections.Generic.LinkedListNode", StringComparison.Ordinal)).Sum(x => x.Value.Count);
             if (views.Count != 2 || hosts.Count != 1 || current < 0 || chains != ContentView.ChainLength * 2 ||
                 !report.Types.TryGetValue("System.Byte[]", out var b) || b.Bytes < 2_200_000 ||
                 !report.Types.TryGetValue("System.Char[]", out var c) || c.Bytes < 2_400_000 ||
+                report.Arrays.Histogram.Where(x => x.Type == "System.Byte[]").Sum(x => x.Bytes) != b.Bytes ||
+                report.Arrays.Histogram.Where(x => x.Type == "System.Char[]").Sum(x => x.Bytes) != c.Bytes ||
+                !report.Arrays.ParentTypes.Any(x => x.ArrayType == "System.Byte[]" &&
+                    x.ParentType == "Train.HeapDiagnosis.OtherArrayOwner" && x.Count == 1 && x.Bytes >= 2_000_000) ||
                 report.ContentViews.Any(x => x.Path.Steps.Count == 0) || sampled || undefinedObjects != 0 || invalidEdges != 0)
                 throw new InvalidDataException("gc_preflight_contract_failed");
         }
@@ -194,9 +202,14 @@ internal sealed class GcReport
             {
                 var parent = parents[cursor];
                 var real = IsObject(cursor);
+                var declaringType = string.Empty;
+                var field = string.Empty;
+                var isStaticField = !real && GcArrays.TryStaticField(names[(int)graph.GetNode((NodeIndex)cursor, node).TypeIndex],
+                    out declaringType, out field);
                 steps.Add(new(real ? Type(cursor) : "synthetic_root", real ? null : categories[cursor],
-                    cursor == view && parent == host ? "_content" : null,
-                    cursor == view && parent == host ? "source-verified-inference" : null));
+                    cursor == view && parent == host ? "_content" : isStaticField ? field : null,
+                    cursor == view && parent == host ? "source-verified-inference" : isStaticField ? "gcdump_static_field_label" : null,
+                    isStaticField ? declaringType : null));
                 cursor = parent;
             }
             steps.Reverse();
@@ -211,7 +224,7 @@ internal sealed class GcReport
         tally.Bytes += size;
     }
 
-    private static string SafeType(string? value)
+    internal static string SafeType(string? value)
     {
         if (string.IsNullOrEmpty(value) || value.Contains("0x", StringComparison.OrdinalIgnoreCase) ||
             value.IndexOfAny(['/', '\\', ':', '\n', '\r', '\t', '"']) >= 0 || value.StartsWith('[')) return "unknown_type";
@@ -222,9 +235,9 @@ internal sealed class GcReport
         return value;
     }
 
-    private static string? RootCategory(string name) => name switch
+    internal static string? RootCategory(string name) => name switch
     {
-        "[local vars]" => "stack", "[static vars]" => "static", "[strong Handles]" => "strong_handle",
+        "[local vars]" => "stack", "[static vars]" => "static", "[thread static vars]" => "thread_static", "[strong Handles]" => "strong_handle",
         "[pinning Handles]" => "pinned_handle", "[finalizer Handles]" => "finalizer_handle",
         "[Dependent Handles]" => "dependent_handle", "[COM/WinRT Objects]" => "interop",
         "[other Handles]" => "other_handle", _ => null
@@ -239,6 +252,6 @@ internal sealed class GcRoot
     public long DirectRootTargets { get; set; }
     public long DirectRootTargetBytes { get; set; }
 }
-internal sealed record GcStep(string Type, string? RootCategory, string? Field, string? FieldSource);
+internal sealed record GcStep(string Type, string? RootCategory, string? Field, string? FieldSource, string? DeclaringType = null);
 internal sealed record GcPath(List<GcStep> Steps, bool Truncated, bool RootReachable);
 internal sealed record GcView(string Type, long Bytes, string Category, GcPath Path);

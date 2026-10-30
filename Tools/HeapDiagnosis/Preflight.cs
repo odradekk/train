@@ -3,6 +3,8 @@ namespace Train.HeapDiagnosis;
 internal static class Preflight
 {
     internal static RecordingService[] Root = [];
+    internal static OtherArrayOwner? GCGraphRoot;
+    [ThreadStatic] internal static byte[]? TlsBuffer;
 
     internal static void Run(string ready, string release, bool gcGraph = false, int seconds = 120)
     {
@@ -13,7 +15,14 @@ internal static class Preflight
             new(host, new PendingWrite(new RecordingSnapshot(binding, new ContentView()), Task.CompletedTask)),
             new(host, new PendingWrite(new RecordingSnapshot(new HostBinding(Guid.NewGuid()), new ContentView()),
                 new TaskCompletionSource().Task))];
-        if (gcGraph) host._content = Root[1]._pending!.Snapshot.Content;
+        if (gcGraph)
+        {
+            host._content = Root[1]._pending!.Snapshot.Content;
+            GCGraphRoot = new OtherArrayOwner();
+            TlsBuffer = new byte[48_000];
+            System.Buffers.ArrayPool<byte>.Shared.Return(System.Buffers.ArrayPool<byte>.Shared.Rent(65_536));
+            System.Buffers.ArrayPool<char>.Shared.Return(System.Buffers.ArrayPool<char>.Shared.Rent(32_768));
+        }
         using var stop = new ManualResetEventSlim();
         var background = new Thread(() => stop.Wait(TimeSpan.FromSeconds(seconds))) { IsBackground = true };
         background.Start();
@@ -25,7 +34,14 @@ internal static class Preflight
         stop.Set();
         background.Join();
         GC.KeepAlive(Root);
+        GC.KeepAlive(GCGraphRoot);
+        GC.KeepAlive(TlsBuffer);
     }
+}
+
+internal sealed class OtherArrayOwner
+{
+    internal readonly byte[] Bytes = new byte[2_000_000];
 }
 
 internal readonly record struct HostBinding(Guid Session);

@@ -65,13 +65,17 @@ python scripts/measure/issue-873-heap.py --gcdump-preflight-only --scratch <outs
 python scripts/measure/issue-873-heap.py --gcdump --scratch <job-scratch> --output <anonymous-output> --cache <measurement-cache>
 dotnet Train.HeapDiagnosis.dll analyze-gc-one <gcdump> <idle-live-bytes> <output>
 dotnet Train.HeapDiagnosis.dll analyze-gc-pair <before.gcdump> <after.gcdump> <before-live> <after-live> <output>
+dotnet Train.HeapDiagnosis.dll check-gc-arrays <output>
+dotnet Train.HeapDiagnosis.dll check-gc-array-scale <output> <work-object-count>
 ```
 
 Linux 正式运行先执行同 job 的小进程预检：两份图分别严格核对已知视图、大数组、链节点及路径，再验证双图分析；失败不启动游戏。预检另写 ready.live，PID ready 格式不变。开发机的小进程预检不启动游戏。所有原始图和原始工具日志仅放工作树外的 scratch；Linux scratch 必须在 RUNNER_TEMP。控制器 finally 删除所有 gcdump，workflow always 删除整个私有目录，只上传扫描后的 JSON/JSONL/Markdown。
 
 单图写 gc-heap.json，含类型数量/大小、根类别、ContentView 路径、完整性和与传入 idle live 的字节差。双图串行读取，释放第一份图后读第二份，写 snapshot-1、snapshot-3 和 gc-difference.json；差分按字节增量降序取 30 项，附第二份图中该类型从根出发的第一条路径。根类别按 BFS 第一条根路径互斥归属，不能当独占保留大小；路径最多保留末端 128 步，截断明确标记。根类别另记直接目标数量和字节。图中的类型大小 bucket 按该版本工具的六种固定后缀归并回类型名。来源模块、地址、原始根标签、CollectionLog 和字符串内容不输出。
 
-图不含普通实例字段元数据，字段名为 null。只有强根可达的 HostCoordinator 恰有一个、它直接引用的 ContentView 目标也恰有一个时，才根据已审源码中唯一直接 IContentView 字段 _content 推断 current；报告标为 current_inferred_from_unique_host_direct_edge，路径恰经过该边时可标 _content/source-verified-inference。其他视图为 non-current，不代表旧局；条件不满足则 current/non-current 为 null、全部列 unknown，不按视图顺序猜测。
+普通实例字段名为 null；固定的静态字段标签只发布通过语法校验的声明类型和字段名。只有强根可达的 HostCoordinator 恰有一个、它直接引用的 ContentView 目标也恰有一个时，才根据已审源码中唯一直接 IContentView 字段 _content 推断 current；报告标为 current_inferred_from_unique_host_direct_edge，路径恰经过该边时可标 _content/source-verified-inference。其他视图为 non-current，不代表旧局；条件不满足则 current/non-current 为 null、全部列 unknown，不按视图顺序猜测。
+
+快照增加 `Arrays`，差分增加 `arrays`，包含大小直方图、最大数组的全部直接引用者、父类型和池类型汇总，以及 stack／thread-static 经池路径统计。定义、去重和配对规则见 [数组报告](Arrays.md)。workflow 在扫描成功后回显这些结果，原采集方式不变。
 
 完整性比较来自两个相近时点：idle GC 的 live 和随后 gcdump 额外 Gen2 GC 的对象图，不声称是同一次 GC。图若采样，类型数量、大小和差分明确为未缩放的原始采样图统计；另列 graph.TotalSize × AverageSizeMultiplier 的堆大小估计，不能把估计写成完整对象统计。倍率语义来自固定工具源码 GCHeapDump.cs。真实地址的 undefined 节点、无效边、损坏/未转储区域和合成零地址节点分开记录。
 
