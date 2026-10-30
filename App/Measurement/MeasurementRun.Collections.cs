@@ -6,6 +6,7 @@ internal sealed partial class MeasurementRun
 {
     private bool _heapDiagnosisFinished;
     private double _sceneHeapCollectedAt;
+    private long _sceneHeapLive;
 
     private long CollectSceneHeap(int cycle, string phase)
     {
@@ -20,7 +21,7 @@ internal sealed partial class MeasurementRun
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
         var gc = GcReading.Current.Since(gcStart);
         var heap = GC.GetGCMemoryInfo();
-        var live = GC.GetTotalMemory(false);
+        var live = _sceneHeapLive = GC.GetTotalMemory(false);
         _sceneCollectionTrace!.WriteLine(JsonSerializer.Serialize(new { cycle, phase, at = _sceneHeapCollectedAt = Seconds(),
             reason = "measurement-forced", pause_seconds = gc.Pause.TotalSeconds, collections_by_generation = gc.CollectionsByGeneration,
             seconds = Seconds() - started, natural, managed_live_bytes = live,
@@ -32,7 +33,7 @@ internal sealed partial class MeasurementRun
 
     private async Task CollectIdleSceneHeap(int cycle)
     {
-        if (cycle is not (1 or 2) ||
+        if (cycle is not (1 or 2 or 3) ||
             Environment.GetEnvironmentVariable("TRAIN_HEAP_DIAGNOSIS") is not { Length: > 0 } directory) return;
         var recording = _app.Recording!;
         var saves = _app.Saves!;
@@ -42,6 +43,7 @@ internal sealed partial class MeasurementRun
             File.AppendAllText(Path.Combine(directory, "heap-observations.jsonl"), JsonSerializer.Serialize(new
             {
                 process_id = Environment.ProcessId, cycle, phase, at = Seconds(), collection_at = _sceneHeapCollectedAt,
+                managed_live_bytes = _sceneHeapLive,
                 utc = DateTimeOffset.UtcNow, timestamp = System.Diagnostics.Stopwatch.GetTimestamp(),
                 stopwatch_frequency = System.Diagnostics.Stopwatch.Frequency,
                 recording = new { state.PendingIsNull, state.SnapshotBindingEqualsCurrent, state.WorkIsCompleted },
@@ -58,7 +60,7 @@ internal sealed partial class MeasurementRun
         var waitSeconds = waiting.Elapsed.TotalSeconds;
         CollectSceneHeap(cycle, "reset-map-idle");
         Observe("reset-map-idle", waitSeconds, timedOut);
-        _heapDiagnosisFinished = cycle == 2;
+        _heapDiagnosisFinished = cycle == 3;
         var release = Path.Combine(directory, $"reset-{cycle}.release");
         var ready = Path.Combine(directory, $"reset-{cycle}.ready");
         var gate = System.Diagnostics.Stopwatch.StartNew();

@@ -91,7 +91,7 @@ internal sealed partial class MeasurementRun
             {
                 _soakSegment++;
                 await ResetSoakSegment();
-                if (_heapDiagnosisFinished) break;
+                if (_heapDiagnosisFinished) return;
                 var bodyStarted = Seconds();
                 var round = 0;
                 do
@@ -157,7 +157,7 @@ internal sealed partial class MeasurementRun
         _soakResetAt = Seconds();
         _soakLastDecayAt = 0;
         _soakResetSteps = host.GetStatus()!.View.Position.CompletedSteps;
-        // 每段都在刚读入的同一保存点、暂停的地图上强制回收，作为相同状态下的存活堆读数。
+        // 每段在同一保存点、暂停的地图上强制回收，作为相同状态下的存活堆读数。
         _soakHeaps.Add((_soakSegment, "reset", Seconds(), CollectSceneHeap(_soakSegment, "reset-map")));
         await CollectIdleSceneHeap(_soakSegment);
         if (_heapDiagnosisFinished) return;

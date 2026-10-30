@@ -45,11 +45,12 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
 
-      - name: Collect and analyze owned heaps
+      - name: Observe three reloads without dumps
         timeout-minutes: 54
         shell: bash
         run: |
           python3 scripts/measure/issue-873-heap.py \
+            --no-dumps \
             --scratch "$HEAP_RUN_DIRECTORY" \
             --output TestResults/issue-873-diagnosis \
             --cache "$RUNNER_TOOL_CACHE/train-measure"
@@ -74,11 +75,58 @@ jobs:
           & ./scripts/measure/publish-measurement.ps1 -Directory TestResults/issue-873-diagnosis
           exit $LASTEXITCODE
 
+      - name: Echo scanned observations
+        if: always()
+        shell: pwsh
+        env:
+          PUBLICATION_OUTCOME: ${{ steps.publish.outcome }}
+        run: |
+          if ($env:PUBLICATION_OUTCOME -ne 'success') {
+            Write-Host 'Publication scan did not pass; no text echoed.'
+            exit 0
+          }
+          $directory = 'TestResults/issue-873-diagnosis'
+          foreach ($name in @('acquisition.json', 'timeline.md', 'heap-observations.jsonl', 'collections.jsonl')) {
+            $file = Join-Path $directory $name
+            if (Test-Path -LiteralPath $file) {
+              Write-Host "::group::$name"
+              Get-Content -LiteralPath $file | ForEach-Object { Write-Host $_ }
+              Write-Host '::endgroup::'
+            }
+          }
+          $processIds = [System.Collections.Generic.HashSet[int]]::new()
+          $observations = Join-Path $directory 'heap-observations.jsonl'
+          if (Test-Path -LiteralPath $observations) {
+            Get-Content -LiteralPath $observations | ForEach-Object {
+              [void]$processIds.Add([int]($_ | ConvertFrom-Json).process_id)
+            }
+          }
+          $recording = Join-Path $directory 'recording.jsonl'
+          if (Test-Path -LiteralPath $recording) {
+            Write-Host '::group::recording.jsonl (long measurement process)'
+            Get-Content -LiteralPath $recording | ForEach-Object {
+              if ($processIds.Contains([int]($_ | ConvertFrom-Json).process_id)) { Write-Host $_ }
+            }
+            Write-Host '::endgroup::'
+          }
+
       - name: Upload anonymous text only
+        id: artifact
         if: always() && steps.publish.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: issue-873-heap-${{ github.run_id }}-${{ github.run_attempt }}
           path: TestResults/issue-873-diagnosis/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Retry anonymous text upload
+        if: always() && steps.artifact.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: issue-873-heap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: TestResults/issue-873-diagnosis/
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true

@@ -8,6 +8,7 @@ import socket
 import signal
 import getpass
 import time
+from issue_873_progress import emit_progress, valid_observation
 
 
 def safe_log(raw, scratch):
@@ -112,7 +113,12 @@ def read_rows(path, errors=None):
     if not path.is_file():
         return rows
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        if text and not text.endswith("\n"):
+            lines = lines[:-1]
+            if errors is not None:
+                errors.append({"source": path.name, "failure_type": "IncompleteLine"})
     except (OSError, UnicodeError) as error:
         if errors is not None:
             errors.append({"source": path.name, "failure_type": type(error).__name__})
@@ -131,7 +137,7 @@ def read_rows(path, errors=None):
     return rows
 
 
-def write_timeline(output, game_ids):
+def write_timeline(output, game_ids, expected_cycles=2):
     observations = [r for r in read_rows(output / "heap-observations.jsonl") if r.get("process_id") in game_ids]
     collections = []
     for row in read_rows(output / "collections.jsonl"):
@@ -146,11 +152,20 @@ def write_timeline(output, game_ids):
              "collections 按 cycle、phase、at 与 observation.collection_at 精确配对；collection.at × 配对频率换算时间。",
              "状态读数发生在原 GC 之后，不能代表 GC 当时的 Task 状态。idle GC 是另一次完整 GC。", "",
              "| PID | cycle | 来源/阶段 | 相对原 GC 秒 | 关键数据 |", "| --- | --- | --- | --- | --- |"]
+    summary = ["", "| PID | cycle | 原 GC live | idle GC live | 原相对首轮增量 | idle 相对首轮增量 | 本轮原到 idle 下降 |",
+               "| --- | --- | --- | --- | --- | --- | --- |"]
     for pid in sorted(game_ids):
-        for cycle in (1, 2):
+        baselines = {}
+        for phase in ("reset-map", "reset-map-idle"):
+            baselines[phase] = next((r.get("managed_live_bytes") for r in collections if r.get("process_id") == pid and r.get("cycle") == 1 and r.get("phase") == phase), None)
+        for cycle in range(1, expected_cycles + 1):
             original = next((r for r in collections if r.get("process_id") == pid and r.get("cycle") == cycle and r.get("phase") == "reset-map"), None)
             idle = next((r for r in collections if r.get("process_id") == pid and r.get("cycle") == cycle and r.get("phase") == "reset-map-idle"), None)
             observed = [r for r in observations if r.get("process_id") == pid and r.get("cycle") == cycle]
+            original_live, idle_live = (r.get("managed_live_bytes") if r else None for r in (original, idle))
+            def difference(a, b):
+                return a - b if type(a) is int and type(b) is int else "unknown"
+            summary.append(f"| {pid} | {cycle} | {original_live} | {idle_live} | {difference(original_live, baselines['reset-map'])} | {difference(idle_live, baselines['reset-map-idle'])} | {difference(original_live, idle_live)} |")
             frequency = (original or {}).get("stopwatch_frequency") or next((r.get("stopwatch_frequency") for r in observed if r.get("stopwatch_frequency")), None)
             base = (original or {}).get("timestamp")
             events = [("collections", r) for r in (original, idle) if r]
@@ -165,14 +180,22 @@ def write_timeline(output, game_ids):
                 values = {key: value for key, value in row.items() if key not in ("timestamp", "stopwatch_frequency", "process_id", "cycle", "phase", "utc")}
                 detail = json.dumps(values, ensure_ascii=False).replace("|", "&#124;")
                 lines.append(f"| {pid} | {cycle} | {source}/{row.get('phase', '?')} | {delta if delta is not None else 'unknown'} | {detail} |")
-    lines += ["", "缺失记录或频率显示 unknown，不用 UTC 推算 Stopwatch 时间。同一 PID 的全部录制阶段分别对照两次原 GC；负时间表示原 GC 前，超过 idle 行的时间表示 idle GC 后。操作 id 不是 cycle。"]
+    lines += summary
+    lines += ["", "缺失记录或频率显示 unknown，不用 UTC 推算 Stopwatch 时间。同一 PID 的全部录制阶段分别对照每次原 GC；负时间表示原 GC 前，超过 idle 行的时间表示 idle GC 后。操作 id 不是 cycle。"]
     (output / "timeline.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def publish_sources(root, scratch, output, game_ids, started_utc, report=None):
+def publish_sources(root, scratch, output, game_ids, started_utc, report=None, expected_cycles=2):
     errors = []
     observations = read_rows(scratch / "heap-observations.jsonl", errors)
-    observations = [row for row in observations if row.get("process_id") in game_ids]
+    game_ids.update(row["process_id"] for row in observations if type(row.get("process_id")) is int and row["process_id"] > 0)
+    valid = []
+    for row in observations:
+        if valid_observation(row, expected_cycles):
+            valid.append(row)
+        else:
+            errors.append({"source": "heap-observations.jsonl", "failure_type": "InvalidObservation"})
+    observations = valid
     for name in ("heap-observations.jsonl", "recording.jsonl"):
         rows = observations if name.startswith("heap-") else read_rows(scratch / name, errors)
         (output / name).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
@@ -190,8 +213,17 @@ def publish_sources(root, scratch, output, game_ids, started_utc, report=None):
     (output / "collections.jsonl").write_text("".join(json.dumps(r) + "\n" for r in collections), encoding="utf-8")
     for path in scratch.glob("*-telemetry.json"):
         (output / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
-    write_timeline(output, game_ids)
+    for pid in sorted(game_ids):
+        for cycle in range(1, expected_cycles + 1):
+            for phase in ("reset-map", "reset-map-idle"):
+                observed = [r for r in observations if r.get("process_id") == pid and r.get("cycle") == cycle and r.get("phase") == phase]
+                if (pid, cycle, phase) not in paired or len(observed) != 1:
+                    errors.append({"source": "gc-observation-pair", "cycle": cycle, "phase": phase, "failure_type": "MissingRecord"})
+    if not game_ids:
+        errors.append({"source": "heap-observations.jsonl", "failure_type": "MissingRecord"})
+    write_timeline(output, game_ids, expected_cycles)
+    for error in errors:
+        emit_progress("failure", cycle=error.get("cycle"), failure_type=error["failure_type"])
     if report is not None:
         report["source_errors"] = errors
-    return not errors and any(all((pid, cycle, phase) in paired for cycle in (1, 2)
-                   for phase in ("reset-map", "reset-map-idle")) for pid in game_ids)
+    return not errors and bool(game_ids)

@@ -7,12 +7,13 @@ import os
 from pathlib import Path
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from issue_873_diagnostics import process_states, restore_game, safe_log, publish_sources
+from issue_873_processes import launch, stop, stop_games, stop_capture
+from issue_873_progress import ObservationProgress, emit_progress
 
 
 class ChildFailure(Exception):
@@ -38,38 +39,6 @@ def release_marker(path, value):
     partial.replace(path)
 
 
-def launch(arguments, log, environment=None):
-    stream = log.open("w", encoding="utf-8")
-    try:
-        process = subprocess.Popen(
-            arguments, stdout=stream, stderr=subprocess.STDOUT, env=environment,
-            start_new_session=os.name != "nt",
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-    finally:
-        stream.close()
-    return process
-
-
-def stop(process):
-    if process is None:
-        return
-    if os.name != "nt":
-        # Every process launched here owns a fresh process group, including descendants.
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-        time.sleep(1)
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    elif process.poll() is None:
-        process.kill()
-    process.wait(timeout=10)
-
-
 def run(arguments, log, timeout=180):
     process = launch(arguments, log)
     try:
@@ -87,8 +56,12 @@ def run(arguments, log, timeout=180):
         stop(process)
 
 
-def wait_file(path, process, deadline):
+def wait_file(path, process, deadline, progress=None):
+    if progress is not None:
+        progress.poll()
     while not path.exists():
+        if progress is not None:
+            progress.poll()
         if process.poll() is not None:
             raise RuntimeError("child exited before marker")
         if time.monotonic() >= deadline:
@@ -189,37 +162,11 @@ def available_memory():
 
 
 def record_failure(report, error):
+    emit_progress("failure", cycle=report.get("cycle"), failure_type=type(error).__name__)
     report["failure_type"] = type(error).__name__
     if isinstance(error, ChildFailure):
         report.update(failed_step=error.step, child_exit_code=error.code,
                       exception_types=error.exception_types, diagnostics=error.diagnostics)
-
-
-def stop_games(game_ids, scratch):
-    if sys.platform != "linux":
-        return
-    for process_id in game_ids:
-        try:
-            values = Path(f"/proc/{process_id}/environ").read_bytes().split(b"\0")
-            if ("TRAIN_HEAP_DIAGNOSIS=" + str(scratch)).encode() in values:
-                os.kill(process_id, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except FileNotFoundError:
-            pass
-
-
-def stop_capture(measurement, game_ids, scratch, report):
-    report["measurement_exit_before_stop"] = measurement.poll()
-    try:
-        stop(measurement)
-    except Exception as error:
-        report["measurement_stop_error"] = type(error).__name__
-    try:
-        stop_games(game_ids, scratch)
-    except Exception as error:
-        report["game_stop_error"] = type(error).__name__
-    report["measurement_exit_after_stop"] = measurement.poll()
 
 
 def analyze_captures(analyzer, dac, scratch, output, report):
@@ -260,11 +207,13 @@ def analyze_captures(analyzer, dac, scratch, output, report):
 def main():
     started = time.monotonic()
     started_utc = time.time()
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog="issue-873-heap")
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path)
-    parser.add_argument("--preflight-only", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--preflight-only", action="store_true")
+    modes.add_argument("--no-dumps", action="store_true")
     options = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     scratch = options.scratch.resolve()
@@ -278,10 +227,14 @@ def main():
             raise ValueError("dumps must be in RUNNER_TEMP")
     scratch.mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
-    report = {"diagnosis_only": True, "stage": "prepare", "succeeded": False, "samples": []}
+    if options.no_dumps:
+        from issue_873_no_dumps import run_no_dumps
+        return run_no_dumps(options, root, scratch, output, started, started_utc)
+    report = {"no_dumps": False, "expected_cycles": 2, "reached_cycles": [], "diagnosis_only": True, "stage": "prepare", "succeeded": False, "samples": []}
     measurement = preflight = None
     game_ids = set()
     sources_published = False
+    progress = ObservationProgress(scratch, game_ids, started, 2)
     try:
         run(["dotnet", "build", str(root / "Tools/HeapDiagnosis/Train.HeapDiagnosis.csproj"),
              "-c", "Release", "--nologo", "-o", str(scratch / "analyzer")], scratch / "analyzer-build.log")
@@ -335,9 +288,11 @@ def main():
         try:
             for cycle in (1, 2):
                 marker = scratch / f"reset-{cycle}.ready"
-                wait_file(marker, measurement, deadline)
+                wait_file(marker, measurement, deadline, progress)
                 process_id = int(marker.read_text())
                 game_ids.add(process_id)
+                report["reached_cycles"].append(cycle)
+                progress.sync(cycle)
                 sample = {"cycle": cycle, "gate_observed_utc": datetime.now(timezone.utc).isoformat()}
                 gate_started = time.monotonic()
                 try:
@@ -386,7 +341,6 @@ def main():
         return 0 if report["succeeded"] else 1
     except Exception as error:
         record_failure(report, error)
-        print("heap diagnosis failed", report["stage"], report["failure_type"])
         return 1
     finally:
         for cycle in (1, 2):
@@ -416,6 +370,7 @@ def main():
                 report["source_publish_error_type"] = type(error).__name__
                 report["succeeded"] = False
         write_json(output / "acquisition.json", report)
+        emit_progress("summary", succeeded=report["succeeded"])
         if cleanup_errors:
             raise RuntimeError("diagnostic cleanup failed")
 
@@ -424,5 +379,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as error:
-        print("heap controller failed", type(error).__name__)
+        emit_progress("failure", failure_type=type(error).__name__)
         sys.exit(1)
