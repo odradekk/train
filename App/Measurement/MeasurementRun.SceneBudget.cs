@@ -68,7 +68,7 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["probe_costs"] = "scene-probe-costs.jsonl";
         _sceneEvidence["clock"] = "Stopwatch.GetTimestamp / Stopwatch.Frequency; absolute monotonic seconds";
         _sceneEvidence["scope"] = _scenario == "scene-soak"
-            ? "standard-world standard mixed load; frames classified against the recipe expectations at the save point"
+            ? $"{_soakTargets.Profile}; frames classified against the latest recipe expectation batch at or before the save point"
             : "current implemented stage load; not the complete standard mixed load";
         _sceneEvidence["capture_only"] = _scenario == "scene-capture";
         _sceneEvidence["reference_only"] = _scenario == "scene-reference";
@@ -78,7 +78,7 @@ internal sealed partial class MeasurementRun
         {
             var host = _app.Host!;
             host.AutoPauseOnFocusLoss = false;
-            await LoadSceneInput();
+            await LoadSceneInput(keepPaused: _scenario == "scene-soak" && !_soakTargets.Standard);
             _sceneEvidence["initial_load"] = new { button = _sceneLoadButton, completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw };
             _sceneEvidence["initial_load_counts"] = SceneLoadCounts();
             // 首次点击不等地图稳态或预构建。
@@ -91,13 +91,13 @@ internal sealed partial class MeasurementRun
                 await OpenSceneMeasured("reference-node", new WorldObjectId.Node(_node));
                 await ReturnSceneMap();
                 await LoadSceneInput();
-                await OpenSceneMeasured("reference-edge", new WorldObjectId.Edge(new(11)));
+                await OpenSceneMeasured("reference-edge", new WorldObjectId.Edge(_edge));
                 await ReturnSceneMap();
                 await LoadSceneInput();
                 await OpenSceneMeasured("reference-follow", new WorldObjectId.Train(_train));
                 // 窗口长测另打开节点 3 和边 15；参考运行在世界里有这两处时一并记录。
                 var world = host.GetStatus()!.View.World;
-                if (world.Nodes.Any(node => node.Id == SoakNodeBattle.Id) && world.Edges.Any(edge => edge.Id == SoakLineBattle.Id))
+                if (_soakTargets.Standard && world.Nodes.Any(node => node.Id == SoakNodeBattle.Id) && world.Edges.Any(edge => edge.Id == SoakLineBattle.Id))
                 {
                     await ReturnSceneMap();
                     await LoadSceneInput();
@@ -115,7 +115,7 @@ internal sealed partial class MeasurementRun
                 {
                     await ReturnSceneMap();
                     await OpenSceneMeasured("node-reopen", new WorldObjectId.Node(_node));
-                    await OpenSceneMeasured("node-to-edge", new WorldObjectId.Edge(new(11)));
+                    await OpenSceneMeasured("node-to-edge", new WorldObjectId.Edge(_edge));
                     await OpenSceneMeasured("edge-to-node", new WorldObjectId.Node(_node));
                     await ReturnSceneMap();
                     await LoadSceneInput();
@@ -124,14 +124,14 @@ internal sealed partial class MeasurementRun
             }
             else if (_scenario == "scene-edge")
             {
-                await OpenSceneMeasured("map-edge", new WorldObjectId.Edge(new(11)));
+                await OpenSceneMeasured("map-edge", new WorldObjectId.Edge(_edge));
                 if (!IsLowOrbit)
                 {
                     await ReturnSceneMap();
-                    await OpenSceneMeasured("edge-reopen", new WorldObjectId.Edge(new(11)));
+                    await OpenSceneMeasured("edge-reopen", new WorldObjectId.Edge(_edge));
                     await ReturnSceneMap();
                     await LoadSceneInput();
-                    await OpenSceneMeasured("reload-edge", new WorldObjectId.Edge(new(11)), _sceneLoadButton);
+                    await OpenSceneMeasured("reload-edge", new WorldObjectId.Edge(_edge), _sceneLoadButton);
                 }
             }
             else if (_scenario is "scene-follow" or "scene-follow-8x")
@@ -185,6 +185,8 @@ internal sealed partial class MeasurementRun
             ReadIdentity(_train, IsRouteMeasurement ? RouteSpeed :
                 _scenario is "scene-follow-8x" or "scene-soak" ? SimulationSpeed.Eight : SimulationSpeed.One);
             _identity["node"] = _node.Value;
+            _identity["edge"] = _edge.Value;
+            _identity["soak_profile"] = _soakTargets.Profile;
             _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
             _identity["sample_seconds"] = IsRouteMeasurement ? _timing!.ElapsedSeconds :
                 _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) :
@@ -209,54 +211,6 @@ internal sealed partial class MeasurementRun
         }
     }
 
-    // allowRejected 只用于长测的玩家存档往返：被拒绝的读档保留原对局，返回 false 供调用方记录。
-    private async Task<bool> LoadSceneInput(bool restoreInput = false, bool allowRejected = false)
-    {
-        _scenePhase = "load";
-        await Wait(() => !_app.Saves!.IsBusy);
-        var menu = _app.GetNode<MainMenu>("MainMenu");
-        using var input = File.OpenRead(_input);
-        var header = SaveContainer.ReadHeader(input);
-        var store = new FileSaveStore(OS.GetUserDataDir());
-        Directory.CreateDirectory(store.DirectoryFor(header.Id));
-        var copy = store.PathFor(header.Id);
-        if (restoreInput || !File.Exists(copy)) File.Copy(_input, copy, overwrite: true);
-        menu.OpenSaves();
-        var panel = menu.GetChildren().OfType<SavePanel>().Single();
-        var list = SceneUiDescendants(panel).OfType<ItemList>().Single();
-        var entries = panel.Entries;
-        var index = entries.Select((entry, index) => (entry, index)).Single(pair => pair.entry.Path == copy).index;
-        list.Select(index);
-        var button = SceneUiDescendants(panel).OfType<Button>().Single(item => item.Text == "读取选中存档");
-        var previous = _app.Host!.GetStatus()?.Binding;
-        _sceneLoadButton = Seconds();
-        button.EmitSignal(BaseButton.SignalName.Pressed);
-        await Wait(() =>
-        {
-            if (SceneUiDescendants(panel).OfType<ConfirmationDialog>()
-                    .FirstOrDefault(dialog => dialog.Title == "未保存的更改") is { Visible: true } leave &&
-                _app.Saves!.Leaving is { Waiting: false })
-                leave.EmitSignal(AcceptDialog.SignalName.CustomAction, "discard");
-            return !_app.Saves!.IsBusy && _app.Host!.GetStatus() is not null;
-        });
-        _sceneLoadCompleted = Seconds();
-        var replaced = _app.Host!.GetStatus()!.Binding != previous;
-        if (!replaced && !allowRejected)
-            throw new InvalidOperationException("读档没有替换当前对局：" + _app.Saves!.LastMessage);
-        panel.EmitSignal(Window.SignalName.CloseRequested);
-        if (!replaced) return false;
-        if (_app.Host!.SetSpeed(SimulationSpeed.One) is not null || _app.Host.SetPaused(false) is not null)
-            throw new InvalidOperationException("不能启动测量负载。");
-        var previousDraw = _sceneDrawCount;
-        await Wait(() => _sceneDrawCount > previousDraw &&
-            _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree() && !_app.WorldScenes!.View.Visible &&
-            !panel.Visible && !_app.Saves!.IsBusy);
-        _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "load-map", button = _sceneLoadButton,
-            completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw }, SceneJson));
-        if (_app.Host!.GetStatus()!.IsReplay) throw new InvalidDataException("测量输入不能是重放。");
-        return true;
-    }
-
     private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
     {
         ResetSceneProbe();
@@ -276,6 +230,8 @@ internal sealed partial class MeasurementRun
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
         if (target is WorldObjectId.Node node && _app.Host!.GetStatus()!.View.FindNode(node.Id) is not Lookup<NodeView>.Found)
             throw new InvalidDataException($"测量存档中没有节点 {node.Id.Value}。");
+        if (target is WorldObjectId.Edge edge && !_app.Host!.GetStatus()!.View.World.Edges.Any(item => item.Id == edge.Id))
+            throw new InvalidDataException($"测量存档中没有线路 {edge.Id.Value}。");
         // 与 GameUi.OpenScene 相同。
         var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(FollowedVehicle.Of(
             MeasuredTrain(), _app.Host!.GetStatus()!.View, _app.Host.Content!))) : null;

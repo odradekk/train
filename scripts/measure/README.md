@@ -1,8 +1,10 @@
 # 测量辅助脚本
 
-`measure.ps1` 默认测量无需参考文件的 `scene-route-1x`、`scene-route-8x`，其余场景须显式选择；`export-measurement.ps1` 用于导出。场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。脚本使用 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
+`measure.ps1` 默认测量无需参考文件的 `scene-route-1x`、`scene-route-8x`，其余场景须显式选择；`export-measurement.ps1` 用于导出。场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。依赖 PowerShell 7、Python 3 和系统计数器。
 
 `-NodeReadyHold` 仅使 `scene-node-first` 和参考运行的指定节点 Ready 后保持 60 秒，其余场景忽略。runner 的 `measure_node_ready_hold` 默认 false，仅传给 `measure` 的参考和场景运行。首开 `measure_seconds` 为 0–120，不改保持时长（默认 5 秒，开启后 60 秒）；混选路线须为 0。`scene-map` 末段纯地图固定保持 60 秒，不受此参数控制；其他地图保持仍为 5 秒。旧 `scene-map` 读数不可比；已提交的基线见 [baselines/](baselines/)。
+
+`measure.ps1` 和 `run-measurement.ps1` 共用 `-TrainId`／`-NodeId`／`-EdgeId`／`-SoakProfile`。默认值、三个重负载存档的目标和 workflow 调用见[为存档指定测量目标](targets.md)。
 
 ## 开发机交替对照
 
@@ -143,7 +145,7 @@ python scripts/measure/scene-scale.py verify --input TestResults/scene-scale-inp
 
 失败时保留 JSON、日志和分项结果。`stage` 记录具体阶段，命令失败的 `RuntimeError` 消息写入 `failure`，`failed_observation` 指向已有失败观测 JSON。
 
-Linux 的 `measure_input_set=scene-scale` 生成四档后，仅对 1／10× 串行运行参考和所选场景，正式选择 `scene-node-first`。30／100× 打开内存超过测试机容量，仅生成存档和统计。开发机核对应使用待验收提交运行 `verify`，只打开 1／10×，两档均作十秒复核。测量结果在 `scale-<倍率>x/`；`scale-inputs/` 保留根目录 JSON、日志和 `saves/`，结束时清理临时内容树。`example` 输入集仍限 `examples/` 文件。
+Linux 规模输入的生成档位、运行范围和产物布局见 [CI](../../docs/ci.md#linux-夜间运行)。开发机用待验收提交运行 `verify`，只打开 1／10×，两档均作十秒复核。
 
 ## 测试与手动验证
 
