@@ -55,18 +55,18 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 | --- | --- | --- |
 | `measure_scenarios` | 逗号分隔的场景列表，由 `measure.ps1` 校验 | `scene-reference` |
 | `measure_input_set` | `example` 使用示例；`scene-scale` 用被测 checkout 的已提交配方生成 1×、10×、30×、100× 场景输入 | `example` |
-| `measure_input` | `example`／`window-soak` 的 `examples/` 存档 | `examples/standard-world/save.json` |
+| `measure_input` | 被测 checkout 中已存在的 `examples/` 存档（`example`／`window-soak`） | `examples/standard-world/save.json` |
 | `measure_train`／`measure_node`／`measure_edge` | 正整数；参考和场景共用 | 留空（1／2／11；默认长测线路 15） |
 | `measure_soak_profile` | `standard-world`、`crowded-station`、`busy-combat`、`long-consist` | `standard-world` |
 | `measure_repeat` | 每个所选场景的轮数 | `3` |
 | `measure_node_ready_hold` | 仅 `measure`：参考中指定节点和首开在 Ready 后保持 60 秒；路线忽略 | `false` |
 | `measure_seconds` | 每轮时长，秒；`0` 使用场景默认值 | `0` |
 
-运行器只导出一次 Release。`example` 先跑一次 `scene-reference`，把参考文件通过 `ReferencePath` 传给每个所选场景；这次准备不计入指定轮数。因此默认选择还会再跑 3 次 `scene-reference`。
+只导出一次 Release。`example` 先跑一次 `scene-reference`，通过 `ReferencePath` 供所选场景使用，不计轮数；默认选择另跑 3 次参考。
 
 `scene-scale` 调用被测 checkout 的 `scripts/measure/scene-scale.py generate`，构建 Release CLI 和 SceneScale 工具，对四档执行 bounds、make 和 stats，生成存档及统计。运行器固定只对 1×、10× 执行参考准备和所选场景，轮数取 `measure_repeat`；30×、100× 的打开内存需求超出测试机容量，只生成存档及统计。该输入集忽略 `measure_input`，只使用仓库内的固定配方；正式打开测量选择 `scene-node-first`。runner 不运行 ready 或 local；近景核对在本机独立运行 `scene-scale.py verify`，只核对 1×、10×，两档都做 10 秒复核。
 
-手动选择 `window-soak` 时，同一运行器使用 `example`、`scene-soak`、`measure_input` 指定的存档、Repeat 1，时长取 `soak_seconds`（默认 7200 秒）。这些选择均只报告测量结果，不强制性能预算。结果写入 `TestResults/measure-<UTC时间戳>-<被测提交短SHA>/`。`example` 的 `reference/` 是准备运行，`scenarios/` 是所选场景；`scene-scale` 在 `scale-1x/`、`scale-10x/` 分开保存各档的 `reference/` 和 `scenarios/`。`scale-inputs/` 保留并上传生成器根目录的 JSON（含 `scale-manifest.json`）、`.log` 文件及 `saves/`，不保留临时内容树 `inputs/`。`export/` 共用同一次导出日志。顶层 `summary.json` 记录 `input_set` 和各档阶段、成功状态。各档独立记录失败状态，某档参考或场景测量失败后继续其他档位，最后只要有失败就以非零退出。生成失败时保留已产生的清单和日志，并以非零退出。每个场景目录中的 `summary.json.runs` 仍供离线汇总使用，不能把不同档位混合统计。
+`window-soak` 使用 `example`、`scene-soak`、`measure_input` 指定的存档、Repeat 1，时长取 `soak_seconds`（默认 7200 秒）；`measure_train`、`measure_node`、`measure_edge`、`measure_soak_profile` 同样生效，见[测量目标](../scripts/measure/targets.md)。仅报告结果，不检查性能预算。输出到 `TestResults/measure-<UTC时间戳>-<被测提交短SHA>/`。`example` 的 `reference/` 是准备运行，`scenarios/` 是所选场景；`scene-scale` 在 `scale-1x/`、`scale-10x/` 分开保存各档的 `reference/` 和 `scenarios/`。`scale-inputs/` 保留并上传生成器根目录的 JSON（含 `scale-manifest.json`）、`.log` 文件及 `saves/`，不保留临时内容树 `inputs/`。`export/` 共用同一次导出日志。顶层 `summary.json` 记录 `input_set` 和各档阶段、成功状态。各档独立记录失败，参考或场景失败后继续其他档位，最终非零退出。生成失败也非零退出，保留已有清单和日志。各场景的 `summary.json.runs` 供离线汇总，不同档位不得混合统计。
 
 规模路径的 [P2-R](https://github.com/odradekk/train/actions/runs/40626707062) 对 1×、10× 各跑参考和首开 1 轮；[F2](https://github.com/odradekk/train/actions/runs/40636009701) 各跑参考 1 轮、首开 30 轮。下表单位为秒，依据 job/step 时间及进程报告，不用 ZIP mtime 推断阶段。
 
@@ -79,7 +79,7 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 | Window 未分离余项 | 79.925 | 196.383 |
 | publish / upload / cleanup | 3 / 5 / 1 | 18 / 22 / <1 |
 
-未分离余项包含生成、准备及脚本开销，没有独立生成 wall 计时，不能当作纯生成耗时。这些记录供规模路径排期参考，不是时长上界或新阈值；本机近景核对另计。
+未分离余项包含生成、准备及脚本开销，没有独立生成 wall 计时，不能当作纯生成耗时。这些记录仅供排期参考，不作时长上界或阈值；本机近景核对另计。
 
 这两种选择只能经 `workflow_dispatch` 触发，会在主机屏幕上打开游戏窗口，运行前须与协调者确认 runner 时段和主机条件。输入通过环境变量传入脚本。工作流从 `GITHUB_SHA` 归档 `scripts/` 到 `RUNNER_TEMP` 并保留目录结构，运行该版本的脚本；`export-measurement.ps1 -SourceDirectory` 指向被测 checkout，所以也能测量搬迁前的提交。运行器把官方 `Godot_v4.7.2-stable_mono_export_templates.tpz` 缓存在 runner 工具目录，每次按同一发布的 `SHA512-SUMS.txt` 重新核对，只解出 `linux_release.x86_64` 到 `RUNNER_TEMP`，再导出 Linux Release。游戏使用 runner 用户自己的桌面会话。主机须安装 gamescope；入口始终用 `gamescope -w 1920 -h 1080 -W 1920 -H 1080 --` 固定游戏输出为 1920×1080，找不到 gamescope 时失败。
 
@@ -87,7 +87,7 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 所有 Linux 运行的 `always()` 发布步骤均用工作流版本的 `scripts/measure/publish-measurement.ps1` 处理整个 `TestResults/` 的文本：把 HOME、PSHOME、Python 所在目录、GITHUB_WORKSPACE、RUNNER_TEMP、RUNNER_TOOL_CACHE 和 runner 根目录等已知绝对路径前缀换成占位符，再扫描本机主机名、用户名、home 路径、运行时 socket 路径和 sudo 字样；检查或测量失败时也执行。`tool-path` 类别独立采集运行时的 Python 目录、Godot 所在目录、PSHOME、DOTNET_ROOT、RUNNER_TOOL_CACHE、RUNNER_WORKSPACE 和 RUNNER_TEMP，按实际值精确检查残留，防止替换表漏项。所有 Linux artifact 只含文本证据和 PNG：PNG 不扫描内容，其余文件在发布前删除，日志只记录删除数量。删除类型包括二进制转储、`.gdignore` 和 `.html` 报告。所有文件名仍须通过身份检查。扫描未通过则步骤失败，不发布 step summary 或 artifact，报错只写相对文件名、行号和类别，不写命中的值；行号为 0 表示文件名命中或读取失败。输出不写 sudo 状态或 socket 路径，显示只记作 `x11 :N` 或 `wayland`。
 
-以上事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。这些路径不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly`、带示例名的 `Linux long-example`、`Linux measure` 和 `Linux window-soak`。目前只有一台匹配的 runner，任务自然排队，不设置额外并发组；runner 排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
+以上事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。均不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly`、带示例名的 `Linux long-example`、`Linux measure` 和 `Linux window-soak`。仅一台 runner，任务自然排队，无额外并发组；排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
 
 全量检查 job 上限为 138 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟、crowded-station 175 分钟，其余 105 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。`measure` 固定上限为 720 分钟，容纳两小时场景的 3 轮及导出、参考运行和退出余量。自托管 runner 已用于 `lease-expiry` 的 485 分钟长 job；所选场景总耗时超过 720 分钟时，仍由 job 时限终止。窗口长测的上限仍为 200 分钟：7200 秒循环、跑完最后一段（约 16 分钟）、导出与参考运行（缓存模板时约 5 分钟）合计约 150 分钟，另留余量；首次正式运行后按同一预算原则核对。
 

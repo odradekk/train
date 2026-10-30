@@ -25,4 +25,4 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> `
   -f measure_soak_profile=busy-combat -f soak_seconds=300
 ```
 
-`window-soak` 每个 job 固定一轮，默认 7200 秒。#866 的正式基线另按批准计划为每个存档跑三次独立的 9000 秒 job；预演不计入正式轮数。打开、内存和路线测量选择 `measure`，同样传入存档、目标及配置，其他输入见 [CI](../../docs/ci.md#linux-夜间运行)。
+`window-soak` 每个 job 固定一轮，默认 7200 秒。打开、内存和路线测量选择 `measure`，同样传入存档、目标及配置，其他输入见 [CI](../../docs/ci.md#linux-夜间运行)。

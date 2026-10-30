@@ -14,20 +14,17 @@ namespace Train.App.Measurement;
 // 重负载暂停读档后先开主视图，1×／8×各 10 秒，再循环地图、节点、线路、跟随及编辑器。
 // Stopwatch 记录墙钟与逐帧实际步数；内存读进程私有字节、工作集、Godot 缓冲区和纹理，地图主动 GC 单列。
 // 主体内不读档，让 5 分钟自动存档、每 18,000 步录制起点累积至轮换；段末八次存读。中位数及范围按轮报告，
-// 负载下降或没有完整小时的数据保持未知。功能回归用宿主、引擎测试，真实窗口证据在 runner；不改产品接口。
-// 反向检查：SoakExpectationsTests 拒绝旧会话／采样前计数；SoakTargetsTests 固定默认目标和速度顺序。
+// 逐项帧判定涵盖全部负载类别；基线另按负载类别重算。内存增长规则未定，保持未知。
+// 尚未做注入开销的反向性能验证；宿主测试只验证计数、目标和序列规则，真实窗口证据在 runner。
 internal sealed partial class MeasurementRun
 {
     private const int SoakBodySeconds = 720;
     private const int SoakRoundTrips = 8;
     private const double SoakSampleSeconds = 10;
-    private const string SoakFullLoad = "full";
     private const string SoakLoadWithoutLineBattle = "all-but-line-battle";
-    private const string SoakLoadBelow = "below-recipe";
-    private readonly WorldObjectId.Node SoakSettlement;
+    private readonly WorldObjectId.Node _soakNode;
     private static readonly WorldObjectId.Node SoakNodeBattle = new(new(3));
-    private readonly WorldObjectId.Edge SoakLineBattle;
-    private TrainId SoakTrain => _soakTargets.Train;
+    private readonly WorldObjectId.Edge _soakEdge;
     // 线路战斗在保存点后约 1,500 步（约 25 游戏秒）结束，所以另设一档不含线路战斗的负载。
     private static readonly string[] SoakLineBattleKeys = ["armed_combats", "armed_line_combats"];
 
@@ -48,7 +45,7 @@ internal sealed partial class MeasurementRun
     private ImmutableSortedDictionary<string, double>? _soakLoad;
     private Task<SoakCount>? _soakCounting;
     private readonly SoakLoadWindow _soakWindow = new();
-    private string _soakLoadClass = SoakLoadBelow;
+    private string _soakLoadClass = SoakLoadWindow.BelowRecipe;
     private double _soakLoadAt, _soakLoadTakenAt;
     private SoakSample? _soakSample;
     private SoakPeak? _soakPeak;
@@ -84,7 +81,6 @@ internal sealed partial class MeasurementRun
         var host = _app.Host!;
         var duration = _sceneDuration > 0 ? _sceneDuration : 7200;
         ReadSoakExpectations();
-        _soakSaveId = SaveHeaderId();
         // 产品默认 1 小时；每段主体约 12 分钟，改用 5 分钟才能在同一会话里观察到 3 槽轮换。
         _app.Saves!.SetAutoSaveInterval(TimeSpan.FromMinutes(5));
         host.BoundaryCompleted += CountSoakEncounters;
@@ -111,7 +107,7 @@ internal sealed partial class MeasurementRun
                         host.SessionOptions!.RetainedRecordingStarts / Math.Max(1e-9,
                         (host.GetStatus()!.View.Position.CompletedSteps - roundSteps) / (Seconds() - roundStarted))));
                 } while (Seconds() - bodyStarted < _soakBody);
-                for (var trip = 0; trip < SoakRoundTrips; trip++) await RunSoakRoundTrip(trip % 2 == 0 ? SoakSettlement : SoakLineBattle);
+                for (var trip = 0; trip < SoakRoundTrips; trip++) await RunSoakRoundTrip(trip % 2 == 0 ? _soakNode : _soakEdge);
             } while (Seconds() - started < duration);
             _soakHeaps.Add((_soakSegment, "final", Seconds(), CollectSceneHeap(_soakSegment, "final-map")));
             _sceneEvidence["soak"] = SummarizeSoak(Seconds() - started, _soakBody ?? 0);
@@ -173,18 +169,18 @@ internal sealed partial class MeasurementRun
                 $"{item.Counter} 期望 {item.Minimum}–{item.Maximum}，实际 {counts.GetValueOrDefault(item.Counter)}")));
             return;
         }
-        var node = view.World.Nodes.Single(item => item.Id == SoakSettlement.Id);
+        var node = view.World.Nodes.Single(item => item.Id == _soakNode.Id);
         if (node.Occupant is not NodeOccupant.Settlement settlement ||
             ((Lookup<SettlementView>.Found)view.FindSettlement(settlement.Id)).Value.Relation != SettlementRelation.PlayerOwned)
-            throw new InvalidDataException($"长测目标不成立：节点 {SoakSettlement.Id.Value} 不是玩家聚居地。");
+            throw new InvalidDataException($"长测目标不成立：节点 {_soakNode.Id.Value} 不是玩家聚居地。");
         if (WorldCounts.Read(view, content, SoakNodeBattle.Id)["armed_combats"] < 1)
             throw new InvalidDataException("长测目标不成立：节点 3 没有玩家武装参战的战斗。");
         if (WorldCounts.Read(view, content)["armed_line_combats"] < 1 ||
-            !view.World.Combats.Any(combat => combat.Location is WorldLocation.Edge { Id: var edge } && edge == SoakLineBattle.Id))
-            throw new InvalidDataException($"长测目标不成立：线路 {SoakLineBattle.Id.Value} 没有玩家武装参战的线路战斗。");
-        var train = ((Lookup<TrainView>.Found)view.FindTrain(SoakTrain)).Value;
+            !view.World.Combats.Any(combat => combat.Location is WorldLocation.Edge { Id: var edge } && edge == _soakEdge.Id))
+            throw new InvalidDataException($"长测目标不成立：线路 {_soakEdge.Id.Value} 没有玩家武装参战的线路战斗。");
+        var train = ((Lookup<TrainView>.Found)view.FindTrain(_soakTargets.Train)).Value;
         if (train.Activity != TrainActivity.Running)
-            throw new InvalidDataException($"长测目标不成立：列车 {SoakTrain.Value} 不在运行，当前为 {train.Activity}。");
+            throw new InvalidDataException($"长测目标不成立：列车 {_soakTargets.Train.Value} 不在运行，当前为 {train.Activity}。");
     }
 
     private async Task RunSoakRound(int round)
@@ -193,19 +189,19 @@ internal sealed partial class MeasurementRun
         var speeds = _soakTargets.Speeds(round);
         foreach (var speed in speeds) await SampleSoakView("map", speed);
         await HoldSoakMap(1);
-        await SoakOpen(_sceneOpenedTargets.Contains(SoakSettlement.ToString()) ? "node-reopen" : "node-first", SoakSettlement);
+        await SoakOpen(_sceneOpenedTargets.Contains(_soakNode.ToString()) ? "node-reopen" : "node-first", _soakNode);
         foreach (var speed in speeds) await SampleSoakView(_soakTargets.NodeView, speed);
-        await SoakOpen("node-to-line", SoakLineBattle);
+        await SoakOpen("node-to-line", _soakEdge);
         foreach (var speed in speeds) await SampleSoakView("line", speed);
         if (_soakTargets.Standard)
         {
             await SoakOpen("line-to-node", SoakNodeBattle);
             foreach (var speed in speeds) await SampleSoakView("node-battle", speed);
             await SoakReturnMap();
-            await SoakOpen("line-reopen", SoakLineBattle);
+            await SoakOpen("line-reopen", _soakEdge);
         }
         await SoakReturnMap();
-        await SoakOpen("follow", new WorldObjectId.Train(SoakTrain));
+        await SoakOpen("follow", new WorldObjectId.Train(_soakTargets.Train));
         foreach (var speed in speeds) await SampleSoakView("follow", speed);
         await SoakReturnMap();
         await RunSoakEditor();
@@ -230,7 +226,7 @@ internal sealed partial class MeasurementRun
     {
         var editor = _app.Editor!;
         var view = _app.Host!.GetStatus()!.View;
-        var vehicle = ((Lookup<TrainView>.Found)view.FindTrain(SoakTrain)).Value.Vehicles[0];
+        var vehicle = ((Lookup<TrainView>.Found)view.FindTrain(_soakTargets.Train)).Value.Vehicles[0];
         await SoakOperationTimed("editor-open", "editor-open", async () =>
         {
             var start = Seconds();

@@ -19,19 +19,20 @@ internal static class MeasurementReport
         var testMachine = identity.TryGetValue("machine", out var machine) && machine?.ToString() == "test";
         var nested = identity.TryGetValue("system", out var system) && system is JsonElement { ValueKind: JsonValueKind.Object } host &&
             host.TryGetProperty("display_wrapper", out var wrapper) && wrapper.ValueKind == JsonValueKind.Object;
+        var world = scenario == "scene-soak" ? identity.GetValueOrDefault("soak_profile")?.ToString() ?? "standard-world" : "current-stage";
         return JsonSerializer.Serialize(new
         {
             outcome = failure is null ? "completed" : "failed",
             problem = failure,
             scenario,
             scope = new { stage = scenario == "scene-soak" ? 6 : 2,
-                world = scenario == "scene-soak" ? "standard-world" : "current-stage",
+                world,
                 machine = testMachine ? "test" : "development",
                 content = "formal-assets-at-tested-commit",
                 art_review = "美术 Issue #358–#363、#393–#396 的 PR 已合并，正式外观仍待用户目视确认",
                 composition = nested ? "游戏在 gamescope 嵌套合成器中以 1920×1080 输出运行，画面先经 gamescope 合成再交给主机合成器；参数见 identity.system.display_wrapper" : null,
                 final_performance = false,
-                unmeasured = Unmeasured(scenario, testMachine) },
+                unmeasured = Unmeasured(scenario, testMachine, world) },
             identity,
             timing,
             assessment = new
@@ -44,12 +45,13 @@ internal static class MeasurementReport
         }, Json);
     }
 
-    private static string[] Unmeasured(string scenario, bool testMachine)
+    private static string[] Unmeasured(string scenario, bool testMachine, string world)
     {
-        // 窗口长测本身就是完整窗口长测，未覆盖的是核心长测、新进程首开和配方负载只在重置后短暂成立。
+        // 窗口长测仍未覆盖核心长测和新进程首开；只有标准世界的完整配方负载很快下降。
         string[] gaps = scenario == "scene-soak"
-            ? ["core_24h_long_run_#367", "process_first_open_node_line_follow", "full_recipe_load_only_briefly_after_each_reset"]
+            ? ["core_24h_long_run_#367", "process_first_open_node_line_follow"]
             : ["full_demo_load", "long_runs"];
+        if (world == "standard-world") gaps = [.. gaps, "full_recipe_load_only_briefly_after_each_reset"];
         return testMachine ? gaps : [.. gaps, "target_hardware"];
     }
 }

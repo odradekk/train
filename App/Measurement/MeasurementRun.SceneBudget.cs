@@ -48,6 +48,7 @@ internal sealed partial class MeasurementRun
 
     private async Task RunSceneBudget()
     {
+        _identity["soak_profile"] = _soakTargets.Profile;
         _identity["encounter_action"] = ConfigureEncounterAction(_scenario, _app.Notifications);
         var directory = Path.GetDirectoryName(_output)!;
         using var frames = new StreamWriter(Path.Combine(directory, "scene-frames.jsonl"));
@@ -97,14 +98,14 @@ internal sealed partial class MeasurementRun
                 await OpenSceneMeasured("reference-follow", new WorldObjectId.Train(_train));
                 // 窗口长测另打开节点 3 和边 15；参考运行在世界里有这两处时一并记录。
                 var world = host.GetStatus()!.View.World;
-                if (_soakTargets.Standard && world.Nodes.Any(node => node.Id == SoakNodeBattle.Id) && world.Edges.Any(edge => edge.Id == SoakLineBattle.Id))
+                if (_soakTargets.Standard && world.Nodes.Any(node => node.Id == SoakNodeBattle.Id) && world.Edges.Any(edge => edge.Id == _soakEdge.Id))
                 {
                     await ReturnSceneMap();
                     await LoadSceneInput();
                     await OpenSceneMeasured("reference-node-battle", SoakNodeBattle);
                     await ReturnSceneMap();
                     await LoadSceneInput();
-                    await OpenSceneMeasured("reference-line-battle", SoakLineBattle);
+                    await OpenSceneMeasured("reference-line-battle", _soakEdge);
                 }
                 WriteSceneReference();
             }
@@ -186,7 +187,6 @@ internal sealed partial class MeasurementRun
                 _scenario is "scene-follow-8x" or "scene-soak" ? SimulationSpeed.Eight : SimulationSpeed.One);
             _identity["node"] = _node.Value;
             _identity["edge"] = _edge.Value;
-            _identity["soak_profile"] = _soakTargets.Profile;
             _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
             _identity["sample_seconds"] = IsRouteMeasurement ? _timing!.ElapsedSeconds :
                 _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) :

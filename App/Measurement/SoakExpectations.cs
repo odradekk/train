@@ -47,11 +47,14 @@ internal sealed record SoakCount(ImmutableSortedDictionary<string, double> Count
 
 internal sealed class SoakLoadWindow
 {
+    internal const string FullLoad = "full";
+    internal const string BelowRecipe = "below-recipe";
+    internal const string Unknown = "unknown";
     private HostBinding _binding;
     private double _started;
     internal SoakCount? Reading { get; private set; }
     internal SoakExpectation[] Failed { get; private set; } = [];
-    internal string LoadClass => Reading is null ? "unknown" : Failed.Length == 0 ? "full" : "below-recipe";
+    internal string LoadClass => Reading is null ? Unknown : Failed.Length == 0 ? FullLoad : BelowRecipe;
 
     internal void Begin(HostBinding binding, double started)
     {

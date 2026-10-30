@@ -29,9 +29,9 @@ internal sealed partial class MeasurementRun
                 }
                 var failed = (_soakTargets.Standard ? _soakExpectations?.Failed(counts) ?? [] : _soakWindow.Failed)
                     .Select(item => item.Counter).ToArray();
-                _soakLoadClass = !_soakTargets.Standard ? _soakWindow.LoadClass : failed.Length == 0 ? SoakFullLoad :
-                    _soakTargets.Standard && failed.Contains("armed_line_combats") && failed.All(key => SoakLineBattleKeys.Contains(key))
-                        ? SoakLoadWithoutLineBattle : SoakLoadBelow;
+                _soakLoadClass = !_soakTargets.Standard ? _soakWindow.LoadClass : failed.Length == 0 ? SoakLoadWindow.FullLoad :
+                    failed.Contains("armed_line_combats") && failed.All(key => SoakLineBattleKeys.Contains(key))
+                        ? SoakLoadWithoutLineBattle : SoakLoadWindow.BelowRecipe;
                 _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "soak-load", at, applied = now, segment = _soakSegment,
                     phase = _scenePhase, load_class = _soakLoadClass, failed, counts, trims = _soakTrims,
                     recording = _app.Recording?.Status }, SceneJson));
@@ -82,19 +82,15 @@ internal sealed partial class MeasurementRun
         var recipe = Path.Combine(Path.GetDirectoryName(_input)!, "recipe.json");
         using var document = JsonDocument.Parse(File.ReadAllText(recipe));
         using var input = File.OpenRead(_input);
-        _soakExpectations = SoakExpectations.Read(document.RootElement, SaveContainer.ReadHeader(input).Position.CompletedSteps);
+        var header = SaveContainer.ReadHeader(input);
+        _soakSaveId = header.Id;
+        _soakExpectations = SoakExpectations.Read(document.RootElement, header.Position.CompletedSteps);
         _sceneEvidence["load_expectations"] = new { recipe = Path.GetFileName(recipe), at = _soakExpectations.ExpectedAt,
             saved_at = _soakExpectations.SavedAt,
             keys = _soakExpectations.Items.Select(item => new { key = item.Key, node = item.Node?.Value, minimum = item.Minimum, maximum = item.Maximum }) };
         _sceneEvidence["unavailable_views"] = _soakTargets.Standard ? Array.Empty<string>() :
             _soakTargets.Profile == "busy-combat" ? ["line-battle: 保存点没有线路战斗；节点视图与 node-battle 相同，不重复采样"] :
             ["line-battle: 保存点没有线路战斗", "node-battle: 保存点没有节点战斗"];
-    }
-
-    private Guid SaveHeaderId()
-    {
-        using var input = File.OpenRead(_input);
-        return SaveContainer.ReadHeader(input).Id;
     }
 
     private (double Private, double Working, double Video) SoakSteady()

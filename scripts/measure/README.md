@@ -1,16 +1,16 @@
 # 测量辅助脚本
 
-`measure.ps1` 默认测量无需参考文件的 `scene-route-1x`、`scene-route-8x`，其余场景须显式选择；`export-measurement.ps1` 用于导出。场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。依赖 PowerShell 7、Python 3 和系统计数器。
+`measure.ps1` 默认测量无需参考文件的 `scene-route-1x`、`scene-route-8x`，其余场景须显式选择；`export-measurement.ps1` 用于导出。场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。依赖 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
 
 `-NodeReadyHold` 仅使 `scene-node-first` 和参考运行的指定节点 Ready 后保持 60 秒，其余场景忽略。runner 的 `measure_node_ready_hold` 默认 false，仅传给 `measure` 的参考和场景运行。首开 `measure_seconds` 为 0–120，不改保持时长（默认 5 秒，开启后 60 秒）；混选路线须为 0。`scene-map` 末段纯地图固定保持 60 秒，不受此参数控制；其他地图保持仍为 5 秒。旧 `scene-map` 读数不可比；已提交的基线见 [baselines/](baselines/)。
 
-`measure.ps1` 和 `run-measurement.ps1` 共用 `-TrainId`／`-NodeId`／`-EdgeId`／`-SoakProfile`。默认值、三个重负载存档的目标和 workflow 调用见[为存档指定测量目标](targets.md)。
+两入口共用 `-TrainId`／`-NodeId`／`-EdgeId`／`-SoakProfile`；默认值、重负载目标和 workflow 调用见[测量目标](targets.md)。
 
 ## 开发机交替对照
 
 `compare-measurement.ps1` 用于 Windows 开发机上同一窗口里的快速对照，在协调者安排的安静窗口里运行。正式测量仍使用 Linux runner 的 `measure` workflow。
 
-准备两侧已有的 Release 导出，以及各自构建的 `scene-reference` 文件。只有需要参考的场景才传参考文件；对照入口不构建、不导出、不制作参考。示例：
+准备两侧已有的 Release 导出；需要参考的场景另备各侧 `scene-reference`。对照入口不构建、导出或制作参考。示例：
 
 ```powershell
 & ./scripts/measure/compare-measurement.ps1 `
@@ -161,8 +161,6 @@ Linux 测量需要 `gamescope` 和 `python3`。输出文件见[测试手册](../
 
 不启动游戏的拒绝路径检查：沿用上面的单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。每次采样均有效且 CPU 均值大于零时，预期有 8 次预检（4 次主序列、4 次补跑）、全部 `measurement_started=false`，并返回 1。查看 `comparison.json` 确认每个计划项只有两次尝试。
 
-
 完整冒烟在安静窗口里以同一导出作为 A 和 B，各跑两轮 `scene-follow-8x -DurationSeconds 2`，再汇总；检查顺序、报告、退出状态、负载日志和每侧有效轮数。每次测量都应成功启动并结束。
-
 
 汇总中两侧帧耗时 p50 都应为 `valid_runs: 2`、`unknown_runs: 0`；检查每轮的 `external-load.jsonl` 是否有有效计数。Linux 采样路径通过 runner 的 `measure` workflow 运行短场景验证，同样检查负载日志。这些冒烟验证编排和采样，不代表性能收益。

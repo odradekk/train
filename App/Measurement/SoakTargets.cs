@@ -5,11 +5,12 @@ namespace Train.App.Measurement;
 // Decision note: 2026-10-26-performance-measurement-system
 internal sealed record SoakTargets(string Profile, TrainId Train, NodeId Node, EdgeId Edge)
 {
+    internal const ulong DefaultEdgeId = 11;
     internal static SoakTargets Create(string profile, TrainId train, NodeId node, EdgeId? edge)
     {
         if (profile is not ("standard-world" or "crowded-station" or "busy-combat" or "long-consist"))
             throw new ArgumentException("未知长测配置：" + profile);
-        return new(profile, train, node, edge ?? new(profile == "standard-world" ? 15UL : 11UL));
+        return new(profile, train, node, edge ?? new(profile == "standard-world" ? 15UL : DefaultEdgeId));
     }
     internal bool Standard => Profile == "standard-world";
     internal string NodeView => Profile == "busy-combat" ? "node-battle" : "settlement";

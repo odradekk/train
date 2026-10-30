@@ -47,11 +47,10 @@ internal sealed partial class MeasurementRun
             // 后台任务可以跨窗口完成；其结果必须晚于新窗口的起点，才能给帧分类。
             var sampling = Seconds();
             _soakWindow.Begin(host.GetStatus()!.Binding, sampling);
-            _soakLoadTakenAt = 0;
             _soakLoad = null;
-            _soakLoadClass = "unknown";
+            _soakLoadClass = SoakLoadWindow.Unknown;
             _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "soak-load", at = sampling, applied = sampling,
-                segment = _soakSegment, phase = _scenePhase, load_class = "unknown", counts = (object?)null }, SceneJson));
+                segment = _soakSegment, phase = _scenePhase, load_class = SoakLoadWindow.Unknown, counts = (object?)null }, SceneJson));
             if (_soakCounting is null) StartSoakCount(host.GetStatus()!);
         }
         await Wait(() => _sceneLastDraw >= started + SoakSampleSeconds || ended?.Invoke() == true && sample.Classes.Count > 0);

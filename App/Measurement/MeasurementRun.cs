@@ -69,11 +69,11 @@ internal sealed partial class MeasurementRun : IDisposable
         }
         _train = new(TargetId(values, "--measure-train", 1));
         _node = new(TargetId(values, "--measure-node", 2));
-        _edge = new(TargetId(values, "--measure-edge", 11));
+        _edge = new(TargetId(values, "--measure-edge", SoakTargets.DefaultEdgeId));
         _soakTargets = SoakTargets.Create(values.GetValueOrDefault("--measure-soak-profile", "standard-world"),
             _train, _node, values.ContainsKey("--measure-edge") ? _edge : null);
-        SoakSettlement = new(_soakTargets.Node);
-        SoakLineBattle = new(_soakTargets.Edge);
+        _soakNode = new(_soakTargets.Node);
+        _soakEdge = new(_soakTargets.Edge);
         _input = Path.GetFullPath(values["--measure-input"]);
         _sceneReferencePath = values.TryGetValue("--measure-reference", out var reference) ? Path.GetFullPath(reference) : null;
         _output = Path.GetFullPath(values["--measure-output"]);

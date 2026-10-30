@@ -34,7 +34,7 @@ $invalid=@(foreach($key in 'TrainId','NodeId','EdgeId','SoakProfile') {
     }
 })
 @{default=$default;valid=$valid;invalid=$invalid}|ConvertTo-Json -Compress
-'''.replace('FILENAME', filename).replace("+ '\\n$SoakProfile'", '+ "`n$SoakProfile"')
+'''.replace('FILENAME', filename)
             data = run(script)
             self.assertEqual('standard-world', data['default'])
             self.assertEqual(['standard-world', 'crowded-station', 'busy-combat', 'long-consist'], data['valid'])
@@ -90,20 +90,39 @@ ConvertTo-Json -InputObject @($records) -Depth 5 -Compress
         for key, value in (('train', '21'), ('node', '15'), ('edge', '23')):
             self.assertEqual(value, data[1][data[1].index('--measure-' + key) + 1])
 
-    def test_workflow_uses_selected_input_and_targets_for_soak(self):
-        source=(ROOT / '.github/workflows/windows-checks.yml').read_text(encoding='utf-8')
-        start=source.index('          $parameters = @{ Scenario = $env:MEASURE_SCENARIOS;')
-        end=source.index('          & "$env:RUNNER_TEMP/measure-tools/scripts/measure/run-measurement.ps1"', start)
-        script=r'''
-$env:CI_SELECTION='window-soak';$env:MEASURE_SCENARIOS='scene-node';$env:MEASURE_INPUT_SET='scene-scale'
+    def test_workflow_forwards_selected_input_and_explicit_targets(self):
+        for selection in ('window-soak', 'measure'):
+            with self.subTest(selection=selection):
+                data = self.workflow_parameters(selection, '21', '15', '23')
+                self.assertEqual('examples/long-consist/save.json', data['InputPath'])
+                self.assertEqual(('21', '15', '23', 'long-consist'),
+                                 tuple(data[k] for k in ('TrainId', 'NodeId', 'EdgeId', 'SoakProfile')))
+                expected = ('scene-soak', 1, '9000') if selection == 'window-soak' else ('scene-node', '3', '0')
+                self.assertEqual(expected, tuple(data[k] for k in ('Scenario', 'Repeat', 'DurationSeconds')))
+                if selection == 'measure':
+                    self.assertEqual('scene-scale', data['InputSet'])
+
+    def test_workflow_omits_empty_targets_to_preserve_game_defaults(self):
+        for selection in ('window-soak', 'measure'):
+            with self.subTest(selection=selection):
+                data = self.workflow_parameters(selection, '', '', '')
+                for key in ('TrainId', 'NodeId', 'EdgeId'):
+                    self.assertNotIn(key, data)
+
+    def workflow_parameters(self, selection, train, node, edge):
+        source = (ROOT / '.github/workflows/windows-checks.yml').read_text(encoding='utf-8')
+        start = source.index('          $parameters = @{ Scenario = $env:MEASURE_SCENARIOS;')
+        end = source.index('          & "$env:RUNNER_TEMP/measure-tools/scripts/measure/run-measurement.ps1"', start)
+        script = r'''
+$env:MEASURE_SCENARIOS='scene-node';$env:MEASURE_INPUT_SET='scene-scale'
 $env:MEASURE_INPUT='examples/long-consist/save.json';$env:MEASURE_REPEAT='3';$env:MEASURE_SECONDS='0';$env:SOAK_SECONDS='9000'
-$env:MEASURE_TRAIN='21';$env:MEASURE_NODE='15';$env:MEASURE_EDGE='23';$env:MEASURE_SOAK_PROFILE='long-consist'
-''' + source[start:end] + '\n$parameters | ConvertTo-Json -Compress'
-        data=run(script)
-        self.assertEqual('examples/long-consist/save.json', data['InputPath'])
-        self.assertEqual('example', data['InputSet'])
-        self.assertEqual(('21','15','23','long-consist'), tuple(data[k] for k in ('TrainId','NodeId','EdgeId','SoakProfile')))
-        self.assertEqual(('scene-soak',1,'9000'), (data['Scenario'],data['Repeat'],data['DurationSeconds']))
+$env:SOAK_PROFILE='long-consist';$env:MEASURE_NODE_READY_HOLD='false'
+'''
+        for key, value in (('CI_SELECTION', selection), ('TRAIN', train),
+                           ('NODE', node), ('EDGE', edge)):
+            script += f"$env:{key}='{value}'\n"
+        script += source[start:end] + '\n$parameters | ConvertTo-Json -Compress'
+        return run(script)
 
 
 if __name__ == '__main__':
