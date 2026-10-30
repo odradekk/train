@@ -317,21 +317,6 @@ internal sealed partial class SceneResources : IDisposable
         });
     }
 
-    private static ArrayMesh CreateMesh(PackedSceneMesh source)
-    {
-        var mesh = new ArrayMesh();
-        try
-        {
-            MeshSurfaces.Add(mesh, Mesh.PrimitiveType.Triangles,
-                flags: (Mesh.ArrayFormat)((ulong)Mesh.ArrayCustomFormat.RgbaFloat << (int)Mesh.ArrayFormat.FormatCustom0Shift),
-                vertices: source.Positions, normals: source.Normals, textureUvs: source.TextureUvs,
-                faceUvs: source.FaceUvs, custom: source.Custom, indices: source.Indices);
-            if (mesh.GetSurfaceCount() != 1) throw new InvalidOperationException("场景网格创建失败。");
-            return mesh;
-        }
-        catch { mesh.Dispose(); throw; }
-    }
-
     private ShaderMaterial GeometryMaterial(PreparedVisual owner, SceneMaterial material)
     {
         if (material is SceneMaterial.Voxel voxel)
