@@ -98,7 +98,7 @@ internal static class RailwayMeshes
         }).ToArray();
         var railSpans = new List<(double Offset, double Start, double End, int Steps,
             float Width, float Height, Vector2[] Profile)>[tracks];
-        var railCapacity = 0;
+        var railQuadCount = 0;
         for (var track = 1; track <= tracks; track++)
         {
             var planned = railSpans[track - 1] = [];
@@ -110,12 +110,12 @@ internal static class RailwayMeshes
             {
                 var steps = RingSteps(sampleAt, spanStart, spanEnd, railOffset, width, height);
                 planned.Add((railOffset, spanStart, spanEnd, steps, width, height, profile));
-                railCapacity += 6 * (profile.Length * steps + 6);
+                railQuadCount += profile.Length * steps + 6;
             }
         }
         var sleeperCount = (int)(Math.Ceiling(end / SleeperSpacingCells) - Math.Ceiling(start / SleeperSpacingCells));
-        var rails = new MeshBuilder(BuiltInMaterial.RailSteel, railCapacity);
-        var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper, sleeperCount * tracks * 5 * 6 * 6);
+        var rails = new MeshBuilder(BuiltInMaterial.RailSteel, railQuadCount);
+        var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper, sleeperCount * tracks * 5 * 6);
         for (var track = 1; track <= tracks; track++)
         {
             var offset = RailwayCoordinates.TrackOffset(track, tracks);
@@ -184,7 +184,7 @@ internal static class RailwayMeshes
     {
         if (gaps.Length == 0) return [];
         var tracks = path.Edge.Tracks;
-        var debris = new MeshBuilder(BuiltInMaterial.Sleeper, 256);
+        var debris = new MeshBuilder(BuiltInMaterial.Sleeper);
         var limit = path.LengthCells;
         foreach (var gap in gaps.OrderBy(item => item.Id.Value))
         {
@@ -250,10 +250,12 @@ internal static class RailwayMeshes
         }
     }
 
-    internal sealed class MeshBuilder(BuiltInMaterial material, int capacity = 0)
+    internal sealed class MeshBuilder(BuiltInMaterial material, int quadCapacity = 0)
     {
-        private readonly ImmutableArray<SceneVertex>.Builder vertices = ImmutableArray.CreateBuilder<SceneVertex>(capacity);
-        private readonly ImmutableArray<int>.Builder indices = ImmutableArray.CreateBuilder<int>(capacity);
+        private readonly record struct QuadData(Vector3 A, Vector3 B, Vector3 C, Vector3 D,
+            Vector3 FirstNormal, Vector3 SecondNormal, bool RailHead, bool SharedCorners);
+        private readonly ImmutableArray<QuadData>.Builder quads = ImmutableArray.CreateBuilder<QuadData>(quadCapacity);
+        private int vertexCount;
         internal void Box(Vector3 center, Vector3 right, Vector3 up, Vector3 forward, float hx, float hy, float hz)
         {
             Vector3 Corner(float x, float y, float z) => center + right * x + up * y + forward * z;
@@ -268,29 +270,46 @@ internal static class RailwayMeshes
         {
             var firstNormal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
             var secondNormal = Vector3.Normalize(Vector3.Cross(c - a, d - a));
-            var firstA = Vertex(a, firstNormal);
-            var firstC = Vertex(c, firstNormal);
-            var secondA = Vertex(a, secondNormal);
-            var secondC = Vertex(c, secondNormal);
-            var start = vertices.Count;
-            Add(firstA); Add(Vertex(b, firstNormal)); Add(firstC);
-            if (firstA == secondA && firstC == secondC)
+            var shared = Vertex(a, firstNormal, railHead) == Vertex(a, secondNormal, railHead) &&
+                Vertex(c, firstNormal, railHead) == Vertex(c, secondNormal, railHead);
+            quads.Add(new(a, b, c, d, firstNormal, secondNormal, railHead, shared));
+            vertexCount += shared ? 4 : 6;
+        }
+        internal SceneMesh Build()
+        {
+            var vertices = ImmutableArray.CreateBuilder<SceneVertex>(vertexCount);
+            var indices = ImmutableArray.CreateBuilder<int>(quads.Count * 6);
+            foreach (var quad in quads)
             {
-                indices.Add(start);
-                indices.Add(start + 2);
+                var start = vertices.Count;
+                Add(Vertex(quad.A, quad.FirstNormal, quad.RailHead));
+                Add(Vertex(quad.B, quad.FirstNormal, quad.RailHead));
+                Add(Vertex(quad.C, quad.FirstNormal, quad.RailHead));
+                if (quad.SharedCorners)
+                {
+                    indices.Add(start);
+                    indices.Add(start + 2);
+                }
+                else
+                {
+                    Add(Vertex(quad.A, quad.SecondNormal, quad.RailHead));
+                    Add(Vertex(quad.C, quad.SecondNormal, quad.RailHead));
+                }
+                Add(Vertex(quad.D, quad.SecondNormal, quad.RailHead));
             }
-            else { Add(secondA); Add(secondC); }
-            Add(Vertex(d, secondNormal));
+            var mesh = new SceneMesh(new SceneMaterial.BuiltIn(material), vertices.MoveToImmutable(), indices.MoveToImmutable());
+            quads.Clear();
+            vertexCount = 0;
+            return mesh;
 
             void Add(SceneVertex vertex)
             {
                 indices.Add(vertices.Count);
                 vertices.Add(vertex);
             }
-            // Built-in steel uses UV.x to distinguish the running surface from the rusty section.
-            SceneVertex Vertex(Vector3 point, Vector3 normal) =>
-                new(point, normal, new(railHead ? 1 : 0, 0), Vector2.Zero, ExposedFaceEdges.None, 0, 0);
         }
-        internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.DrainToImmutable(), indices.DrainToImmutable());
+        // Built-in steel uses UV.x to distinguish the running surface from the rusty section.
+        private static SceneVertex Vertex(Vector3 point, Vector3 normal, bool railHead) =>
+            new(point, normal, new(railHead ? 1 : 0, 0), Vector2.Zero, ExposedFaceEdges.None, 0, 0);
     }
 }

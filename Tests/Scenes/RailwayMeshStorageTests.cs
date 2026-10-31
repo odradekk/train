@@ -44,6 +44,25 @@ public sealed class RailwayMeshStorageTests
     }
 
     [TestMethod]
+    public void MixedFacesKeepTheirSubmissionOrderAndNormalSeams()
+    {
+        var builder = new RailwayMeshes.MeshBuilder(BuiltInMaterial.RailSteel);
+        builder.Quad(new(0, 0, 2), new(1, 0, 2), new(1, 1, 2), new(0, 1, 3));
+        builder.Quad(Vector3.Zero, Vector3.UnitX, new(1, 1, 0), Vector3.UnitY, true);
+        var mesh = builder.Build();
+        var foldedNormal = Vector3.Normalize(new(1, -1, 1));
+        CollectionAssert.AreEqual(new[]
+        {
+            Vertex(new(0, 0, 2), Vector3.UnitZ, false), Vertex(new(1, 0, 2), Vector3.UnitZ, false),
+            Vertex(new(1, 1, 2), Vector3.UnitZ, false), Vertex(new(0, 0, 2), foldedNormal, false),
+            Vertex(new(1, 1, 2), foldedNormal, false), Vertex(new(0, 1, 3), foldedNormal, false),
+            Vertex(Vector3.Zero, Vector3.UnitZ, true), Vertex(Vector3.UnitX, Vector3.UnitZ, true),
+            Vertex(new(1, 1, 0), Vector3.UnitZ, true), Vertex(Vector3.Zero, Vector3.UnitZ, true),
+            Vertex(new(1, 1, 0), Vector3.UnitZ, true), Vertex(Vector3.UnitY, Vector3.UnitZ, true)
+        }, Expanded(mesh));
+    }
+
+    [TestMethod]
     public void AdjacentFacesKeepTheirOwnRailHeadUvsAndPreviouslyBuiltMeshesStayUnchanged()
     {
         var builder = new RailwayMeshes.MeshBuilder(BuiltInMaterial.RailSteel);
