@@ -15,8 +15,14 @@ internal readonly record struct RailwayModelRead(TerrainTypeId Terrain, int Slot
 internal sealed class RailwayDependencies
 {
     private static readonly JsonSerializerOptions ValueOptions = CreateValueOptions();
-    internal static string Values(object? value) =>
-        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, ValueOptions)));
+    internal static string Values(object? value)
+    {
+        using var sha = SHA256.Create();
+        using var sink = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write);
+        JsonSerializer.Serialize(sink, value, ValueOptions);
+        sink.FlushFinalBlock();
+        return Convert.ToHexString(sha.Hash!);
+    }
 
     private static JsonSerializerOptions CreateValueOptions()
     {
