@@ -182,7 +182,59 @@ public sealed class RecordingPackageTests
         });
     }
 
-    private static RecordingPackage Package()
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(4095)]
+    [DataRow(4096)]
+    [DataRow(4097)]
+    [DataRow(1024 * 1024)]
+    public void Opaque_payloads_and_fault_commands_round_trip_without_changing_values(int length)
+    {
+        WithFile(path =>
+        {
+            var source = Package();
+            var payload = length == 0 ? string.Empty : new string('x', length) + "🚂𝄞\\\"\r\n\t\0 内容";
+            var commands = source.Commands.Select(c => c with { CanonicalPayload = payload }).ToImmutableArray();
+            var start = source.Header.Starts[0] with { Payload = payload };
+            var fault = source.Header.FaultSegments[0] with { Start = start, Commands = commands };
+            var package = source with
+            {
+                Header = source.Header with { Starts = [start], FaultSegments = [fault] },
+                Commands = commands,
+                ContentPayload = payload
+            };
+            package.Write(path);
+            package.Validate(path);
+            var decoded = RecordingPackage.Read(path);
+            Assert.AreEqual(payload, decoded.ContentPayload);
+            Assert.AreEqual(payload, decoded.Header.Starts[0].Payload);
+            Assert.AreEqual(payload, decoded.Header.FaultSegments[0].Start.Payload);
+            CollectionAssert.AreEqual(commands.Select(c => c.CanonicalPayload).ToArray(),
+                decoded.Commands.Select(c => c.CanonicalPayload).ToArray());
+            CollectionAssert.AreEqual(commands.Select(c => c.CanonicalPayload).ToArray(),
+                decoded.Header.FaultSegments[0].Commands.Select(c => c.CanonicalPayload).ToArray());
+        });
+    }
+
+    [TestMethod]
+    public void Validation_rejects_changed_fault_start_payload_even_when_main_start_is_unchanged()
+    {
+        WithFile(path =>
+        {
+            var package = Package();
+            package.Write(path);
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+                Replace(zip, "manifest.json", text =>
+                {
+                    var manifest = JsonNode.Parse(text)!;
+                    manifest["FaultSegments"]![0]!["Start"]!["Payload"] = "changed opaque fault start";
+                    return manifest.ToJsonString();
+                });
+            Assert.ThrowsExactly<InvalidDataException>(() => package.Validate(path));
+        });
+    }
+
+    internal static RecordingPackage Package()
     {
         CoreReferenceManifest references = new([new("design")],
             [new(new(4), new("template"), [new(7, PlotSize.SmallStation)])],

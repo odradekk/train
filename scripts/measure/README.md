@@ -6,9 +6,9 @@
 
 ## 开发机交替对照
 
-`compare-measurement.ps1` 用于 Windows 开发机上同一窗口里的快速对照，在协调者安排的安静窗口里运行。正式测量仍使用 Linux runner 的 `measure` workflow。
+`compare-measurement.ps1` 在协调者安排的安静窗口里做 Windows 开发机交替对照；正式测量用 Linux runner。须备好两侧 Release 导出及所需参考。参考须与测量使用同一构建、存档、列车和节点。
 
-准备两侧已有的 Release 导出，以及各自构建的 `scene-reference` 文件。只有需要参考的场景才传参考文件；对照入口不构建、不导出、不制作参考。示例：
+`-NodeReadyHold` 开启时透传给 `measure.ps1`；`-TrainId`、`-NodeId` 仅显式指定时透传，均为正整数，默认分别为 1、2。示例：
 
 ```powershell
 & ./scripts/measure/compare-measurement.ps1 `

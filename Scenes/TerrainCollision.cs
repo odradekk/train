@@ -20,11 +20,11 @@ internal static class TerrainCollision
     internal sealed class PatchCache
     {
         private readonly Dictionary<string, Entry> entries = [];
-        private readonly record struct Entry(ImmutableDictionary<GridColumn, double> Heights, ScenePoint PartOrigin,
+        private readonly record struct Entry(IReadOnlyDictionary<GridColumn, double> Heights, ScenePoint PartOrigin,
             ScenePoint FrameOrigin, Samples Samples, TerrainCollisionPatch Patch);
 
         internal TerrainCollisionPatch? Get(string key, Func<SceneObjectId> id, ScenePoint partOrigin, ScenePoint frameOrigin,
-            ImmutableDictionary<GridColumn, double> heights)
+            IReadOnlyDictionary<GridColumn, double> heights)
         {
             if (heights.Count == 0) { entries.Remove(key); return null; }
             if (entries.TryGetValue(key, out var cached) && ReferenceEquals(cached.Heights, heights) &&
@@ -50,10 +50,10 @@ internal static class TerrainCollision
     }
 
     internal static TerrainCollisionPatch? Patch(SceneObjectId id, ScenePoint partOrigin, ScenePoint frameOrigin,
-        ImmutableDictionary<GridColumn, double> heights) =>
+        IReadOnlyDictionary<GridColumn, double> heights) =>
         heights.Count == 0 ? null : Sample(heights).At(id, partOrigin, frameOrigin);
 
-    private static Samples Sample(ImmutableDictionary<GridColumn, double> heights)
+    private static Samples Sample(IReadOnlyDictionary<GridColumn, double> heights)
     {
         var minX = int.MaxValue;
         var maxX = int.MinValue;

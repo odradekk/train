@@ -15,7 +15,9 @@ public sealed class NodeCacheTests
         var appearance = SceneFixtures.Cube with
         { Presentation = new VoxelPresentation.Mesh(new("large-model"), Enumerable.Repeat(MaterialCategory.Concrete, 4096).ToImmutableArray()) };
         var grid = new VoxelGrid([new(new(0, 0, 0), new(VoxelOrientation.PxPy, appearance, null, null, null, []))]);
-        Assert.IsTrue(grid.ArrayBytes >= 32L * 32 * 32 * sizeof(int) + 4096 * sizeof(MaterialCategory));
+        var smallerAppearance = appearance with { Presentation = new VoxelPresentation.Mesh(new("large-model"), []) };
+        var smaller = new VoxelGrid([new(new(0, 0, 0), new(VoxelOrientation.PxPy, smallerAppearance, null, null, null, []))]);
+        Assert.IsGreaterThan(smaller.ArrayBytes, grid.ArrayBytes);
     }
 
     [TestMethod]

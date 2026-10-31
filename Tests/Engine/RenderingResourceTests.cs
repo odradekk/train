@@ -16,7 +16,7 @@ using NVector3 = System.Numerics.Vector3;
 
 namespace Train.Engine.Tests;
 
-public class RenderingResourceTests(Node testScene) : TestClass(testScene)
+public partial class RenderingResourceTests(Node testScene) : TestClass(testScene)
 {
     [Test]
     public async Task Display_delta_preserves_children_on_reparent_and_updates_inherited_fog_after_parent_changes()
@@ -225,11 +225,11 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var custom = arrays[(int)Mesh.ArrayType.Custom0].AsFloat32Array();
         var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
         Require(vertices.Length == source.Vertices.Length && normals.Length == vertices.Length &&
-            uv.Length == vertices.Length && faceUv.Length == vertices.Length && custom.Length == vertices.Length * 4 &&
+            uv.Length == vertices.Length && faceUv.Length == vertices.Length && custom.Length == vertices.Length * 3 &&
             indices.Length == source.TriangleIndices.Length, "后台打包必须保留全部顶点、索引与表现通道。");
         var customFormat = ((ulong)mesh.SurfaceGetFormat(0) >> (int)Mesh.ArrayFormat.FormatCustom0Shift)
             & (ulong)Mesh.ArrayFormat.FormatCustomMask;
-        Require(customFormat == (ulong)Mesh.ArrayCustomFormat.RgbaFloat, "表现通道需要完整 float 精度。");
+        Require(customFormat == (ulong)Mesh.ArrayCustomFormat.RgbFloat, "三个表现通道需要完整 float 精度。");
         var outward = (vertices[indices[2]] - vertices[indices[0]]).Cross(vertices[indices[1]] - vertices[indices[0]]).Normalized();
         Require(outward.Dot(Vector3.Back) > 0.999f, "正面绕序没有保持契约的外侧。");
         for (var index = 0; index < source.Vertices.Length; index++)
@@ -239,10 +239,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             Require(normals[index].Dot(outward) > 0.999f, "上传法线不朝外。");
             Require(uv[index].IsEqualApprox(new Vector2(expected.TextureUv.X, expected.TextureUv.Y)), "TextureUv 丢失。");
             Require(faceUv[index].IsEqualApprox(new Vector2(expected.FaceUv.X, expected.FaceUv.Y)), "FaceUv 丢失。");
-            Near(custom[index * 4], (int)expected.ExposedEdges);
-            Near(custom[index * 4 + 1], expected.RelativeHeight);
-            Near(custom[index * 4 + 2], expected.Damage);
-            Near(custom[index * 4 + 3], 0);
+            Near(custom[index * 3], (int)expected.ExposedEdges);
+            Near(custom[index * 3 + 1], expected.RelativeHeight);
+            Near(custom[index * 3 + 2], expected.Damage);
         }
         for (var index = 0; index < indices.Length; index += 3)
             Require(indices[index] == source.TriangleIndices[index] &&

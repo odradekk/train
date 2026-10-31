@@ -5,15 +5,16 @@ using Train.Scenes.Contracts;
 namespace Train.Rendering;
 
 internal sealed record PackedSceneMesh(Vector3[] Positions, Vector3[] Normals, Vector2[] TextureUvs,
-    Vector2[] FaceUvs, float[] Custom, int[] Indices)
+    Vector2[]? FaceUvs, float[]? Custom, int[] Indices)
 {
     internal static PackedSceneMesh Create(SceneMesh source, CancellationToken cancellation)
     {
         var positions = new Vector3[source.Vertices.Length];
         var normals = new Vector3[source.Vertices.Length];
         var textureUvs = new Vector2[source.Vertices.Length];
-        var faceUvs = new Vector2[source.Vertices.Length];
-        var custom = new float[source.Vertices.Length * 4];
+        var surfaceChannels = HasSurfaceChannels(source, cancellation);
+        var faceUvs = surfaceChannels ? new Vector2[source.Vertices.Length] : null;
+        var custom = surfaceChannels ? new float[source.Vertices.Length * 3] : null;
         for (var index = 0; index < source.Vertices.Length; index++)
         {
             if ((index & 1023) == 0) cancellation.ThrowIfCancellationRequested();
@@ -21,10 +22,13 @@ internal sealed record PackedSceneMesh(Vector3[] Positions, Vector3[] Normals, V
             positions[index] = new(vertex.Position.X, vertex.Position.Y, vertex.Position.Z);
             normals[index] = new(vertex.Normal.X, vertex.Normal.Y, vertex.Normal.Z);
             textureUvs[index] = new(vertex.TextureUv.X, vertex.TextureUv.Y);
-            faceUvs[index] = new(vertex.FaceUv.X, vertex.FaceUv.Y);
-            custom[index * 4] = (int)vertex.ExposedEdges;
-            custom[index * 4 + 1] = vertex.RelativeHeight;
-            custom[index * 4 + 2] = vertex.Damage;
+            if (faceUvs is not null) faceUvs[index] = new(vertex.FaceUv.X, vertex.FaceUv.Y);
+            if (custom is not null)
+            {
+                custom[index * 3] = (int)vertex.ExposedEdges;
+                custom[index * 3 + 1] = vertex.RelativeHeight;
+                custom[index * 3 + 2] = vertex.Damage;
+            }
         }
         var indices = source.TriangleIndices.ToArray();
         // 契约为外侧看 CCW，Godot 为 CW；不反转外向法线。
@@ -34,6 +38,19 @@ internal sealed record PackedSceneMesh(Vector3[] Positions, Vector3[] Normals, V
             (indices[index + 1], indices[index + 2]) = (indices[index + 2], indices[index + 1]);
         }
         return new(positions, normals, textureUvs, faceUvs, custom, indices);
+    }
+
+    private static bool HasSurfaceChannels(SceneMesh source, CancellationToken cancellation)
+    {
+        if (source.Material is not SceneMaterial.BuiltIn) return true;
+        for (var index = 0; index < source.Vertices.Length; index++)
+        {
+            if ((index & 1023) == 0) cancellation.ThrowIfCancellationRequested();
+            var vertex = source.Vertices[index];
+            if (vertex.FaceUv != System.Numerics.Vector2.Zero || vertex.ExposedEdges != ExposedFaceEdges.None ||
+                vertex.RelativeHeight != 0 || vertex.Damage != 0) return true;
+        }
+        return false;
     }
 }
 

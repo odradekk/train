@@ -25,8 +25,8 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
         CoreReferenceManifest RequiredReferences);
 
     private static readonly UTF8Encoding Utf8 = new(false, true);
-    private static readonly JsonSerializerOptions Json = CreateOptions();
-    private static readonly JsonSerializerOptions DigestJson = new(Json) { Converters = { new StringDigest() } };
+    private static readonly JsonSerializerOptions Json = CreateOptions(new JsonStrings());
+    private static readonly JsonSerializerOptions DigestJson = CreateOptions(new StringDigest());
 
     internal static RecordingPackage Capture(CoreRecordingWindow window, IContentReplayCapture content,
         RuntimeIdentity runtime) => new(new(2, runtime, window.EndPosition,
@@ -46,14 +46,18 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
             using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
             using (var zip = new ZipArchive(file, ZipArchiveMode.Create, leaveOpen: true))
             {
-                WriteEntry(zip, "manifest.json", JsonSerializer.Serialize(Header with
+                using (var entry = zip.CreateEntry("manifest.json").Open())
+                using (var writer = new Utf8JsonWriter(entry))
                 {
-                    FaultSegments = Header.FaultSegments.Select(f => f with { Commands = [] }).ToImmutableArray()
-                }, Json));
-                WriteEntry(zip, "commands.jsonl", EncodeCommands(Commands));
+                    JsonSerializer.Serialize(writer, Header with
+                    {
+                        FaultSegments = Header.FaultSegments.Select(f => f with { Commands = [] }).ToImmutableArray()
+                    }, Json);
+                }
+                WriteCommands(zip, "commands.jsonl", Commands);
                 WriteEntry(zip, "content.payload", ContentPayload);
                 for (var i = 0; i < Header.FaultSegments.Length; i++)
-                    WriteEntry(zip, $"faults/{i}/commands.jsonl", EncodeCommands(Header.FaultSegments[i].Commands));
+                    WriteCommands(zip, $"faults/{i}/commands.jsonl", Header.FaultSegments[i].Commands);
             }
             file.Flush(flushToDisk: true);
         }
@@ -96,7 +100,9 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
         {
             using var file = File.OpenRead(path);
             using var zip = new ZipArchive(file, ZipArchiveMode.Read);
-            var manifest = JsonSerializer.Deserialize<Manifest>(ReadEntry(zip, "manifest.json"), Json)
+            // 解转义暂存只属于本次读取，不留在长期使用的序列化选项里。
+            var json = CreateOptions(new JsonStrings());
+            var manifest = JsonSerializer.Deserialize<Manifest>(ReadBytes(zip, "manifest.json").AsSpan(), json)
                 ?? throw new InvalidDataException("录制清单为空。");
             if (manifest.FormatVersion != 2) throw new InvalidDataException("不支持的录制格式。");
             if (manifest.Runtime is null || manifest.Starts.IsDefault || manifest.Checkpoints.IsDefault
@@ -119,10 +125,10 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
                         throw new InvalidDataException("故障片段缺少必要结构。");
                     ValidateStart(f.Start);
                     ValidateReferences(f.RequiredReferences);
-                    return f with { Commands = DecodeCommands(ReadEntry(zip, $"faults/{i}/commands.jsonl")) };
+                    return f with { Commands = ReadCommands(zip, $"faults/{i}/commands.jsonl", json) };
                 }).ToImmutableArray()
             };
-            return new RecordingPackage(manifest, DecodeCommands(ReadEntry(zip, "commands.jsonl")),
+            return new RecordingPackage(manifest, ReadCommands(zip, "commands.jsonl", json),
                 ReadEntry(zip, "content.payload"));
         }
         catch (Exception error) when (error is JsonException or NotSupportedException or DecoderFallbackException
@@ -148,16 +154,29 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
             throw new InvalidDataException("录制引用清单缺少必要结构。");
     }
 
-    private static string EncodeCommands(ImmutableArray<RecordedCommand> commands)
-        => string.Concat(commands.Select(c => JsonSerializer.Serialize(c, Json) + "\n"));
-
-    private static ImmutableArray<RecordedCommand> DecodeCommands(string text)
+    private static void WriteCommands(ZipArchive zip, string name, ImmutableArray<RecordedCommand> commands)
     {
-        if (text.Length == 0) return [];
-        if (!text.EndsWith('\n')) throw new InvalidDataException("录制命令 JSONL 未完整结束。");
-        return text[..^1].Split('\n').Select(line =>
+        using var entry = zip.CreateEntry(name).Open();
+        using var writer = new Utf8JsonWriter(entry);
+        foreach (var command in commands)
         {
-            var command = JsonSerializer.Deserialize<RecordedCommand>(line, Json)
+            JsonSerializer.Serialize(writer, command, Json);
+            writer.Flush();
+            entry.WriteByte((byte)'\n');
+            writer.Reset();
+        }
+    }
+
+    private static ImmutableArray<RecordedCommand> ReadCommands(ZipArchive zip, string name, JsonSerializerOptions json)
+    {
+        var text = ReadBytes(zip, name).AsSpan();
+        if (text.Length == 0) return [];
+        if (text[^1] != (byte)'\n') throw new InvalidDataException("录制命令 JSONL 未完整结束。");
+        var commands = ImmutableArray.CreateBuilder<RecordedCommand>();
+        while (text.Length > 0)
+        {
+            var length = text.IndexOf((byte)'\n');
+            var command = JsonSerializer.Deserialize<RecordedCommand>(text[..length], json)
                 ?? throw new InvalidDataException("录制命令为空。");
             if (command.Result is null || command.Result.Decision is null)
                 throw new InvalidDataException("录制命令缺少回执。");
@@ -172,8 +191,10 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
                 case CommandDecision.Faulted { Fault: null }:
                     throw new InvalidDataException("录制命令回执缺少必要结构。");
             }
-            return command;
-        }).ToImmutableArray();
+            commands.Add(command);
+            text = text[(length + 1)..];
+        }
+        return commands.ToImmutable();
     }
 
     private static void WriteEntry(ZipArchive zip, string name, string text)
@@ -184,13 +205,52 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
 
     private static string ReadEntry(ZipArchive zip, string name)
     {
-        var entries = zip.Entries.Where(e => e.FullName == name).ToArray();
-        if (entries.Length != 1) throw new InvalidDataException($"录制 ZIP 缺少或重复条目：{name}");
-        using var reader = new StreamReader(entries[0].Open(), Utf8, detectEncodingFromByteOrderMarks: false);
+        using var reader = new StreamReader(Entry(zip, name).Open(), Utf8, detectEncodingFromByteOrderMarks: false);
         return reader.ReadToEnd();
     }
 
-    private static JsonSerializerOptions CreateOptions()
+    private static byte[] ReadBytes(ZipArchive zip, string name)
+    {
+        var entry = Entry(zip, name);
+        var bytes = new byte[entry.Length];
+        using var stream = entry.Open();
+        stream.ReadExactly(bytes);
+        return bytes;
+    }
+
+    private static ZipArchiveEntry Entry(ZipArchive zip, string name)
+    {
+        var entries = zip.Entries.Where(e => e.FullName == name).ToArray();
+        if (entries.Length != 1) throw new InvalidDataException($"录制 ZIP 缺少或重复条目：{name}");
+        return entries[0];
+    }
+
+    private sealed class JsonStrings : JsonConverter<string>
+    {
+        private byte[] _unescaped = [];
+
+        public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (!reader.ValueIsEscaped) return reader.GetString()!;
+            if (_unescaped.Length < reader.ValueSpan.Length) _unescaped = new byte[reader.ValueSpan.Length];
+            var length = reader.CopyString(_unescaped);
+            return Utf8.GetString(_unescaped.AsSpan(0, length));
+        }
+
+        public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+        {
+            var offset = 0;
+            do
+            {
+                var length = Math.Min(4096, value.Length - offset);
+                writer.WriteStringValueSegment(value.AsSpan(offset, length), offset + length == value.Length);
+                writer.Flush();
+                offset += length;
+            } while (offset < value.Length);
+        }
+    }
+
+    private static JsonSerializerOptions CreateOptions(JsonConverter<string> strings)
     {
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(info =>
@@ -207,6 +267,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
         return new()
         {
             TypeInfoResolver = resolver,
+            Converters = { strings },
             AllowDuplicateProperties = false,
             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
             RespectNullableAnnotations = true,
