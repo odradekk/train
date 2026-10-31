@@ -57,6 +57,9 @@ public sealed class ArrayPoolDiagnosisTests
                     Assert.IsTrue(rents.Any(row => row.GetProperty("element_type").GetString() == type
                         && row.GetProperty("size_bytes").GetInt64() == 1024 * 1024
                         && row.GetProperty("stack").EnumerateArray().Any(frame => frame.GetString()!.EndsWith(".RentLargePayload"))));
+                Assert.IsTrue(rents.Any(row => row.GetProperty("stack").EnumerateArray()
+                    .Any(frame => frame.GetString()!.EndsWith(".RentThroughDeepJson"))),
+                    "A deep framework serialization stack must retain its application caller.");
                 Assert.IsTrue(rents.Any(row => row.GetProperty("thread_pool").GetBoolean()));
                 Assert.IsTrue(rents.Any(row => !row.GetProperty("thread_pool").GetBoolean()));
                 Assert.IsTrue(rents.Select(row => row.GetProperty("thread_id").GetInt32()).Distinct().Count() >= 2);
@@ -89,6 +92,7 @@ public sealed class ArrayPoolDiagnosisTests
         Task.Run(RentLargePayload).GetAwaiter().GetResult();
         var cross = RentForCrossThread();
         Task.Run(() => ArrayPool<byte>.Shared.Return(cross)).GetAwaiter().GetResult();
+        RentThroughDeepJson();
         var pool = ArrayPool<byte>.Create(16, 1);
         var oversized = pool.Rent(1024 * 1024);
         pool.Return(oversized);
@@ -97,6 +101,15 @@ public sealed class ArrayPoolDiagnosisTests
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static byte[] RentForCrossThread() => ArrayPool<byte>.Shared.Rent(1024 * 1024);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void RentThroughDeepJson()
+    {
+        object value = new string('x', 1024 * 1024);
+        for (var depth = 0; depth < 16; depth++) value = new Dictionary<string, object> { ["nested"] = value };
+        if (JsonSerializer.SerializeToUtf8Bytes(value).Length < 1024 * 1024)
+            throw new InvalidOperationException("Deep JSON payload was not serialized.");
+    }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void RentLargePayload()

@@ -88,7 +88,12 @@ internal sealed class ArrayPoolDiagnosis : EventListener
             && !type.StartsWith(typeof(ArrayPoolDiagnosis).FullName!, StringComparison.Ordinal)
             && !type.StartsWith("System.Diagnostics.Tracing.", StringComparison.Ordinal)
             && !type.StartsWith("System.Buffers.", StringComparison.Ordinal))
-        .Select(method => method!.DeclaringType!.FullName + "." + method.Name).Take(20).ToArray();
+        .Select(method => method!.DeclaringType!.FullName + "." + method.Name)
+        .Select((frame, index) => (Frame: frame, Index: index))
+        // 深层 JSON 转换可能先占满 20 帧；优先保留应用帧，再恢复原调用顺序。
+        .OrderBy(item => item.Frame.StartsWith("System.", StringComparison.Ordinal)
+            || item.Frame.StartsWith("Microsoft.", StringComparison.Ordinal))
+        .Take(20).OrderBy(item => item.Index).Select(item => item.Frame).ToArray();
 
     public override void Dispose()
     {
