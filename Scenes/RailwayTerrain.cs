@@ -392,7 +392,7 @@ internal static class RailwayTerrain
                 FillColumn(cells, key, value.Height, layers.Terrain, layers.Ballast, distance, hasBed, lowestNeighbor: lowest);
             }
             return new(RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
-                readsStartTerrain, readsEndTerrain), new(cells.ToImmutable()), heights.ToImmutable(), shift, diagnostics.ToImmutable());
+                readsStartTerrain, readsEndTerrain), VoxelGrid.FromBuilder(cells), heights.ToImmutable(), shift, diagnostics.ToImmutable());
 
             CellProperties Property(VoxelDefinitionId id)
             {
@@ -465,7 +465,7 @@ internal static class RailwayTerrain
                     indices.AddRange((ReadOnlySpan<int>)[first, first + 1, first + 2, first, first + 2, first + 3]);
                 }
             }
-            var grid = new VoxelGrid(cells.ToImmutable());
+            var grid = VoxelGrid.FromBuilder(cells);
             var visuals = DesignGeometry.Meshes(grid, false).ToBuilder();
             objects.AddRange(DesignGeometry.Models(grid, terrainId, null, _ => new(nextId++), false));
             foreach (var missingTerrain in terrains.Where(item => item.Value is null))
