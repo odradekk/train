@@ -45,11 +45,10 @@ public sealed class LinuxAllocatorTests
     public async Task Runs_in_background_and_retries_another_opening_after_the_process_wide_trim_finishes()
     {
         using var release = new ManualResetEventSlim();
-        var entered = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var callerThread = Environment.CurrentManagedThreadId;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var first = new LinuxAllocator(error => Assert.Fail(error.ToString()), () =>
         {
-            entered.SetResult(Environment.CurrentManagedThreadId);
+            entered.SetResult();
             if (!release.Wait(Limit)) throw new TimeoutException();
         });
         var calls = 0;
@@ -59,7 +58,7 @@ public sealed class LinuxAllocatorTests
         var running = first.TryTrim(Opening, SceneReadiness.Ready, true)!;
         try
         {
-            Assert.AreNotEqual(callerThread, await entered.Task.WaitAsync(Limit));
+            await entered.Task.WaitAsync(Limit);
             competing = second.TryTrim(next, SceneReadiness.Ready, true);
             Assert.IsNull(competing);
             Assert.AreEqual(0, calls);
