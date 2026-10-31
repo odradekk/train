@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -17,11 +18,26 @@ internal sealed class RailwayDependencies
     private static readonly JsonSerializerOptions ValueOptions = CreateValueOptions();
     internal static string Values(object? value)
     {
-        using var sha = SHA256.Create();
-        using var sink = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write);
-        JsonSerializer.Serialize(sink, value, ValueOptions);
-        sink.FlushFinalBlock();
-        return Convert.ToHexString(sha.Hash!);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using (var writer = new Utf8JsonWriter(new HashBuffer(hash)))
+        {
+            JsonSerializer.Serialize(writer, value, ValueOptions);
+            writer.Flush();
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private sealed class HashBuffer(IncrementalHash hash) : IBufferWriter<byte>
+    {
+        private byte[] buffer = new byte[4096];
+        public void Advance(int count) => hash.AppendData(buffer.AsSpan(0, count));
+        public Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            // A single escaped string may require a larger contiguous buffer.
+            if (sizeHint > buffer.Length) buffer = new byte[sizeHint];
+            return buffer;
+        }
+        public Span<byte> GetSpan(int sizeHint = 0) => GetMemory(sizeHint).Span;
     }
 
     private static JsonSerializerOptions CreateValueOptions()
