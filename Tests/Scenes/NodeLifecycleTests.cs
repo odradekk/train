@@ -194,8 +194,10 @@ public sealed class NodeLifecycleTests
             buildChunk: (data, from, old, token) =>
             {
                 if (old?.Inputs == data.ChunkInputs(from)) return old;
-                if (data.BedChunks.ContainsKey(from) && Math.Abs(from.X - bedChunk.X) <= VoxelGrid.ChunkSize * 2 &&
-                    Math.Abs(from.Z - bedChunk.Z) <= VoxelGrid.ChunkSize * 2)
+                if (Math.Abs(from.X - bedChunk.X) <= VoxelGrid.ChunkSize * 2 &&
+                    Math.Abs(from.Z - bedChunk.Z) <= VoxelGrid.ChunkSize * 2 && data.Beds.Keys.Any(column =>
+                        column.X >= from.X && column.X < from.X + VoxelGrid.ChunkSize &&
+                        column.Z >= from.Z && column.Z < from.Z + VoxelGrid.ChunkSize))
                     return data.BuildChunk(from, old, token);
                 var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper),
                     [new SceneVertex(new(from.X, 0, from.Z), Vector3.UnitY, Vector2.Zero, Vector2.Zero, ExposedFaceEdges.None, 0, 0)], [0, 0, 0]);

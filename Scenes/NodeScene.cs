@@ -38,7 +38,7 @@ internal sealed partial class NodeScene : IAsyncDisposable
         TerrainAppearanceProjection? Terrain, VoxelDefinitionId BallastVoxel,
         Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> Appearances,
         Dictionary<GridColumn, ImmutableArray<SceneVoxelProjection>> ModelChunks,
-        Dictionary<GridColumn, Dictionary<GridColumn, RailBed>> BedChunks,
+        Dictionary<GridColumn, RailBed> Beds,
         Dictionary<GridColumn, HashSet<GridColumn>> BoundaryChunks, string TerrainInputs,
         ImmutableDictionary<string, RailSegment> Rails,
         Dictionary<GridColumn, double> BoundarySurfaces,
@@ -70,12 +70,9 @@ internal sealed partial class NodeScene : IAsyncDisposable
         private Dictionary<GridColumn, RailBed> BedsNear(GridColumn from)
         {
             var beds = new Dictionary<GridColumn, RailBed>();
-            foreach (var key in ChunkNeighborhood(from))
-            {
-                if (!BedChunks.TryGetValue(key, out var chunk)) continue;
-                foreach (var (column, rail) in chunk)
-                    if (NearChunk(from, column)) beds[column] = rail;
-            }
+            for (var z = from.Z - 1; z <= from.Z + VoxelGrid.ChunkSize; z++)
+            for (var x = from.X - 1; x <= from.X + VoxelGrid.ChunkSize; x++)
+                if (Beds.TryGetValue(new(x, z), out var rail)) beds[new(x, z)] = rail;
             return beds;
         }
 
@@ -1459,7 +1456,6 @@ internal sealed partial class NodeScene : IAsyncDisposable
                     Vector3.Cross(Vector3.UnitY, line.Forward)), line.Length);
         GridColumn Chunk(GridColumn at) => new((int)Math.Floor((double)at.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
             (int)Math.Floor((double)at.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
-        var bedChunks = bed.GroupBy(item => Chunk(item.Key)).ToDictionary(group => group.Key, group => group.ToDictionary());
         var boundaryChunks = boundaryColumns.GroupBy(Chunk).ToDictionary(group => group.Key, group => group.ToHashSet());
         if (bed.Count > 0)
         {
@@ -1492,8 +1488,9 @@ internal sealed partial class NodeScene : IAsyncDisposable
                 boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
         }
         Put(NodePartKeys.Diagnostics, problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
+        bed.TrimExcess();
         return new(snapshot, new(layout, parts.ToImmutable(), boundaries.ToImmutable()), terrain, ballastVoxel,
-            appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable(),
+            appearances, modelChunks, bed, boundaryChunks, terrainInputs, rails.ToImmutable(),
             BoundarySurfaces: boundarySurfaces);
 
         void Put(string name, string inputs, Func<Part> create)

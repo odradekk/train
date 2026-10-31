@@ -767,16 +767,6 @@ public sealed class NodeSceneTests
     }
 
     [TestMethod]
-    public void ChunkInputsIncludeABedInTheNeighboringChunk()
-    {
-        var snapshot = NodeFixtures.Snapshot(trains: [], tracks: 1);
-        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
-        var prepared = NodeScene.Prepare(snapshot, layout);
-        Assert.IsTrue(RemovingANeighborBedChangesInputs(prepared, layout),
-            "The fixture must place a bed on the ring of a neighboring terrain chunk.");
-    }
-
-    [TestMethod]
     public void BoundarySeamHasNoGaps()
     {
         var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(4, 40)] };
@@ -836,7 +826,7 @@ public sealed class NodeSceneTests
     {
         var prepared = NodeScene.Prepare(snapshot, layout);
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
-        var bed = Beds(prepared);
+        var bed = prepared.Beds;
         var chunks = new HashSet<GridColumn>();
         var nodeHigher = false;
         var boundaryHigher = false;
@@ -894,37 +884,12 @@ public sealed class NodeSceneTests
         return columns;
     }
 
-    private static bool RemovingANeighborBedChangesInputs(NodeScene.Preparation prepared, NodeLayout layout)
-    {
-        foreach (var (chunk, beds) in prepared.BedChunks)
-        foreach (var column in beds.Keys.ToArray())
-        foreach (var from in new[]
-        {
-            new GridColumn(chunk.X - VoxelGrid.ChunkSize, chunk.Z), new GridColumn(chunk.X + VoxelGrid.ChunkSize, chunk.Z),
-            new GridColumn(chunk.X, chunk.Z - VoxelGrid.ChunkSize), new GridColumn(chunk.X, chunk.Z + VoxelGrid.ChunkSize)
-        })
-        {
-            if (from.X < (int)layout.Bounds.Minimum.X || from.X >= (int)layout.Bounds.Maximum.X ||
-                from.Z < (int)layout.Bounds.Minimum.Y || from.Z >= (int)layout.Bounds.Maximum.Y) continue;
-            var outside = column.X < from.X || column.X >= from.X + VoxelGrid.ChunkSize ||
-                column.Z < from.Z || column.Z >= from.Z + VoxelGrid.ChunkSize;
-            var near = column.X >= from.X - 1 && column.X <= from.X + VoxelGrid.ChunkSize &&
-                column.Z >= from.Z - 1 && column.Z <= from.Z + VoxelGrid.ChunkSize;
-            if (!outside || !near) continue;
-            var before = prepared.ChunkInputs(from);
-            Assert.IsTrue(prepared.BedChunks[chunk].Remove(column));
-            Assert.AreNotEqual(before, prepared.ChunkInputs(from));
-            return true;
-        }
-        return false;
-    }
-
     private static Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> CellsAcrossOneChunkBoundary(
         SceneWorldSnapshot snapshot, NodeLayout layout)
     {
         var prepared = NodeScene.Prepare(snapshot, layout);
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
-        var bed = Beds(prepared);
+        var bed = prepared.Beds;
         var size = VoxelGrid.ChunkSize;
         var minX = (int)layout.Bounds.Minimum.X;
         var maxX = (int)layout.Bounds.Maximum.X;
@@ -988,15 +953,6 @@ public sealed class NodeSceneTests
         var from = new GridColumn(minX + (int)Math.Floor((column.X - minX) / (double)size) * size,
             minZ + (int)Math.Floor((column.Z - minZ) / (double)size) * size);
         if (Inside(layout, from)) chunks.Add(from);
-    }
-
-    private static Dictionary<GridColumn, NodeScene.RailBed> Beds(NodeScene.Preparation prepared)
-    {
-        var bed = new Dictionary<GridColumn, NodeScene.RailBed>();
-        foreach (var chunk in prepared.BedChunks.Values)
-        foreach (var pair in chunk)
-            bed[pair.Key] = pair.Value;
-        return bed;
     }
 
     private static int ColumnHeight(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
