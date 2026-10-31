@@ -20,6 +20,7 @@ internal sealed partial class MeasurementRun : IDisposable
     private readonly string _output;
     private readonly Dictionary<string, object?> _identity;
     private readonly Process _process = Process.GetCurrentProcess();
+    private readonly ArrayPoolDiagnosis? _arrayPoolDiagnosis;
     private MeasurementTiming? _timing;
     private double _simulationWork;
     private WorldObjectId? _subject;
@@ -74,6 +75,7 @@ internal sealed partial class MeasurementRun : IDisposable
         _identity = JsonSerializer.Deserialize<Dictionary<string, object?>>(File.ReadAllText(values["--measure-identity"]))
             ?? throw new InvalidDataException("缺少构建身份。");
         Directory.CreateDirectory(Path.GetDirectoryName(_output)!);
+        _arrayPoolDiagnosis = ArrayPoolDiagnosis.StartIfEnabled();
         RenderingServer.FramePostDraw += OnDraw;
     }
 
@@ -215,6 +217,7 @@ internal sealed partial class MeasurementRun : IDisposable
     public void Dispose()
     {
         _disposed = true;
+        _arrayPoolDiagnosis?.Dispose();
         StopEditorMeasurement();
         ObserveSceneResources(null);
         RenderingServer.FramePostDraw -= OnDraw;

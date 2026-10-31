@@ -228,10 +228,20 @@ def publish_sources(root, scratch, output, game_ids, started_utc, report=None, e
     if not game_ids:
         errors.append({"source": "heap-observations.jsonl", "failure_type": "MissingRecord"})
     write_timeline(output, game_ids, expected_cycles)
+    array_status = "unknown (array-pool.jsonl missing)"
+    if (scratch / "array-pool.jsonl").is_file():
+        from issue_873_array_pool import write_summary
+        # Preserve raw evidence, including reference-process records, for the publication scan.
+        (output / "array-pool.jsonl").write_bytes((scratch / "array-pool.jsonl").read_bytes())
+        array_errors = []
+        array_rows = read_rows(output / "array-pool.jsonl", array_errors)
+        errors.extend(array_errors)
+        array_status = write_summary(output, array_rows, observations, collections, game_ids, expected_cycles, array_errors)
     for error in errors:
         emit_progress("failure", cycle=error.get("cycle"), failure_type=error["failure_type"])
     if report is not None:
         report["source_errors"] = errors
+        report["array_pool_status"] = array_status
     return not errors and bool(game_ids)
 
 

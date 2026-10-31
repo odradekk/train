@@ -86,7 +86,7 @@ jobs:
             exit 0
           }
           $directory = 'TestResults/issue-873-diagnosis'
-          foreach ($name in @('acquisition.json', 'timeline.md', 'heap-observations.jsonl', 'collections.jsonl', 'gc-difference.json')) {
+          foreach ($name in @('acquisition.json', 'timeline.md', 'heap-observations.jsonl', 'collections.jsonl', 'gc-difference.json', 'array-pool-summary.md', 'array-pool-summary.json')) {
             $file = Join-Path $directory $name
             if (Test-Path -LiteralPath $file) {
               Write-Host "::group::$name"
