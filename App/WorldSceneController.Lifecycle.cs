@@ -7,6 +7,7 @@ namespace Train.App;
 internal sealed partial class WorldSceneController
 {
     private readonly Func<IScenesFactory> _createFactory;
+    private readonly LinuxAllocator _allocator;
     private IScenesFactory? _factory;
     private HostBinding _hostBinding;
     private ContentGeneration _generation;
@@ -15,6 +16,7 @@ internal sealed partial class WorldSceneController
     internal WorldSceneController(HostCoordinator host, Func<IScenesFactory> createFactory, TrainLogger logger)
     {
         _host = host; _createFactory = createFactory; _logger = logger;
+        _allocator = new(error => logger.Warning("scenes", "native_trim_failed", error.GetType().Name));
         _cache = new(_dispatcher);
         host.BoundaryCompleted += Observe;
         View.CameraRig.ObjectTop = id => _display?.ObjectTopY(id);
@@ -64,5 +66,28 @@ internal sealed partial class WorldSceneController
         Start(new(status.View, content), target);
         return _session is not null ? null :
             new("scene_failed", SceneStage.Input, null, null, null, null, "重新生成场景失败。");
+    }
+
+    private void CloseScene()
+    {
+        _pendingNodeFocus = null;
+        _pendingNodeFrame = null;
+        _pickRay = null;
+        View.Interactive = false;
+        View.SetActive(false);
+        View.CameraRig.ReleaseFrame();
+        View.SetLoading(false);
+        try { _display?.Dispose(); }
+        catch (Exception exception) { LogAdapterFailure(exception, SceneStage.Close); }
+        _display = null;
+        if (_session is { } session)
+        {
+            _session = null;
+            try { _closing.Add(session.DisposeAsync().AsTask()); }
+            catch (Exception exception) { LogAdapterFailure(exception, SceneStage.Close); }
+        }
+        _reported.Clear();
+        _fullReplacement = false;
+        _awaitingRequest = false;
     }
 }

@@ -22,6 +22,8 @@ internal sealed partial class SceneDisplay
     internal SceneFrameStamp? CandidateScope => _candidateScope;
     internal bool IsPreparingCandidate => _candidateUpdate is not null;
     internal int PendingCandidateVisuals => _candidatePending.Count;
+    internal bool IsPreparationIdle => !IsPreparing && !IsPreparingCandidate &&
+        _preparationPackingTail?.IsCompleted != false && _candidatePackingTail?.IsCompleted != false;
 
     internal bool HasCandidateFor(SceneFrameStamp frame) => _candidateScope is { } candidate &&
         candidate.Session == frame.Session && candidate.Request == frame.Request && candidate.Space == frame.Space;

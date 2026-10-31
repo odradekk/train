@@ -196,6 +196,12 @@ internal sealed partial class WorldSceneController : IDisposable
                 }
             }
             _display.UpdateConstructionFog(followed);
+            if (!_fullReplacement && _display.DisplayedFrame is { } shown &&
+                shown.Update.Frame.Session == _session.Id && shown.Update.Frame.Request == _request)
+            {
+                // 当前视图 Ready 且宿主打包完成，不代表 Scenes 全部后台工作空闲。
+                _ = _allocator.TryTrim(shown.Update.Frame, shown.Readiness, _display.IsPreparationIdle);
+            }
         }
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Present); }
     }
@@ -399,29 +405,6 @@ internal sealed partial class WorldSceneController : IDisposable
     private void LogAdapterFailure(Exception exception, SceneStage stage) =>
         _logger.Error("scenes", "scene_adapter_failed", "场景接入或释放失败。",
             new Dictionary<string, object?> { ["stage"] = stage.ToString() }, exception);
-
-    private void CloseScene()
-    {
-        _pendingNodeFocus = null;
-        _pendingNodeFrame = null;
-        _pickRay = null;
-        View.Interactive = false;
-        View.SetActive(false);
-        View.CameraRig.ReleaseFrame();
-        View.SetLoading(false);
-        try { _display?.Dispose(); }
-        catch (Exception exception) { LogAdapterFailure(exception, SceneStage.Close); }
-        _display = null;
-        if (_session is { } session)
-        {
-            _session = null;
-            try { _closing.Add(session.DisposeAsync().AsTask()); }
-            catch (Exception exception) { LogAdapterFailure(exception, SceneStage.Close); }
-        }
-        _reported.Clear();
-        _fullReplacement = false;
-        _awaitingRequest = false;
-    }
 
     public void Dispose()
     {
