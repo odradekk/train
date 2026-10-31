@@ -20,6 +20,21 @@ public sealed class RailwayDependencyTests
     }
 
     [TestMethod]
+    public void LargeDependencyValuesIncludeChangesBeyondTheFirstSerializationBuffer()
+    {
+        var original = SizedModel(1_024).Scene;
+        var equivalent = SizedModel(1_024).Scene;
+        var changed = original with
+        {
+            Voxels = original.Voxels.SetItem(original.Voxels.Length - 1, original.Voxels[^1] with { Missing = true })
+        };
+        var key = RailwayDependencies.Values(original);
+        Assert.AreEqual(key, RailwayDependencies.Values(equivalent));
+        Assert.AreNotEqual(key, RailwayDependencies.Values(changed),
+            "A difference after the first streamed buffer must invalidate the dependency key.");
+    }
+
+    [TestMethod]
     public void Captured_railway_dependency_storage_does_not_grow_with_design_size()
     {
         var small = Capture(Snapshot(model: SizedModel(1)), models: [SceneFixtures.Design]);
