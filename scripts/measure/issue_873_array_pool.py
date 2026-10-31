@@ -7,8 +7,10 @@ EVENTS = ("BufferRented", "BufferAllocated", "BufferReturned", "BufferTrimmed", 
 
 
 def call_site(stack):
-    return tuple(frame for frame in stack if not frame.startswith(
-        ("System.", "Microsoft.", "Train.App.Measurement.ArrayPoolDiagnosis.")))[:4]
+    visible = tuple(frame for frame in stack if not frame.startswith(
+        ("System.Buffers.", "System.Diagnostics.Tracing.", "Train.App.Measurement.ArrayPoolDiagnosis.")))
+    application = tuple(frame for frame in visible if not frame.startswith(("System.", "Microsoft.")))
+    return (application or visible)[:4]
 
 
 def summarize(rows, observations, collections, game_ids, expected_cycles):
@@ -94,7 +96,7 @@ def write_summary(output, rows, observations, collections, game_ids, expected_cy
         result["status"] = "unknown"
     (output / "array-pool-summary.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     lines = ["# ArrayPool 观测", "", f"状态：{result['status']}。reference PID：{result['reference_process_ids']}（不计入下表）。",
-             result["caveat"], "", "区间右端不含边界；边界后的 idle 归入下一段，末轮后归 tail。调用点去除 System/Microsoft/诊断帧后取前四帧；完整代表栈见 JSON。",
+             result["caveat"], "", "区间右端不含边界；边界后的 idle 归入下一段，末轮后归 tail。调用点优先取非 System/Microsoft 的前四帧；未捕获应用帧时保留前四个框架 API。池/Tracing/诊断帧不参与分组；完整代表栈见 JSON。",
              "", "| PID | 区间 | Rented | Allocated | Returned | Trimmed | Dropped |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for process in result["processes"]:
         for interval in process["intervals"]:
