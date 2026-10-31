@@ -1,5 +1,8 @@
+using System.Buffers;
 using System.Collections.Immutable;
+using System.Diagnostics.Tracing;
 using System.Numerics;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -11,12 +14,44 @@ namespace Train.Scenes.Tests;
 public sealed class RailwayDependencyTests
 {
     [TestMethod]
+    public void LargeDependencyValuesDoNotBorrowLargeSharedPoolBuffers()
+    {
+        var value = Enumerable.Range(0, 262_144).ToArray();
+        Assert.IsTrue(JsonSerializer.SerializeToUtf8Bytes(value).Length > 1024 * 1024);
+        using var events = new CurrentThreadPoolEvents();
+        var control = ArrayPool<byte>.Shared.Rent(1024 * 1024);
+        ArrayPool<byte>.Shared.Return(control);
+        Assert.IsTrue(events.Rented > 0, "The listener must observe a real large rental.");
+        events.Rented = events.Allocated = 0;
+
+        Assert.IsNotEmpty(RailwayDependencies.Values(value));
+
+        Assert.AreEqual(0, events.Rented, "Dependency hashing must not rent a large shared buffer.");
+        Assert.AreEqual(0, events.Allocated, "Dependency hashing must not allocate a large shared buffer.");
+    }
+
+    [TestMethod]
     public void Dependency_fingerprint_storage_does_not_grow_with_design_size()
     {
         var small = RailwayDependencies.Values(SizedModel(1).Scene);
         var large = RailwayDependencies.Values(SizedModel(1_024).Scene);
         Assert.AreEqual(small.Length, large.Length,
             "Dependency cache keys must not grow with the serialized design.");
+    }
+
+    [TestMethod]
+    public void LargeDependencyValuesIncludeChangesBeyondTheFirstSerializationBuffer()
+    {
+        var original = SizedModel(1_024).Scene;
+        var equivalent = SizedModel(1_024).Scene;
+        var changed = original with
+        {
+            Voxels = original.Voxels.SetItem(original.Voxels.Length - 1, original.Voxels[^1] with { Missing = true })
+        };
+        var key = RailwayDependencies.Values(original);
+        Assert.AreEqual(key, RailwayDependencies.Values(equivalent));
+        Assert.AreNotEqual(key, RailwayDependencies.Values(changed),
+            "A difference after the first streamed buffer must invalidate the dependency key.");
     }
 
     [TestMethod]
@@ -110,4 +145,31 @@ public sealed class RailwayDependencyTests
     private static ContentDiagnostic Diagnostic(CoreDefinitionReference reference) =>
         new("test_diagnostic", ContentDiagnosticSeverity.Warning, "test", new ContentReference.Core(reference),
             new(new("test-package"), "test.json"), "field", null, "test diagnostic");
+
+    private sealed class CurrentThreadPoolEvents : EventListener
+    {
+        private readonly int thread = Environment.CurrentManagedThreadId;
+        private readonly int bytePool = ArrayPool<byte>.Shared.GetHashCode();
+        private readonly int charPool = ArrayPool<char>.Shared.GetHashCode();
+        internal int Rented;
+        internal int Allocated;
+
+        protected override void OnEventSourceCreated(EventSource source)
+        {
+            if (source.Name == "System.Buffers.ArrayPoolEventSource") EnableEvents(source, EventLevel.Verbose);
+        }
+
+        protected override void OnEventWritten(EventWrittenEventArgs data)
+        {
+            if (Environment.CurrentManagedThreadId != thread
+                || data.EventName is not ("BufferRented" or "BufferAllocated")
+                || data.Payload is not { Count: >= 3 }) return;
+            var pool = (int)data.Payload[2]!;
+            if (pool != bytePool && pool != charPool) return;
+            var bytes = (long)(int)data.Payload[1]! * (pool == charPool ? 2 : 1);
+            if (bytes < 1024 * 1024) return;
+            if (data.EventName == "BufferRented") Rented++;
+            else Allocated++;
+        }
+    }
 }
