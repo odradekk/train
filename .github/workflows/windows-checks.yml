@@ -45,12 +45,12 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
 
-      - name: Observe three reloads and collect GC graphs
+      - name: Observe three reloads without dumps
         timeout-minutes: 54
         shell: bash
         run: |
           python3 scripts/measure/issue-873-heap.py \
-            --gcdump \
+            --no-dumps \
             --scratch "$HEAP_RUN_DIRECTORY" \
             --output TestResults/issue-873-diagnosis \
             --cache "$RUNNER_TOOL_CACHE/train-measure"
