@@ -385,7 +385,7 @@ internal static class RailwayTerrain
             foreach (var (key, value) in owned)
             {
                 cancellation.ThrowIfCancellationRequested();
-                var distance = TrackDistance(value.Offset);
+                var distance = surface.TrackDistance(value.Offset);
                 var hasBed = path.Edge.Tracks > 0 && !value.Water && !value.Tunnel;
                 var lowest = LowestNeighbor(owned, outside, key, key.X, key.Z);
                 var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, distance, hasBed, null, Property, lowest);
@@ -414,7 +414,7 @@ internal static class RailwayTerrain
                 cancellation.ThrowIfCancellationRequested();
                 var value = pair.Value;
                 var terrain = value.Terrain;
-                if (value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationRootClearance) continue;
+                if (value.Water || surface.TrackDistance(value.Offset) < RailwayCoordinates.DecorationRootClearance) continue;
                 if (DecorationSlot(path, terrain, ColumnKey(pair.Key)) is not { } slot) continue;
                 modelReads.Add(new(terrain!.Id, slot, RailwayModelRole.Decoration));
                 decorations.Add((pair.Key, terrain!.Decorations[slot].SceneModel));
@@ -432,14 +432,15 @@ internal static class RailwayTerrain
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
             var outside = new Dictionary<GridColumn, double?>();
-            var waterVertices = new List<SceneVertex>();
-            var waterIndices = new List<int>();
-            foreach (var pair in columns)
+            var waterCount = columns.Values.Count(value => value.Water);
+            var vertices = ImmutableArray.CreateBuilder<SceneVertex>(waterCount * 4);
+            var indices = ImmutableArray.CreateBuilder<int>(waterCount * 6);
+
+            foreach (var (column, value) in columns)
             {
                 cancellation.ThrowIfCancellationRequested();
-                var column = pair.Key; var value = pair.Value;
                 var rail = path.Sample(value.Arc);
-                var trackDistance = TrackDistance(value.Offset);
+                var trackDistance = surface.TrackDistance(value.Offset);
                 var isTunnel = value.Tunnel;
                 heights.Add(column, value.Height + 1);
                 var subject = new PickSubject.Terrain(new WorldLocation.Edge(path.Edge.Id, value.Arc / RailwayCoordinates.CellsPerMeter));
@@ -457,11 +458,11 @@ internal static class RailwayTerrain
                 FillColumn(cells, column, value.Height, layers.Terrain, layers.Ballast, trackDistance, hasBed, origin.Y, excluded, lowest);
                 if (value.Water)
                 {
-                    var y = (float)(WaterLevel(value.Arc) - origin.Y);
-                    var first = waterVertices.Count;
+                    var y = (float)(surface.WaterLevel(value.Arc) - origin.Y);
+                    var first = vertices.Count;
                     foreach (var corner in new Vector2[] { new(0, 0), new(0, 1), new(1, 1), new(1, 0) })
-                        waterVertices.Add(new(new(column.X + corner.X, y, column.Z + corner.Y), Vector3.UnitY, corner, corner, ExposedFaceEdges.None, 0, 0));
-                    waterIndices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
+                        vertices.Add(new(new(column.X + corner.X, y, column.Z + corner.Y), Vector3.UnitY, corner, corner, ExposedFaceEdges.None, 0, 0));
+                    indices.AddRange((ReadOnlySpan<int>)[first, first + 1, first + 2, first, first + 2, first + 3]);
                 }
             }
             var grid = new VoxelGrid(cells.ToImmutable());
@@ -474,8 +475,8 @@ internal static class RailwayTerrain
                 [new SceneVisual.Missing(missing.MissingReference!, true)], [], []));
             foreach (var mesh in RailwayMeshes.Build(path, index, origin))
                 visuals.Add(new SceneVisual.Geometry(mesh, new(false, 0, 0, false)));
-            if (waterVertices.Count > 0) visuals.Add(new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(BuiltInMaterial.Water),
-            waterVertices.ToImmutableArray(), waterIndices.ToImmutableArray()), new(false, 0, 0, false)));
+            if (waterCount > 0) visuals.Add(new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(BuiltInMaterial.Water),
+            vertices.MoveToImmutable(), indices.MoveToImmutable()), new(false, 0, 0, false)));
             objects.Insert(0, new(terrainId, null, new(Vector3.Zero, Quaternion.Identity), null, visuals.ToImmutable(), [], []));
             picking.Add(new(terrainId, new(Vector3.Zero, Quaternion.Identity), grid));
             return new(index, origin, new(objects.ToImmutable(), picking.ToImmutable(), diagnostics.ToImmutable()), heights.ToImmutable(),
@@ -485,7 +486,6 @@ internal static class RailwayTerrain
         }
 
         private long ColumnKey(GridColumn column) => RailwayTerrain.ColumnKey(column.X + origin.X, column.Z + origin.Z);
-        private double TrackDistance(double offset) => surface.TrackDistance(offset);
         private TerrainAppearanceProjection? GetTerrain(TerrainTypeId id)
         {
             terrainReads.Add(id);
@@ -515,7 +515,6 @@ internal static class RailwayTerrain
             return surface.TunnelAt(arc, terrain);
         }
         private bool Water(double arc) => surface.Water(arc);
-        private double WaterLevel(double arc) => surface.WaterLevel(arc);
         private void PlaceRepairs(Dictionary<GridColumn, TerrainColumn> columns)
         {
             if (path.Edge.Breaks.IsDefaultOrEmpty || path.Edge.Works.IsDefaultOrEmpty) return;
@@ -745,7 +744,7 @@ internal static class RailwayTerrain
                 var arc = path.Locate(point);
                 var rail = path.Sample(arc);
                 var lateral = (point.X - rail.Position.X) * rail.Right.X + (point.Z - rail.Position.Z) * rail.Right.Z;
-                return Water(arc) || TrackDistance(lateral) < RailwayCoordinates.DecorationVoxelClearance;
+                return Water(arc) || surface.TrackDistance(lateral) < RailwayCoordinates.DecorationVoxelClearance;
             })) return;
             AddPlaced(found.Value, pose, decoration, columns, null);
         }
@@ -769,7 +768,7 @@ internal static class RailwayTerrain
                 foreach (var column in columns.Keys.ToArray())
                 {
                     var value = columns[column];
-                    if (decoration is not null && (value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationVoxelClearance)) continue;
+                    if (decoration is not null && (value.Water || surface.TrackDistance(value.Offset) < RailwayCoordinates.DecorationVoxelClearance)) continue;
                     var local = Vector3.Transform(new Vector3(column.X + 0.5f - pose.Position.X, 0, column.Z + 0.5f - pose.Position.Z), inverse);
                     var distance = Math.Max(Math.Max(flatten.From.X - local.X, local.X - flatten.To.X - 1),
                         Math.Max(flatten.From.Z - local.Z, local.Z - flatten.To.Z - 1));

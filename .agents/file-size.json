@@ -83,7 +83,7 @@
     "Scenes/NodeScene.cs": 27126,
     "Scenes/RailwayPath.cs": 7342,
     "Scenes/RailwayScene.cs": 7624,
-    "Scenes/RailwayTerrain.cs": 11457,
+    "Scenes/RailwayTerrain.cs": 11445,
     "Scenes/SceneFrame.cs": 5382,
     "Scenes/SettlementObjects.cs": 7792,
     "Scenes/VoxelGrid.cs": 5031,
