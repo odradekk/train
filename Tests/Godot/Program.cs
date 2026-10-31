@@ -8,6 +8,8 @@ if (args.Length > 0 && args[0] == "--package-write-process")
     return PackageFilesTests.WriteInChild(args[1], int.Parse(args[2]));
 if (args.Length > 0 && args[0] == "--save-container-memory")
     return SaveContainerMemoryTests.MeasureInChild(args[1], int.Parse(args[2]));
+if (args.Length > 0 && args[0] == "--save-background")
+    return SaveBackgroundTests.MeasureInChild();
 
 if (args.Length > 0 && args[0] == "--recording-package-memory")
     return RecordingPackageMemoryTests.MeasureInChild(args[1], int.Parse(args[2]));

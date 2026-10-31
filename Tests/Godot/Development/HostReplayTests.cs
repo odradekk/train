@@ -139,6 +139,8 @@ public sealed class HostReplayTests
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         var late = new ScriptedCoreReplay(ReplayFixture.View(new(0, 0)));
+        var ended = new List<HostOperationResult>();
+        run.Host.Host.OperationEnded += ended.Add;
         run.Host.Core.PrepareReplayCall = (_, _, _) =>
         {
             entered.Set();
@@ -151,12 +153,15 @@ public sealed class HostReplayTests
             HostFixture.WaitForSignal(entered, "迟到候选已进入核心准备");
             Assert.IsTrue(run.Host.Host.Cancel(first.Operation));
             run.ConfigureReplay();
-            run.Open();
-            var current = run.Host.Host.GetStatus()!.Binding;
+            Assert.IsNull(run.Host.Host.BeginReplay("memory.zip", _ => run.Package).Problem);
+            Assert.IsFalse(run.Host.Host.GetStatus()!.IsReplay);
             release.Set();
-            run.Host.PumpUntil(() => late.DisposeCount == 1);
+            run.Host.PumpUntil(() => late.DisposeCount == 1 && run.Host.Host.GetStatus()?.IsReplay == true);
+            var current = run.Host.Host.GetStatus()!.Binding;
+            run.Host.Host.ProcessFrame(0);
             Assert.AreEqual(current, run.Host.Host.GetStatus()!.Binding);
             Assert.AreEqual(0, run.Replay.DisposeCount);
+            Assert.AreEqual(HostOperationStatus.Cancelled, ended.Single(result => result.Operation == first.Operation).Status);
         }
         finally { release.Set(); }
     }

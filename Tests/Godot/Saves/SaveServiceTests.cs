@@ -76,10 +76,10 @@ public sealed class SaveServiceTests
         Assert.AreEqual("busy", run.Service.SaveAs("conflict")?.Code);
         for (var i = 1; i <= 3; i++) { run.Now = i * 10; run.Process(); }
         Assert.AreEqual(1, run.Host.Factory.CaptureCount);
+        run.Release();
         run.PublishContent(7);
         run.Host.CaptureContent = (view, _) => new ContentResult<IContentCapture>.Success(
             new FixedContentCapture($"latest-{view.PersistentRevision.Value}", view.PersistentRevision));
-        run.Release();
         run.Drain();
         Assert.AreEqual(2, run.Host.Factory.CaptureCount);
         Assert.AreEqual("latest-7", run.Store.Read(run.Store.AutoPathFor(run.Id, 0)).ContentPayload);
@@ -99,10 +99,10 @@ public sealed class SaveServiceTests
         var oldBinding = run.Service.Status!.Binding;
         run.ConfigureRestore();
         run.Host.Host.BeginRestore("core-state", "content-state", HostFixture.Options, new(run.Id, "new run"));
+        run.Release();
         run.Host.PumpUntil(() => !run.Host.Host.IsBusy);
         run.Process();
         Assert.AreNotEqual(oldBinding, run.Service.Status!.Binding);
-        run.Release();
         run.Drain();
         Assert.AreEqual(1, run.Host.Factory.CaptureCount);
         Assert.IsTrue(run.Service.Status.Unsaved);
