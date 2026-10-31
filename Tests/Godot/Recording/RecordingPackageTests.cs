@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Text;
@@ -133,6 +134,66 @@ public sealed class RecordingPackageTests
             Assert.AreEqual("changed opaque content, not JSON", RecordingPackage.Read(path).ContentPayload);
             Assert.ThrowsExactly<InvalidDataException>(() => package.Validate(path));
         });
+    }
+
+    [TestMethod]
+    [DataRow(CompressionLevel.NoCompression, false, false)]
+    [DataRow(CompressionLevel.Optimal, false, false)]
+    [DataRow(CompressionLevel.NoCompression, true, false)]
+    [DataRow(CompressionLevel.Optimal, true, false)]
+    [DataRow(CompressionLevel.NoCompression, false, true)]
+    [DataRow(CompressionLevel.Optimal, false, true)]
+    [DataRow(CompressionLevel.NoCompression, true, true)]
+    [DataRow(CompressionLevel.Optimal, true, true)]
+    public void Read_and_validation_reject_manifest_length_exceeding_available_bytes(
+        CompressionLevel compression, bool oversized, bool validate)
+    {
+        WithFile(path =>
+        {
+            var package = Package();
+            package.Write(path);
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+            {
+                var manifest = Read(zip, "manifest.json");
+                zip.GetEntry("manifest.json")!.Delete();
+                using var writer = new StreamWriter(zip.CreateEntry("manifest.json", compression).Open(),
+                    new UTF8Encoding(false));
+                writer.Write(manifest);
+            }
+            package.Validate(path);
+            InflateManifestLength(path, oversized);
+            Assert.ThrowsExactly<InvalidDataException>(() =>
+            {
+                if (validate) package.Validate(path);
+                else RecordingPackage.Read(path);
+            });
+        });
+    }
+
+    private static void InflateManifestLength(string path, bool oversized)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var end = bytes.Length - 22;
+        Assert.AreEqual(0x06054b50u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(end)));
+        var offset = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(end + 16)));
+        var count = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(end + 10));
+        for (var i = 0; i < count; i++)
+        {
+            Assert.AreEqual(0x02014b50u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset)));
+            var nameLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 28));
+            var extraLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 30));
+            var commentLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 32));
+            if (Encoding.UTF8.GetString(bytes, offset + 46, nameLength) == "manifest.json")
+            {
+                var size = bytes.AsSpan(offset + 24, 4);
+                BinaryPrimitives.WriteUInt32LittleEndian(size,
+                    oversized ? uint.MaxValue : checked(BinaryPrimitives.ReadUInt32LittleEndian(size) + 1));
+                File.WriteAllBytes(path, bytes);
+                return;
+            }
+            offset += 46 + nameLength + extraLength + commentLength;
+        }
+        Assert.Fail("录制 ZIP 缺少 manifest.json 中央目录记录。");
     }
 
     [TestMethod]

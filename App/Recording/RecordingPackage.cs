@@ -132,7 +132,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
                 ReadEntry(zip, "content.payload"));
         }
         catch (Exception error) when (error is JsonException or NotSupportedException or DecoderFallbackException
-            or ArgumentException or InvalidOperationException)
+            or ArgumentException or InvalidOperationException or EndOfStreamException)
         {
             throw new InvalidDataException("录制 ZIP 无法解码。", error);
         }
@@ -212,6 +212,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
     private static byte[] ReadBytes(ZipArchive zip, string name)
     {
         var entry = Entry(zip, name);
+        if (entry.Length > Array.MaxLength) throw new InvalidDataException("录制 ZIP 条目长度过大。");
         var bytes = new byte[entry.Length];
         using var stream = entry.Open();
         stream.ReadExactly(bytes);
