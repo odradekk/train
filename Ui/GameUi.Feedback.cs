@@ -27,12 +27,6 @@ public partial class GameUi
         if (_editor is { IsOpen: false, HasError: true, Message: { Length: > 0 } message }) ShowError(message);
     }
 
-    private void Report(CoreProblem? problem)
-    {
-        if (problem is null) return;
-        ShowError(CommandDiagnostics.LogProblem(_logger, "ui", "simulation_control_denied", problem, _content));
-    }
-
     private void ReportUiError(string message)
     {
         _logger.Warning("ui", "ui_operation_invalid", message);
@@ -131,22 +125,5 @@ public partial class GameUi
         _error.AddThemeColorOverride("font_color", color);
         _errorPanel.Show(); _errorPanel.MoveToFront();
         _errorPanel.Position = new(Math.Max(16, _root.Size.X - _errorPanel.Size.X - 24), 68);
-    }
-    private void SetSpeed(SimulationSpeed? speed)
-    {
-        if (_host is null) return;
-        if (speed is null) { Report(_host.SetPaused(true)); return; }
-        var problem = _host.SetSpeed(speed.Value);
-        if (problem is not null) { Report(problem); return; }
-        Report(_host.SetPaused(false));
-    }
-
-    // 玩家和通知暂停由暂停按钮表示；这里列出其他仍然生效的来源，避免倍速按钮按下却不推进时看不出原因。
-    private static string PauseText(HostStatus status)
-    {
-        if (!status.IsPaused) return "运行中";
-        var reasons = new[] { (status.FocusPaused, "失焦"), (status.EditingPaused, "编辑"),
-            (status.OperationLocked, "处理中"), (status.IsFrozen, "故障") }.Where(item => item.Item1).Select(item => item.Item2);
-        return reasons.Any() ? $"已暂停（{string.Join("、", reasons)}）" : "已暂停";
     }
 }

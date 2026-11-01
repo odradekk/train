@@ -19,30 +19,6 @@ public partial class GameUi
     private WorldSceneController? _scenes;
     private Button? _returnToMap;
 
-    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command)
-        => Submit(target, command, null);
-
-    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
-    {
-        var status = _host?.GetStatus();
-        if (status is null || _host!.Content is not { } content || target is null ||
-            !target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)) || _host.IsBusy)
-        {
-            ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
-            return null;
-        }
-        SubmissionResult result;
-        try { result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate); }
-        catch (NotImplementedException)
-        {
-            _logger.Warning("ui", "command_not_implemented", command.GetType().Name);
-            ShowError("该操作尚未实现。");
-            return null;
-        }
-        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) ShowError(problem);
-        return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
-    }
-
     private void OpenScene(WorldObjectId id)
     {
         if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is null ||
