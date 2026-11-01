@@ -11,6 +11,43 @@ namespace Train.Engine.Tests;
 public partial class EditorUiTests
 {
     [Test]
+    public async Task Hover_exception_is_logged_once_and_reused_until_the_query_changes()
+    {
+        var fixture = await Ready(DirectEditingFixture());
+        var input = new UiTestInput(TestScene);
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var session = fixture.Factory.Session!;
+            await input.Choose(DirectAction(panel), 1);
+            var console = fixture.App.FindChildren("*", "", true, false).OfType<GameConsole>().Single();
+            var logs = console.LogEvents.Count(log => log.EventId == "editor_preview_failed");
+            var message = fixture.Editor.Message;
+            session.PreviewCall = _ => throw new InvalidOperationException("hover fault");
+            await DirectHit(fixture, new(2, 3, 4));
+            var point = fixture.Controller.VisibleArea.GetCenter();
+            var queries = session.PreviewCalls.Count;
+            await DirectHover(point);
+            await input.Frames(6);
+            await DirectHover(point + new Vector2(8, 0));
+            await DirectHover(point + new Vector2(16, 0));
+            Require(session.PreviewCalls.Count == queries + 1
+                && console.LogEvents.Count(log => log.EventId == "editor_preview_failed") == logs + 1,
+                "同一悬停查询抛异常后必须复用故障结果，不能按帧或同格移动重试、重复写日志。");
+            Require(!fixture.Editor.HasError && fixture.Editor.Message == message && Displayed(panel, "详情见日志"),
+                "悬停异常只在预览中说明，不改变操作错误状态或状态消息。");
+
+            await DirectHit(fixture, new(3, 3, 4));
+            await DirectHover(point + new Vector2(24, 0));
+            Require(session.PreviewCalls.Count == queries + 2
+                && console.LogEvents.Count(log => log.EventId == "editor_preview_failed") == logs + 2
+                && session.ApplyCalls.Count == 0,
+                "目标格变化后允许新查询及其一条异常日志，但不能提交编辑。");
+        }
+        finally { fixture.QueueFree(); await input.Frames(3); }
+    }
+
+    [Test]
     public async Task Hover_conflicts_show_player_text_and_only_apply_reports_raw_details()
     {
         var fixture = await Ready();

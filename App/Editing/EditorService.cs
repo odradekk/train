@@ -8,7 +8,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.App.Editing;
 
-internal sealed class EditorService : IDisposable
+internal sealed partial class EditorService : IDisposable
 {
     private readonly IScenesFactory _scenes;
     private readonly FileSaveStore _store;
@@ -566,15 +566,6 @@ internal sealed class EditorService : IDisposable
             Changed?.Invoke();
         }
         catch (Exception error) { Report(error.Message); }
-    }
-    internal SceneResult<IEditPreview>? Preview(EditOperation operation)
-    {
-        if (Session is null || SceneUnavailable || IsBusy) return null;
-        try
-        {
-            return Session.Preview(operation);
-        }
-        catch { return null; }
     }
     internal void Locate(DesignElementPath path)
     {
