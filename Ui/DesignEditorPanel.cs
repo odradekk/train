@@ -32,7 +32,6 @@ internal partial class DesignEditorPanel : Control
     private ImmutableArray<EditElementId> _selectionSource;
     private HashSet<EditElementId> _selection = [];
     private SpinBox _x = null!, _y = null!, _z = null!, _endX = null!, _endY = null!, _endZ = null!, _width = null!, _plane = null!, _cut = null!;
-    private IEditPreview? _preview;
     internal event Action? LibraryRequested;
     internal event Action<EditStamp, TimeSpan>? ElementsUpdated;
     private EditStamp? _shown;
@@ -41,8 +40,6 @@ internal partial class DesignEditorPanel : Control
     private ImmutableArray<SceneProblem> _shownFrameDiagnostics;
     private SceneHit? _lastHit;
     private EditSessionId? _paletteSession;
-    private readonly List<GridPosition> _stroke = [];
-    private ConfirmationDialog _confirm = null!;
     private PanelContainer _leave = null!, _topBar = null!, _toolsPanel = null!, _inspectorPanel = null!, _bottomPanel = null!;
     private Button _undo = null!, _redo = null!, _saveBlueprint = null!;
     private Button _returnServices = null!;
@@ -66,7 +63,7 @@ internal partial class DesignEditorPanel : Control
         Add(bar, "Properties", "更新名称说明", () =>
         {
             if (_service.State is { } state)
-                Preview(new EditOperation.Properties(new(_name.Text, _description.Text),
+                Execute(new EditOperation.Properties(new(_name.Text, _description.Text),
                     (_scene.EnteredDraft ?? state.Snapshot.Draft).Specification));
         });
         _undo = UiStyle.Button("Undo", "撤销", _service.Undo); bar.AddChild(_undo);
@@ -93,11 +90,12 @@ internal partial class DesignEditorPanel : Control
             var swatch = new Button { Text = name, TooltipText = color, CustomMinimumSize = new(116, 32) };
             swatch.AddChild(new ColorRect { Position = new(4, 9), Size = new(14, 14), Color = Colors.LightGray, MouseFilter = MouseFilterEnum.Ignore });
             swatch.AddChild(new ColorRect { Position = new(5, 10), Size = new(12, 12), Color = new(color), MouseFilter = MouseFilterEnum.Ignore });
-            swatch.Pressed += () => { _paint.Color = new Color(color); InvalidatePreview(); }; colors.AddChild(swatch);
+            swatch.Pressed += () => { _paint.Color = new Color(color); InvalidateHover(); }; colors.AddChild(swatch);
         }
         _tool = Choice(tools, ["单格", "笔刷（拖动松开一笔）", "长方体", "选区"]);
         _action = Choice(tools, ["添加", "移除", "替换", "涂装", "形状"]);
         _width = Number(tools, "笔刷宽度", 1, 16, 1);
+        _height = Number(tools, "长方体高度", 1, 5000, 1); _height.Name = "BoxHeight";
         _axis = Choice(tools, ["工作平面 X", "工作平面 Y", "工作平面 Z"]); _axis.Select(1);
         _plane = Number(tools, "平面坐标", -4096, 4096);
         Add(tools, "SurfacePlane", "使用拾取表面平面", () =>
@@ -134,15 +132,14 @@ internal partial class DesignEditorPanel : Control
         _x = Number(inspector, "X／移动量 X", -4096, 4096); _y = Number(inspector, "Y／移动量 Y", -4096, 4096); _z = Number(inspector, "Z／移动量 Z", -4096, 4096);
         _endX = Number(inspector, "区域终点 X", -4096, 4096); _endY = Number(inspector, "区域终点 Y", -4096, 4096); _endZ = Number(inspector, "区域终点 Z", -4096, 4096);
         Add(inspector, "EditSpecification", "设计规格…", EditSpecification);
-        Add(inspector, "Preview", "预览精确参数", () => PreviewCells());
-        Add(inspector, "Apply", "应用预览", Apply);
+        Add(inspector, "ExecuteCells", "按参数修改", () => ExecuteCells());
         Add(inspector, "SelectBox", "框选区域", () => _service.Select(new EditSelection.Box(Bounds())));
-        Add(inspector, "Move", "移动选区", () => Preview(new EditOperation.MoveSelection(At())));
-        Add(inspector, "Copy", "复制选区", () => Preview(new EditOperation.CopySelection(At())));
-        Add(inspector, "Rotate", "选区旋转 90°", () => Preview(new EditOperation.RotateSelection((GridAxis)_axis.Selected, At(), 1)));
-        Add(inspector, "Remove", "删除选区", () => Preview(new EditOperation.RemoveSelection()));
-        Add(inspector, "Paint", "选区涂装", () => Preview(new EditOperation.PaintSelection(Paint())));
-        Add(inspector, "Shape", "选区形状", () => { if (Shape() is { } shape) Preview(new EditOperation.ShapeSelection(shape)); });
+        Add(inspector, "Move", "移动选区", () => Execute(new EditOperation.MoveSelection(At())));
+        Add(inspector, "Copy", "复制选区", () => Execute(new EditOperation.CopySelection(At())));
+        Add(inspector, "Rotate", "选区旋转 90°", () => Execute(new EditOperation.RotateSelection((GridAxis)_axis.Selected, At(), 1)));
+        Add(inspector, "Remove", "删除选区", () => Execute(new EditOperation.RemoveSelection()));
+        Add(inspector, "Paint", "选区涂装", () => Execute(new EditOperation.PaintSelection(Paint())));
+        Add(inspector, "Shape", "选区形状", () => { if (Shape() is { } shape) Execute(new EditOperation.ShapeSelection(shape)); });
         var bottom = _bottomPanel = new PanelContainer(); bottom.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide); bottom.OffsetTop = -220; AddChild(bottom);
         var scroll = new ScrollContainer { CustomMinimumSize = new(0, 210) }; bottom.AddChild(scroll);
         var information = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill }; scroll.AddChild(information);
@@ -150,20 +147,14 @@ internal partial class DesignEditorPanel : Control
         foreach (var label in new[] { _status, _previewText, _information }) { label.AutowrapMode = TextServer.AutowrapMode.WordSmart; label.SizeFlagsHorizontal = SizeFlags.ExpandFill; }
         information.AddChild(_status); information.AddChild(_previewText); information.AddChild(_information);
         _diagnostics = new VBoxContainer(); information.AddChild(_diagnostics);
-        _confirm = new ConfirmationDialog { Title = "确认大范围修改", OkButtonText = "确认应用" };
-        AddChild(_confirm);
-        _confirm.Confirmed += () =>
-        {
-            if (_preview is { } preview) _service.Apply(preview, true);
-        };
         _leave = UiStyle.Panel(this, "LeaveEditor", "存在未保存修改", new(440, 220), 410, () => _service.ResolveClose(LeaveChoice.Cancel), out var leave);
         Add(leave, "SaveAndLeave", "保存草稿并退出", () => _service.ResolveClose(LeaveChoice.Save));
         Add(leave, "DiscardAndLeave", "放弃本次修改", () => _service.ResolveClose(LeaveChoice.Discard));
         Add(leave, "CancelLeave", "继续编辑", () => _service.ResolveClose(LeaveChoice.Cancel)); _leave.Hide(); Hide();
-        void InvalidatePreview() { _preview = null; _scene.ShowPreview(null); _previewText.Text = "参数已更改，请重新预览。"; }
-        foreach (var number in new[] { _x, _y, _z, _endX, _endY, _endZ, _width }) number.ValueChanged += _ => InvalidatePreview();
-        foreach (var choice in new[] { _voxel, _shape, _orientation, _tool, _action }) choice.ItemSelected += _ => InvalidatePreview();
-        _paint.ColorChanged += _ => InvalidatePreview();
+        foreach (var number in new[] { _x, _y, _z, _endX, _endY, _endZ, _width, _height }) number.ValueChanged += _ => InvalidateHover();
+        foreach (var choice in new[] { _voxel, _shape, _orientation, _tool, _action }) choice.ItemSelected += _ => InvalidateHover();
+        _tool.ItemSelected += _ => CancelGesture();
+        _paint.ColorChanged += _ => InvalidateHover();
     }
     private Rect2 FramingArea()
     {
@@ -220,86 +211,10 @@ internal partial class DesignEditorPanel : Control
         var value = new VoxelPaletteEntry(_voxels[_voxel.Selected].Definition, orientation, Shape(), Paint());
         return _action.Selected == 0 ? new CellEdit.Add(value) : new CellEdit.Replace(value);
     }
-    private void PreviewCells(EditFootprint? footprint = null)
-    {
-        if (Action() is not { } action) return;
-        footprint ??= _tool.Selected == 2 ? new EditFootprint.Box(Bounds()) : new EditFootprint.Cell(At());
-        Preview(new EditOperation.Cells(footprint, action));
-    }
-    private void Preview(EditOperation operation)
-    {
-        _preview = (_service.Preview(operation) as SceneResult<IEditPreview>.Success)?.Value;
-        _scene.ShowPreview(_preview);
-        if (_preview is { } current) _service.ReportProblems(current.Conflicts.Select(conflict => conflict.Problem));
-        _previewText.Text = _preview is { } p
-            ? $"覆盖 {p.CoveredCells} · 影响 {p.AffectedCells} · 跳过 {p.SkippedCells} · 占格{(p.OccupancyComplete ? "完整" : "未知")}\n"
-                + string.Join("；", p.Conflicts.Select(ConflictText))
-            : "预览不可用";
-        string ConflictText(EditConflict conflict)
-        {
-            var text = EditorService.Explain(conflict.Problem, _service.Host.Content);
-            return conflict.Cell is { } cell ? $"{PositionText(cell)}：{text}" : text;
-        }
-    }
-    private void Apply()
-    {
-        if (_preview is not { CanApply: true } preview) return;
-        if (preview.RequiresConfirmation)
-        {
-            _confirm.DialogText = $"将影响 {preview.AffectedCells} 格。确认应用？";
-            _confirm.PopupCentered();
-        }
-        else _service.Apply(preview, false);
-    }
-    private void Pick(ScenePick pick)
-    {
-        if (pick is ScenePick.Miss)
-        {
-            if (_scene.PickPlane(GetViewport().GetMousePosition()) is not { } planeCell) { _service.Report("射线未命中设计或工作平面。"); return; }
-            _x.Value = planeCell.X; _y.Value = planeCell.Y; _z.Value = planeCell.Z;
-            if (_tool.Selected == 1) { _stroke.Clear(); _stroke.Add(planeCell); } else PreviewCells();
-            return;
-        }
-        if (pick is not ScenePick.Hit { Value: var hit }) return;
-        if (_tool.Selected == 3 && hit.Subject is PickSubject.Editing element) { _service.Select(new EditSelection.Elements([element.Element])); return; }
-        _lastHit = hit;
-        var cell = _scene.CellFor(hit, _action.Selected == 0);
-        _x.Value = cell.X; _y.Value = cell.Y; _z.Value = cell.Z;
-        if (_tool.Selected == 1) { _stroke.Clear(); _stroke.Add(cell); return; }
-        PreviewCells();
-    }
-    public override void _UnhandledInput(InputEvent input)
-    {
-        if (!Visible) return;
-        if (input.IsActionPressed(UndoAction)) _service.Undo();
-        else if (input.IsActionPressed(RedoAction)) _service.Redo();
-        else if (input.IsActionPressed(SaveAction)) _service.SaveDraft();
-        else if (input.IsActionPressed(CloseAction)) _service.RequestClose(() => { });
-        else if (_stroke.Count > 0 && input is InputEventMouseMotion motion && motion.ButtonMask.HasFlag(MouseButtonMask.Left))
-        {
-            if (GetViewport().GuiGetHoveredControl() is not null) return;
-            var pick = _scene.Pick(motion.Position);
-            var cell = pick switch
-            {
-                ScenePick.Hit hit => _scene.CellFor(hit.Value, _action.Selected == 0),
-                ScenePick.Miss => _scene.PickPlane(motion.Position),
-                _ => null
-            };
-            if (cell is { } sample && !_stroke.Contains(sample)) _stroke.Add(sample);
-        }
-        else if (_stroke.Count > 0 && input is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false })
-        {
-            PreviewCells(new EditFootprint.Stroke([.. _stroke], (int)_width.Value));
-            _stroke.Clear();
-            Apply();
-        }
-        else return;
-        GetViewport().SetInputAsHandled();
-    }
     public override void _Process(double delta)
     {
         Visible = _service.IsOpen; _scene.VisibleArea = FramingArea(); _scene.Process(delta);
-        if (!Visible) { _shownEvaluation = null; return; }
+        if (!Visible) { _shownEvaluation = null; CancelGesture(); ClearHover(); return; }
         _undo.Disabled = _service.State?.CanUndo != true;
         _redo.Disabled = _service.State?.CanRedo != true;
         _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
@@ -323,8 +238,8 @@ internal partial class DesignEditorPanel : Control
         {
             _shown = state.Snapshot.Stamp;
             _shownEntered = state.EnteredObject;
-            _preview = null;
-            _previewText.Text = "";
+            CancelGesture();
+            InvalidateHover();
             var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
             _name.Text = current.Display.Name; _description.Text = current.Display.Description;
             var listStarted = ElementsUpdated is not null ? Stopwatch.GetTimestamp() : 0;
@@ -347,6 +262,7 @@ internal partial class DesignEditorPanel : Control
         }
         if (changed || !ReferenceEquals(_shownEvaluation, state.CurrentEvaluation) ||
             _shownFrameDiagnostics != _service.FrameDiagnostics) ShowEvaluation(state);
+        ProcessHover();
     }
     // Clear 重新排版未变行；删行前须清除引擎不会平移的焦点。
     private void ShowElements(ElementRow[] rows)

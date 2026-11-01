@@ -29,7 +29,7 @@ internal static class EditingFixtures
         return ((SceneResult<T>.Failure)result).Problems[0].Code;
     }
     internal static IEditPreview Preview(IDesignEditSession session, EditOperation operation) => Value(session.Preview(operation));
-    internal static EditState Apply(IDesignEditSession session, EditOperation operation) => Value(session.Apply(Preview(session, operation), true));
+    internal static EditState Apply(IDesignEditSession session, EditOperation operation) => Value(session.Apply(operation));
     internal static EditOperation.Cells Add(GridPosition at) => new(new EditFootprint.Cell(at), new CellEdit.Add(Cube));
     internal static EditViewOptions View(int? top = null) => new(new(GridAxis.Y, 0), top, SceneDebugLayer.None);
     internal static ISceneFrame Frame(IDesignEditSession session, int? top = null) => Value(session.Present(View(top), null));
@@ -148,20 +148,29 @@ public sealed class EditingSessionTests
     }
 
     [TestMethod]
-    public void PreviewFreezesSelectionAndExpiresOnNewPreviewOrEdit()
+    public void PreviewDoesNotFreezeSelectionOrChooseTheLaterAppliedOperation()
     {
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new(0, 0, 0), new(1, 0, 0)));
-        var cells = session.Read().Elements;
+        var initial = session.Read();
+        var cells = initial.Elements;
         EditingFixtures.Value(session.Select(new EditSelection.Elements([cells[0].Id])));
-        var removal = EditingFixtures.Preview(session, new EditOperation.RemoveSelection());
+        var removal = new EditOperation.RemoveSelection();
+        var preview = EditingFixtures.Preview(session, removal);
         EditingFixtures.Value(session.Select(new EditSelection.Elements([cells[1].Id])));
-        EditingFixtures.Value(session.Apply(removal, false));
-        Assert.AreEqual(cells[1].Id, session.Read().Elements.Single().Id);
-        var old = EditingFixtures.Preview(session, EditingFixtures.Add(new(2, 0, 0)));
-        var current = EditingFixtures.Preview(session, EditingFixtures.Add(new(3, 0, 0)));
-        Assert.AreEqual("stale_preview", EditingFixtures.Code(session.Apply(old, true)));
-        EditingFixtures.Value(session.Apply(current, true));
-        Assert.AreEqual("stale_preview", EditingFixtures.Code(session.Apply(current, true)));
+        Assert.AreEqual(initial.Snapshot.Stamp, session.Capture().Stamp);
+        EditingFixtures.Value(session.Apply(removal));
+        Assert.AreEqual(cells[0].Id, session.Read().Elements.Single().Id);
+        Assert.AreEqual(initial.Snapshot.Stamp, preview.Basis);
+        var first = EditingFixtures.Add(new(2, 0, 0));
+        var second = EditingFixtures.Add(new(3, 0, 0));
+        var basis = session.Capture().Stamp;
+        EditingFixtures.Preview(session, first);
+        EditingFixtures.Preview(session, second);
+        Assert.AreEqual(basis, session.Capture().Stamp);
+        EditingFixtures.Value(session.Apply(first));
+        var applied = EditingFixtures.Value(session.Apply(second));
+        CollectionAssert.AreEquivalent(new[] { new GridPosition(0, 0, 0), new(2, 0, 0), new(3, 0, 0) }, applied.Snapshot.Draft.Layout.Cells.Select(cell => cell.At).ToArray());
+        Assert.AreEqual(applied.Snapshot.Stamp, EditingFixtures.Value(session.Apply(second)).Snapshot.Stamp);
     }
 
     [TestMethod]
@@ -172,15 +181,17 @@ public sealed class EditingSessionTests
         using var session = EditingFixtures.Open(draft);
         var before = session.Capture();
         var blocker = session.Read().Elements.Single(e => e.Kind == EditElementKind.Cell);
-        var collision = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(5, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube)));
+        var collisionOperation = new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(5, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube));
+        var collision = EditingFixtures.Preview(session, collisionOperation);
         Assert.IsFalse(collision.CanApply);
         Assert.IsTrue(collision.Conflicts.Any(c => c.Problem.Code == "occupancy_conflict" && c.Element == blocker.Id));
-        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(collision, true)));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(collisionOperation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(2, 0, 0), new(2, 0, 0), new(5, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube)));
+        var previewOperation = new EditOperation.Cells(new EditFootprint.Stroke([new(2, 0, 0), new(2, 0, 0), new(5, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.AreEqual(2, preview.CoveredCells);
         Assert.AreEqual(2, preview.AffectedCells);
-        EditingFixtures.Value(session.Apply(preview, false));
+        EditingFixtures.Value(session.Apply(previewOperation));
         CollectionAssert.AreEquivalent(new[] { new GridPosition(2, 0, 0), new(5, 0, 0) }, session.Capture().Draft.Layout.Cells.Select(c => c.At).ToArray());
     }
 
@@ -189,17 +200,19 @@ public sealed class EditingSessionTests
     {
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 0, 0)));
         var initial = session.Read();
-        var noChange = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Replace(EditingFixtures.Cube)));
+        var noChangeOperation = new EditOperation.Cells(new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Replace(EditingFixtures.Cube));
+        var noChange = EditingFixtures.Preview(session, noChangeOperation);
         Assert.AreEqual(0, noChange.AffectedCells);
         Assert.AreEqual(1, noChange.SkippedCells);
-        EditingFixtures.Value(session.Apply(noChange, false));
+        EditingFixtures.Value(session.Apply(noChangeOperation));
         Assert.AreEqual(initial.Snapshot.Stamp, session.Capture().Stamp);
         var replaced = EditingFixtures.Apply(session, new EditOperation.Cells(new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Replace(EditingFixtures.Cube with { Paint = new("#ff0000") })));
         Assert.AreEqual(initial.Elements.Single().Id, replaced.Elements.Single().Id);
-        var remove = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(9, 0, 0)], 1), new CellEdit.Remove()));
+        var removeOperation = new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(9, 0, 0)], 1), new CellEdit.Remove());
+        var remove = EditingFixtures.Preview(session, removeOperation);
         Assert.AreEqual(1, remove.AffectedCells);
         Assert.AreEqual(1, remove.SkippedCells);
-        EditingFixtures.Value(session.Apply(remove, false));
+        EditingFixtures.Value(session.Apply(removeOperation));
         var restored = EditingFixtures.Value(session.Undo());
         Assert.AreEqual(initial.Elements.Single().Id, restored.Elements.Single().Id);
     }
@@ -219,17 +232,22 @@ public sealed class EditingSessionTests
         Assert.IsFalse(session.Read().IsDirty);
     }
     [TestMethod]
-    public void RegionLimitAndConfirmationAreCheckedBeforeMutation()
+    public void LargeStrokeAppliesOnceAndRegionLimitRejectsBeforeMutation()
     {
         using var session = EditingFixtures.Open(EditingFixtures.Draft());
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0)], 9), new CellEdit.Add(EditingFixtures.Cube)));
+        var previewOperation = new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0)], 9), new CellEdit.Add(EditingFixtures.Cube));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.AreEqual(729, preview.CoveredCells);
-        Assert.IsTrue(preview.RequiresConfirmation);
-        Assert.AreEqual("confirmation_required", EditingFixtures.Code(session.Apply(preview, false)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
-        Assert.AreEqual(729, EditingFixtures.Value(session.Apply(preview, true)).Snapshot.Draft.Layout.Cells.Length);
-        var tooLarge = session.Preview(new EditOperation.Cells(new EditFootprint.Stroke([new(30, 0, 0), new(60, 0, 0)], 16), new CellEdit.Add(EditingFixtures.Cube)));
-        Assert.AreEqual("region_limit", EditingFixtures.Code(tooLarge));
+        Assert.AreEqual(729, EditingFixtures.Value(session.Apply(previewOperation)).Snapshot.Draft.Layout.Cells.Length);
+        Assert.IsTrue(EditingFixtures.Value(session.Undo()).Snapshot.Draft.Layout.Cells.IsEmpty);
+        Assert.IsFalse(session.Read().CanUndo);
+        var tooLarge = new EditOperation.Cells(new EditFootprint.Stroke([new(30, 0, 0), new(60, 0, 0)], 16), new CellEdit.Add(EditingFixtures.Cube));
+        var unchanged = session.Capture().Stamp;
+        Assert.AreEqual("region_limit", EditingFixtures.Code(session.Preview(tooLarge)));
+        Assert.AreEqual("region_limit", EditingFixtures.Code(session.Apply(tooLarge)));
+        Assert.AreEqual(unchanged, session.Capture().Stamp);
+        Assert.IsFalse(session.Read().CanUndo);
     }
 }

@@ -53,7 +53,7 @@ internal partial class DesignEditorPanel
                 { _service.Report("设施兼容标签无效。允许：" + string.Join("、", Enum.GetNames<FacilityTag>())); return; }
                 specification = new DesignSpecification.Building((PlotSize)plot!.Selected, (BuildingKind)kind!.Selected, [.. values.Select(value => Enum.Parse<FacilityTag>(value, true))]);
             }
-            Preview(new EditOperation.Properties(new(_name.Text, _description.Text), specification)); dialog.QueueFree();
+            Execute(new EditOperation.Properties(new(_name.Text, _description.Text), specification)); dialog.QueueFree();
         };
         dialog.Canceled += dialog.QueueFree; dialog.PopupCentered(new(470, 300));
     }
