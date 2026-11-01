@@ -39,6 +39,10 @@ public partial class TrainPlanWorkspaceTests(Node testScene) : TestClass(testSce
                     await new UiTestInput(TestScene).Frames(6);
                     var bounds = Find<Control>(panel, "Plan").GetGlobalRect();
                     var bar = ui.GetNode<PanelContainer>("Root/World/Bar").GetGlobalRect();
+                    var map = Find<TrainPlanMap>(panel, "RouteMap");
+                    foreach (var node in view.World.Nodes)
+                        Require(new Rect2(Vector2.Zero, map.Size).HasPoint(map.MapToScreen(node.Position)),
+                            $"地图尺寸变化后地点被裁掉：{windowSize} × {uiScale}，{map.Size}。");
                     Require(bounds.Position.Y >= bar.End.Y && bounds.End.Y <= tree.Root.GetVisibleRect().End.Y,
                         $"计划超出顶栏下方：{windowSize} × {uiScale}，{bounds}，{bar}。");
                     if (firstHeight == 0) { firstHeight = bar.Size.Y; await UiCapture.Capture(TestScene, "long-plan"); }

@@ -19,7 +19,7 @@ internal partial class TrainPlanMap : Control
     public override void _Ready()
     {
         MouseFilter = MouseFilterEnum.Stop; ClipContents = true; FocusMode = FocusModeEnum.All;
-        Resized += Fit;
+        Resized += () => { _fitPending = true; Fit(); };
     }
     internal void SetWorld(WorldSummary world, Func<NodeId, string> name)
     {
