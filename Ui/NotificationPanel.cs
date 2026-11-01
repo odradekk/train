@@ -22,10 +22,13 @@ public partial class NotificationPanel : Control
     private Guid? _session;
 
     internal event Action<NotificationNotice>? Chosen;
+    internal Rect2 ToastArea { get; set; }
+    internal int UnreadCount { get; private set; }
 
     internal void Clear()
     {
         _session = null;
+        UnreadCount = 0;
         if (IsNodeReady())
         {
             foreach (var row in _rows)
@@ -52,6 +55,7 @@ public partial class NotificationPanel : Control
 
     internal void Add(NotificationNotice notice, ICoreReadView view, IContentView content)
     {
+        UnreadCount++;
         if (!IsNodeReady()) return;
         var message = Describe(notice, view, content);
         var row = CreateRow(notice, message);
@@ -59,6 +63,8 @@ public partial class NotificationPanel : Control
         _rows.Add(new(notice, row));
         _logBody.AddChild(row);
         var toastRow = CreateRow(notice, message);
+        toastRow.CustomMinimumSize = new(0, 64);
+        toastRow.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         var panel = new PanelContainer { MouseFilter = MouseFilterEnum.Stop };
         var box = new HBoxContainer();
         box.AddChild(new ColorRect { Color = ColorOf(notice.Level), CustomMinimumSize = new(4, 34),
@@ -66,15 +72,29 @@ public partial class NotificationPanel : Control
         box.AddChild(toastRow);
         panel.AddChild(box);
         _toastsBox.AddChild(panel);
-        _toasts.Add(new(panel, 6));
+        _toasts.Add(new(panel, notice.Level == NotificationLevel.Severe ? double.PositiveInfinity : 6));
+        if (_toasts.Count > 3)
+        {
+            _toastsBox.RemoveChild(_toasts[0].Panel);
+            _toasts[0].Panel.QueueFree();
+            _toasts.RemoveAt(0);
+        }
     }
 
     internal Control? ToastParent { get; init; }
 
     internal void ShowLog()
     {
+        UnreadCount = 0;
         _log.Show();
         UiStyle.BringToFront(_log);
+    }
+
+    internal bool CloseLog()
+    {
+        if (!_log.Visible) return false;
+        _log.Hide();
+        return true;
     }
 
     public override void _Ready()
@@ -99,12 +119,15 @@ public partial class NotificationPanel : Control
     {
         // 提示按真实时间消失，不跟模拟步。
         _toastsBox.Visible = IsVisibleInTree();
-        _toastsBox.Position = new(Math.Max(8, Size.X - 480), 68);
+        _toastsBox.Size = new(Math.Max(0, Math.Min(460, ToastArea.Size.X - 16)), 0);
+        _toastsBox.GlobalPosition = new(ToastArea.GetCenter().X - _toastsBox.Size.X / 2,
+            ToastArea.End.Y - _toastsBox.Size.Y - 8);
         for (var index = _toasts.Count - 1; index >= 0; index--)
         {
             var toast = _toasts[index];
             var remaining = toast.Remaining - delta;
             if (remaining > 0) { _toasts[index] = toast with { Remaining = remaining }; continue; }
+            _toastsBox.RemoveChild(toast.Panel);
             toast.Panel.QueueFree();
             _toasts.RemoveAt(index);
         }

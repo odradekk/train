@@ -19,7 +19,7 @@ internal static class EconomyFixture
         bool blocked = false, bool shortage = false, long foodQuantity = 4, long tradeTotal = 731, long? executableQuantity = null,
         bool missingMarketRule = false,
         IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>>? leaseQuotes = null,
-        bool trainAtNode = true)
+        bool trainAtNode = true, long wallet = 1234567)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -88,7 +88,7 @@ internal static class EconomyFixture
             World = new(1, new("fixture:railway"), 1000, 600, [node], [], vehicle == VehicleState.Formed
                 ? [new(train.Id, train.Position, train.Activity), new(purchasedTrain.Id, purchasedTrain.Position, purchasedTrain.Activity)]
                 : [new(train.Id, train.Position, train.Activity)], [], []),
-            Economy = new(new(1234567), rule, rule, rule, new(0), []),
+            Economy = new(new(wallet), rule, rule, rule, new(0), []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
                 [new(1)] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)), [new(2)] = new Lookup<NodeView>.Missing()

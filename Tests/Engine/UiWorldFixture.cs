@@ -60,9 +60,9 @@ internal static class UiWorldFixture
             Economy = UiWorldFixture.Economy,
             World = original.World with { Nodes = nodes, Edges = [edge], Trains = trains },
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
-            // 已持有站台及线路上的列车不配置 FindTrain；意外查询会直接使测试失败。
-            Trains = new[] { queued, stopped, otherQueue }.ToDictionary(item => item.Id,
-                item => (Lookup<TrainView>)new Lookup<TrainView>.Found(item))
+            Trains = trains.ToDictionary(item => item.Id, item => (Lookup<TrainView>)new Lookup<TrainView>.Found(
+                item.Id == queued.Id ? queued : item.Id == stopped.Id ? stopped : item.Id == otherQueue.Id ? otherQueue :
+                    train with { Id = item.Id, Position = item.Position, Activity = item.Activity }))
         };
     }
 

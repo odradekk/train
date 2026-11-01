@@ -9,6 +9,7 @@ namespace Train.Ui;
 internal partial class TrainFormationPanel : Control
 {
     internal event Action<TrainId>? TrainCreated;
+    internal event Action? Opened;
     private HostCoordinator _host = null!;
     private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
     private Action<string> _reportError = null!;
@@ -72,6 +73,7 @@ internal partial class TrainFormationPanel : Control
             }
         }
         Show(); UiStyle.BringToFront(this); Refresh(target.Binding, view, content);
+        Opened?.Invoke();
     }
 
     private void AddSelected()

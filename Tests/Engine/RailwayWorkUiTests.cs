@@ -30,7 +30,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         try
         {
             tree.Root.ContentScaleFactor = 1;
-            var map = new MacroMap { Name = "RailwayMap" };
+            var map = fixture.AutoFree(new MacroMap { Name = "RailwayMap" });
             map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
             string? displayFailure = null;
             map.DisplayFailed += message => displayFailure = message;
@@ -56,13 +56,13 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             var broken = Marks(map, view, RailwayWorkUiFixture.BreakEdge);
             var active = Marks(map, view, RailwayWorkUiFixture.ActiveEdge);
             Require(!RegionHas(image, map, zero, UiStyle.Warning, 18) && !RegionHas(image, map, zero, UiStyle.Error, 18),
-                "零轨线路中点附近出现了施工或断点颜色。");
+                "零轨线路出现施工或断点色。");
             Require(RegionHas(image, map, broken.Break, UiStyle.Error, 3),
                 "断点标记不是严重色。" + Describe(image, map, broken.Break));
             Require(!RegionHas(image, map, broken.Construction, UiStyle.Warning, 8),
                 "只有断点的线路画了施工标记。");
             Require(RegionHas(image, map, active.Construction, UiStyle.Warning, 3),
-                "已开工线路的施工标记不是警告色。" + Describe(image, map, active.Construction));
+                "施工标记不是警告色。" + Describe(image, map, active.Construction));
             Require(RegionHas(image, map, active.Break, UiStyle.Error, 3),
                 "已开工线路的断点标记不是严重色。" + Describe(image, map, active.Break));
         }
@@ -91,26 +91,26 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             var works = Find<Label>(panel, "Works").Text;
             Require(summary.Contains("线路 3") && summary.Contains("400") && summary.Contains("铁轨 1 / 上限 2")
                 && summary.Contains("聚居地 1") && !summary.Contains("自动修复：关闭") && !summary.Contains("聚居地 2"),
-                "施工面板没有显示线路查询或列入了非自有聚居地：" + summary);
-            var help = panel.GetNode<VBoxContainer>("RailwayWork/Layout/Content/Body").GetChild<Label>(-1);
+                "线路或材料来源显示错误：" + summary);
+            var help = panel.GetNode<VBoxContainer>("Layout/Content/Body").GetChild<Label>(-1);
             Require(Find<ItemList>(panel, "Breaks").GetItemText(0).Contains("断点 2") && works.Contains("任务 2")
                 && works.Contains("任务 3") && works.Contains("夹具钢轨 × 7") && works.Contains("进度 25%")
                 && works.Contains("货物不足：夹具钢轨") && works.Contains("对象：聚居地 1") &&
                 !works.Contains("insufficient_goods") && !works.Contains("voxel:") && !works.Contains($"× {computed}")
                 && !summary.Contains('\r') && !works.Contains('\r')
                 && help.Text.Contains("件数和是否允许在受理或拒绝后由核心给出") && !help.Text.Contains("工期"),
-                "施工面板没有照查询显示断点、已投入货物和未开工阻塞：" + works + "\n" + help.Text);
+                "施工详情未反映核心查询：" + works + "\n" + help.Text);
             await _input.Frames(2);
-            var scroll = panel.GetNode<ScrollContainer>("RailwayWork/Layout/Content");
+            var scroll = panel.GetNode<ScrollContainer>("Layout/Content");
             var autoRepair = Find<Button>(panel, "DisableAutomaticRepair").GetGlobalRect();
             Require(scroll.ScrollVertical == 0 && autoRepair.End.Y <= scroll.GetGlobalRect().End.Y + 1,
-                "1080p 下要滚动才能看到关闭自动修复。");
-            Require(Find<OptionButton>(panel, "MaterialSource").ItemCount == 1, "材料来源应只有自有聚居地。");
+                "1080p 下自动修复按钮不可见。");
+            Require(Find<OptionButton>(panel, "MaterialSource").ItemCount == 1, "材料来源包含非自有聚居地。");
             await UiCapture.Capture(TestScene, "railway-panel");
             await _input.Activate(Find<Button>(panel, "Close"));
             await _input.Frames(2);
-            Require(!panel.GetNode<PanelContainer>("RailwayWork").Visible && setup.Session.SubmitCount == 0,
-                "关闭施工面板提交了命令或面板仍然打开。");
+            Require(!panel.Visible && Find<GameShell>(ui, "World").WorkspaceContent is null && setup.Session.SubmitCount == 0,
+                "关闭施工未清空工作区或提交了命令。");
 
             await OpenFromList(ui, (int)RailwayWorkUiFixture.ActiveEdge - 1);
             setup.Session.QueueSubmit(new CoreCommand.SetAutomaticRailRepair(new(RailwayWorkUiFixture.ActiveEdge), null),
@@ -138,7 +138,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             works = Find<Label>(panel, "Works").Text;
             Require(works.Contains("夹具钢轨 × 11") && !works.Contains($"× {computed}"),
-                "受理后面板的已投入件数不是查询结果：" + works);
+                "受理后的投入件数错误：" + works);
         });
         setup.Session.AssertComplete();
     }
@@ -155,7 +155,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             Require(breaks.ItemCount == 60 && Enumerable.Range(0, breaks.ItemCount)
                     .All(index => breaks.GetItemRect(index).End.Y <= breaks.Size.Y),
                 $"断点列表没有完整显示每一行：高度 {breaks.Size.Y}，末行 {breaks.GetItemRect(breaks.ItemCount - 1)}");
-            var scroll = panel.GetNode<ScrollContainer>("RailwayWork/Layout/Content");
+            var scroll = panel.GetNode<ScrollContainer>("Layout/Content");
             var wheel = breaks.GlobalPosition + breaks.Size / 2;
             for (var notch = 0; notch < 3; notch++)
             {
@@ -191,27 +191,27 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             using (var motion = new InputEventMouseMotion { Position = screen, GlobalPosition = screen })
                 Input.ParseInputEvent(motion);
             await _input.Frames();
-            Require(TestScene.GetTree().Root.GuiGetHoveredControl() == map, "线路中点的点击被其他界面遮挡。");
+            Require(TestScene.GetTree().Root.GuiGetHoveredControl() == map, "线路点击被界面遮挡。");
             await _input.Click(point);
             await _input.Frames(2);
-            var panel = ui.GetNode<RailwayWorkPanel>("Root/World/RailwayWork");
-            Require(!panel.GetNode<PanelContainer>("RailwayWork").Visible, "点线路直接打开了施工面板。");
+            var panel = Find<PanelContainer>(ui, "RailwayWork");
+            Require(!panel.Visible, "点线路直接打开了施工面板。");
             Require(opened?.Target is WorldSceneTarget.Location
             {
                 Value: WorldLocation.Edge { Id.Value: RailwayWorkUiFixture.ActiveEdge, DistanceMeters: var distance }
             } && distance == RailwayWorkUiFixture.ActiveLengthMeters / 2,
-                "点线路没有进入该线路中点。实际目标：" + opened?.Target);
+                "未进入线路中点：" + opened?.Target);
             Require(ui.GetParent().FindChild("WorldSceneView", true, false) is Node3D { Visible: true },
-                "点线路后没有进入线路场景。");
+                "未进入线路场景。");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            Require(panels.IsObjectOpen(new WorldObjectId.Edge(new(RailwayWorkUiFixture.ActiveEdge))), "点线路后没有打开线路详情。");
-            var description = Find<Label>(LatestDetail(panels), "Description").Text;
+            Require(panels.IsObjectOpen(new WorldObjectId.Edge(new(RailwayWorkUiFixture.ActiveEdge))), "未打开线路详情。");
+            var description = Find<Label>(LatestDetail(ui), "Description").Text;
             Require(description.Contains("线路长度") && !description.Contains('\r'), description);
-            Require(description.Contains("1 号轨：空闲"), $"没有列车的轨道冒号后为空：{description}");
+            Require(description.Contains("1 号轨：空闲"), $"空闲轨道描述缺失：{description}");
             await DismissError(ui);
-            await _input.Activate(Find<Button>(LatestDetail(panels), "RailwayWork"));
-            Require(panel.GetNode<PanelContainer>("RailwayWork").Visible && Find<Label>(panel, "Works").Text.Contains("任务 3"),
-                "线路详情的施工按钮没有打开施工面板。");
+            await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
+            Require(panel.Visible && Find<Label>(panel, "Works").Text.Contains("任务 3"),
+                "施工按钮没有打开面板。");
         }, scenes);
         setup.Session.AssertComplete();
     }
@@ -224,10 +224,10 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         {
             var panel = await OpenFromList(ui, (int)RailwayWorkUiFixture.ActiveEdge - 1);
             var summary = Find<Label>(panel, "Summary").Text;
-            Require(summary.Contains("铁路规则不可用"), "缺少铁路规则时面板没有说明：" + summary);
-            Require(!Find<Button>(panel, "ExpandRail").Disabled, "缺少铁路规则时加轨按钮被预先禁用。");
+            Require(summary.Contains("铁路规则不可用"), "未说明铁路规则缺失：" + summary);
+            Require(!Find<Button>(panel, "ExpandRail").Disabled, "缺少规则时不应禁用加轨。");
             await _input.ClickItem(Find<ItemList>(panel, "Breaks"), 0);
-            Require(!Find<Button>(panel, "RepairRail").Disabled, "选中断点后，缺少铁路规则仍预先禁用了修复。");
+            Require(!Find<Button>(panel, "RepairRail").Disabled, "缺少规则时不应禁用修复。");
         });
         setup.Session.AssertComplete();
     }
@@ -286,8 +286,8 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             UiCapture.ConfigureWindowIfNeeded(TestScene.GetTree().Root);
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Edges"));
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/EdgesList/Layout/Content/Body/Objects");
+            await _input.Activate(Find<Button>(ui, "Edges"));
+            var list = Find<ItemList>(Find<PanelContainer>(ui, "EdgesList"), "Objects");
             var index = Enumerable.Range(0, list.ItemCount).FirstOrDefault(i => list.GetItemText(i).StartsWith("线路 16 ·"), -1);
             Require(index >= 0, "线路列表没有线路 16：" + string.Join(" | ", Enumerable.Range(0, list.ItemCount).Select(list.GetItemText)));
             for (var frame = 0; frame < 180 && list.GetItemRect(index).Size.Y <= 0; frame++) await _input.Frames();
@@ -301,8 +301,8 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             Require(list.GetItemAtPosition(visible, true) == index,
                 $"线路 16 的可见位置没有命中该行。rect={list.GetItemRect(index)} scroll={list.GetVScrollBar().Value} point={visible}");
             await _input.Click(list.GlobalPosition + visible);
-            await _input.Activate(Find<Button>(LatestDetail(ui.GetNode<WorldPanels>("Root/World/WorldPanels")), "RailwayWork"));
-            var panel = ui.GetNode<RailwayWorkPanel>("Root/World/RailwayWork");
+            await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
+            var panel = Find<PanelContainer>(ui, "RailwayWork");
             var broken = (Lookup<EdgeView>.Found)host.GetStatus()!.View.FindEdge(new(16));
             Require(broken.Value.Map.Breaks.Length == 1, "线路 16 的断点数不是 1：" +
                 string.Join(",", broken.Value.Map.Breaks.Select(item => item.Id.Value)));
@@ -382,12 +382,13 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private async Task<RailwayWorkPanel> OpenFromList(GameUi ui, int edgeIndex)
+    private async Task<PanelContainer> OpenFromList(GameUi ui, int edgeIndex)
     {
-        await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Edges"));
-        await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/EdgesList/Layout/Content/Body/Objects"), edgeIndex);
-        await _input.Activate(Find<Button>(LatestDetail(ui.GetNode<WorldPanels>("Root/World/WorldPanels")), "RailwayWork"));
-        return ui.GetNode<RailwayWorkPanel>("Root/World/RailwayWork");
+        if (Find<GameShell>(ui, "World").ListContent?.Name != "EdgesList")
+            await _input.Activate(Find<Button>(ui, "Edges"));
+        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
+        await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
+        return Find<PanelContainer>(ui, "RailwayWork");
     }
 
     private async Task DismissError(GameUi ui)
@@ -420,8 +421,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private static PanelContainer LatestDetail(WorldPanels panels) =>
-        panels.FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>().Last();
+    private static PanelContainer LatestDetail(GameUi ui) => Find<PanelContainer>(ui, "Details");
 
     private static void Accept(HostCoordinator host, CoreCommand command)
     {

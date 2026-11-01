@@ -49,6 +49,7 @@ internal sealed class WorldListPanel
     {
         WorldListKind.Nodes => view.World.Nodes.Select(item => new WorldObjectId.Node(item.Id)),
         WorldListKind.Edges => view.World.Edges.Select(item => new WorldObjectId.Edge(item.Id)),
+        WorldListKind.Combats => view.World.Combats.Select(item => new WorldObjectId.Combat(item.Id)),
         _ => view.World.Trains.Select(item => new WorldObjectId.Train(item.Id))
     };
 }

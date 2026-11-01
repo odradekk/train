@@ -16,7 +16,7 @@ namespace Train.Engine.Tests;
 public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
 {
     [Test]
-    public async Task Long_plan_stays_below_the_top_bar_and_inside_the_window_when_the_bar_wraps()
+    public async Task Long_plan_stays_below_the_single_line_top_bar_and_inside_the_window()
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -33,7 +33,7 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
             var ui = app.GetNode<GameUi>("GameUi");
-            var panel = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            var panel = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
             var train = Train(view, 7) with { Plan = new(true,
                 Enumerable.Range(0, 40).Select(_ => (PlanStop)new PlanStop.Station(new(1), 60, [])).ToImmutableArray()) };
             panel.Open(new(app.Host!.GetStatus()!.Binding, content.Generation, new WorldObjectId.Train(train.Id)), train, view, content);
@@ -55,7 +55,7 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
                 }
                 else
                 {
-                    if (uiScale == 1.75f) Require(bar.Size.Y > firstBarHeight, "窄窗口没有覆盖顶栏换行情景。");
+                    if (uiScale == 1.75f) Require(bar.Size.Y == firstBarHeight, "窄窗口把固定顶栏挤成了多行。");
                     if (DisplayServer.GetName() != "headless" &&
                         System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR") is { } output)
                     {
@@ -198,7 +198,7 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
-            var parent = new Control();
+            var parent = fixture.AutoFree(new Control());
             var panel = new TrainPlanPanel();
             panel.Initialize(app.Host!, (_, command) => { submit(command); return new([], []); },
                 error => throw new InvalidOperationException(error));

@@ -65,10 +65,11 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             Require(batch is { CurrentSpecificationDiffers: true, FrozenWorkRequired: 100000 } &&
                 current.Population.CurrentRule.PublishedRevision != period.Period.ExecutionRevision,
                 "一次真实发布没有保留旧批次与人口执行参数。");
-            var economy = app.GetNode<EconomyPanels>("GameUi/Root/World/EconomyPanels");
+            var ui = app.GetNode<GameUi>("GameUi");
             TestScene.GetTree().Root.ContentScaleFactor = 1;
             UiCapture.ConfigureWindowIfNeeded(TestScene.GetTree().Root);
-            economy.OpenSettlement(new(status.Binding, host.Content!.Generation, new WorldObjectId.Settlement(settlementId)), settlementId);
+            Find<EconomyPanels>(ui, "EconomyPanels").OpenSettlement(new(status.Binding, host.Content!.Generation, new WorldObjectId.Settlement(settlementId)), settlementId);
+            var economy = Find<PanelContainer>(ui, "Settlement");
             var specificationLabel = economy.FindChildren("CurrentSpecification", "Label", true, false).Cast<Label>()
                 .Single(label => label.Text.Contains("界面验证流程"));
             var specification = specificationLabel.Text;
@@ -90,12 +91,11 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var input = new UiTestInput(TestScene);
             var tabs = Find<TabContainer>(economy, "Pages");
             await input.Frames(2);
-            var bar = tabs.GetTabBar();
-            await input.Click(bar.GlobalPosition + bar.GetTabRect(4).GetCenter());
-            economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/生产/Page").EnsureControlVisible(
+            await input.ChooseTab(tabs, 4);
+            economy.GetNode<ScrollContainer>("Layout/Content/Body/Pages/生产/Page").EnsureControlVisible(
                 Find<Label>(specificationLabel.GetParent(), "Batch"));
             await UiCapture.Capture(TestScene, "production-frozen-batch");
-            await input.Click(bar.GlobalPosition + bar.GetTabRect(5).GetCenter());
+            await input.ChooseTab(tabs, 5);
             await UiCapture.Capture(TestScene, "population-frozen-period");
         }
         finally
@@ -144,8 +144,8 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             panels.OpenObject(new WorldObjectId.Train(trainId));
-            await input.Activate(Find<Button>(panels, "EditPlan"));
-            var editor = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            await input.Activate(Find<Button>(ui, "EditPlan"));
+            var editor = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
             var stop = editor.GetNode<VBoxContainer>("Plan/Layout/Content/Body/RowsScroll/Rows/Row0");
             await input.Choose(stop.GetNode<OptionButton>("Stop/Node"), view.World.Nodes.Select(item => item.Id).ToList().IndexOf(node));
             await input.Activate(stop.GetNode<Button>("AddRule"));
@@ -171,7 +171,7 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             await input.Enter(Find<LineEdit>(secondRule, "UnitPrice"), "2");
             await input.Activate(Find<Button>(editor, "Apply"));
             Require(!editor.Visible, "规则计划未被真实核心接受。");
-            await input.Activate(Find<Button>(panels, "Start"));
+            await input.Activate(Find<Button>(ui, "Start"));
             for (var step = 0; step < 5000; step++)
             {
                 train = ((Lookup<TrainView>.Found)host.GetStatus()!.View.FindTrain(trainId)).Value;
@@ -180,9 +180,9 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             }
             Require(train.CurrentRun is { SalesReceipts.Value: > 0, TransportedUnits: 10 }, "面板规则没有执行真实卖出交易。");
             await input.Frames(2);
-            var title = panels.GetNode<Label>("Details/Layout/Heading/Title").Text;
+            var title = Find<PanelContainer>(ui, "Details").GetNode<Label>("Layout/Heading/Title").Text;
             Require(title == $"列车 {trainId.Value} · 装卸", $"启动后列车详情标题没有跟随当前状态：{title}");
-            var description = Find<Label>(panels, "Description").Text;
+            var description = Find<Label>(Find<GameShell>(ui, "*").InspectorContent!, "Description").Text;
             Require(description.Contains("销售收入 " + train.CurrentRun!.SalesReceipts.Value) && description.Contains("运输数量 10"),
                 "列车详情没有显示真实交易后的运行累计。");
             Require(train.CurrentRun!.LoadedCapacityRatio is null &&
@@ -192,7 +192,7 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var originalStop = (PlanStop.Station)originalPlan.Stops.Single();
             Require(originalStop.DwellSteps == 60001 && originalStop.GoodsRules.Length == 2,
                 "往返情景没有保留非整秒停留时间或两条有序规则。");
-            await input.Activate(Find<Button>(panels, "EditPlan"));
+            await input.Activate(Find<Button>(ui, "EditPlan"));
             await input.Activate(Find<Button>(editor, "Apply"));
             var replaced = ((Lookup<TrainView>.Found)host.GetStatus()!.View.FindTrain(trainId)).Value.Plan;
             Require(replaced is { Stops.Length: 1 } && replaced.Loop == originalPlan.Loop &&
@@ -202,9 +202,8 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var report = host.GetStatus()!.View.Economy.RecentRunReports.Single(item => item.Totals.TransportedUnits == 10);
             Require(report.Reason == RunEndReason.PlanReplaced && report.Totals.TransportedUnits == 10,
                 "替换计划没有产生真实的运行报告。");
-            await input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/EconomyReports"));
-            var economy = ui.GetNode<EconomyPanels>("Root/World/EconomyPanels");
-            var reportText = Find<Label>(economy, "ReportsText").Text;
+            await input.Activate(Find<Button>(ui, "EconomyReports"));
+            var reportText = Find<Label>(ui, "ReportsText").Text;
             Require(reportText.Contains("采购支出") && reportText.Contains("销售收入 " + report.Totals.SalesReceipts.Value) &&
                 reportText.Contains("运输数量 10"), "真实运行报告没有出现在经营报告面板。");
             Require(report.Totals.LoadedCapacityRatio is null &&

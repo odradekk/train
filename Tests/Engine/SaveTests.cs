@@ -36,7 +36,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             var menu = app.GetNode<MainMenu>("MainMenu");
             var ui = app.GetNode<GameUi>("GameUi");
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
             await _input.WaitUntil(() => !saves.HasPendingWork);
             var store = new FileSaveStore(OS.GetUserDataDir());
@@ -82,26 +82,25 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => app.Saves!.Status is not null);
             owned.Add(app.Saves!.Status!.Identity.Id);
             var ui = app.GetNode<GameUi>("GameUi");
-            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            var combat = ui.GetNode<CombatPanel>("Root/World/CombatPanel");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            await _input.ClickItem(panels.GetNode<ItemList>("NodesList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            await _input.ClickItem(panels.GetNode<ItemList>("FleetList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(panels.FindChildren("OpenCombat", "Button", true, false).Cast<Button>().Single());
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/EconomyReports"));
-            Require(panels.FindChildren("Description", "Label", true, false).Count == 2 && combat.Visible &&
+            var combat = Find<CombatPanel>(ui, "CombatPanel");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.Activate(Find<Button>(ui, "Fleet"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "OpenCombat"));
+            await _input.Activate(Find<Button>(ui, "EconomyReports"));
+            Require(ui.FindChildren("Description", "Label", true, false).Count == 1 && combat.Visible &&
                 combat.ContextTrain == new TrainId(7) && Find<PanelContainer>(ui, "EconomyReports").IsVisibleInTree(),
                 "没有打开上一局的节点和列车详情、战斗面板与经营报告。");
             var binding = app.Host!.GetStatus()!.Binding;
             var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
             await _input.WaitUntil(() => !app.Saves.HasPendingWork && panel.Entries.Count > 0);
             await _input.Activate(UiTestInput.SaveButton(panel, "读取最近存档"), panel);
             await _input.WaitUntil(() => app.Host.GetStatus() is { } status && status.Binding != binding);
             await _input.Frames();
-            Require(panels.FindChildren("Description", "Label", true, false).Count == 0 && !combat.Visible &&
+            Require(ui.FindChildren("Description", "Label", true, false).Count == 0 && !combat.Visible &&
                 combat.ContextTrain is null && combat.SelectedCombat is null &&
                 ui.FindChildren("EconomyReports", "PanelContainer", true, false).Count == 0,
                 "读档后仍留着上一局的详情、战斗面板或经营报告。");
@@ -125,11 +124,11 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             owned.Add(app.Saves!.Status!.Identity.Id);
             var ui = app.GetNode<GameUi>("GameUi");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var nodes = panels.GetNode<ItemList>("NodesList/Layout/Content/Body/Objects");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            var nodes = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
             await _input.ClickItem(nodes, 0);
-            await _input.Activate(panels.FindChildren("Form", "Button", true, false).Cast<Button>().Single());
-            var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
+            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
             var available = formation.FindChildren("AvailableVehicles", "ItemList", true, false).Cast<ItemList>().Single();
             await _input.ClickItem(available, 0);
             await _input.Activate(formation.FindChildren("AddSelected", "Button", true, false).Cast<Button>().Single());
@@ -137,21 +136,23 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             Require(formation.IsVisibleInTree() && !form.Disabled &&
                 formation.FindChildren("OrderedVehicles", "ItemList", true, false).Cast<ItemList>().Single().ItemCount == 1,
                 "未建立可提交的编组草稿。");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            var fleet = panels.GetNode<ItemList>("FleetList/Layout/Content/Body/Objects");
+            await _input.PressKey(Key.Escape);
+            await _input.Activate(Find<Button>(ui, "Fleet"));
+            var fleet = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             await _input.ClickItem(fleet, 0);
-            await _input.Activate(panels.FindChildren("EditPlan", "Button", true, false).Cast<Button>().Single());
-            var plan = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "EditPlan"));
+            var plan = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
             await _input.Activate(plan.GetNode<CheckBox>("Plan/Layout/Content/Body/Loop"));
             var apply = plan.FindChildren("Apply", "Button", true, false).Cast<Button>().Single();
-            var descriptions = panels.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
-            Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 2 &&
+            var descriptions = ui.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
+            Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 1 &&
                 descriptions.All(label => !label.Text.Contains("已不存在", StringComparison.Ordinal)),
                 "未建立有效节点、列车详情和可提交的计划草稿。");
+            await _input.PressKey(Key.Escape);
             var session = setup.Session!;
             var menu = app.GetNode<MainMenu>("MainMenu");
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             Require(panel.Visible, "游戏顶栏真实输入未打开存档面板。");
             await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
             await _input.WaitUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
@@ -169,7 +170,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 "不保存离开后仍保留活动会话或游戏界面。");
             await _input.Frames();
             Require(descriptions.All(label => !GodotObject.IsInstanceValid(label)) &&
-                panels.FindChildren("Description", "Label", true, false).Count == 0 &&
+                ui.FindChildren("Description", "Label", true, false).Count == 0 &&
                 !panels.IsObjectOpen(new WorldObjectId.Node(new(1))) &&
                 !panels.IsObjectOpen(new WorldObjectId.Train(new(7))) && form.Disabled && apply.Disabled &&
                 formation.FindChildren("Reason", "Label", true, false).Cast<Label>().Single().Text.Contains("已不存在") &&

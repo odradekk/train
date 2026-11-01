@@ -10,11 +10,13 @@ internal partial class BlueprintLibraryPanel : Control
     private EditorService _service = null!;
     private VBoxContainer _body = null!;
     private IContentView? _observedContent;
+    internal event Action? Opened;
     internal void Initialize(EditorService service) => _service = service;
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Ignore;
         var panel = UiStyle.Panel(this, "BlueprintLibrary", "蓝图库与草稿", new(60, 80), 650, Hide, out var body);
+        body.AddChild(UiStyle.Button("NewDesign", "新建设计…", NewDraft));
         var scroll = new ScrollContainer { CustomMinimumSize = new(610, 500) }; body.AddChild(scroll);
         _body = new VBoxContainer(); scroll.AddChild(_body); Hide();
     }
@@ -24,6 +26,7 @@ internal partial class BlueprintLibraryPanel : Control
     {
         _service.ClearFeedback();
         Refresh();
+        Opened?.Invoke();
     }
     private void Refresh()
     {

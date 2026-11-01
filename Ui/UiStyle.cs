@@ -68,6 +68,12 @@ internal static class UiStyle
         return button;
     }
 
+    internal static void CloseOnEscape(Window window, InputEvent input)
+    {
+        if (!window.Visible || input is not InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape }) return;
+        window.Hide(); window.SetInputAsHandled();
+    }
+
     internal static Label Label(string text, bool title = false) => new()
     {
         Text = text, ThemeTypeVariation = title ? "Title" : "",
@@ -100,11 +106,26 @@ internal static class UiStyle
         GameUi? ui = null;
         var content = body;
         var queued = false;
+        var subscribed = true;
         var shown = panel.Visible;
         void Fit()
         {
             queued = false;
             if (!GodotObject.IsInstanceValid(panel) || !panel.IsVisibleInTree() || parent.Size.X <= 0 || parent.Size.Y <= 0) return;
+            if (GameShell.DockArea(panel) is { } dock)
+            {
+                panel.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
+                panel.CustomMinimumSize = Vector2.Zero;
+                label.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+                label.ClipText = true;
+                scroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Auto;
+                var frame = panel.GetThemeStylebox("panel").GetMinimumSize().Y +
+                    box.GetCombinedMinimumSize().Y - scroll.GetCombinedMinimumSize().Y;
+                scroll.CustomMinimumSize = new(0, Math.Max(0, dock.Size.Y - frame));
+                panel.Position = dock.Position - panel.GetParent<Control>().GlobalPosition;
+                panel.Size = dock.Size;
+                return;
+            }
             var area = ui?.PanelArea ?? parent.GetGlobalRect().Grow(-8);
             area.Position -= parent.GlobalPosition;
             var frameHeight = panel.GetThemeStylebox("panel").GetMinimumSize().Y +
@@ -144,13 +165,16 @@ internal static class UiStyle
             QueueFit();
             // 按需创建的面板（例如对象详情）加入时就是打开的；启动时创建后立即隐藏的面板不移动。
             shown = panel.Visible;
-            Callable.From(() => { if (panel.Visible) BringToFront(panel); }).CallDeferred();
+            Callable.From(() => { if (GodotObject.IsInstanceValid(panel) && panel.Visible) BringToFront(panel); }).CallDeferred();
         };
-        panel.TreeExiting += () =>
+        // Reparent 也会退出场景树；停靠后仍须继续响应外壳的尺寸变化。
+        panel.TreeExiting += () => Callable.From(() =>
         {
-            parent.Resized -= QueueFit;
-            if (ui is not null) ui.PanelAreaChanged -= QueueFit;
-        };
+            if (!subscribed || GodotObject.IsInstanceValid(panel) && panel.IsInsideTree()) return;
+            subscribed = false;
+            if (GodotObject.IsInstanceValid(parent)) parent.Resized -= QueueFit;
+            if (ui is not null && GodotObject.IsInstanceValid(ui)) ui.PanelAreaChanged -= QueueFit;
+        }).CallDeferred();
         parent.AddChild(panel);
         return panel;
     }
@@ -158,6 +182,7 @@ internal static class UiStyle
     internal static void BringToFront(Control control)
     {
         if (!GodotObject.IsInstanceValid(control) || !control.IsInsideTree()) return;
+        if (GameShell.DockArea(control) is not null) return;
         control.MoveToFront();
         // 地图层的业务面板分属不同的所有者控件，所有者也要移到地图层最前才能盖住别的面板。
         // 只在地图层内移动，所以 Root 下的通知提示、设置和错误等界面仍在业务面板之上。

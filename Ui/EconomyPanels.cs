@@ -16,6 +16,8 @@ internal partial class EconomyPanels : Control
     internal const string ReservedStockHint = "聚居地库存在补货目标以内的部分留给本地，自动装载和买入只取超出部分。";
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<InstanceId>? ServiceDesignRequested;
+    internal event Action<WorldObjectId, Control>? InspectorRequested;
+    internal event Action<Control>? WorkspaceRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, GoodsIconCache icons,
@@ -27,6 +29,9 @@ internal partial class EconomyPanels : Control
         _reports = new(this, host);
         _settlementWindow.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
         _settlementWindow.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
+        _settlementWindow.Opened += (target, panel) => InspectorRequested?.Invoke(target, panel);
+        _trainInventory.Opened += (target, panel) => InspectorRequested?.Invoke(target, panel);
+        _reports.Opened += panel => WorkspaceRequested?.Invoke(panel);
     }
 
     public override void _Ready()

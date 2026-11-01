@@ -20,6 +20,7 @@ internal sealed class TrainInventoryPanel
     private Label _state = null!;
     private VBoxContainer _stock = null!;
     private GoodsRows.StockRows _rows = null!;
+    internal event Action<WorldObjectId, Control>? Opened;
 
     internal TrainInventoryPanel(Control parent, HostCoordinator host, GoodsRows goods,
         Action<HostBinding, ICoreReadView, IContentView> refresh)
@@ -36,6 +37,7 @@ internal sealed class TrainInventoryPanel
         _state = Text(body, "State", "");
         _stock = List(body, "Stacks", 420); _rows = GoodsRows.BuildStock(_stock);
         _refresh(status.Binding, status.View, content);
+        Opened?.Invoke(target.Object, _panel);
     }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content, SettlementView? settlement)

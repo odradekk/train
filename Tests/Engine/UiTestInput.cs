@@ -7,6 +7,28 @@ namespace Train.Engine.Tests;
 
 internal sealed class UiTestInput(Node scene)
 {
+    internal async Task ChooseTab(TabContainer tabs, int index)
+    {
+        tabs.GetTabBar().GrabFocus();
+        var direction = tabs.CurrentTab < index ? Key.Right : Key.Left;
+        var moves = Math.Abs(tabs.CurrentTab - index);
+        for (var move = 0; move < moves; move++) await PressKey(direction);
+        Require(tabs.CurrentTab == index, "键盘应能切换到滚动范围外的页签。");
+    }
+
+    internal async Task ChooseMenu(MenuButton menu, string text)
+    {
+        await Activate(menu);
+        var popup = menu.GetPopup();
+        await WaitUntil(() => popup.Visible);
+        if (popup.GetFocusedItem() < 0) await PressKey(Key.Down);
+        var index = Enumerable.Range(0, popup.ItemCount).Single(item => popup.GetItemText(item) == text);
+        var direction = popup.GetFocusedItem() < index ? Key.Down : Key.Up;
+        var moves = Math.Abs(popup.GetFocusedItem() - index);
+        for (var move = 0; move < moves; move++) await PressKey(direction);
+        await PressKey(Key.Enter);
+    }
+
     internal async Task Activate(BaseButton button, Window? window = null)
     {
         Require(button.IsVisibleInTree() && !button.Disabled, $"真实输入按钮不可用：{button.Name}。");

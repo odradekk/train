@@ -64,7 +64,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             var confirm = Find<Button>(economy, "ConfirmService");
             Require(!confirm.Disabled, "有效报价应可确认。");
             var submitted = setup.Session.SubmitCount;
-            economy.Refresh(new HostBinding(Guid.NewGuid()), before, ui.GetParent<Train.App.App>().Host!.Content!);
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(new HostBinding(Guid.NewGuid()), before, ui.GetParent<Train.App.App>().Host!.Content!);
             confirm.EmitSignal(BaseButton.SignalName.Pressed);
             Require(confirm.Disabled && setup.Session.SubmitCount == submitted, "陈旧绑定仍可确认或提交了服务。");
         });
@@ -92,7 +92,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             var host = ui.GetParent<Train.App.App>().Host!;
             setup.Session.QueueAdvance(new(1, next.Position, [], null, null), next);
             Require(host.Step(1).Problem is null, "无法发布新边界。");
-            economy.Refresh(host.GetStatus()!.Binding, next, host.Content!);
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, next, host.Content!);
             Require(ReferenceEquals(description, Find<Label>(economy, "ServiceQuote")) &&
                 ReferenceEquals(row, Find<Label>(Find<VBoxContainer>(economy, "ServiceJobs"), "ServiceJob_4")) &&
                 row.Text.Contains("60/100") && row.Text.Contains("电力"), "边界刷新没有更新进度和限制或替换了控件。");
@@ -102,7 +102,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             var gone = new ServiceView(3, missingFacility: true);
             setup.Session.QueueAdvance(new(1, gone.Position, [], null, null), gone);
             Require(host.Step(1).Problem is null, "无法发布对象移除边界。");
-            economy.Refresh(host.GetStatus()!.Binding, gone, host.Content!);
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, gone, host.Content!);
             await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
             Require(description.Text.Contains("已不存在") && Find<Button>(economy, "ConfirmService").Disabled && gone.QuoteCount == 0,
                 "设施消失后仍向核心报价或未说明原因。");
@@ -128,7 +128,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             Require(Find<VBoxContainer>(economy, "ServiceJobs").GetChildCount() == 0,
                 "已不在CommissionJobs的任务仍保留在队列。");
             await _input.Activate(Find<Button>(economy, "FormServiceVehicle"));
-            var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
+            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
             var available = Find<ItemList>(formation, "AvailableVehicles");
             Require(available.IsVisibleInTree() && available.ItemCount == 1 && available.GetItemText(0).Contains("车辆 9"),
                 "完工后的原车辆没有进入现有编组入口。");
@@ -290,7 +290,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             var host = ui.GetParent<Train.App.App>().Host!;
             setup.Session.QueueAdvance(new(1, locked.Position, [], null, null), locked);
             Require(host.Step(1).Problem is null, "无法发布执行建筑锁定的边界。");
-            economy.Refresh(host.GetStatus()!.Binding, locked, host.Content!);
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, locked, host.Content!);
             await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
             Require(locked.QuoteCount == 1 && description.Text.Contains("执行建筑自身正在") && !description.Text.Contains("最高施工"),
                 $"执行建筑被锁定时仍说成施工上限不足：{description.Text}");
@@ -351,7 +351,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(economy, "PauseServiceJob_4"));
             await _input.Frames(2);
             Require(!economy.FindChildren("ServiceJob_4", "Label", true, false).Any(), "任务离开OwnedJobs后仍被缓存展示。");
-            var serviceButtons = economy.GetNode<VBoxContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
+            var serviceButtons = economy.GetNode<VBoxContainer>("Layout/Content/Body/Pages/建造与工地")
                 .FindChildren("*", "Button", true, false).OfType<Button>().Select(button => button.Text).ToArray();
             Require(!serviceButtons.Any(text => text.Contains("取消") || text.Contains("退款") || text.Contains("优先级")),
                 "车辆服务按钮集合含取消、退款或优先级：" + string.Join("、", serviceButtons));
@@ -448,7 +448,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
             Require(!Find<Button>(economy, "ConfirmService").Disabled, "设计未变化时应可确认改装。");
             var host = ui.GetParent<Train.App.App>().Host!;
-            economy.Refresh(host.GetStatus()!.Binding, new ServiceView(expectedDesign: design, changedDesign: true), host.Content!);
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, new ServiceView(expectedDesign: design, changedDesign: true), host.Content!);
             Require(Find<Label>(economy, "ServiceQuote").Text.Contains("车辆设计已变化") && Find<Button>(economy, "ConfirmService").Disabled,
                 "车辆设计变化后仍可确认或未说明原因。");
         });
@@ -464,10 +464,9 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         var setup = new HostSimulationTests.HostSetup(new ServiceView(), EconomyFixture.Content(drafts: [saved]));
         await Run(setup, async (ui, economy) =>
         {
-            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(panels.FindChildren("VehicleServices", "Button", true, false).OfType<Button>().Single(button => button.Text.Contains("车辆 10")));
+            await _input.Activate(Find<Button>(ui, "Fleet"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.Activate(ui.FindChildren("VehicleServices", "Button", true, false).OfType<Button>().Single(button => button.Text.Contains("车辆 10")));
             var tabs = Find<TabContainer>(economy, "Pages");
             Require(tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地", "车辆入口没有打开建造与工地页。");
             Require(Find<OptionButton>(economy, "ServiceTargetKind").Selected == 1, "没有预选已保存草稿。");
@@ -478,7 +477,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Accepted_design_activation_keeps_other_panels_until_reload()
+    public async Task Accepted_design_activation_keeps_reusable_inspectors_until_reload()
     {
         var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
             new(new("service-design"), new("service-composition"), new DesignKind.Vehicle(SizeClass.Small, 2),
@@ -496,12 +495,14 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         await Run(setup, async (ui, economy) =>
         {
             setup.ContentFactory!.PrepareEditCall = (_, _) => new ContentResult<IContentCandidate>.Success(candidate);
-            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects"), 0);
-            var stop = panels.FindChildren("Stop", "Button", true, false).OfType<Button>().Single();
+            await _input.Activate(Find<Button>(ui, "Fleet"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            var shell = Find<GameShell>(ui, "*");
+            var train = shell.InspectorContent!;
+            var stop = Find<Button>(train, "Stop");
             Require(!stop.Disabled, "列车详情在制造前不可停车。");
-            await Services(economy);
+            await _input.Activate(Find<Button>(train, "VehicleServices"));
+            await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 0);
             await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
             await _input.Choose(Find<OptionButton>(economy, "ServiceBlueprint"), 0);
             await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
@@ -513,15 +514,17 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => candidate.Activations == 1);
             await _input.Frames(2);
             var host = ui.GetParent<Train.App.App>().Host!;
-            Require(panels.HasNode("FleetList") && panels.HasNode("NodesList"), "接受设计目标后关闭了仍打开的列表。");
+            Require(ui.FindChild("FleetList", true, false) is not null && ui.FindChild("NodesList", true, false) is not null, "接受设计目标后关闭了仍打开的列表。");
             Require(!stop.Disabled && !Find<Label>(economy, "State").Text.Contains("已不存在"), "接受设计目标后其他面板或车辆服务页失效。");
+            shell.Inspect(new WorldObjectId.Train(new(7)), train);
+            Require(train.IsVisibleInTree() && !economy.IsVisibleInTree(), "恢复列车检查器没有收起服务页。");
             setup.Session.QueueSubmit(new CoreCommand.StopTrain(new(7)), CommandSource.UserInterface,
                 Completed(2, before, before, new CommandDecision.Accepted([], [])), before);
             stop.GrabFocus();
             await _input.PressKey(Key.Space);
             Require(setup.Session.SubmitCount == 2, "设计激活后列车详情不能提交停车。");
             await _input.Frames(2);
-            Require(panels.HasNode("FleetList") && panels.HasNode("NodesList"), "接受普通命令后关闭了仍打开的列表。");
+            Require(ui.FindChild("FleetList", true, false) is not null && ui.FindChild("NodesList", true, false) is not null, "接受普通命令后关闭了仍打开的列表。");
             Require(!stop.Disabled && !stop.GetParent().FindChildren("Description", "Label", true, false).OfType<Label>().Single().Text.Contains("已不存在"),
                 "接受普通命令后列车详情失效。");
             setup.Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(
@@ -535,7 +538,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             Require(host.BeginReload(CommandSource.UserInterface).Problem is null, "内容重载被拒绝。");
             await _input.WaitUntil(() => !host.IsBusy && ReferenceEquals(host.Content, reloaded));
             await _input.Frames(2);
-            Require(!panels.HasNode("FleetList") && stop.Disabled, "内容重载后旧列表或列车详情仍然有效。");
+            Require(ui.FindChild("FleetList", true, false) is null && stop.Disabled, "内容重载后旧列表或列车详情仍然有效。");
             var submitted = setup.Session.SubmitCount;
             stop.GrabFocus();
             await _input.PressKey(Key.Space);
@@ -545,7 +548,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Blueprint_publish_keeps_service_node_and_train_panels()
+    public async Task Blueprint_publish_refreshes_service_choices_and_keeps_train_actions()
     {
         BlueprintRecord Blueprint(string id, string name)
         {
@@ -573,23 +576,27 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 return new ContentResult<IContentCandidate>.Success(candidate);
             };
             await Services(economy);
-            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects"), 0);
+            await _input.Activate(Find<Button>(ui, "Fleet"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            var shell = Find<GameShell>(ui, "*");
+            var train = shell.InspectorContent!;
             var host = ui.GetParent<Train.App.App>().Host!;
             Require(host.BeginContentEdit(new ContentEdit.SaveBlueprint(
                 new BlueprintSaveTarget.New(BlueprintLibrary.Local), published.Definition),
                 _ => new Train.App.Saves.FileWriteResult(true)).Problem is null, "保存蓝图编辑被拒绝。");
             await _input.WaitUntil(() => !host.IsBusy && ReferenceEquals(host.Content, activated));
             await _input.Frames(2);
-            var nodeText = Find<Button>(panels, "Economy").GetParent().FindChildren("Description", "Label", true, false)
-                .OfType<Label>().Single().Text;
-            Require(nodeText.Contains("占据者") && !nodeText.Contains("已不存在"), "发布蓝图后节点详情失效。");
+            Require(!Find<Label>(train, "Description").Text.Contains("已不存在"), "发布蓝图后列车详情失效。");
+            await _input.Activate(Find<Button>(train, "VehicleServices"));
+            await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 0);
+            Require(shell.InspectorContent == economy && !Find<Label>(economy, "State").Text.Contains("已不存在"),
+                "发布蓝图后聚居地服务检查器失效。");
             var choices = Find<OptionButton>(economy, "ServiceBlueprint");
             Require(Enumerable.Range(0, choices.ItemCount).Any(index => choices.GetItemText(index).Contains("发布后的蓝图")),
                 "发布蓝图后服务页设计下拉没有新蓝图。");
-            await _input.Activate(Find<Button>(panels, "EditPlan"));
-            var plan = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            shell.Inspect(new WorldObjectId.Train(new(7)), train);
+            await _input.Activate(Find<Button>(ui, "EditPlan"));
+            var plan = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
             Require(plan.Visible && !ui.ErrorText.Contains("已不存在") && !ui.ErrorText.Contains("操作未提交"),
                 $"发布蓝图后编辑计划没有打开或报了对象失效。visible={plan.Visible} error={ui.ErrorText}");
         });
@@ -645,14 +652,13 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.ClickItem(Find<ItemList>(economy, "ServiceSourceOrder"), 1);
             await _input.Activate(Find<Button>(economy, "MoveServiceSourceDown"));
             Require(setup.Session.SubmitCount == 0 && blocked.QuoteCount == quotes, "改选来源后自动报价或提交了建造。");
-            await _input.Activate(Find<Button>(economy.GetNode<PanelContainer>("Settlement"), "Close"));
+            await _input.Activate(Find<Button>(economy, "Close"));
             Require(setup.Session.SubmitCount == 0, "关闭建造页提交了命令。");
             setup.Session.QueueAdvance(new(1, clear.Position, [], null, null), clear);
             var host = ui.GetParent<Train.App.App>().Host!;
             Require(host.Step(1).Problem is null, "无法发布可建造的读视图。");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Economy"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            economy = Find<PanelContainer>(ui, "Settlement");
             await Services(economy);
             await QuoteBuilding(economy);
             quote = clear.LastQuote!;
@@ -730,7 +736,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 Find<Label>(economy, "ServiceJob_7").Text.Contains("预留：无") &&
                 Find<Label>(economy, "ServiceJob_9").Text.Contains("目标：地块 3") && Find<Label>(economy, "ServiceJob_4").Text.Contains("目标：车辆 9"),
                 "任务行没有列出建筑、地块、车辆目标或匹配的库存预留。");
-            var serviceButtons = economy.GetNode<VBoxContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
+            var serviceButtons = economy.GetNode<VBoxContainer>("Layout/Content/Body/Pages/建造与工地")
                 .FindChildren("*", "Button", true, false).OfType<Button>().Select(button => button.Text).ToArray();
             Require(!serviceButtons.Any(text => text.Contains("取消") || text.Contains("退款") || text.Contains("优先级")),
                 "建筑任务行出现了取消、退款或优先级：" + string.Join("、", serviceButtons));
@@ -809,7 +815,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         setup.Session.AssertComplete();
     }
 
-    private async Task QuoteBuilding(EconomyPanels economy)
+    private async Task QuoteBuilding(Control economy)
     {
         await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
         await _input.Choose(Find<OptionButton>(economy, "ServiceBlueprint"), 0);
@@ -823,7 +829,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
     }
 
-    private async Task SelectRepair(EconomyPanels economy)
+    private async Task SelectRepair(Control economy)
     {
         await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 1);
         await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
@@ -839,10 +845,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         {
             var tabs = Find<TabContainer>(economy, "Pages");
             var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "地块与建筑");
-            var bar = tabs.GetTabBar();
-            await _input.Frames(2);
-            await _input.Click(bar.GlobalPosition + bar.GetTabRect(index).GetCenter());
-            Require(tabs.CurrentTab == index, "真实点击未打开地块与建筑。");
+            await _input.ChooseTab(tabs, index);
             var text = Find<Label>(economy, "Plots").Text.Replace("\r\n", "\n");
             const string expected =
                 "地块 1 · 模板编号 1 · 小\n占用：施工建筑 · 建筑 20 · 修理中\n" +
@@ -883,7 +886,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             Require(tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地" && sources.ItemCount == 1, "服务表单没有停在建造页。");
             var editor = ui.GetParent<Train.App.App>().Editor!;
             await OpenAndLeave(ui, editor, draft, "ExitEditor");
-            Require(economy.Visible && economy.GetNode<Control>("Settlement").Visible &&
+            Require(economy.Visible &&
                 tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地" &&
                 Find<OptionButton>(economy, "ServiceOperation").Selected == 1 &&
                 Find<OptionButton>(economy, "ServiceFacility").Selected == facility &&
@@ -907,34 +910,31 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         await _input.WaitUntil(() => editor.Session is not null || !editor.IsOpen && editor.Message is not null);
         Require(editor.Session is not null, "编辑器没有打开：" + editor.Message);
         await _input.Frames(2);
-        Require(!ui.GetNode<EconomyPanels>("Root/World/EconomyPanels").Visible, "编辑器打开时经济面板仍可见。");
+        Require(!Find<PanelContainer>(ui, "Settlement").IsVisibleInTree(), "编辑器打开时经济面板仍可见。");
         await _input.Activate(Find<Button>(ui, button));
         await _input.Frames(2);
         var leave = ui.FindChildren("LeaveEditor", "PanelContainer", true, false).Cast<CanvasItem>().Single();
         if (leave.Visible) await _input.Activate(Find<Button>(ui, "DiscardAndLeave"));
-        await _input.WaitUntil(() => !editor.IsOpen && ui.GetNode<EconomyPanels>("Root/World/EconomyPanels").Visible);
+        await _input.WaitUntil(() => !editor.IsOpen && Find<PanelContainer>(ui, "Settlement").IsVisibleInTree());
         await _input.Frames(2);
     }
 
     private static void HideCaptureChrome(GameUi ui)
     {
         ui.GetNode<CanvasItem>("Root/ErrorPanel").Hide();
-        foreach (var detail in ui.GetNode<WorldPanels>("Root/World/WorldPanels").FindChildren("Details", "PanelContainer", false, false))
+        foreach (var detail in ui.FindChildren("Details", "PanelContainer", true, false))
             ((CanvasItem)detail).Hide();
     }
 
-    private async Task Services(EconomyPanels economy)
+    private async Task Services(Control economy)
     {
         var tabs = Find<TabContainer>(economy, "Pages");
         var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "建造与工地");
-        var bar = tabs.GetTabBar();
-        await _input.Frames(2);
-        await _input.Click(bar.GlobalPosition + bar.GetTabRect(index).GetCenter());
-        Require(tabs.CurrentTab == index, "真实点击未打开车辆服务。");
+        await _input.ChooseTab(tabs, index);
         await _input.Frames();
     }
 
-    private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, EconomyPanels, Task> body)
+    private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, Control, Task> body)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -949,10 +949,9 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             UiCapture.ConfigureWindowIfNeeded(tree.Root);
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Economy"));
-            await body(ui, ui.GetNode<EconomyPanels>("Root/World/EconomyPanels"));
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await body(ui, Find<PanelContainer>(ui, "Settlement"));
         }
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }

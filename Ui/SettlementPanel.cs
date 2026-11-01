@@ -41,6 +41,7 @@ internal sealed class SettlementPanel
     internal SettlementView? Settlement => _settlement;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<InstanceId>? ServiceDesignRequested;
+    internal event Action<WorldObjectId, Control>? Opened;
 
     internal SettlementPanel(Control parent, HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit,
@@ -89,6 +90,7 @@ internal sealed class SettlementPanel
         _services.BuildServices(Page(tabs, "建造与工地"));
         tabs.TabChanged += _ => _services.RefreshServices();
         _refresh(_binding, _view, _content);
+        Opened?.Invoke(new WorldObjectId.Settlement(id), _panel);
     }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
@@ -191,12 +193,14 @@ internal sealed class SettlementPanel
         if (instance is not InstanceId.Vehicle vehicle || !ReadCurrent() ||
             _view.FindInstance(instance) is not Lookup<InstanceView>.Found { Value.Location: WorldLocation.Node node } ||
             _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is not NodeOccupant.Settlement settlement) return;
-        if (IsCurrent(settlement.Id)) { _parent.Show(); _panel!.Show(); UiStyle.BringToFront(_panel); }
+        var reused = IsCurrent(settlement.Id);
+        if (reused) { _parent.Show(); _panel!.Show(); UiStyle.BringToFront(_panel); }
         else Open(new(_binding, _content.Generation, new WorldObjectId.Settlement(settlement.Id)), settlement.Id);
         _services.SelectVehicle(vehicle);
         var tabs = _body.GetNode<TabContainer>("Pages");
         tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "建造与工地");
         _services.ServiceChanged();
+        if (reused) Opened?.Invoke(new WorldObjectId.Settlement(settlement.Id), _panel!);
     }
 
     private bool IsCurrent(SettlementId requested) => _panel is not null && GodotObject.IsInstanceValid(_panel) &&

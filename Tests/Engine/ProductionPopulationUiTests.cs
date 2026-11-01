@@ -29,7 +29,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             var binding = app.Host!.GetStatus()!.Binding;
-            var economy = app.GetNode<EconomyPanels>("GameUi/Root/World/EconomyPanels");
+            var economy = Find<EconomyPanels>(app, "EconomyPanels");
             economy.OpenReports();
             ulong revision = 2;
             foreach (var (ratio, expected) in new (double? Ratio, string Expected)[]
@@ -49,7 +49,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                     }
                 };
                 economy.Refresh(binding, view, content);
-                var text = economy.GetNode<Label>("EconomyReports/Layout/Content/Body/ReportsScroll/Reports/ReportsText").Text;
+                var text = Find<Label>(app, "ReportsText").Text;
                 Require(text.Contains("载运率 " + expected), "经营报告未区分未定义、空载和超载的载运率。");
                 Require(ratio is null || !text.Contains("未进入线路"), "有数值的载运率被显示为未定义。");
                 Require(text.Contains("服务费用：17 · 净现金流 -17"), "运行报告未展示核心返回的服务费用。");
@@ -68,7 +68,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                     RecentRunReports = [new(new(7), original.Position, RunEndReason.PlanCompleted, incomplete)]
                 }
             }, content);
-            var reports = economy.GetNode<Label>("EconomyReports/Layout/Content/Body/ReportsScroll/Reports/ReportsText").Text;
+            var reports = Find<Label>(app, "ReportsText").Text;
             Require(reports.Split("补货目标以内").Length == 2,
                 $"货物不足的装载规则应说明补货目标保留，卸载规则不应：{reports}");
             Require(setup.Session.SubmitCount == 0, "只读经营报告提交了命令。");
@@ -111,10 +111,10 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             var binding = app.Host!.GetStatus()!.Binding;
-            var economy = app.GetNode<EconomyPanels>("GameUi/Root/World/EconomyPanels");
+            var economy = Find<EconomyPanels>(app, "EconomyPanels");
             economy.OpenSettlement(new(binding, content.Generation, new WorldObjectId.Settlement(new(1))), new(1));
             economy.Refresh(binding, view, content);
-            var specifications = economy.FindChildren("CurrentSpecification", "Label", true, false).Cast<Label>().ToArray();
+            var specifications = Find<PanelContainer>(app, "Settlement").FindChildren("CurrentSpecification", "Label", true, false).Cast<Label>().ToArray();
             var found = specifications.Single(label => label.Text.Contains("固定生产流程"));
             var foundBatch = Find<Label>(found.GetParent(), "Batch").Text;
             Require(found.Text.StartsWith("当前定义：固定生产流程 · 修订 v2\n") &&
@@ -152,12 +152,12 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             var host = app.Host!;
             var binding = host.GetStatus()!.Binding;
-            var economy = app.GetNode<EconomyPanels>("GameUi/Root/World/EconomyPanels");
+            var economy = Find<EconomyPanels>(app, "EconomyPanels");
             economy.OpenSettlement(new(binding, content.Generation, new WorldObjectId.Settlement(new(1))), new(1));
             var needs = Enum.GetValues<PopulationNeed>().Select(kind => new PopulationNeedView(kind, 2, 0, 0, null)).ToImmutableArray();
             var pending = View(original, 2, new PopulationExecution.NotStarted(needs));
             economy.Refresh(binding, pending, content);
-            var population = economy.GetNode<Label>("Settlement/Layout/Content/Body/Pages/人口/Page/Body/Population");
+            var population = Find<Label>(app, "Population");
             Require(population.Text.Contains("尚未开始") && population.Text.Contains("未结算") &&
                 !population.Text.Contains("满足率 0"), "尚未开始的人口被显示为零满足率。");
             Require(!population.Text.Contains("累计应需") && !population.Text.Contains("实际满足"),
@@ -175,13 +175,13 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
 
             economy.OpenReports();
             economy.Refresh(binding, active, content);
-            var report = economy.GetNode<Label>("EconomyReports/Layout/Content/Body/ReportsScroll/Reports/ReportsText").Text;
+            var report = Find<Label>(app, "ReportsText").Text;
             Require(report.Contains("未归属服务支出：23") && !report.Contains("未接入"),
                 "经营报告未展示核心返回的未归属服务支出。");
             Require(report.Contains("101 → 103") && !report.Contains("901 → 907"),
                 "经营报告未展示自有聚居地结算，或混入NPC人口结算。");
             economy.Refresh(new HostBinding(Guid.NewGuid()), active, content);
-            Require(economy.GetNode<Label>("EconomyReports/Layout/Content/Body/State").Text.Contains("已失效"),
+            Require(Find<Label>(Find<PanelContainer>(app, "EconomyReports"), "State").Text.Contains("已失效"),
                 "全局经营报告仍接受旧对局绑定。");
             Require(setup.Session.SubmitCount == 0, "只读页面提交了命令。");
         }
@@ -320,13 +320,13 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         new(new(new(1), CapabilityKind.Production), process, enabled, priority,
             enabled ? ProductionState.Running : ProductionState.Disabled, 1, 0, [], batch, [], [], []);
 
-    private async Task ShowPlanControls(EconomyPanels economy)
+    private async Task ShowPlanControls(Control economy)
     {
         await _input.Frames(2);
         foreach (var scroll in new[]
         {
-            economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/生产/Page"),
-            economy.GetNode<ScrollContainer>("Settlement/Layout/Content")
+            economy.GetNode<ScrollContainer>("Layout/Content/Body/Pages/生产/Page"),
+            economy.GetNode<ScrollContainer>("Layout/Content")
         })
         {
             var maximum = (int)scroll.GetVScrollBar().MaxValue;
@@ -338,22 +338,19 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
     private static void HideCaptureChrome(GameUi ui)
     {
         ui.GetNode<CanvasItem>("Root/ErrorPanel").Hide();
-        foreach (var detail in ui.GetNode<WorldPanels>("Root/World/WorldPanels").FindChildren("Details", "PanelContainer", false, false))
+        foreach (var detail in ui.FindChildren("Details", "PanelContainer", true, false))
             ((CanvasItem)detail).Hide();
     }
 
-    private async Task OpenProduction(EconomyPanels economy)
+    private async Task OpenProduction(Control economy)
     {
         var tabs = Find<TabContainer>(economy, "Pages");
         var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "生产");
-        var bar = tabs.GetTabBar();
-        await _input.Frames(2);
-        await _input.Click(bar.GlobalPosition + bar.GetTabRect(index).GetCenter());
-        Require(tabs.CurrentTab == index, "真实点击未打开生产。");
+        await _input.ChooseTab(tabs, index);
         await _input.Frames();
     }
 
-    private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, EconomyPanels, Task> body)
+    private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, Control, Task> body)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -368,10 +365,9 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             UiCapture.ConfigureWindowIfNeeded(tree.Root);
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Economy"));
-            await body(ui, ui.GetNode<EconomyPanels>("Root/World/EconomyPanels"));
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await body(ui, Find<PanelContainer>(ui, "Settlement"));
         }
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
