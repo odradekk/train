@@ -1535,20 +1535,7 @@ internal sealed partial class NodeScene : IAsyncDisposable
                     minimum = Vector3.Min(minimum, point); maximum = Vector3.Max(maximum, point);
                 }
             }
-            for (var arc = 0.0; arc <= length; arc = Math.Min(length, arc + 0.5))
-            {
-                token.ThrowIfCancellationRequested();
-                var point = sample(arc);
-                var half = RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth;
-                for (var offset = -half; offset <= half; offset += 0.5)
-                {
-                    var at = RailwayCoordinates.Add(point.Position, point.Right * (float)offset);
-                    var column = new GridColumn((int)Math.Floor(at.X), (int)Math.Floor(at.Z));
-                    var distance = Math.Abs(offset);
-                    if (!bed.TryGetValue(column, out var old) || distance < old.Distance) bed[column] = new(distance, point.Position.Y);
-                }
-                if (arc == length) break;
-            }
+            RasterizeBed(bed, sample, length, token);
         }
 
         (SceneCell[] Cells, int[][] Bottoms) ExtendBoundary(RailwayTerrain.BoundaryData boundary, ImmutableHashSet<GridColumn> allowed)
