@@ -103,9 +103,6 @@ public partial class WorldPanels : Control
     internal bool IsObjectOpen(WorldObjectId target) =>
         _detail is { } detail && detail.Target.Object == target && detail.Panel.IsVisibleInTree();
 
-    internal IEnumerable<InstanceId> OpenInstances() => _detail is { } detail && detail.Panel.IsVisibleInTree() &&
-        detail.Target.Object is WorldObjectId.Instance instance ? [instance.Id] : [];
-
     internal void OpenObject(WorldObjectId target)
     {
         var bound = new PanelTarget(_binding, _content.Generation, target);
