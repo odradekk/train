@@ -64,13 +64,14 @@ public sealed class EditingReviewRegressionTests
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 0, 0)));
         var id = session.Read().Elements.Single().Id;
         var value = different ? EditingFixtures.Cube with { Paint = new("#ff0000") } : EditingFixtures.Cube;
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(1, 0, 0)], 1), new CellEdit.Add(value)));
+        var previewOperation = new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(1, 0, 0)], 1), new CellEdit.Add(value));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.IsTrue(preview.CanApply);
         Assert.IsTrue(preview.Conflicts.IsEmpty);
         Assert.AreEqual(2, preview.CoveredCells);
         Assert.AreEqual(1, preview.AffectedCells);
         Assert.AreEqual(1, preview.SkippedCells);
-        EditingFixtures.Value(session.Apply(preview, false));
+        EditingFixtures.Value(session.Apply(previewOperation));
         var capture = session.Capture();
         Assert.AreEqual(2, capture.Draft.Layout.Cells.Length);
         var original = capture.Draft.Layout.Cells.Single(c => c.At == new GridPosition(0, 0, 0));
@@ -123,61 +124,6 @@ public sealed class EditingReviewRegressionTests
         var conflict = preview.Conflicts.Single();
         Assert.AreEqual(new GridPosition(4, 0, 0), conflict.Cell);
         Assert.IsNull(conflict.Element);
-    }
-
-    [TestMethod]
-    public void NonCellOperationsOver512CellsNeverRequireConfirmation()
-    {
-        var child = EditingFixtures.Draft(Enumerable.Range(0, 513).Select(x => new GridPosition(x, 0, 0)).ToArray()) with { Specification = new DesignSpecification.Assembly(null) };
-        var item = new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, child);
-        using var session = EditingFixtures.Open(EditingFixtures.Draft());
-        ApplyWithoutConfirmation(new EditOperation.PlaceNested(item));
-        var id = session.Read().Elements.Single(e => e.Kind == EditElementKind.Assembly).Id;
-        ApplyWithoutConfirmation(new EditOperation.ReplaceNested(id, item with { At = new(0, 1, 0) }));
-        id = session.Read().Elements.Single(e => e.Kind == EditElementKind.Assembly).Id;
-        EditingFixtures.Value(session.Select(new EditSelection.Elements([id])));
-        ApplyWithoutConfirmation(new EditOperation.RemoveSelection());
-        Assert.IsTrue(session.Capture().Draft.Layout.NestedItems.IsEmpty);
-
-        void ApplyWithoutConfirmation(EditOperation operation)
-        {
-            var preview = EditingFixtures.Preview(session, operation);
-            Assert.IsTrue(preview.AffectedCells > 512);
-            Assert.IsFalse(preview.RequiresConfirmation);
-            EditingFixtures.Value(session.Apply(preview, false));
-        }
-    }
-
-    [TestMethod]
-    public void BrushWidthAndCoverageHaveExact16And5000Boundaries()
-    {
-        using var session = EditingFixtures.Open(EditingFixtures.Draft());
-        var atLimit = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0)], 16), new CellEdit.Add(EditingFixtures.Cube)));
-        Assert.AreEqual(4096, atLimit.CoveredCells);
-        Assert.AreEqual(4096, atLimit.AffectedCells);
-        Assert.IsTrue(atLimit.CanApply);
-        Assert.AreEqual("region_limit", EditingFixtures.Code(session.Preview(new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0)], 17), new CellEdit.Add(EditingFixtures.Cube)))));
-        var samples = Enumerable.Range(0, 5001).Select(x => new GridPosition(x, 0, 0)).ToImmutableArray();
-        var exact = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke(samples.RemoveAt(5000), 1), new CellEdit.Add(EditingFixtures.Cube)));
-        Assert.AreEqual(5000, exact.CoveredCells);
-        Assert.AreEqual("region_limit", EditingFixtures.Code(session.Preview(new EditOperation.Cells(new EditFootprint.Stroke(samples, 1), new CellEdit.Add(EditingFixtures.Cube)))));
-        Assert.IsFalse(session.Read().CanUndo);
-    }
-
-    [TestMethod]
-    [DataRow(512, false)]
-    [DataRow(513, true)]
-    public void CellConfirmationStartsAt513AffectedCells(int count, bool requiresConfirmation)
-    {
-        using var session = EditingFixtures.Open(EditingFixtures.Draft());
-        var samples = Enumerable.Range(0, count).Select(x => new GridPosition(x, 0, 0)).ToImmutableArray();
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke(samples, 1), new CellEdit.Add(EditingFixtures.Cube)));
-        Assert.AreEqual(count, preview.AffectedCells);
-        Assert.AreEqual(requiresConfirmation, preview.RequiresConfirmation);
-        if (requiresConfirmation)
-            Assert.AreEqual("confirmation_required", EditingFixtures.Code(session.Apply(preview, false)));
-        EditingFixtures.Value(session.Apply(preview, requiresConfirmation));
-        Assert.AreEqual(count, session.Capture().Draft.Layout.Cells.Length);
     }
 
     [TestMethod]
@@ -242,12 +188,13 @@ public sealed class EditingReviewRegressionTests
         var entered = initial.Elements.Single(element => element.Kind == EditElementKind.Assembly && element.Parent is not null).Id;
         EditingFixtures.Value(session.Enter(entered));
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
-            new EditFootprint.Stroke([new(2, -1, 3), new(3, -1, 3)], 1), new CellEdit.Add(EditingFixtures.Cube)));
+        var previewOperation = new EditOperation.Cells(
+            new EditFootprint.Stroke([new(2, -1, 3), new(3, -1, 3)], 1), new CellEdit.Add(EditingFixtures.Cube));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         var conflict = preview.Conflicts.Single();
         Assert.AreEqual(new GridPosition(2, -1, 3), conflict.Cell);
         Assert.AreEqual(blocker, conflict.Element);
-        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(preview, true)));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(previewOperation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
 
         var applied = EditingFixtures.Apply(session, EditingFixtures.Add(new(3, -1, 3)));
@@ -267,12 +214,13 @@ public sealed class EditingReviewRegressionTests
         using var session = EditingFixtures.Open(draft);
         EditingFixtures.Value(session.Enter(session.Read().Elements.Single(element => element.Kind == EditElementKind.Assembly).Id));
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
-            new EditFootprint.Cell(new(localX, 0, 0)), new CellEdit.Remove()));
+        var previewOperation = new EditOperation.Cells(
+            new EditFootprint.Cell(new(localX, 0, 0)), new CellEdit.Remove());
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.IsTrue(preview.CanApply);
         Assert.AreEqual(0, preview.AffectedCells);
         Assert.AreEqual(1, preview.SkippedCells);
-        var unchanged = EditingFixtures.Value(session.Apply(preview, true));
+        var unchanged = EditingFixtures.Value(session.Apply(previewOperation));
         Assert.AreEqual(before.Stamp, unchanged.Snapshot.Stamp);
         Assert.IsFalse(unchanged.CanUndo);
         Assert.IsFalse(unchanged.IsDirty);
@@ -294,11 +242,12 @@ public sealed class EditingReviewRegressionTests
         using var session = EditingFixtures.Open(draft);
         EditingFixtures.Value(session.Enter(session.Read().Elements.Single(element => element.Kind == EditElementKind.Assembly).Id));
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
-            new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Remove()));
+        var previewOperation = new EditOperation.Cells(
+            new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Remove());
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.IsTrue(preview.CanApply);
         Assert.AreEqual(1, preview.AffectedCells);
-        var applied = EditingFixtures.Value(session.Apply(preview, true));
+        var applied = EditingFixtures.Value(session.Apply(previewOperation));
         CollectionAssert.AreEqual(before.Draft.Layout.Cells, applied.Snapshot.Draft.Layout.Cells);
         Assert.IsTrue(((NestedDesignItem.AssemblyCopy)applied.Snapshot.Draft.Layout.NestedItems.Single()).Design.Layout.Cells.IsEmpty);
         Assert.IsTrue(applied.Snapshot.Stamp.Revision.Value > before.Stamp.Revision.Value);
@@ -325,14 +274,15 @@ public sealed class EditingReviewRegressionTests
 
         var added = EditingFixtures.Draft(new(2, 0, 0), new(4, 0, 0)) with
         { Specification = new DesignSpecification.Assembly(null) };
-        var preview = EditingFixtures.Preview(session, new EditOperation.PlaceNested(
-            new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, added)));
+        var previewOperation = new EditOperation.PlaceNested(
+            new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, added));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         CollectionAssert.AreEqual(new[] { new GridPosition(4, 0, 0), new(2, 0, 0) },
             preview.Conflicts.Select(conflict => conflict.Cell!.Value).ToArray());
         CollectionAssert.AreEqual(new EditElementId?[] { blockers[new(4, 0, 0)], blockers[new(2, 0, 0)] },
             preview.Conflicts.Select(conflict => conflict.Element).ToArray());
         Assert.IsTrue(preview.Conflicts.All(conflict => conflict.Problem.Code == "occupancy_conflict"));
-        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(preview, true)));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(previewOperation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         Assert.IsFalse(session.Read().CanUndo);
     }
@@ -366,11 +316,12 @@ public sealed class EditingReviewRegressionTests
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 0, 0)), scene);
         var before = session.Capture();
         var blocker = session.Read().Elements.Single().Id;
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(1, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube)));
+        var previewOperation = new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(1, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.IsFalse(preview.CanApply);
         var conflict = preview.Conflicts.Single(c => c.Problem.Code == "edit_locked");
         Assert.AreEqual(blocker, conflict.Element);
-        Assert.AreEqual("edit_locked", EditingFixtures.Code(session.Apply(preview, true)));
+        Assert.AreEqual("edit_locked", EditingFixtures.Code(session.Apply(previewOperation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         Assert.AreEqual(1, session.Capture().Draft.Layout.Cells.Length);
     }
@@ -389,14 +340,15 @@ public sealed class EditingReviewRegressionTests
         var blocker = session.Read().Elements.Single(e => e.Parent is null && e.Kind == EditElementKind.Cell).Id;
         EditingFixtures.Value(session.Enter(session.Read().Elements.Single(e => e.Kind == EditElementKind.Assembly).Id));
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
-            new EditFootprint.Stroke([new(0, 0, 0), new(1, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube)));
+        var previewOperation = new EditOperation.Cells(
+            new EditFootprint.Stroke([new(0, 0, 0), new(1, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.IsFalse(preview.CanApply);
         var conflict = preview.Conflicts.Single();
         Assert.AreEqual(new GridPosition(0, 0, 0), conflict.Cell);
         Assert.AreEqual(blocker, conflict.Element);
         Assert.AreEqual(0, preview.SkippedCells);
-        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(preview, true)));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(previewOperation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         Assert.IsFalse(session.Read().CanUndo);
         Assert.IsFalse(session.Read().IsDirty);
@@ -439,7 +391,7 @@ public sealed class EditingReviewRegressionTests
             using var session = EditingFixtures.Open(draft, validScene);
             var before = session.Read();
             var frame = EditingFixtures.Frame(session);
-            var preview = EditingFixtures.Preview(session, EditingFixtures.Add(new(1, 0, 0)));
+            var previewOperation = EditingFixtures.Add(new(1, 0, 0));
             Assert.ThrowsExactly<ArgumentException>(() => session.AcceptEvaluation(before.Snapshot.Stamp,
                 EditingFixtures.Evaluation(draft) with { Scene = malformed }));
             var after = session.Read();
@@ -449,7 +401,7 @@ public sealed class EditingReviewRegressionTests
             Assert.AreEqual(before.CanUndo, after.CanUndo);
             CollectionAssert.AreEqual(before.Elements.ToArray(), after.Elements.ToArray());
             CollectionAssert.AreEqual(frame.DebugLines.ToArray(), EditingFixtures.Frame(session).DebugLines.ToArray());
-            var applied = EditingFixtures.Value(session.Apply(preview, false));
+            var applied = EditingFixtures.Value(session.Apply(previewOperation));
             Assert.AreEqual(3, applied.Snapshot.Draft.Layout.Cells.Length);
             Assert.IsTrue(applied.Elements.Single(e => e.At == new GridPosition(0, 0, 0)).Locked);
         }

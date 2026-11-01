@@ -35,16 +35,18 @@ public sealed class EditingSelectionTests
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new(1, 0, 0), new(0, 0, -1)));
         var selected = session.Read().Elements.Single(e => e.At == new GridPosition(1, 0, 0)).Id;
         EditingFixtures.Value(session.Select(new EditSelection.Elements([selected])));
-        var preview = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 2));
+        var operation = new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 2);
+        var preview = EditingFixtures.Preview(session, operation);
         CollectionAssert.AreEquivalent(new[] { new GridPosition(0, 0, -1), new(-1, 0, 0) }, preview.HighlightCells.ToArray());
         Assert.AreEqual(1, preview.CoveredCells);
         Assert.AreEqual(0, preview.SkippedCells);
         Assert.IsTrue(preview.CanApply);
-        EditingFixtures.Value(session.Apply(preview, false));
+        EditingFixtures.Value(session.Apply(operation));
         Assert.AreEqual(new GridPosition(-1, 0, 0), session.Read().Elements.Single(e => e.Id == selected).At);
-        var blocked = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 3));
+        var blockedOperation = new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 3);
+        var blocked = EditingFixtures.Preview(session, blockedOperation);
         Assert.IsFalse(blocked.CanApply);
-        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(blocked, false)));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(blockedOperation)));
     }
 
     [TestMethod]
@@ -89,17 +91,18 @@ public sealed class EditingSelectionTests
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>> { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with { AllowedOrientations = allowed }) } };
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 1, 0)), content: content);
         SelectRoot(session);
-        var preview = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.X, new(0, 0, 0), 1));
+        var operation = new EditOperation.RotateSelection(GridAxis.X, new(0, 0, 0), 1);
+        var preview = EditingFixtures.Preview(session, operation);
         Assert.AreEqual(canApply, preview.CanApply);
         if (canApply)
         {
-            var state = EditingFixtures.Value(session.Apply(preview, false));
+            var state = EditingFixtures.Value(session.Apply(operation));
             Assert.AreEqual(new GridPosition(0, 0, 1), state.Snapshot.Draft.Layout.Cells.Single().At);
             Assert.AreEqual(VoxelOrientation.PxPy, state.Snapshot.Draft.Layout.Palette.Single().Orientation);
         }
         else
         {
-            Assert.AreEqual("invalid_operation", EditingFixtures.Code(session.Apply(preview, false)));
+            Assert.AreEqual("invalid_operation", EditingFixtures.Code(session.Apply(operation)));
             Assert.IsFalse(session.Read().CanUndo);
         }
     }
@@ -120,12 +123,13 @@ public sealed class EditingSelectionTests
             [new(new(0, 0, 0), 0), new(new(1, 0, 0), 1)], []) };
         using var session = EditingFixtures.Open(draft, content: content);
         SelectRoot(session);
-        var preview = EditingFixtures.Preview(session, new EditOperation.ShapeSelection(half));
+        var operation = new EditOperation.ShapeSelection(half);
+        var preview = EditingFixtures.Preview(session, operation);
         Assert.IsTrue(preview.CanApply);
         Assert.AreEqual(2, preview.CoveredCells);
         Assert.AreEqual(1, preview.AffectedCells);
         Assert.AreEqual(1, preview.SkippedCells);
-        var changed = EditingFixtures.Value(session.Apply(preview, false)).Snapshot.Draft;
+        var changed = EditingFixtures.Value(session.Apply(operation)).Snapshot.Draft;
         Assert.AreEqual(half, changed.Layout.Palette[changed.Layout.Cells.Single(c => c.At == new GridPosition(0, 0, 0)).PaletteIndex].Shape);
         Assert.IsNull(changed.Layout.Palette[changed.Layout.Cells.Single(c => c.At == new GridPosition(1, 0, 0)).PaletteIndex].Shape);
         var undone = EditingFixtures.Value(session.Undo());
@@ -144,9 +148,10 @@ public sealed class EditingSelectionTests
         using var session = EditingFixtures.Open(draft);
         SelectRoot(session);
         var originalIds = session.Read().Elements.Select(e => e.Id).ToArray();
-        var preview = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 1));
+        var operation = new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 1);
+        var preview = EditingFixtures.Preview(session, operation);
         CollectionAssert.AreEquivalent(new[] { new GridPosition(0, 2, 0), new(-1, 0, -3) }, preview.HighlightCells.ToArray());
-        EditingFixtures.Value(session.Apply(preview, false));
+        EditingFixtures.Value(session.Apply(operation));
         var captured = session.Capture().Draft;
         Assert.AreEqual(VoxelOrientation.PxPy, captured.Layout.Palette[captured.Layout.Cells.Single().PaletteIndex].Orientation);
         var nested = (NestedDesignItem.AssemblyCopy)captured.Layout.NestedItems.Single();
@@ -168,10 +173,11 @@ public sealed class EditingSelectionTests
         using var session = EditingFixtures.Open(EditingFixtures.Draft(coordinates));
         SelectRoot(session);
         var original = session.Read();
-        var preview = EditingFixtures.Preview(session, new EditOperation.MoveSelection(new(0, 1, 0)));
+        var operation = new EditOperation.MoveSelection(new(0, 1, 0));
+        var preview = EditingFixtures.Preview(session, operation);
         Assert.IsTrue(preview.CanApply);
-        Assert.IsFalse(preview.RequiresConfirmation);
-        var moved = EditingFixtures.Value(session.Apply(preview, false));
+
+        var moved = EditingFixtures.Value(session.Apply(operation));
         CollectionAssert.AreEquivalent(coordinates.Select(p => new GridPosition(p.X, 1, 0)).ToArray(), moved.Snapshot.Draft.Layout.Cells.Select(c => c.At).ToArray());
         CollectionAssert.AreEqual(original.Elements.Select(e => e.Id).ToArray(), moved.Elements.Select(e => e.Id).ToArray());
         var undone = EditingFixtures.Value(session.Undo());
@@ -203,7 +209,7 @@ public sealed class EditingSelectionTests
         var expected = selection ? new[] { new GridPosition(12, 0, 0) } : new[] { new GridPosition(2, 0, 0), new GridPosition(3, 0, 0) };
         CollectionAssert.AreEquivalent(expected, preview.HighlightCells.ToArray());
         CollectionAssert.AreEqual(initialLines.ToArray(), EditingFixtures.Frame(session).DebugLines.ToArray());
-        EditingFixtures.Value(session.Apply(preview, false));
+        EditingFixtures.Value(session.Apply(operation));
         Assert.IsNull(session.Read().CurrentEvaluation);
         Assert.IsTrue(EditingFixtures.Frame(session).DebugLines.IsEmpty);
         Assert.IsFalse(session.AcceptEvaluation(original.Stamp, EditingFixtures.Evaluation(original.Draft) with { Scene = scene }));
@@ -216,18 +222,6 @@ public sealed class EditingSelectionTests
         var newLines = EditingFixtures.Frame(session).DebugLines;
         Assert.IsFalse(newLines.IsEmpty);
         Assert.IsTrue(newLines.All(line => line.From.X >= 30 && line.To.X >= 30 && line.From.X <= 31 && line.To.X <= 31));
-    }
-
-    [TestMethod]
-    public void LargeSelectionDoesNotUseCellConfirmationThreshold()
-    {
-        using var session = EditingFixtures.Open(EditingFixtures.Draft(Enumerable.Range(0, 513).Select(x => new GridPosition(x, 0, 0)).ToArray()));
-        SelectRoot(session);
-        var preview = EditingFixtures.Preview(session, new EditOperation.PaintSelection(new("#123456")));
-        Assert.AreEqual(513, preview.AffectedCells);
-        Assert.IsFalse(preview.RequiresConfirmation);
-        EditingFixtures.Value(session.Apply(preview, false));
-        Assert.IsFalse(EditingFixtures.Value(session.Undo()).CanUndo);
     }
 
     [TestMethod]
@@ -266,21 +260,24 @@ public sealed class EditingSelectionTests
         using var session = EditingFixtures.Open(draft);
         SelectRoot(session);
         var color = new PaintColor("#123456");
-        var paint = EditingFixtures.Preview(session, new EditOperation.PaintSelection(color));
+        var paintOperation = new EditOperation.PaintSelection(color);
+        var paint = EditingFixtures.Preview(session, paintOperation);
         Assert.AreEqual(2, paint.CoveredCells);
         Assert.AreEqual(2, paint.AffectedCells);
-        var painted = EditingFixtures.Value(session.Apply(paint, false));
+        var painted = EditingFixtures.Value(session.Apply(paintOperation));
         var nested = ((NestedDesignItem.AssemblyCopy)painted.Snapshot.Draft.Layout.NestedItems.Single()).Design;
         Assert.AreEqual(color, nested.Layout.Palette[nested.Layout.Cells.Single().PaletteIndex].Paint);
         Assert.AreEqual(color, painted.Snapshot.Draft.Layout.Palette[painted.Snapshot.Draft.Layout.Cells.Single().PaletteIndex].Paint);
-        var shape = EditingFixtures.Preview(session, new EditOperation.ShapeSelection(new("cube")));
+        var shapeOperation = new EditOperation.ShapeSelection(new("cube"));
+        var shape = EditingFixtures.Preview(session, shapeOperation);
         Assert.AreEqual(2, shape.AffectedCells);
-        var shaped = EditingFixtures.Value(session.Apply(shape, false));
+        var shaped = EditingFixtures.Value(session.Apply(shapeOperation));
         nested = ((NestedDesignItem.AssemblyCopy)shaped.Snapshot.Draft.Layout.NestedItems.Single()).Design;
         Assert.AreEqual(new VoxelShape("cube"), nested.Layout.Palette[nested.Layout.Cells.Single().PaletteIndex].Shape);
-        var noChange = EditingFixtures.Preview(session, new EditOperation.ShapeSelection(new("unsupported")));
+        var noChangeOperation = new EditOperation.ShapeSelection(new("unsupported"));
+        var noChange = EditingFixtures.Preview(session, noChangeOperation);
         Assert.AreEqual(2, noChange.SkippedCells);
-        Assert.AreEqual(shaped.Snapshot.Stamp, EditingFixtures.Value(session.Apply(noChange, false)).Snapshot.Stamp);
+        Assert.AreEqual(shaped.Snapshot.Stamp, EditingFixtures.Value(session.Apply(noChangeOperation)).Snapshot.Stamp);
         EditingFixtures.Value(session.Undo());
         var restored = EditingFixtures.Value(session.Undo());
         Assert.IsFalse(restored.CanUndo);
@@ -305,15 +302,17 @@ public sealed class EditingSelectionTests
         using var session = EditingFixtures.Open(draft, content: content);
         SelectRoot(session);
         var color = new PaintColor("#123456");
-        var paint = EditingFixtures.Preview(session, new EditOperation.PaintSelection(color));
+        var paintOperation = new EditOperation.PaintSelection(color);
+        var paint = EditingFixtures.Preview(session, paintOperation);
         Assert.AreEqual(2, paint.CoveredCells);
         Assert.AreEqual(2, paint.AffectedCells);
-        var painted = EditingFixtures.Value(session.Apply(paint, false));
+        var painted = EditingFixtures.Value(session.Apply(paintOperation));
         Assert.AreEqual(color, ((NestedDesignItem.FunctionalCompositeReference)painted.Snapshot.Draft.Layout.NestedItems.Single()).Paint);
-        var shape = EditingFixtures.Preview(session, new EditOperation.ShapeSelection(new("cube")));
+        var shapeOperation = new EditOperation.ShapeSelection(new("cube"));
+        var shape = EditingFixtures.Preview(session, shapeOperation);
         Assert.AreEqual(0, shape.AffectedCells);
         Assert.AreEqual(2, shape.SkippedCells);
-        Assert.AreEqual(painted.Snapshot.Stamp, EditingFixtures.Value(session.Apply(shape, false)).Snapshot.Stamp);
+        Assert.AreEqual(painted.Snapshot.Stamp, EditingFixtures.Value(session.Apply(shapeOperation)).Snapshot.Stamp);
         Assert.IsFalse(EditingFixtures.Value(session.Undo()).CanUndo);
     }
 
@@ -331,7 +330,7 @@ public sealed class EditingSelectionTests
             var preview = EditingFixtures.Preview(session, op);
             Assert.IsFalse(preview.CanApply);
             Assert.IsTrue(preview.Conflicts.Any(c => c.Problem.Code == "edit_locked"));
-            Assert.AreEqual("edit_locked", EditingFixtures.Code(session.Apply(preview, true)));
+            Assert.AreEqual("edit_locked", EditingFixtures.Code(session.Apply(op)));
             Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         }
         Assert.IsFalse(session.Read().CanUndo);
@@ -349,10 +348,11 @@ public sealed class EditingSelectionTests
         var cell = session.Read().Elements.Single(e => e.Parent == parent && e.Kind == EditElementKind.Cell).Id;
         EditingFixtures.Value(session.Select(new EditSelection.Elements([cell])));
         var before = session.Capture();
-        var blocked = EditingFixtures.Preview(session, new EditOperation.MoveSelection(new(1, 0, 0)));
+        var blockedOperation = new EditOperation.MoveSelection(new(1, 0, 0));
+        var blocked = EditingFixtures.Preview(session, blockedOperation);
         Assert.IsFalse(blocked.CanApply);
         Assert.AreEqual(new GridPosition(2, 0, 0), blocked.Conflicts.Single().Cell);
-        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(blocked, false)));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(blockedOperation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         var moved = EditingFixtures.Apply(session, new EditOperation.MoveSelection(new(0, 1, 0)));
         var nested = ((NestedDesignItem.AssemblyCopy)moved.Snapshot.Draft.Layout.NestedItems.Single()).Design;
@@ -369,7 +369,7 @@ public sealed class EditingSelectionTests
         {
             var preview = EditingFixtures.Preview(session, op);
             Assert.AreEqual(0, preview.AffectedCells);
-            Assert.AreEqual(before.Stamp, EditingFixtures.Value(session.Apply(preview, false)).Snapshot.Stamp);
+            Assert.AreEqual(before.Stamp, EditingFixtures.Value(session.Apply(op)).Snapshot.Stamp);
         }
         SelectRoot(session);
         EditingFixtures.Apply(session, new EditOperation.MoveSelection(new(0, 0, 0)));
@@ -388,9 +388,10 @@ public sealed class EditingSelectionTests
         using var session = EditingFixtures.Open(draft);
         SelectRoot(session);
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, new EditOperation.MoveSelection(new(0, 0, 0)));
+        var operation = new EditOperation.MoveSelection(new(0, 0, 0));
+        var preview = EditingFixtures.Preview(session, operation);
         Assert.AreEqual(0, preview.AffectedCells);
-        var result = EditingFixtures.Value(session.Apply(preview, false));
+        var result = EditingFixtures.Value(session.Apply(operation));
         Assert.AreEqual(before.Stamp, result.Snapshot.Stamp);
         Assert.AreEqual(1, result.Snapshot.Draft.Layout.Cells.Single().PaletteIndex);
         Assert.IsFalse(result.CanUndo);
@@ -405,10 +406,11 @@ public sealed class EditingSelectionTests
             [new NestedDesignItem.SceneModelCopy(new(int.MaxValue, 0, 0), VoxelOrientation.PxPy, child)]) };
         using var session = EditingFixtures.Open(draft);
         SelectRoot(session);
-        var preview = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 1));
+        var operation = new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 1);
+        var preview = EditingFixtures.Preview(session, operation);
         Assert.IsTrue(preview.CanApply);
         CollectionAssert.AreEqual(new[] { new GridPosition(0, 0, 1) }, preview.HighlightCells.ToArray());
-        var result = EditingFixtures.Value(session.Apply(preview, false));
+        var result = EditingFixtures.Value(session.Apply(operation));
         var nested = (NestedDesignItem.SceneModelCopy)result.Snapshot.Draft.Layout.NestedItems.Single();
         Assert.AreEqual(new GridPosition(0, 0, -int.MaxValue), nested.At);
         Assert.AreEqual(VoxelOrientation.NzPy, nested.Orientation);
@@ -421,10 +423,11 @@ public sealed class EditingSelectionTests
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 0, 0)));
         SelectRoot(session);
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, new EditOperation.MoveSelection(new(1, 0, 0)));
+        var operation = new EditOperation.MoveSelection(new(1, 0, 0));
+        EditingFixtures.Preview(session, operation);
         var scene = SceneFixtures.Projection([]) with { EditLocks = [new(new DesignElementPath.Cell([], 0), new ContentReference.Core(new CoreDefinitionReference.Voxel(SceneFixtures.Voxel)), new("source"), [LockedDesignOperation.Move], [])] };
         Assert.IsTrue(session.AcceptEvaluation(before.Stamp, EditingFixtures.Evaluation(before.Draft) with { Scene = scene }));
-        Assert.AreEqual("edit_locked", EditingFixtures.Code(session.Apply(preview, false)));
+        Assert.AreEqual("edit_locked", EditingFixtures.Code(session.Apply(operation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         EditingFixtures.Apply(session, new EditOperation.PaintSelection(new("#123456")));
         Assert.IsNull(session.Read().CurrentEvaluation);

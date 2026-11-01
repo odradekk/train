@@ -38,11 +38,9 @@ public sealed class EditorSession : IDesignEditSession
     public IReadOnlyList<ISceneFrame?> Baselines => _baselines;
     public bool FailPresent { get; set; }
     public bool StalePick { get; set; }
-    public bool ConfirmationRequired { get; set; }
     public Queue<GridPosition>? PickSamples { get; set; }
     public List<EditOperation> PreviewCalls { get; } = [];
-    public List<(IEditPreview Preview, bool Confirmed)> ApplyCalls { get; } = [];
-    private FixedEditPreview? _currentPreview;
+    public List<EditOperation> ApplyCalls { get; } = [];
     public FixedSceneFrame? LastFrame { get; private set; }
     public int Disposals { get; private set; }
     public EditSessionId Id { get; } = new(Guid.NewGuid());
@@ -52,7 +50,8 @@ public sealed class EditorSession : IDesignEditSession
         Content = generation;
         _state = new(new(new(Id, new(0), generation), draft), false, false, false, null, [], [], initial, []);
     }
-    public Func<EditOperation, FixedEditPreview>? PreviewCall { get; set; }
+    public Func<EditOperation, SceneResult<IEditPreview>>? PreviewCall { get; set; }
+    public Func<EditOperation, SceneResult<EditState>>? ApplyCall { get; set; }
     public Func<EditElementId, SceneResult<DesignDraft>>? CaptureObjectCall { get; set; }
     public Func<EditState>? ReadCall { get; set; }
     public Func<EditSnapshot>? CaptureCall { get; set; }
@@ -91,17 +90,15 @@ public sealed class EditorSession : IDesignEditSession
     {
         if (operation is not EditOperation.Properties && operation is not EditOperation.Cells) throw new InvalidOperationException("有限替身只配置Properties与Cells输入。");
         PreviewCalls.Add(operation);
-        _currentPreview = PreviewCall?.Invoke(operation) ?? new(_state.Snapshot.Stamp, operation, ConfirmationRequired);
-        return new SceneResult<IEditPreview>.Success(_currentPreview);
+        return PreviewCall?.Invoke(operation) ?? new SceneResult<IEditPreview>.Success(new FixedEditPreview(_state.Snapshot.Stamp));
     }
-    public SceneResult<EditState> Apply(IEditPreview preview, bool confirmed)
+    public SceneResult<EditState> Apply(EditOperation operation)
     {
-        ApplyCalls.Add((preview, confirmed));
-        if (!ReferenceEquals(preview, _currentPreview)) return Reject("stale_preview", "预览已过期，请重新预览。");
-        if (preview.RequiresConfirmation && !confirmed) return Reject("confirmation_required", "该预览需要确认。");
-        var draft = _currentPreview!.Operation is EditOperation.Properties properties ? _state.Snapshot.Draft with { Display = properties.Display } : _state.Snapshot.Draft;
+        ApplyCalls.Add(operation);
+        if (ApplyCall is { } call) return call(operation);
+        if (operation is not EditOperation.Properties && operation is not EditOperation.Cells) throw new InvalidOperationException("有限替身只配置Properties与Cells输入。");
+        var draft = operation is EditOperation.Properties properties ? _state.Snapshot.Draft with { Display = properties.Display } : _state.Snapshot.Draft;
         Change(draft);
-        _currentPreview = null;
         return new SceneResult<EditState>.Success(_state);
     }
     public bool AcceptEvaluation(EditStamp requested, DesignEvaluation result)
@@ -161,10 +158,10 @@ public sealed class EditorSession : IDesignEditSession
 
 }
 
-public sealed record FixedEditPreview(EditStamp Basis, EditOperation Operation, bool RequiresConfirmation = false) : IEditPreview
+public sealed record FixedEditPreview(EditStamp Basis) : IEditPreview
 {
-    public int CoveredCells { get; init; } = RequiresConfirmation ? 513 : 1;
-    public int AffectedCells { get; init; } = RequiresConfirmation ? 513 : 1;
+    public int CoveredCells { get; init; } = 1;
+    public int AffectedCells { get; init; } = 1;
     public int SkippedCells { get; init; }
     public bool OccupancyComplete { get; init; } = true;
     public bool CanApply { get; init; } = true;

@@ -181,9 +181,9 @@ internal sealed class EditorSceneController : IDisposable
         }
         return result;
     }
-    internal void ShowPreview(IEditPreview? preview)
+    internal void ShowPreview(IEditPreview? preview, EditFootprint? rejectedFootprint = null)
     {
-        _overlay.ShowPreview(preview, _display?.DisplayedFrame?.Origin, EnteredTransform());
+        _overlay.ShowPreview(preview, _display?.DisplayedFrame?.Origin, EnteredTransform(), rejectedFootprint);
     }
     internal GridPosition? PickPlane(Vector2 position)
     {
