@@ -16,7 +16,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class UiTests(Node testScene) : TestClass(testScene)
+public partial class UiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
@@ -41,12 +41,20 @@ public class UiTests(Node testScene) : TestClass(testScene)
                 template.Plots.Select(plot => new TemplatePlotReference(plot.Number, plot.Size)).ToImmutableArray());
         }).ToImmutableArray());
         var original = UiWorldFixture.Map();
+        var economy = EconomyFixture.Create();
         var nodes = original.World.Nodes.Select(node => node with
         { Occupant = new NodeOccupant.Settlement(new(node.Id.Value), SettlementRelation.Hostile) }).ToImmutableArray();
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
         {
             Economy = UiWorldFixture.Economy,
             World = original.World with { Nodes = nodes, Trains = [] },
+            Settlements = nodes.ToDictionary(node => new SettlementId(node.Id.Value), node =>
+                (Lookup<SettlementView>)new Lookup<SettlementView>.Found(
+                    ((Lookup<SettlementView>.Found)economy.FindSettlement(new(1))).Value with
+                    { Id = new(node.Id.Value), Node = node.Id, Relation = SettlementRelation.Hostile,
+                        ParkedVehicles = [], VehiclesForSale = [], Leases = [] })),
+            Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
+            { [new(10)] = economy.FindInventory(new(10)) },
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
             Locations = nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
                 (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [], [], [], [], node.Occupant)))
@@ -133,7 +141,8 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var original = UiWorldFixture.Map();
         var lair = original.World.Nodes[1] with { Occupant = new NodeOccupant.Lair(new(1)) };
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
-        { Economy = UiWorldFixture.Economy, World = original.World with { Nodes = original.World.Nodes.SetItem(1, lair) } };
+        { Economy = UiWorldFixture.Economy, World = original.World with { Nodes = original.World.Nodes.SetItem(1, lair) },
+            Trains = original.World.Trains.ToDictionary(train => train.Id, train => original.FindTrain(train.Id)) };
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -214,10 +223,10 @@ public class UiTests(Node testScene) : TestClass(testScene)
             Require(clicked is null && map.Offset == before && map.Zoom == zoom,
                 "信息层面板的输入穿透到了地图。");
 
-            var fleet = ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet");
+            var fleet = Find<Button>(ui, "Fleet");
             fleet.GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects");
+            var list = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             Require(list.IsVisibleInTree(), "顶栏实际按键没有打开车队列表。");
             await _input.Frames(2);
             var covered = list.GlobalPosition + new Vector2(30, 30);
@@ -241,7 +250,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Opening_or_clicking_a_covered_panel_raises_it_below_settings_and_above_the_minimap()
+    public async Task Notifications_stay_above_docked_lists_and_below_settings()
     {
         var fixture = new Fixture(TestScene.GetTree());
         var setup = new HostSimulationTests.HostSetup(UiWorldFixture.Map());
@@ -252,35 +261,25 @@ public class UiTests(Node testScene) : TestClass(testScene)
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             var ui = app.GetNode<GameUi>("GameUi");
-            var bar = ui.GetNode<Control>("Root/World/Bar/TopBar");
-            await _input.Activate(bar.GetNode<Button>("Notices"));
-            await _input.Activate(bar.GetNode<Button>("Fleet"));
+            await _input.Activate(Find<Button>(ui, "Notices"));
+            await _input.Activate(Find<Button>(ui, "Fleet"));
             await _input.Frames(2);
             var notices = (Control)ui.FindChild("NoticeLog", true, false);
             var fleet = (Control)ui.FindChild("FleetList", true, false);
-            Require(Above(fleet, notices), "后打开的车队列表没有盖住先打开的通知记录。");
-            var lower = notices.GetGlobalRect();
-            var upper = fleet.GetGlobalRect();
-            var exposed = new Vector2((upper.End.X + lower.End.X) / 2, lower.End.Y - 20);
-            Require(lower.HasPoint(exposed) && !upper.HasPoint(exposed), $"通知记录没有露出可点击的部分：{lower} / {upper}。");
-            await _input.Click(exposed);
             var toasts = (Control)ui.FindChild("Toasts", true, false);
-            Require(Above(notices, fleet), "点击下层的通知记录没有把它移到最前。");
-            Require(Above(toasts, notices) && Above(toasts, fleet), "置前的业务面板盖住了通知提示。");
-            await _input.Activate(bar.GetNode<Button>("Fleet"));
-            Require(Above(fleet, notices) && Above(toasts, fleet), "被盖住的车队列表再点顶栏按钮没有到最前，或盖住了通知提示。");
-            await _input.Activate(bar.GetNode<Button>("Notices"));
-            Require(Above(notices, fleet), "被盖住的通知记录再点顶栏「通知」没有到最前。");
-            await _input.Activate(bar.GetNode<Button>("Settings"));
-            await _input.Click(exposed);
+            Require(Above(notices, fleet) && Above(toasts, fleet), "停靠列表盖住了通知记录或提示。");
+            await _input.Activate(Find<Button>(ui, "Notices"));
+            Require(notices.IsVisibleInTree() && fleet.IsVisibleInTree(), "打开通知记录关闭了停靠列表。");
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "设置");
             var settings = (Control)ui.GetNode("Root/SettingsPanel").FindChild("Settings", true, false);
             var minimap = ui.World.GetChildren().OfType<NodeMinimap>().Single();
             Require(Above(settings, notices) && Above(settings, fleet) && Above(settings, toasts) &&
                 Above(ui.GetNode("Root/ErrorPanel"), toasts), "业务面板或通知提示盖过了设置或错误界面。");
-            Require(Above(notices, minimap) && Above(fleet, minimap), "业务面板移到了节点小地图之下。");
+            Require(Above(notices, minimap) && !fleet.GetGlobalRect().Intersects(minimap.GetGlobalRect()),
+                "通知被小地图盖住，或停靠列表覆盖了小地图。");
             var markers = ui.World.GetChildren().OfType<SceneStatusOverlay>().Single();
-            Require(Above(minimap, markers) && Above(fleet, markers) && Above(toasts, markers),
-                "场景状态覆盖层盖住了小地图、业务面板或通知提示。");
+            Require(Above(minimap, markers) && !fleet.GetGlobalRect().Intersects(markers.GetGlobalRect()) && Above(toasts, markers),
+                "场景状态覆盖层超出中间区域，或盖住了小地图、通知提示。");
             setup.Session.AssertComplete();
         }
         finally { await fixture.Cleanup(); }
@@ -297,43 +296,6 @@ public class UiTests(Node testScene) : TestClass(testScene)
             if (index > 0 && child is not null) return child.GetIndex() > lowerPath[index - 1].GetIndex();
         }
         return false;
-    }
-
-    [Test]
-    public async Task Speed_buttons_preserve_focus_pause_and_select_only_the_current_control()
-    {
-        var tree = TestScene.GetTree();
-        var fixture = new Fixture(tree);
-        var setup = new HostSimulationTests.HostSetup(UiWorldFixture.Map());
-        try
-        {
-            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
-            app.CreateHost = logger => setup.Create(logger);
-            await fixture.AddToRoot(app);
-            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
-            var host = app.Host!;
-            host.AutoPauseOnFocusLoss = true;
-            host.SetFocused(false);
-            var bar = app.GetNode<GameUi>("GameUi").GetNode<Control>("Root/World/Bar/TopBar");
-            var controls = new[] { "Pause", "Speed1", "Speed2", "Speed4", "Speed8" }
-                .Select(name => bar.GetNode<Button>(name)).ToArray();
-            controls[2].GrabFocus();
-            await _input.PressKey(Key.Space);
-            var status = host.GetStatus()!;
-            Require(status.Speed == SimulationSpeed.Two && !status.PlayerPaused && status.FocusPaused &&
-                controls[2].ButtonPressed && controls.Count(button => button.ButtonPressed) == 1,
-                "真实倍速输入未解除玩家暂停、保留失焦暂停并单选当前速度。");
-            var clock = bar.GetNode<Label>("Clock");
-            await _input.WaitUntil(() => clock.Text.Contains("已暂停（失焦）") && clock.Text.Contains("资金 "));
-            controls[0].GrabFocus();
-            await _input.PressKey(Key.Space);
-            status = host.GetStatus()!;
-            Require(status.PlayerPaused && status.FocusPaused && controls[0].ButtonPressed &&
-                controls.Count(button => button.ButtonPressed) == 1 && setup.Session.AdvanceCount == 0,
-                "真实暂停输入未保留失焦暂停，或保护期间仍推进模拟。");
-            setup.Session.AssertComplete();
-        }
-        finally { await fixture.Cleanup(); }
     }
 
     [Test]
@@ -360,12 +322,12 @@ public class UiTests(Node testScene) : TestClass(testScene)
             tree.Root.ContentScaleFactor = 1;
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
-            ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet").GrabFocus();
+            Find<Button>(ui, "Fleet").GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects");
+            var list = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             await _input.ClickItem(list, 0);
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            var stop = panels.GetNodeOrNull<Button>("Details/Layout/Content/Body/Stop");
+            var stop = Find<Button>(Find<PanelContainer>(ui, "Details"), "Stop");
             Require(stop is not null && stop.IsVisibleInTree(),
                 $"实际列表点击没有打开列车详情：rect={list.GetGlobalRect()}，item={list.GetItemRect(0)}，selected={string.Join(',', list.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
             stop!.GrabFocus();
@@ -375,7 +337,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
                 ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(), "真实停车命令的拒绝没有显示在界面。");
             setup.Session.AssertComplete();
 
-            var disband = panels.GetNode<Button>("Details/Layout/Content/Body/Disband");
+            var disband = Find<Button>(Find<PanelContainer>(ui, "Details"), "Disband");
             disband.GrabFocus();
             await _input.PressKey(Key.Space);
             var confirmation = panels.GetNode<ConfirmationDialog>("DisbandConfirmation");
@@ -394,7 +356,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => app.Host.GetStatus()!.Binding != binding);
             await _input.Frames();
             Require(!confirmation.Visible && !GodotObject.IsInstanceValid(stop) &&
-                panels.FindChildren("Description", "Label", true, false).Count == 0 &&
+                ui.FindChildren("Description", "Label", true, false).Count == 0 &&
                 replacement.SubmitCount == 0 && setup.Session.SubmitCount == 1,
                 "替换对局后旧详情或解编确认窗口仍然打开，或产生额外提交。");
             replacement.AssertComplete();
@@ -497,40 +459,4 @@ public class UiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); }
     }
 
-}
-
-internal static class UiCapture
-{
-    private static string? OutputDirectory => DisplayServer.GetName() == "headless" ? null :
-        System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR");
-
-    internal static void ConfigureWindowIfNeeded(Window window)
-    {
-        if (string.IsNullOrWhiteSpace(OutputDirectory)) return;
-        window.Mode = Window.ModeEnum.Windowed;
-        window.Size = new Vector2I(1920, 1080);
-    }
-
-    internal static async Task Capture(Node scene, string name)
-    {
-        var output = OutputDirectory;
-        if (string.IsNullOrWhiteSpace(output)) return;
-        var window = scene.GetTree().Root;
-        Require(window.Size == new Vector2I(1920, 1080) && Mathf.IsEqualApprox(window.ContentScaleFactor, 1),
-            "UI 原型截图需要 1920×1080 窗口和 1 倍界面缩放。");
-        await scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-        await scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-        Directory.CreateDirectory(output);
-        File.WriteAllText(Path.Combine(output, "rendering.json"), System.Text.Json.JsonSerializer.Serialize(new
-        {
-            operatingSystem = OS.GetName(), godot = Godot.Engine.GetVersionInfo()["string"].AsString(),
-            displayServer = DisplayServer.GetName(), renderingMethod = RenderingServer.GetCurrentRenderingMethod(),
-            driver = RenderingServer.GetCurrentRenderingDriverName(), adapter = RenderingServer.GetVideoAdapterName(),
-            vendor = RenderingServer.GetVideoAdapterVendor(), adapterType = RenderingServer.GetVideoAdapterType().ToString(),
-            apiVersion = RenderingServer.GetVideoAdapterApiVersion(), viewportWidth = 1920, viewportHeight = 1080
-        }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-        using var image = window.GetTexture().GetImage();
-        Require(image.GetWidth() == 1920 && image.GetHeight() == 1080, "UI 截图实际 viewport 尺寸不符。");
-        Require(image.SavePng(Path.Combine(output, name + ".png")) == Error.Ok, "UI 截图保存失败。");
-    }
 }

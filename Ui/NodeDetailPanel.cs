@@ -11,8 +11,6 @@ internal sealed class NodeDetailPanel
     private readonly PanelTarget _target;
     private readonly Func<bool> _available;
     private readonly Action<PanelTarget, NodeId> _formation;
-    private readonly Action<PanelTarget, SettlementId> _settlement;
-    private readonly Action<SettlementId> _combat;
     private readonly Action<PanelTarget, NodeId> _founding;
     private readonly Action<InstanceId> _refit;
     private readonly Action<InstanceId> _service;
@@ -22,8 +20,6 @@ internal sealed class NodeDetailPanel
     internal NodeDetailPanel(PanelContainer panel, VBoxContainer body, PanelTarget target, NodeId id,
         Func<bool> available,
         Action<PanelTarget, NodeId> formation,
-        Action<PanelTarget, SettlementId> settlement,
-        Action<SettlementId> combat,
         Action<PanelTarget, NodeId> founding,
         Action<InstanceId> refit,
         Action<InstanceId> service,
@@ -33,8 +29,6 @@ internal sealed class NodeDetailPanel
         _target = target;
         _available = available;
         _formation = formation;
-        _settlement = settlement;
-        _combat = combat;
         _founding = founding;
         _refit = refit;
         _service = service;
@@ -50,18 +44,7 @@ internal sealed class NodeDetailPanel
             if (_available()) _formation(_target, _id);
         }));
         var occupant = view.World.Nodes.FirstOrDefault(item => item.Id == _id)?.Occupant;
-        if (occupant is NodeOccupant.Settlement settlement)
-        {
-            actions.Add(new("Economy", "库存、市场与服务…", false, () =>
-            {
-                if (_available()) _settlement(_target, settlement.Id);
-            }));
-            actions.Add(new("OpenSettlementCombat", "战斗…", false, () =>
-            {
-                if (_available()) _combat(settlement.Id);
-            }));
-        }
-        else if (occupant is NodeOccupant.Empty)
+        if (occupant is NodeOccupant.Empty)
             actions.Add(new("FoundSettlement", "建立聚居地…", false, () =>
             {
                 if (_available()) _founding(_target, _id);

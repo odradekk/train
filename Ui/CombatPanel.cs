@@ -19,7 +19,6 @@ public partial class CombatPanel : Control
     private bool _busy;
     private Label _state = null!;
     private Label _reportText = null!;
-    private VBoxContainer _combats = null!;
     private VBoxContainer _participants = null!;
     private VBoxContainer _focus = null!;
     private VBoxContainer _trainRules = null!;
@@ -55,6 +54,14 @@ public partial class CombatPanel : Control
         Show();
         UiStyle.BringToFront(this);
         if (IsNodeReady() && _view is not null && _content is not null) Render();
+    }
+
+    internal void OpenCombat(CombatId id)
+    {
+        SelectedCombat = id;
+        SelectedParticipant = null;
+        SelectedFocus = null;
+        Open();
     }
 
     internal void OpenTrain(TrainId train)
@@ -99,8 +106,6 @@ public partial class CombatPanel : Control
         _state.Name = "CombatState";
         _state.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.AddChild(_state);
-        body.AddChild(UiStyle.Label("进行中的战斗", true));
-        _combats = List(body);
         body.AddChild(UiStyle.Label("参战者", true));
         _participants = List(body);
         body.AddChild(UiStyle.Label("集中目标", true));
@@ -176,8 +181,6 @@ public partial class CombatPanel : Control
             text.AppendLine("集中目标已不存在");
         AppendContext(text, view);
         _state.Text = text.ToString().ReplaceLineEndings("\n");
-        Sync(_combats, view.World.Combats.Select(item => new Choice($"Combat{item.Id.Value}",
-            $"{BattleReportLog.Place(item.Location)}", () => SelectedCombat = item.Id)).ToArray());
         Sync(_participants, combat?.Participants.Select(item => new Choice(UnitName(item.Unit),
             UnitLabel(view, item), () => ChooseParticipant(item.Unit))).ToArray() ?? []);
         Sync(_focus, combat?.Participants.Where(item => Focusable(view, item))

@@ -25,6 +25,7 @@ internal partial class SettlementFoundingPanel : Control
     private bool _syncingTrains;
 
     internal event Action<SettlementId>? SettlementRequested;
+    internal Control Content => _panel;
 
     internal void Initialize(HostCoordinator host, Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit)
     { _host = host; _submit = submit; }

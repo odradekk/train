@@ -23,6 +23,7 @@ internal sealed partial class RailwayWorkPanel : Control
     private EdgeId _edge;
     private bool _open;
     private string? _breakSignature, _sourceSignature;
+    internal Control Content => _panel;
 
     internal void Initialize(HostCoordinator host, Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit)
     { _host = host; _submit = submit; }

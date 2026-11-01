@@ -11,6 +11,7 @@ using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
+using static Train.Engine.Tests.SettlementFoundingUiFixture;
 
 namespace Train.Engine.Tests;
 
@@ -47,7 +48,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
                     [new OwnedSettlementTemplateReference(new(91), new("fixture:template"), [])])), after);
             await _input.Activate(Find<Button>(Founding(ui), "ConfirmFounding"));
             await _input.Frames(4);
-            var detail = Find<Label>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Description");
+            var detail = Find<Label>(LatestDetail(ui), "Description");
             var host = ui.GetParent<Train.App.App>().Host!;
             var job = host.GetStatus()!.View.World.Nodes.First(node => node.Id == new NodeId(1)).FoundingJob;
             Require(during is not null && !during.Contains("建城进度"), "界面在副本配对前刷新了建城进度。");
@@ -89,28 +90,29 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             await ClickNode(map, view.World.Nodes[3]);
-            Require(scenes.OpenCalls.Count == 1 && !panels.IsObjectOpen(new WorldObjectId.Node(new(4))), "生物聚落单击打开了节点详情或没有进入场景。");
+            Require(scenes.OpenCalls.Count == 1 && panels.IsObjectOpen(new WorldObjectId.Node(new(4))), "生物聚落单击没有选中节点或进入场景。");
             await DismissError(ui);
             await ClickNode(map, view.World.Nodes[4]);
-            Require(scenes.OpenCalls.Count == 2 && !panels.IsObjectOpen(new WorldObjectId.Node(new(5))), "非自有聚居地单击打开了节点详情或没有进入场景。");
+            Require(scenes.OpenCalls.Count == 2 && Find<GameShell>(ui, "World").SelectedObject == new WorldObjectId.Settlement(new(1)), "非自有聚居地单击没有选中聚居地或进入场景。");
             await DismissError(ui);
             await ClickNode(map, view.World.Nodes[0]);
             Require(scenes.OpenCalls.Count == 3 && panels.IsObjectOpen(new WorldObjectId.Node(new(1))), "空节点单击没有同时进入场景并打开详情。");
             await DismissError(ui);
-            await _input.Activate(Find<Button>(LatestDetail(panels), "FoundSettlement"));
+            await _input.Activate(Find<Button>(LatestDetail(ui), "FoundSettlement"));
             Require(Find<Label>(Founding(ui), "FoundingPreview").Text.Contains("初始人口：40"), "空节点没有打开建城预览。");
             await _input.Activate(Find<Button>(Founding(ui), "Close"));
-            await CloseDetail(panels);
+            Require(Find<GameShell>(ui, "World").WorkspaceContent is null, "关闭建城后仍保留工作区遮罩。");
+            await CloseDetail(ui);
             Require(setup.Session.SubmitCount == 0, "关闭建城面板提交了命令。");
             await OpenFounding(ui, 2);
             var blocked = Find<Label>(Founding(ui), "FoundingPreview").Text;
-            var blockedTitle = LatestDetail(panels).FindChildren("*", "Label", true, false).Cast<Label>().First().Text;
+            var blockedTitle = LatestDetail(ui).FindChildren("*", "Label", true, false).Cast<Label>().First().Text;
             Require(blocked.Contains("节点已被占据。对象：节点 3。") && !blocked.Contains("node_occupied"),
                 $"有阻止原因时没有显示中文原因。title={blockedTitle} text={blocked}");
             await _input.Choose(Find<OptionButton>(Founding(ui), "MaterialSource"), 1);
             Require(Find<Button>(Founding(ui), "ConfirmFounding").Disabled, "预览存在阻止原因时仍可确认。");
             await _input.Activate(Find<Button>(Founding(ui), "Close"));
-            await CloseDetail(panels);
+            await CloseDetail(ui);
             await OpenFounding(ui, 1);
             var unavailable = Find<Label>(Founding(ui), "FoundingPreview").Text;
             Require(unavailable.Contains("所需内容缺失") && !unavailable.Contains("content_missing") &&
@@ -119,17 +121,17 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             await _input.Choose(Find<OptionButton>(Founding(ui), "MaterialSource"), 1);
             Require(!Find<Button>(Founding(ui), "ConfirmFounding").Disabled, "人口规则缺失且已选列车时不能确认。");
             await _input.Activate(Find<Button>(Founding(ui), "Close"));
-            await CloseDetail(panels);
+            await CloseDetail(ui);
             await OpenDetail(ui, 4);
-            var settlement = LatestDetail(panels);
-            Require(settlement.FindChildren("Economy", "Button", true, false).Any() &&
+            var settlement = Find<PanelContainer>(ui, "Settlement");
+            Require(Find<TabContainer>(settlement, "Pages").GetTabCount() == 8 &&
                 !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(), "非自有聚居地提供了建城。");
-            await CloseDetail(panels);
+            await CloseDetail(ui);
             await OpenDetail(ui, 3);
-            var lair = LatestDetail(panels);
+            var lair = LatestDetail(ui);
             Require(!lair.FindChildren("FoundSettlement", "Button", true, false).Any() &&
                 !lair.FindChildren("Economy", "Button", true, false).Any(), "生物聚落提供了建城或聚居地服务。");
-            await CloseDetail(panels);
+            await CloseDetail(ui);
             await OpenFounding(ui, 5);
             var trains = Find<OptionButton>(Founding(ui), "MaterialSource");
             Require(trains.ItemCount == 1 && trains.GetItemText(0) == "该节点没有停靠的列车" &&
@@ -179,13 +181,13 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             UiCapture.ConfigureWindowIfNeeded(TestScene.GetTree().Root);
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            var list = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
             list.Select(index);
             list.EnsureCurrentIsVisible();
             await _input.Frames(2);
             await _input.ClickItem(list, index);
-            await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "FoundSettlement"));
+            await _input.Activate(Find<Button>(LatestDetail(ui), "FoundSettlement"));
             var text = Find<Label>(Founding(ui), "FoundingPreview").Text;
             Require(text.Contains($"初始人口：{shown.InitialResidents}"), "建城面板的初始人口不是核心预览。");
             foreach (var rate in shown.ExpectedConsumption)
@@ -212,22 +214,23 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
         await Run(setup, async ui =>
         {
             await OpenDetail(ui, 0);
-            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            var detail = LatestDetail(panels);
-            var openDetails = panels.FindChildren("Details", "PanelContainer", true, false).Count;
+            var detail = LatestDetail(ui);
             Require(detail.Visible && detail.FindChildren("FoundSettlement", "Button", true, false).Cast<Button>().Any(),
                 "空节点没有建城按钮。");
             var host = ui.GetParent<Train.App.App>().Host!;
             setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
             Require(host.Step(1).Problem is null, "无法发布占用者变化。");
             await _input.Frames(2);
-            Require(GodotObject.IsInstanceValid(detail) && detail.Visible &&
-                panels.FindChildren("Details", "PanelContainer", true, false).Count == openDetails,
-                "占用者变化关闭或另开了节点详情。");
-            Require(!detail.FindChildren("FoundSettlement", "Button", true, false).Any() &&
-                detail.FindChildren("Economy", "Button", true, false).Cast<Button>().Any(button => button.Text == "库存、市场与服务…") &&
-                detail.FindChildren("OpenSettlementCombat", "Button", true, false).Any(),
-                "聚居地占用者没有换成库存和战斗按钮。");
+            var shell = Find<GameShell>(ui, "World");
+            Require(shell.SelectedObject == new WorldObjectId.Settlement(new(2)) &&
+                shell.InspectorContent is { Visible: true } settlement &&
+                Find<TabContainer>(settlement, "Pages").GetTabCount() == 8 &&
+                !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(),
+                "占用者变化没有把建城入口替换为聚居地检查器。");
+            var entry = Find<Button>(shell.InspectorContent!, "OpenSettlementCombat");
+            await _input.Click(entry.GetGlobalRect().GetCenter());
+            Require(Find<Button>(ui, "DeclareWar").IsVisibleInTree() && Find<Button>(ui, "Occupy").IsVisibleInTree(),
+                "新聚居地的战斗入口没有打开宣战和占领。");
         });
         setup.Session.AssertComplete();
     }
@@ -254,19 +257,20 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
     private async Task OpenFounding(GameUi ui, int nodeIndex)
     {
         await OpenDetail(ui, nodeIndex);
-        await _input.Activate(Find<Button>(LatestDetail(ui.GetNode<WorldPanels>("Root/World/WorldPanels")), "FoundSettlement"));
+        await _input.Activate(Find<Button>(LatestDetail(ui), "FoundSettlement"));
     }
 
-    private async Task CloseDetail(WorldPanels panels)
+    private async Task CloseDetail(GameUi ui)
     {
-        await _input.Activate(Find<Button>(LatestDetail(panels), "Close"));
+        await _input.Activate(Find<Button>(Find<GameShell>(ui, "World").InspectorContent!, "Close"));
         await _input.Frames(2);
     }
 
     private async Task OpenDetail(GameUi ui, int nodeIndex)
     {
-        await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-        await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), nodeIndex);
+        if (Find<GameShell>(ui, "World").ListContent?.Name != "NodesList")
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), nodeIndex);
     }
 
     private async Task ClickNode(MacroMap map, NodeMapItem node)
@@ -286,55 +290,8 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
         if (panel.Visible) await _input.Activate(Find<Button>(panel, "Close"));
     }
 
-    private static SettlementFoundingPanel Founding(GameUi ui) => ui.GetNode<SettlementFoundingPanel>("Root/World/SettlementFounding");
+    private static PanelContainer Founding(GameUi ui) => Find<PanelContainer>(ui, "Founding");
 
-    private static PanelContainer LatestDetail(WorldPanels panels) =>
-        panels.FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>().Last();
+    private static PanelContainer LatestDetail(GameUi ui) => Find<PanelContainer>(ui, "Details");
 
-    private static FixedCoreReadView World(ulong revision, JobId? foundingJob, NodeOccupant? firstOccupant = null)
-    {
-        var terrain = new TerrainView(new("fixture:plain"), 0, []);
-        NodeMapItem Node(ulong id, double x, double y, NodeOccupant occupant) =>
-            new(new(id), new(x, y), terrain, occupant, [], 0, 1, id == 1 ? foundingJob : null);
-        var nodes = new[]
-        {
-            Node(1, 500, 900, firstOccupant ?? new NodeOccupant.Empty()),
-            Node(2, 900, 900, new NodeOccupant.Empty()),
-            Node(3, 1300, 900, new NodeOccupant.Empty()),
-            Node(4, 500, 1400, new NodeOccupant.Lair(new(1))),
-            Node(5, 900, 1400, new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile)),
-            Node(6, 1700, 900, new NodeOccupant.Empty())
-        };
-        TrainView Train(ulong id, ulong node) => new(new(id),
-            new TrainPosition.Node(new(node), null, null, null, null, NodeTravelPhase.Waiting, 80, null),
-            TrainActivity.Stopped, [new(id)], new(id), 0, 20, 10, 100, 0, 30, null, null, 0,
-            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [],
-            TrainOrderFacing.FirstEndLeading, null);
-        var trains = new[] { Train(7, 1), Train(8, 2), Train(9, 3) };
-        CoreResult<SettlementFoundingPreview> Success(ulong node, ImmutableArray<CoreProblem> blockers) =>
-            new CoreResult<SettlementFoundingPreview>.Success(new(new(node), 40, [new(EconomyFixture.Food, 1.5)],
-                [new(EconomyFixture.Food, 12)], 180, blockers));
-        return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
-        {
-            Economy = UiWorldFixture.Economy,
-            World = new(1, new("fixture:railway"), 4000, 2400, nodes.ToImmutableArray(), [],
-                trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
-            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
-            Locations = nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
-                (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [], [], [], [], node.Occupant))),
-            Trains = trains.ToDictionary(train => train.Id, train => (Lookup<TrainView>)new Lookup<TrainView>.Found(train)),
-            FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>>
-            {
-                [new(1)] = Success(1, []),
-                [new(2)] = new CoreResult<SettlementFoundingPreview>.Failure([new("content_missing", "Population.Rule", null, [])]),
-                [new(3)] = Success(3, [new("node_occupied", "Node", new WorldObjectId.Node(new(3)), [])]),
-                [new(6)] = Success(6, [])
-            },
-            Jobs = foundingJob is { } job ? new Dictionary<JobId, Lookup<JobView>>
-            {
-                [job] = new Lookup<JobView>.Found(new JobView.Founding(new(job, new(1), 180, 0, new(91),
-                    new("fixture:template"), [new(EconomyFixture.Food, 12)])))
-            } : new Dictionary<JobId, Lookup<JobView>>()
-        };
-    }
 }

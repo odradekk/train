@@ -5,7 +5,7 @@ using Train.Core.Contracts;
 
 namespace Train.Ui;
 
-internal enum WorldListKind { Nodes, Edges, Fleet }
+internal enum WorldListKind { Nodes, Edges, Fleet, Combats }
 
 public partial class WorldPanels : Control
 {
@@ -16,21 +16,22 @@ public partial class WorldPanels : Control
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
     private readonly Dictionary<WorldListKind, WorldListPanel> _lists = [];
-    private readonly List<DetailPanelControls> _details = [];
+    private DetailPanelControls? _detail;
     private ConfirmationDialog _disband = null!;
     private PanelTarget? _disbandTarget;
     private TrainId _disbandTrain;
 
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
-    internal event Action<PanelTarget, SettlementId>? SettlementRequested;
     internal event Action<PanelTarget, NodeId>? FoundingRequested;
     internal event Action<PanelTarget, EdgeId>? RailwayWorkRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
     internal event Action<TrainId>? TrainCombatRequested;
-    internal event Action<SettlementId>? SettlementCombatRequested;
+    internal event Action<WorldObjectId>? SelectionRequested;
+    internal event Action<Control>? ListOpened;
+    internal event Action<WorldObjectId, Control>? InspectorOpened;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -49,12 +50,12 @@ public partial class WorldPanels : Control
     {
         if (_view is not null && (_binding != binding || !_host.PanelGenerationCurrent(_binding, _content.Generation)))
         {
-            foreach (var entry in _lists.Values) { RemoveChild(entry.Panel); entry.Panel.QueueFree(); }
+            foreach (var entry in _lists.Values) { entry.Panel.GetParent()?.RemoveChild(entry.Panel); entry.Panel.QueueFree(); }
             _lists.Clear();
         }
         _binding = binding; _view = view; _content = content;
         foreach (var entry in _lists.Values) entry.Refresh(view, content, NameOf);
-        foreach (var detail in _details)
+        if (_detail is { } detail)
         {
             var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
             detail.Refresh(view, content, valid ? NameOf(detail.Target.Object, view, content) : "", valid, _host.IsBusy);
@@ -70,9 +71,11 @@ public partial class WorldPanels : Control
     internal void OpenList(WorldListKind kind)
     {
         if (_view is null) return;
-        if (_lists.TryGetValue(kind, out var existing)) { existing.Panel.Show(); UiStyle.BringToFront(existing.Panel); return; }
+        if (_lists.TryGetValue(kind, out var existing))
+        { existing.Panel.Show(); ListOpened?.Invoke(existing.Panel); return; }
         PanelContainer panel = null!;
-        var title = kind switch { WorldListKind.Nodes => "节点", WorldListKind.Edges => "线路", _ => "车队" };
+        var title = kind switch { WorldListKind.Nodes => "聚居地", WorldListKind.Edges => "线路",
+            WorldListKind.Combats => "战斗", _ => "车队" };
         panel = UiStyle.Panel(this, kind + "List", title, new(24, 68), 360, () => panel.Hide(), out var body);
         var binding = _binding;
         var generation = _content.Generation;
@@ -80,45 +83,40 @@ public partial class WorldPanels : Control
         {
             var status = _host.GetStatus();
             if (status is null || !_host.PanelGenerationCurrent(binding, generation)) return;
-            OpenObject(id);
+            SelectionRequested?.Invoke(id);
         }, () => Refresh(_binding, _view, _content));
         _lists.Add(kind, list);
         Refresh(_binding, _view, _content);
+        ListOpened?.Invoke(panel);
     }
 
     internal void Invalidate()
     {
         Refresh(default, _view, _content);
-        foreach (var detail in _details) detail.Panel.QueueFree();
-        _details.Clear();
+        CloseDetail();
+        _detail = null;
         _disband.Hide();
     }
 
     internal bool IsObjectOpen(WorldObjectId target) =>
-        _details.Any(detail => detail.Target.Object == target && detail.Panel.IsVisibleInTree());
-
-    internal IEnumerable<InstanceId> OpenInstances() => _details
-        .Where(detail => detail.Panel.IsVisibleInTree())
-        .Select(detail => detail.Target.Object)
-        .OfType<WorldObjectId.Instance>()
-        .Select(instance => instance.Id);
+        _detail is { } detail && detail.Target.Object == target && detail.Panel.IsVisibleInTree();
 
     internal void OpenObject(WorldObjectId target)
     {
         var bound = new PanelTarget(_binding, _content.Generation, target);
-        var existing = _details.FirstOrDefault(detail => detail.Target == bound);
-        if (existing is not null) { existing.Panel.Show(); UiStyle.BringToFront(existing.Panel); return; }
+        if (_detail is { } existing && existing.Target == bound)
+        { existing.Panel.Show(); InspectorOpened?.Invoke(target, existing.Panel); return; }
+        CloseDetail();
+        _detail = null;
         PanelContainer panel = null!;
         panel = UiStyle.Panel(this, "Details", NameOf(target, _view, _content), new(408, 68), 420,
-            () => { _details.RemoveAll(detail => detail.Panel == panel); panel.QueueFree(); }, out var body);
+            () => panel.Hide(), out var body);
         Action<InstanceId> refit = id => RefitRequested?.Invoke(id);
         Action<InstanceId> service = id => VehicleServiceRequested?.Invoke(id);
         var detail = target switch
         {
             WorldObjectId.Node { Id: var nodeId } => new NodeDetailPanel(panel, body, bound, nodeId, () => Available(bound),
                 (source, id) => FormationRequested?.Invoke(source, id, _view, _content),
-                (source, id) => SettlementRequested?.Invoke(source, id),
-                id => SettlementCombatRequested?.Invoke(id),
                 (source, id) => FoundingRequested?.Invoke(source, id),
                 refit, service, NameOf).Controls,
             WorldObjectId.Edge { Id: var edgeId } => new EdgeDetailPanel(panel, body, bound, edgeId, () => Available(bound),
@@ -135,8 +133,16 @@ public partial class WorldPanels : Control
             _ => new DetailPanelControls(panel, body, bound, (_, _) => "已不存在", _ => [])
         };
         detail.BuildActions(_view);
-        _details.Add(detail);
+        _detail = detail;
         Refresh(_binding, _view, _content);
+        InspectorOpened?.Invoke(target, panel);
+    }
+
+    private void CloseDetail()
+    {
+        if (_detail is not { } detail) return;
+        detail.Panel.GetParent()?.RemoveChild(detail.Panel);
+        detail.Panel.QueueFree();
     }
 
     private bool Available(PanelTarget target)
@@ -166,6 +172,8 @@ public partial class WorldPanels : Control
         WorldObjectId.Train train => $"列车 {train.Id.Value} · {Activity(view.World.Trains.First(item => item.Id == train.Id).Activity)}",
         WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle } => $"车辆 {vehicle.Id.Value}",
         WorldObjectId.Instance { Id: InstanceId.Building building } => $"建筑 {building.Id.Value}",
+        WorldObjectId.Combat combat when view.World.Combats.FirstOrDefault(item => item.Id == combat.Id) is { } item =>
+            $"战斗 · {BattleReportLog.Place(item.Location)}",
         _ => id.ToString()
     };
 

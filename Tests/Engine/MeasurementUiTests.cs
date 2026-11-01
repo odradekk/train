@@ -9,6 +9,30 @@ namespace Train.Engine.Tests;
 public class MeasurementUiTests(Node testScene) : TestClass(testScene)
 {
     [Test]
+    public void Docked_shell_keeps_scene_input_available_but_a_workspace_mask_blocks_it()
+    {
+        var viewport = new SubViewport { Size = new(960, 540) };
+        TestScene.AddChild(viewport);
+        var shell = new GameShell { Size = new(960, 540) };
+        viewport.AddChild(shell);
+        try
+        {
+            shell.ShowList(new Control());
+            shell.Inspect(new Train.Core.Contracts.WorldObjectId.Node(new(1)), new Control());
+            Require(MeasurementRun.ReadSceneUi(viewport).BlockingControls.Length == 0,
+                "透明的全屏外壳和停靠区不应算作全屏遮挡。");
+            shell.ShowWorkspace(new Control());
+            var blockers = MeasurementRun.ReadSceneUi(viewport).BlockingControls;
+            Require(blockers.Length == 1 && blockers[0].EndsWith("/WorkspaceMask", StringComparison.Ordinal),
+                "工作区打开后的全屏遮罩仍须被测量识别。");
+            shell.ShowWorkspace(null);
+            Require(MeasurementRun.ReadSceneUi(viewport).BlockingControls.Length == 0,
+                "关闭工作区后应恢复场景可操作状态。");
+        }
+        finally { viewport.Free(); }
+    }
+
+    [Test]
     public void Blocking_controls_keep_tree_order_and_exclude_non_blocking_ui()
     {
         var viewport = new SubViewport { Size = new(320, 240) };
