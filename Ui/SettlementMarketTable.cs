@@ -157,12 +157,12 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
         if (changed) Changed();
         Refresh();
         var select = _items[good].Select;
+        select.GrabFocus();
         Callable.From(() =>
         {
             if (!GodotObject.IsInstanceValid(select)) return;
             for (var parent = select.GetParent(); parent is not null; parent = parent.GetParent())
                 if (parent is ScrollContainer scroll) scroll.EnsureControlVisible(select);
-            select.GrabFocus();
         }).CallDeferred();
     }
 
