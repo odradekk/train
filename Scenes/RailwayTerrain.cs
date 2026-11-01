@@ -439,7 +439,6 @@ internal static class RailwayTerrain
             foreach (var (column, value) in columns)
             {
                 cancellation.ThrowIfCancellationRequested();
-                var rail = path.Sample(value.Arc);
                 var trackDistance = surface.TrackDistance(value.Offset);
                 var isTunnel = value.Tunnel;
                 heights.Add(column, value.Height + 1);
@@ -448,9 +447,10 @@ internal static class RailwayTerrain
                 (double From, double To)? excluded = null;
                 if (isTunnel && Math.Abs(value.Offset) < RailwayCoordinates.TunnelShoulder(path.Edge.Tracks))
                 {
+                    var railY = path.Sample(value.Arc).Position.Y;
                     var surface = value.Height;
-                    var upper = Math.Min(rail.Position.Y + RailwayCoordinates.TunnelCrownCells, surface);
-                    if (upper > rail.Position.Y) excluded = (rail.Position.Y, upper);
+                    var upper = Math.Min(railY + RailwayCoordinates.TunnelCrownCells, surface);
+                    if (upper > railY) excluded = (railY, upper);
                 }
                 var lowest = LowestNeighbor(columns, outside, column, column.X + origin.X, column.Z + origin.Z);
                 var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, trackDistance, hasBed, excluded,
