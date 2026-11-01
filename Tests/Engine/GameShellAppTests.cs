@@ -113,19 +113,33 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
                 window.Size = new(1920, 1080);
                 await _input.Activate(Find<Button>(ui, "Nodes"));
                 await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+                var app = ui.GetParent<Train.App.App>();
+                Find<NotificationPanel>(ui, "NotificationPanel").Add(new(NotificationCategory.Destruction,
+                    NotificationLevel.Severe, "布局检查通知。", null, null), app.Host!.GetStatus()!.View, app.Host.Content!);
                 foreach (var scale in new[] { 1f, 2f })
                 {
                     window.ContentScaleFactor = scale;
                     await _input.Frames(6);
-                    var list = shell.ListContent!.GetGlobalRect();
-                    var inspector = shell.InspectorContent!.GetGlobalRect();
-                    Require(list.End.X <= inspector.Position.X && inspector.End.X <= shell.Size.X &&
-                        list.Position.Y >= shell.TopInset && inspector.Position.Y >= shell.TopInset && inspector.End.Y <= shell.Size.Y,
-                        $"列表和聚居地检查器在缩放 {scale} 时不应重叠或越界：{list} / {inspector}。");
+                    var toasts = Find<Control>(ui, "Toasts");
+                    Require(toasts.GetChildCount() > 0, "布局检查必须包含真实通知提示。");
+                    var layers = Find<Control>(ui, "InformationLayers");
+                    Require(layers.IsVisibleInTree(), "宏观地图布局检查必须显示真实地图信息层。");
+                    ShellGeometry.Check(ui);
                     await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent, "Pages"), 7);
+                    ShellGeometry.Check(ui);
                     await UiCapture.Capture(TestScene, $"shell-settlement-services-scale-{scale:0}", scale);
                     await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent, "Pages"), 0);
+                    ShellGeometry.Check(ui);
                     await UiCapture.Capture(TestScene, $"shell-settlement-stock-scale-{scale:0}", scale);
+                    foreach (var entry in new[] { "EconomyReports", "BlueprintLibrary" })
+                    {
+                        await _input.Activate(Find<Button>(ui, entry));
+                        await _input.Frames(3);
+                        ShellGeometry.Check(ui);
+                        await UiCapture.Capture(TestScene, $"shell-{entry}-scale-{scale:0}", scale);
+                        await _input.PressKey(Key.Escape);
+                    }
+
                 }
             }
             finally { window.Size = size; }

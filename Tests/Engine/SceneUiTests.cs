@@ -241,10 +241,10 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => list.ItemCount > 0 && list.GetItemRect(0).Size.Y > 0 &&
                 list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
             var clearanceRay = frame.LastPickRay;
-            Require(!panel.GetGlobalRect().Intersects(minimap.GetGlobalRect()), "停靠列表覆盖了节点小地图。");
             await _input.Click(list.GlobalPosition + list.GetItemRect(0).GetCenter());
             Require(camera.Focus.DistanceTo(focus) < .001f && ReferenceEquals(frame.LastPickRay, clearanceRay),
                 "停靠列表点击穿透到小地图或场景拾取。");
+            await ShellGeometry.CheckBothScales(TestScene, ui);
             panel.Hide();
             await _input.PressKey(Key.Escape);
             await _input.PressKey(Key.Escape);

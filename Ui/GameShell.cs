@@ -143,7 +143,7 @@ public partial class GameShell : Control
     private void Arrange()
     {
         if (!IsNodeReady() || !IsInsideTree()) return;
-        const float navigationWidth = 64;
+        var navigationWidth = _navigation.GetCombinedMinimumSize().X;
         var height = Math.Max(0, Size.Y - TopInset - BottomInset);
         // 中间至少容得下现有的 280 宽地图图层面板和 240 宽节点小地图。
         var width = Math.Max(0, Size.X - navigationWidth - 24 - 280);

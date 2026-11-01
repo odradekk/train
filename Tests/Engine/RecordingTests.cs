@@ -53,7 +53,7 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             var menu = app.GetNode<MainMenu>("MainMenu");
             var ui = app.GetNode<GameUi>("GameUi");
             Require(!menu.IsVisibleInTree(), "对局中仍显示主菜单。");
-            await input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Settings"));
+            await input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "设置");
             var settings = ui.GetNode<SettingsPanel>("Root/SettingsPanel");
             var button = settings.GetNode<Button>("Settings/Layout/Content/Body/ReportIssue");
             Require(button.IsVisibleInTree(), "新宿主没有显示报告问题入口。");
