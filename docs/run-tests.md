@@ -63,7 +63,7 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 选择“开发检查预览”启动 `DeveloperToolsPreview`，仍使用同份生产 App、开发窗口、协调器和文件流程；Core、Content、Scenes 为界面列明的有限契约替身。普通会话只支持运行到步 2，重放验证顺序为单步到 `1:0`、推进到 `2:0`、导出普通存档、通过存档面板导入并读取副本。预览启动时在 `TestResults/developer-tools-preview/` 写入固定复现包，窗口或辅助按钮可执行这些操作；场景图层开关请求替身提供彩色线。它不验证真实 Core 重放、生产 Scenes 图层生成、完整 Godot 隔离或四模块联调。
 
-选择“玩家编辑器预览”启动 `EditorPreview`，使用同份生产 App、编辑协调、界面和渲染，Core／Content／Scenes 为明确的有限情景替身。引擎 `EditorUiTests` 检查同帧拾取、当前转动线框、嵌套输入坐标、笔刷整笔应用、大范围修改确认、过期预览拒绝、Enter 拒绝和失败后手动重试；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行该类会保存 `player-editor.png` 与渲染身份。它不验证尚未接入的真实编辑会话、用户库生产装配或阶段 3 的完整设计与委托闭环。
+“玩家编辑器预览”使用生产 App、编辑协调、界面和渲染，Core／Content／Scenes 为有限情景替身。引擎 `EditorUiTests` 检查拾取帧、转动线框、嵌套坐标、点击直接修改、笔刷整笔提交、两点长方体与高度、红绿悬停及原因、过期悬停丢弃、Enter 拒绝和故障后手动重试。有窗口运行并设置 `TRAIN_UI_CAPTURE_DIR` 可保存编辑器截图和渲染身份；不证明真实编辑会话、用户库装配或完整设计与委托流程。
 
 开发创作的宿主集成用例位于 `Tests/Godot/Authoring/`：同份纯 .NET 写入器以真实文件验证来源冲突、显式删除、Keep File 追加文本和部分完成；测试程序集的 `--package-write-process` 子进程在第 N 项发布完成后发信号并阻塞，父进程收到信号后终止，核对已写文件与未列入补丁的普通包文件，不依赖随机时机。这里保留的 `draft.json` 是普通包文件，不是 `user://authoring-drafts/packages/…` 下的草稿。协调用例用列明情景替身验证关闭保护、候选不激活与失败协调；`AuthoringUiTests` 在真实 Godot 中检查原始输入脏标记和逐类型字段。
 
@@ -158,7 +158,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `scene-memory` | 重复打开节点并返回地图；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
 | `scene-soak` | 正式窗口长测，输入为 `examples/standard-world/save.json`，见下文[窗口长测](#窗口长测) |
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
-| `scene-editor` | 地图稳态 5 秒并强制 GC 后，经蓝图库「复制到本局…」打开泰坦样机 `core:titan-armed-vehicle`，记录点击到会话就绪和首个 Ready 编辑帧绘制的时间、样机格数、部件数与编辑帧几何量；保持编辑器 30 秒采样帧时间与内存（`DurationSeconds` 可改为 1–120 秒）；再执行与 `Tests/Engine/TitanEditingTests.cs` 相同的编辑序列：样机内一块空长方体整块加入 5,000 格（确认），49 次单格删除凑满 50 步，连续撤销 50 步、重做 50 步，每步等新修订实际绘制后才做下一步，`editor-step` 记录调用耗时、调用到新修订绘制的时延、新修订首次 `session.Present` 耗时（含几何构建与帧差分，并非纯几何）、首个 Present 至首次提交的 process 帧数（两端包含，同帧提交为 1）与该帧区间的实际绘制最长帧（含 Present 阻塞帧）、行文本生成及 `ShowElements` 列表更新耗时；编辑器自身 `SceneDisplay` 的准备与提交耗时沿用 `scene-resource-frames.jsonl`，格数、步数或撤销重做结果不符时测量失败；最后经「退出」「放弃本次修改」回到地图，地图稳态 5 秒后再强制 GC |
+| `scene-editor` | 地图稳态 5 秒并强制 GC 后，经蓝图库「复制到本局…」打开泰坦样机 `core:titan-armed-vehicle`，记录点击到会话就绪和首个 Ready 编辑帧绘制的时间、样机格数、部件数与编辑帧几何量；保持编辑器 30 秒采样帧时间与内存（`DurationSeconds` 可改为 1–120 秒）。编辑序列与 `Tests/Engine/TitanEditingTests.cs` 一致：在样机空长方体中加入 5,000 格，再单格删除 49 次，连续撤销 50 步、重做 50 步，每步等待新修订实际绘制。`editor-step` 记录调用耗时（含准备工作）、调用到新修订绘制的时延、首次 `session.Present` 耗时（含几何构建与帧差分）、首次 Present 至首次提交的 process 帧数（两端包含，同帧为 1）、该区间实际绘制最长帧（含 Present 阻塞帧），以及行文本与 `ShowElements` 更新耗时。调用及调用到显示的耗时不可与旧记录比较。编辑器自身 `SceneDisplay` 的准备与提交耗时沿用 `scene-resource-frames.jsonl`；格数、步数或撤销重做结果不符时测量失败。最后经「退出」「放弃本次修改」回到地图，稳态 5 秒后再强制 GC |
 
 `-TrainId`、`-NodeId`（应用参数 `--measure-train`、`--measure-node`）分别替换上表的列车 1 和节点 2，线路仍为 11；跟随对象与地图点击相同，是该列车参考中心所在的车辆（见[设计 01](design/01-voxel-engine-and-scenes.md#跟随列车时的场景切换)）。目标列车不存在或编组为空、目标节点不存在时测量失败。参考运行按同样的目标打开，因此每个列车或节点目标各需一份参考。`ready-geometry` 的 `followed_train` 按成员记录已发布车体及其子对象的网格、顶点和三角形数；`active-load` 的列车状态带编组车辆数和位置。负载计数还记录战斗（地点和参战方数）、生物群（地点、活动、数量和存活数）及生物总数；打开记录在点击时（`load_at_click`）和观察结束时（`load`）各记一次，`scene-follow-8x` 在采样窗口开始和结束各写一条 `sample-load`。
 
