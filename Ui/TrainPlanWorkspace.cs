@@ -31,7 +31,6 @@ internal partial class TrainPlanWorkspace : Control
     private PlanEvaluation? _evaluation;
     private bool _available, _stopped, _bindingChoices;
     private string? _submissionError;
-    private int _nextRow;
 
     private sealed class Row(PlanRowInput input, VBoxContainer box, Button select, Label summary, Label problems)
     {
@@ -113,7 +112,7 @@ internal partial class TrainPlanWorkspace : Control
     {
         _target = target; _train = train.Id; _view = view; _content = content; _revision = null; _submissionError = null;
         _title.Text = $"运行计划 · 列车 {train.Id.Value}";
-        _rows.Clear(); Clear(_stops); _selected = null; _nextRow = 0;
+        _rows.Clear(); Clear(_stops); _selected = null;
         _loop.SetPressedNoSignal(train.Plan?.Loop ?? false);
         if (train.Plan is { } plan)
             foreach (var stop in plan.Stops)
@@ -134,7 +133,7 @@ internal partial class TrainPlanWorkspace : Control
 
     private Row AddRow(PlanRowInput input)
     {
-        var box = new VBoxContainer { Name = $"Stop{_nextRow++}" };
+        var box = new VBoxContainer();
         var controls = new HBoxContainer { Name = "Controls" }; box.AddChild(controls);
         var select = new Button { Name = "Select", ToggleMode = true, SizeFlagsHorizontal = SizeFlags.ExpandFill,
             Alignment = HorizontalAlignment.Left, TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis };

@@ -111,9 +111,9 @@ public sealed class TrainPlanEvaluationTests
         Assert.AreEqual(0, result.Problems.Count);
         Assert.IsNotNull(result.Command);
         Assert.AreEqual(loop ? 3 : 2, result.Legs.Count);
-        AssertLeg(result.Legs[0], 0, 1, 3, 10, 20);
-        AssertLeg(result.Legs[1], 1, 3, 4, 30);
-        if (loop) AssertLeg(result.Legs[2], 2, 4, 1, 30, 20, 10);
+        AssertLeg(result.Legs[0], 1, 3, 10, 20);
+        AssertLeg(result.Legs[1], 3, 4, 30);
+        if (loop) AssertLeg(result.Legs[2], 4, 1, 30, 20, 10);
     }
 
     [TestMethod]
@@ -126,12 +126,10 @@ public sealed class TrainPlanEvaluationTests
 
         Assert.IsNull(result.Command);
         Assert.AreEqual(3, result.Legs.Count);
-        AssertLeg(result.Legs[0], 0, 1, 2, 10);
-        Assert.AreEqual(1, result.Legs[1].Stop);
+        AssertLeg(result.Legs[0], 1, 2, 10);
         Assert.AreEqual(new NodeId(2), result.Legs[1].From);
         Assert.AreEqual(new NodeId(3), result.Legs[1].To);
         Assert.IsNull(result.Legs[1].Edges);
-        Assert.AreEqual(2, result.Legs[2].Stop);
         Assert.AreEqual(new NodeId(3), result.Legs[2].From);
         Assert.AreEqual(new NodeId(1), result.Legs[2].To);
         Assert.IsNull(result.Legs[2].Edges);
@@ -260,9 +258,8 @@ public sealed class TrainPlanEvaluationTests
         TrainPlanInput.Evaluate(new(7), false,
             [new(new(2), true, "0", GoodsRules: [new(action, Grain, inventory, "0", "")])], view, Content());
 
-    private static void AssertLeg(PlanLeg leg, int stop, ulong from, ulong to, params ulong[] edges)
+    private static void AssertLeg(PlanLeg leg, ulong from, ulong to, params ulong[] edges)
     {
-        Assert.AreEqual(stop, leg.Stop);
         Assert.AreEqual(new NodeId(from), leg.From);
         Assert.AreEqual(new NodeId(to), leg.To);
         Assert.IsNotNull(leg.Edges);

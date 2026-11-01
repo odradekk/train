@@ -5,7 +5,7 @@ using Train.Core.Contracts;
 namespace Train.App;
 
 internal sealed record PlanIssue(int? Stop, int? Rule, string Message);
-internal sealed record PlanLeg(int Stop, NodeId From, NodeId To, ImmutableArray<EdgeId>? Edges);
+internal sealed record PlanLeg(NodeId From, NodeId To, ImmutableArray<EdgeId>? Edges);
 internal sealed record PlanEvaluation(CoreCommand.ReplaceRunPlan? Command,
     IReadOnlyList<PlanIssue> Problems, IReadOnlyList<PlanLeg> Legs);
 
@@ -52,7 +52,7 @@ internal static partial class TrainPlanInput
         void AddLeg(int index, NodeId from, NodeId to)
         {
             var edges = TrainPlanRoute.Find(view.World, from, to);
-            legs.Add(new(index, from, to, edges));
+            legs.Add(new(from, to, edges));
             if (edges is null) problems.Add(new(index, null, "到下一站没有建成的线路，请调整停靠顺序或先建设、修复线路。"));
         }
     }
