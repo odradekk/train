@@ -121,7 +121,6 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
             row.Stock.Text = item?.Stock.ToString() ?? "—";
             row.Buy.Text = item?.SellableQuantity.ToString() ?? "—";
             row.Sell.Text = item?.ReceivableQuantity.ToString() ?? "—";
-            row.Select.Disabled = !canAct();
         }
         if (!_confirm.IsPressed()) RequestQuote();
         UpdateActions();
