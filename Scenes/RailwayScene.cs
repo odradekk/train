@@ -6,7 +6,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal sealed class RailwayScene : IAsyncDisposable
+internal sealed partial class RailwayScene : IAsyncDisposable
 {
     private sealed record ConnectedSegment(RailwaySegment Source, RenderedDesign Geometry, ImmutableArray<SceneBounds> Footprint);
     private sealed record SegmentWork(Task<RailwaySegment> Task, CancellationTokenSource Cancellation, SceneStreamingAttemptId? Attempt);
@@ -138,7 +138,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         }
         origin = switchedOrigin ?? origin;
         displayRate.Update(seconds);
-        var middle = ScheduleSegments(snapshot, focal, followed?.Train);
+        var middle = ScheduleSegments(snapshot, focal, followed?.Train, foreground: true);
         var frame = new FrameContents();
         RenderSegments(origin, frame);
         var waiting = false;
@@ -186,11 +186,11 @@ internal sealed class RailwayScene : IAsyncDisposable
         RetireCompletedWork();
     }
 
-    private int ScheduleSegments(SceneWorldSnapshot snapshot, double focal, TrainView? followed, bool allowBuild = true)
+    private int ScheduleSegments(SceneWorldSnapshot snapshot, double focal, TrainView? followed, bool allowBuild = true, bool foreground = false)
     {
         var middle = Math.Clamp((int)(focal / RailwayCoordinates.SegmentLengthCells), 0, path!.SegmentCount - 1);
         var (minimum, maximum) = NeededRange(middle, followed);
-        ReconcileSegments(snapshot, focal, middle, minimum, maximum, followed, allowBuild);
+        ReconcileSegments(snapshot, focal, middle, minimum, maximum, followed, allowBuild, foreground);
         PumpFar(snapshot, focal, followed, allowBuild, minimum, maximum);
         return middle;
     }
@@ -259,62 +259,6 @@ internal sealed class RailwayScene : IAsyncDisposable
         var remaining = position.Direction == TravelDirection.Forward ? edge.LengthMeters - position.DistanceMeters : position.DistanceMeters;
         return remaining * RailwayCoordinates.CellsPerMeter <= PrefetchSegments(train.SpeedMetersPerSecond, displayRate.Value) * RailwayCoordinates.SegmentLengthCells
             ? new(position.Direction == TravelDirection.Forward ? edge.End : edge.Start) : null;
-    }
-
-    private void ReconcileSegments(SceneWorldSnapshot snapshot, double focal, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
-    {
-        farBuilds.Pause();
-        if (fogRange != (minimum, maximum)) { fogRange = (minimum, maximum); fogDirty = true; }
-        Streaming?.Demand(SceneStreamingPartKind.RailwaySegment, Enumerable.Range(minimum, maximum - minimum + 1).Select(RailwayStreamingCoverage.SegmentKey));
-        var (retainMinimum, retainMaximum) = NeededRange(middle, followed,
-            followed is null ? 0 : RailwayCoordinates.MaxPrefetchSegments);
-        foreach (var index in pendingSegments.Keys.Where(index => index < retainMinimum || index > retainMaximum).ToArray())
-        {
-            var work = pendingSegments[index];
-            work.Cancellation.Cancel();
-            if (work.Attempt is { } cancelled) Streaming?.Cancel(cancelled);
-            retiredSegments.Add(work);
-            pendingSegments.Remove(index);
-        }
-        foreach (var index in segments.Keys.Where(index => index < retainMinimum || index > retainMaximum).ToArray())
-        { segments.Remove(index); fogDirty = true; }
-        foreach (var pair in pendingSegments.Where(pair => pair.Value.Task.IsCompleted).ToArray())
-        {
-            pendingSegments.Remove(pair.Key);
-            try
-            {
-                var result = pair.Value.Task.GetAwaiter().GetResult();
-                if (result.Dependencies.Matches(snapshot, path!, result.Index)) Connect(result, pair.Value.Attempt);
-                else if (pair.Value.Attempt is { } rejected) Streaming?.Cancel(rejected);
-            }
-            catch (RailwayBuildException error) { Fail(error); }
-            catch (OperationCanceledException) { }
-            finally { pair.Value.Cancellation.Dispose(); }
-        }
-        foreach (var index in Enumerable.Range(minimum, maximum - minimum + 1).OrderBy(index => Math.Abs(index - middle)))
-        {
-            if (segments.ContainsKey(index) && !staleSegments.Contains(index)) continue;
-            if (pendingSegments.ContainsKey(index)) continue;
-            if (cache.Find(snapshot, path!, index) is { } cached)
-            {
-                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index));
-                if (attempt is { } hit) Streaming?.CacheHit(hit);
-                Connect(cached, attempt);
-            }
-            else if (allowBuild && failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) +
-                farBuilds.RunningCount < RailwayCoordinates.MaxConcurrentBuilds)
-            {
-                var currentPath = path!;
-                var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-                var attempt = Streaming?.Begin(SceneStreamingPartKind.RailwaySegment, RailwayStreamingCoverage.SegmentKey(index));
-                if (attempt is { } queued) Streaming?.Queue(queued);
-                pendingSegments.Add(index, new(Task.Run(() => attempt is { } captured
-                    ? Streaming!.Build(captured, () => build(snapshot, currentPath, index, stop.Token))
-                    : build(snapshot, currentPath, index, stop.Token), stop.Token), stop, attempt));
-            }
-        }
-        waitingSegments = Enumerable.Range(minimum, maximum - minimum + 1).Any(index => !segments.ContainsKey(index));
-        cache.Publish(Edge, owner, segments.Values.Select(item => item.Source));
     }
 
     private void Connect(RailwaySegment segment, SceneStreamingAttemptId? attempt)
