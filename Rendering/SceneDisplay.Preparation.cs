@@ -15,6 +15,8 @@ internal sealed partial class SceneDisplay
         var pauseStarted = GC.GetTotalPauseDuration();
         try
         {
+            AdvanceRetirement(started, budget, singleStep: true);
+            if (_retirement is not null && ChangesSpace(frame.Update.Frame)) return null;
             if (_candidatePromoted && !HasCandidateFor(frame.Update.Frame))
             {
                 _budgetAdvanced = true;
@@ -156,6 +158,7 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
+            AdvanceRetirement(started, budget, singleStep: false);
             var pause = GC.GetTotalPauseDuration() - pauseStarted;
             var ended = Timestamp();
             var elapsed = Stopwatch.GetElapsedTime(started, ended);

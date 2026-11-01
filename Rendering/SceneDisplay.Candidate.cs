@@ -22,7 +22,7 @@ internal sealed partial class SceneDisplay
     internal SceneFrameStamp? CandidateScope => _candidateScope;
     internal bool IsPreparingCandidate => _candidateUpdate is not null;
     internal int PendingCandidateVisuals => _candidatePending.Count;
-    internal bool IsPreparationIdle => !IsPreparing && !IsPreparingCandidate &&
+    internal bool IsPreparationIdle => _retirement is null && !IsPreparing && !IsPreparingCandidate &&
         _preparationPackingTail?.IsCompleted != false && _candidatePackingTail?.IsCompleted != false;
 
     internal bool HasCandidateFor(SceneFrameStamp frame) => _candidateScope is { } candidate &&
@@ -83,7 +83,9 @@ internal sealed partial class SceneDisplay
         var pauseStarted = GC.GetTotalPauseDuration();
         try
         {
+            AdvanceRetirement(started, budget, singleStep: true);
             if (_candidateUpdate is not { } update) return;
+            if (_retirement is not null && ChangesSpace(update.Frame)) return;
             var slice = new PreparationSlice(this, started, budget, false);
             if (_candidatePacking is null)
             {
@@ -127,6 +129,7 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
+            AdvanceRetirement(started, budget, singleStep: false);
             var pause = GC.GetTotalPauseDuration() - pauseStarted;
             var ended = Timestamp();
             var elapsed = Stopwatch.GetElapsedTime(started, ended);

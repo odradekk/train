@@ -1472,7 +1472,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
                 release.Set();
                 packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
                 Require(cancelled.IsSet, "晋升必须取消并结束不再消费的候选打包作业。");
-                Require(!GodotObject.IsInstanceValid(cachedMesh), "晋升必须释放未取用候选的缓存网格租约。");
+                await RequireRetiredCacheReleased(display, formal, cachedMesh);
                 display.PackMesh = PackedSceneMesh.Create;
                 var next = Frame(4, [retained, blocked], formal.Update.Frame, space: 2);
                 await Commit(display, next);

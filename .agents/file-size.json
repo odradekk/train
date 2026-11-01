@@ -128,7 +128,7 @@
     "Tests/Engine/RailwayWorkUiTests.cs": 9512,
     "Tests/Engine/RenderingResourceTests.cs": 10334,
     "Tests/Engine/SaveTests.cs": 7416,
-    "Tests/Engine/SceneDisplayTests.cs": 25076,
+    "Tests/Engine/SceneDisplayTests.cs": 25064,
     "Tests/Engine/SceneUiTests.cs": 6667,
     "Tests/Engine/SettlementFoundingUiTests.cs": 5075,
     "Tests/Engine/UiTests.cs": 8177,
