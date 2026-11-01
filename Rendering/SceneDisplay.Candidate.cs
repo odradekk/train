@@ -77,6 +77,9 @@ internal sealed partial class SceneDisplay
 
     internal void PrepareCandidate(TimeSpan budget)
     {
+        using var diagnostic = _candidateUpdate is { } diagnosticUpdate
+            ? SceneDisplayDiagnostics.Call(Diagnose, _candidate, diagnosticUpdate.Frame,
+                SceneDisplayWork.PrepareCandidate, Godot.Engine.GetProcessFrames()) : default;
         _cache.RequireMainThread();
         ResetPreparationBudget();
         var started = Timestamp();
@@ -100,10 +103,14 @@ internal sealed partial class SceneDisplay
                 }
                 while (_candidatePackingCursor is { } cursor)
                 {
+                    using var interval = SceneDisplayDiagnostics.Begin("Prepare.CollectCandidatePacking",
+                        cursor.Value.Object, cursor.Value.Index, _candidateSources[cursor.Value] is
+                            SceneVisual.Geometry geometry ? geometry.Mesh : null);
                     if (!_candidatePacking.Collect(_candidateSources[cursor.Value], slice)) return;
                     _candidatePackingCursor = cursor.Next;
                 }
-                if (!_candidatePacking.Start(_candidatePackingTail, PackMesh, slice, out _candidatePackingTail)) return;
+                using (SceneDisplayDiagnostics.Begin("Prepare.StartCandidatePacking"))
+                    if (!_candidatePacking.Start(_candidatePackingTail, PackMesh, slice, out _candidatePackingTail)) return;
             }
             _candidatePacking.Job?.ThrowIfFailed();
             while (_candidatePending.First is { } pending)
@@ -111,6 +118,8 @@ internal sealed partial class SceneDisplay
                 var key = pending.Value;
                 var source = _candidateSources[key];
                 if (!slice.Start(estimate: VisualCost(source))) return;
+                using var interval = SceneDisplayDiagnostics.Begin("Prepare.CandidateVisual", key.Object, key.Index,
+                    source is SceneVisual.Geometry geometry ? geometry.Mesh : null);
                 var resourceStarted = Timestamp();
                 var visual = _resources.TryPrepare(source, _candidatePacking.Job);
                 if (visual is null) return;

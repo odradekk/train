@@ -182,93 +182,14 @@ internal sealed partial class SceneResources : IDisposable
     {
         _cache.RequireMainThread();
         PackedSceneMesh? data = null;
-        if (visual is SceneVisual.Geometry geometry && !HasGeometry(geometry.Mesh) && packing is not null &&
-            !packing.TryTake(geometry.Mesh, out data)) return null;
-        return Prepare(visual, data);
-    }
-
-    internal PreparedVisual Prepare(SceneVisual visual, PackedSceneMesh? data = null)
-    {
-        _cache.RequireMainThread();
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var result = new PreparedVisual(_cache, visual);
-        try
+        if (visual is SceneVisual.Geometry geometry && !HasGeometry(geometry.Mesh) && packing is not null)
         {
-            switch (visual)
-            {
-                case SceneVisual.Geometry geometry:
-                    var mesh = result.Own(AcquireGeometry(geometry.Mesh, data));
-                    var material = GeometryMaterial(result, geometry.Mesh.Material);
-                    SetSurface(material, geometry.Surface);
-                    result.Node.AddChild(new MeshInstance3D { Mesh = mesh.Value, MaterialOverride = material });
-                    break;
-                case SceneVisual.Model model:
-                    var asset = result.Own(_cache.AcquireModel(Asset(model.Asset))).Value;
-                    if (asset.Surfaces.Length != model.Materials.Length)
-                        throw new InvalidOperationException("模型材质类别与资产表面数量不匹配。");
-                    var instance = new MeshInstance3D { Mesh = asset.Mesh };
-                    result.Node.AddChild(instance);
-                    for (var index = 0; index < asset.Surfaces.Length; index++)
-                    {
-                        var surface = result.Own(AcquireModelMaterial(model, index, asset.Surfaces[index])).Value;
-                        instance.SetSurfaceOverrideMaterial(index, surface);
-                    }
-                    instance.SetInstanceShaderParameter(SceneResources.RelativeHeightPlane, new Vector4(model.RelativeHeightPlane.X,
-                        model.RelativeHeightPlane.Y, model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
-                    break;
-                case SceneVisual.Wheelset wheelset:
-                    var wheelMaterial = result.Material(SurfaceMaterial(MaterialCategory.BareMetal, new Color(0.26f, 0.28f, 0.30f)));
-                    var wheelMarkerMaterial = result.Material(SurfaceMaterial(MaterialCategory.BareMetal, new Color("#8e9398")));
-                    foreach (var side in new[] { -1, 1 })
-                    {
-                        var cylinder = result.Own(new CylinderMesh
-                        {
-                            TopRadius = (float)wheelset.RadiusCells,
-                            BottomRadius = (float)wheelset.RadiusCells,
-                            Height = (float)wheelset.WidthCells,
-                            RadialSegments = 24
-                        });
-                        var wheel = new MeshInstance3D
-                        {
-                            Mesh = cylinder, MaterialOverride = wheelMaterial,
-                            Position = new(side * (float)wheelset.GaugeCells / 2, 0, 0),
-                            Rotation = new(0, 0, Mathf.Pi / 2)
-                        };
-                        result.Node.AddChild(wheel);
-                        for (var spoke = 0; spoke < 4; spoke++)
-                        {
-                            var angle = spoke * Mathf.Pi / 2;
-                            wheel.AddChild(new MeshInstance3D
-                            {
-                                Mesh = result.Own(new BoxMesh { Size = new((float)wheelset.RadiusCells * 0.95f, 0.015f, (float)wheelset.RadiusCells * 0.2f) }),
-                                MaterialOverride = wheelMarkerMaterial,
-                                Position = new Vector3((float)wheelset.RadiusCells * 0.475f,
-                                    -side * ((float)wheelset.WidthCells / 2 + 0.01f), 0).Rotated(Vector3.Up, angle),
-                                Rotation = new(0, angle, 0)
-                            });
-                        }
-                    }
-                    result.Node.Rotation = new((float)wheelset.RotationRadians, 0, 0);
-                    break;
-                case SceneVisual.Missing missing:
-                    var marker = result.Own(new BoxMesh { Size = Vector3.One * (missing.KnownCell ? 0.85f : 0.45f) });
-                    var markerMaterial = result.Own(new StandardMaterial3D
-                    {
-                        AlbedoColor = Colors.Magenta,
-                        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
-                    });
-                    result.Node.AddChild(new MeshInstance3D
-                    {
-                        Mesh = marker, MaterialOverride = markerMaterial,
-                        Position = missing.KnownCell ? Vector3.One / 2 : Vector3.Zero
-                    });
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(visual));
-            }
-            return result;
+            var started = SceneDisplayDiagnostics.Start();
+            var ready = packing.TryTake(geometry.Mesh, out data);
+            SceneDisplayDiagnostics.Finish(started, ready ? "Prepare.PackingReady" : "Prepare.PackingPending", geometry.Mesh);
+            if (!ready) return null;
         }
-        catch { result.Dispose(); throw; }
+        return Prepare(visual, data);
     }
 
     private ContentAsset Asset(AssetRevision revision) => _content.FindAsset(revision) is ContentLookup<ContentAsset>.Found found
@@ -277,7 +198,10 @@ internal sealed partial class SceneResources : IDisposable
     private AssetLease<ShaderMaterial> AcquireModelMaterial(SceneVisual.Model model, int index, ModelSurface source)
     {
         var key = new ModelMaterialKey(model.Asset, index, model.Materials[index], model.Paint, model.Surface);
-        if (!_modelMaterials.TryGetValue(key, out var entry))
+        var lookupStarted = SceneDisplayDiagnostics.Start();
+        var found = _modelMaterials.TryGetValue(key, out var entry);
+        SceneDisplayDiagnostics.Finish(lookupStarted, found ? "Prepare.ModelMaterialCacheHit" : "Prepare.ModelMaterialCacheMiss");
+        if (!found)
         {
             var material = SurfaceMaterial(key.Category, source.BaseColorFactor, source.BaseColorTexture, key.Paint, _modelShader);
             try
@@ -290,7 +214,7 @@ internal sealed partial class SceneResources : IDisposable
             entry = new(material);
             _modelMaterials.Add(key, entry);
         }
-        entry.Users++;
+        entry!.Users++;
         return new(entry.Material, () =>
         {
             _cache.RequireMainThread();
@@ -302,12 +226,22 @@ internal sealed partial class SceneResources : IDisposable
 
     private AssetLease<ArrayMesh> AcquireGeometry(SceneMesh source, PackedSceneMesh? data)
     {
-        if (!_geometry.TryGetValue(source, out var entry))
+        using var interval = SceneDisplayDiagnostics.Begin("Prepare.AcquireGeometry", mesh: source);
+        var lookupStarted = SceneDisplayDiagnostics.Start();
+        var found = _geometry.TryGetValue(source, out var entry);
+        SceneDisplayDiagnostics.Finish(lookupStarted, found ? "Prepare.GeometryCacheHit" : "Prepare.GeometryCacheMiss", source);
+        if (!found)
         {
-            entry = new(CreateMesh(data ?? PackedSceneMesh.Create(source, CancellationToken.None)));
+            if (data is null)
+            {
+                using var arraysInterval = SceneDisplayDiagnostics.Begin("Prepare.SynchronousManagedArrays", mesh: source);
+                data = PackedSceneMesh.Create(source, CancellationToken.None);
+            }
+            using var createInterval = SceneDisplayDiagnostics.Begin("Prepare.CreateMesh", mesh: source);
+            entry = new(CreateMesh(data));
             _geometry.Add(source, entry);
         }
-        entry.Users++;
+        entry!.Users++;
         return new(entry.Mesh, () =>
         {
             _cache.RequireMainThread();

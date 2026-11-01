@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Godot;
 
 namespace Train.App.Assets;
@@ -11,8 +12,9 @@ internal static class MeshSurfaces
     internal static void Add(ArrayMesh mesh, Mesh.PrimitiveType primitive, Mesh.ArrayFormat flags = default,
         Godot.Collections.Array? source = null, Vector3[]? vertices = null, Vector3[]? normals = null,
         Vector2[]? textureUvs = null, Vector2[]? faceUvs = null, float[]? custom = null,
-        float[]? tangents = null, int[]? indices = null)
+        float[]? tangents = null, int[]? indices = null, Action<string, long, long>? diagnose = null)
     {
+        var started = diagnose is null ? 0 : Stopwatch.GetTimestamp();
         using var arrays = source?.Duplicate() ?? new Godot.Collections.Array();
         if (source is null) arrays.Resize((int)Mesh.ArrayType.Max);
         var blendShapes = new Godot.Collections.Array<Godot.Collections.Array>();
@@ -31,7 +33,12 @@ internal static class MeshSurfaces
         Write(arrays, Mesh.ArrayType.Custom0, customValues);
         Write(arrays, Mesh.ArrayType.Tangent, tangentValues);
         Write(arrays, Mesh.ArrayType.Index, indexValues);
+        if (diagnose is not null)
+            diagnose("Prepare.ManagedToGodotArrays", started, Stopwatch.GetTimestamp());
+        started = diagnose is null ? 0 : Stopwatch.GetTimestamp();
         mesh.AddSurfaceFromArrays(primitive, arrays, blendShapes, lods, flags);
+        if (diagnose is not null)
+            diagnose("Prepare.AddSurfaceFromArrays", started, Stopwatch.GetTimestamp());
         // 泛型 Array<T> 没有 Dispose。调用后保活这个包装，它持有的原生数组才不会在调用期间被终结。
         GC.KeepAlive(blendShapes);
     }

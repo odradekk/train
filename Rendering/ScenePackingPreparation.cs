@@ -38,7 +38,7 @@ internal sealed class ScenePackingPreparation(SceneResources resources, ScenePac
         tail = previous;
         if (!slice.Start(estimate: costs.Start)) return false;
         var started = slice.Unlimited ? 0 : slice.Timestamp();
-        if (_meshes.Count > 0) Job = new([.. _meshes], previous, pack);
+        if (_meshes.Count > 0) Job = new([.. _meshes], previous, SceneDisplayDiagnostics.WrapPacking(pack));
         Started = true;
         tail = Job?.Completion ?? previous;
         if (!slice.Unlimited) costs.Start = Stopwatch.GetElapsedTime(started, slice.Timestamp());

@@ -53,8 +53,11 @@ internal sealed partial class MeasurementRun
     private void ObserveStreamingDisplay()
     {
         if (_streamingRecorder is null || _app.WorldScenes!.Display is not { } display || ReferenceEquals(display, _streamingDisplay)) return;
+        if (_streamingDisplay is not null) _streamingDisplay.Diagnose = null;
         _streamingDisplay = display;
         var number = ++_streamingDisplayNumber;
+        if (OpeningDiagnostics)
+            display.Diagnose = value => _openingDisplayIntervals.Enqueue(new(number, value));
         display.Observe = value =>
         {
             if (_routeSampling || OpeningDiagnostics && _sceneTrace is not null)

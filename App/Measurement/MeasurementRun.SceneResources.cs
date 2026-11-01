@@ -113,14 +113,15 @@ internal sealed partial class MeasurementRun
         Write("opening-draws.jsonl", _openingDraws);
         Write("opening-near-parts.jsonl", _openingNearParts);
         Write("opening-resource-calls.jsonl", _openingResourceWork.Where(work => !work.AfterProbeOperable || spikes.Contains(work.ProcessFrame)));
+        WriteOpeningDisplayIntervals(directory, spikes);
         _sceneEvidence["opening_streaming"] = new
         {
             clock = "Absolute Stopwatch seconds, shared with scene-operations and scene-resource-frames; no route origin",
-            scope = "Diagnostic only: raw part attempts, frame stamps, host candidate stages, draws and original operability. Resource CallbackAt is observed after the timed span; LastHostEvent is context, not exclusive cost attribution. Unmapped resource objects stay unknown.",
+            scope = "Diagnostic only: raw parts, host stages, draws and original operability. Display intervals are nested absolute Stopwatch spans; do not sum parent and child spans. Background packing has a mesh ID and its submitting call/process frame, not an object owner. Resource CallbackAt follows the timed span; LastHostEvent is context, not exclusive attribution.",
             files = new[] { "opening-scenes.jsonl", "opening-parts.jsonl", "opening-host.jsonl", "opening-draws.jsonl",
-                "opening-near-parts.jsonl", "opening-resource-calls.jsonl" }
+                "opening-near-parts.jsonl", "opening-resource-calls.jsonl", "opening-display-intervals.jsonl" }
         };
-        if (_streamingDisplay is not null) _streamingDisplay.Observe = null;
+        if (_streamingDisplay is not null) { _streamingDisplay.Observe = null; _streamingDisplay.Diagnose = null; }
 
         void Write<T>(string name, IEnumerable<T> values)
         {

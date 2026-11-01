@@ -9,6 +9,8 @@ internal sealed partial class SceneDisplay
 {
     internal PreparedFrame? Prepare(ISceneFrame frame, TimeSpan? budget = null)
     {
+        using var diagnostic = SceneDisplayDiagnostics.Call(Diagnose, _candidate,
+            frame.Update.Frame, SceneDisplayWork.Prepare, Engine.GetProcessFrames());
         _cache.RequireMainThread();
         ResetPreparationBudget();
         var started = Timestamp();
@@ -40,13 +42,16 @@ internal sealed partial class SceneDisplay
             var preparation = _preparation;
             frame = preparation.Frame;
             var update = frame.Update;
+            SceneDisplayDiagnostics.SetFrame(_candidate, update.Frame);
             var spaceChanged = DisplayedFrame is { } displayed
                 ? displayed.Update.Frame.Session != update.Frame.Session || displayed.Update.Frame.Space != update.Frame.Space
                 : _completeInitialFrame;
             // 新空间正式首帧仍一次准备并原子提交，后续调用共享每进程帧的额度。
             var slice = new PreparationSlice(this, started, budget, spaceChanged);
-            if (!InitializePreparation(preparation, slice, spaceChanged)) return null;
-            preparation.Packing.Job?.ThrowIfFailed();
+            using (SceneDisplayDiagnostics.Begin("Prepare.Initialize"))
+                if (!InitializePreparation(preparation, slice, spaceChanged)) return null;
+            using (SceneDisplayDiagnostics.Begin("Prepare.CheckPackingFailure"))
+                preparation.Packing.Job?.ThrowIfFailed();
             var next = preparation.Objects!;
             for (; preparation.Upsert < update.Upserts.Length; preparation.Upsert++)
             {
@@ -55,6 +60,7 @@ internal sealed partial class SceneDisplay
                 if (preparation.Visuals is null)
                 {
                     if (!slice.Start()) return null;
+                    using var interval = SceneDisplayDiagnostics.Begin("Prepare.CreateObjectRoot", source.Id);
                     if (previous is null) _pendingRoots.Add(source.Id, new Node3D { Name = $"Object{source.Id.Value}" });
                     preparation.Visuals = new PreparedVisual[source.Visuals.Length];
                 }
@@ -64,10 +70,14 @@ internal sealed partial class SceneDisplay
                 for (; preparation.Visual < visuals.Length; preparation.Visual++)
                 {
                     var i = preparation.Visual;
-                    var candidateVisual = reusedVisuals[i] is null
-                        ? CandidateVisual(update.Frame, (source.Id, i), source.Visuals[i]) : null;
+                    PreparedVisual? candidateVisual;
+                    using (SceneDisplayDiagnostics.Begin("Prepare.MatchCandidateVisual", source.Id, i))
+                        candidateVisual = reusedVisuals[i] is null
+                            ? CandidateVisual(update.Frame, (source.Id, i), source.Visuals[i]) : null;
                     if (!slice.Start(estimate: reusedVisuals[i] is null && candidateVisual is null
                         ? VisualCost(source.Visuals[i]) : default)) return null;
+                    using var interval = SceneDisplayDiagnostics.Begin("Prepare.Visual", source.Id, i,
+                        source.Visuals[i] is SceneVisual.Geometry geometry ? geometry.Mesh : null);
                     if (reusedVisuals[i] is { } reused) visuals[i] = reused;
                     else
                     {
@@ -93,49 +103,63 @@ internal sealed partial class SceneDisplay
                 preparation.Visual = 0;
                 preparation.NeedsResources = false;
             }
-            if (!ValidatePreparation(preparation, slice)) return null;
-            if (!preparation.FogChecked)
+            using (SceneDisplayDiagnostics.Begin("Prepare.ValidateObjects"))
+                if (!ValidatePreparation(preparation, slice)) return null;
+            using (SceneDisplayDiagnostics.Begin("Prepare.EnvironmentChecks"))
             {
-                var regions = update.Environment.FoggedRegions;
-                preparation.FogChanged |= _fog is null || _fog.Regions.Length != regions.Length;
-                if (!preparation.FogChanged)
-                    for (; preparation.FogComparison < regions.Length; preparation.FogComparison++)
-                    {
-                        if (!slice.Start()) return null;
-                        if (_fog!.Regions[preparation.FogComparison] == regions[preparation.FogComparison]) continue;
-                        preparation.FogChanged = true;
-                        break;
-                    }
-                preparation.FogChecked = true;
+                if (!preparation.FogChecked)
+                {
+                    var regions = update.Environment.FoggedRegions;
+                    preparation.FogChanged |= _fog is null || _fog.Regions.Length != regions.Length;
+                    if (!preparation.FogChanged)
+                        for (; preparation.FogComparison < regions.Length; preparation.FogComparison++)
+                        {
+                            if (!slice.Start()) return null;
+                            if (_fog!.Regions[preparation.FogComparison] == regions[preparation.FogComparison]) continue;
+                            preparation.FogChanged = true;
+                            break;
+                        }
+                    preparation.FogChecked = true;
+                }
+                if (preparation.FogChanged && _pendingFog is null)
+                {
+                    if (!slice.Start()) return null;
+                    _pendingFog = new(update.Environment.FoggedRegions, _fog?.Material ?? _resources.ConstructionFogMaterial(), _fog);
+                }
+                if (_pendingFog is not null)
+                {
+                    using var interval = SceneDisplayDiagnostics.Begin("Prepare.Fog");
+                    if (!_pendingFog.Prepare(slice)) return null;
+                }
+                if (!preparation.LinesChecked)
+                {
+                    var lines = frame.DebugLines;
+                    preparation.LinesChanged |= !lines.IsEmpty && (_debugLines is null || _debugLines.Lines.Length != lines.Length);
+                    if (!preparation.LinesChanged && !lines.IsEmpty)
+                        for (; preparation.LineComparison < lines.Length; preparation.LineComparison++)
+                        {
+                            if (!slice.Start()) return null;
+                            if (_debugLines!.Lines[preparation.LineComparison] == lines[preparation.LineComparison]) continue;
+                            preparation.LinesChanged = true;
+                            break;
+                        }
+                    preparation.LinesChecked = true;
+                }
+                if (preparation.LinesChanged && _pendingDebugLines is null)
+                {
+                    if (!slice.Start()) return null;
+                    _pendingDebugLines = new(frame.DebugLines);
+                }
+                if (_pendingDebugLines is not null)
+                {
+                    using var interval = SceneDisplayDiagnostics.Begin("Prepare.DebugLines");
+                    if (!_pendingDebugLines.Prepare(slice)) return null;
+                }
             }
-            if (preparation.FogChanged && _pendingFog is null)
-            {
-                if (!slice.Start()) return null;
-                _pendingFog = new(update.Environment.FoggedRegions, _fog?.Material ?? _resources.ConstructionFogMaterial(), _fog);
-            }
-            if (_pendingFog is not null && !_pendingFog.Prepare(slice)) return null;
-            if (!preparation.LinesChecked)
-            {
-                var lines = frame.DebugLines;
-                preparation.LinesChanged |= !lines.IsEmpty && (_debugLines is null || _debugLines.Lines.Length != lines.Length);
-                if (!preparation.LinesChanged && !lines.IsEmpty)
-                    for (; preparation.LineComparison < lines.Length; preparation.LineComparison++)
-                    {
-                        if (!slice.Start()) return null;
-                        if (_debugLines!.Lines[preparation.LineComparison] == lines[preparation.LineComparison]) continue;
-                        preparation.LinesChanged = true;
-                        break;
-                    }
-                preparation.LinesChecked = true;
-            }
-            if (preparation.LinesChanged && _pendingDebugLines is null)
-            {
-                if (!slice.Start()) return null;
-                _pendingDebugLines = new(frame.DebugLines);
-            }
-            if (_pendingDebugLines is not null && !_pendingDebugLines.Prepare(slice)) return null;
-            if (!preparation.Packing.Release(slice)) return null;
+            using (SceneDisplayDiagnostics.Begin("Prepare.ReleasePacking"))
+                if (!preparation.Packing.Release(slice)) return null;
             if (!slice.Start(estimate: _finalizationCost)) return null;
+            using var finalizationInterval = SceneDisplayDiagnostics.Begin("Prepare.Finalize");
             var finalizationStarted = Timestamp();
             var prepared = new PreparedFrame(this, _candidate, frame, next.ToImmutable(), _pendingVisuals,
                 _pendingRoots, _pendingFog ?? _fog!, _pendingFog is not null,
@@ -178,139 +202,6 @@ internal sealed partial class SceneDisplay
         internal int FogComparison, LineComparison;
         internal ScenePackingPreparation Packing { get; } = new(resources, costs);
         internal Dictionary<SceneObjectId, PreparedVisual?[]> ReusedVisuals { get; } = [];
-    }
-
-    private bool InitializePreparation(Preparation preparation, PreparationSlice slice, bool spaceChanged)
-    {
-        var update = preparation.Frame.Update;
-        if (preparation.Objects is null)
-        {
-            if (!slice.Start()) return false;
-            preparation.Objects = (update.Base is null ? ImmutableDictionary<SceneObjectId, DisplayObject>.Empty : _objects).ToBuilder();
-            if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
-                preparation.ShiftRoots = _rootObjects.GetEnumerator();
-        }
-        while (preparation.ShiftRoots is { } roots)
-        {
-            if (!slice.Start()) return false;
-            if (!roots.MoveNext()) { roots.Dispose(); preparation.ShiftRoots = null; break; }
-            var item = _objects[roots.Current];
-            preparation.Objects[item.Source.Id] = item with { Source = item.Source with
-            { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + update.ShiftExistingRoots } } };
-        }
-        for (; preparation.Removed < update.Removed.Length; preparation.Removed++)
-        {
-            if (!slice.Start()) return false;
-            preparation.Objects.Remove(update.Removed[preparation.Removed]);
-        }
-        for (; preparation.MatchUpsert < update.Upserts.Length; preparation.MatchUpsert++)
-        {
-            var source = update.Upserts[preparation.MatchUpsert];
-            if (preparation.Matching is null)
-            {
-                if (!slice.Start()) return false;
-                preparation.Matching = new(_objects.GetValueOrDefault(source.Id), source.Visuals);
-            }
-            var matching = preparation.Matching;
-            while (!matching.Complete)
-            {
-                if (!slice.Start()) return false;
-                matching.Advance();
-            }
-            preparation.ReusedVisuals.Add(source.Id, matching.Matched);
-            preparation.Matching = null;
-        }
-        if (!preparation.Started)
-        {
-            Observe?.Invoke(new(_candidate, update.Frame, null, SceneDisplayStage.FramePreparationStarted,
-                [.. update.Upserts.Where(source => preparation.ReusedVisuals[source.Id].Any(visual => visual is null))
-                    .Select(source => source.Id)]));
-            preparation.Started = true;
-        }
-        if (!spaceChanged && !preparation.Packing.Started)
-        {
-            for (; preparation.PackingUpsert < update.Upserts.Length; preparation.PackingUpsert++)
-            {
-                var source = update.Upserts[preparation.PackingUpsert];
-                var reused = preparation.ReusedVisuals[source.Id];
-                for (; preparation.PackingVisual < source.Visuals.Length; preparation.PackingVisual++)
-                {
-                    if (reused[preparation.PackingVisual] is not null)
-                    {
-                        if (!slice.Start()) return false;
-                    }
-                    else if (!preparation.Packing.Collect(source.Visuals[preparation.PackingVisual], slice)) return false;
-                }
-                preparation.PackingVisual = 0;
-            }
-            if (!preparation.Packing.Start(_preparationPackingTail, PackMesh, slice, out _preparationPackingTail)) return false;
-        }
-        return true;
-    }
-
-    private bool ValidatePreparation(Preparation preparation, PreparationSlice slice)
-    {
-        var update = preparation.Frame.Update;
-        var next = preparation.Objects!;
-        for (; preparation.ValidateUpsert < update.Upserts.Length; preparation.ValidateUpsert++)
-        {
-            if (!slice.Start()) return false;
-            if (update.Upserts[preparation.ValidateUpsert].Parent is { } parent && !next.ContainsKey(parent))
-                throw new InvalidOperationException("显示对象的父对象不存在。");
-        }
-        if (update.Base is not null)
-            for (; preparation.ValidateRemoved < update.Removed.Length; preparation.ValidateRemoved++)
-            {
-                if (preparation.ValidationChildren is null)
-                {
-                    if (!slice.Start()) return false;
-                    if (!_children.TryGetValue(update.Removed[preparation.ValidateRemoved], out var children)) continue;
-                    preparation.ValidationChildren = children.GetEnumerator();
-                }
-                var descendants = preparation.ValidationChildren;
-                while (true)
-                {
-                    if (!slice.Start()) return false;
-                    if (!descendants.MoveNext()) break;
-                    if (next.TryGetValue(descendants.Current, out var surviving) &&
-                        surviving.Source.Parent is { } parent && !next.ContainsKey(parent))
-                        throw new InvalidOperationException("显示对象的父对象不存在。");
-                }
-                descendants.Dispose();
-                preparation.ValidationChildren = null;
-            }
-        return true;
-    }
-
-    private sealed class VisualMatching(DisplayObject? displayed, ImmutableArray<SceneVisual> visuals)
-    {
-        internal PreparedVisual?[] Matched { get; } = new PreparedVisual?[visuals.Length];
-        private readonly Dictionary<SceneMesh, Queue<PreparedVisual>> _geometry = new(ReferenceEqualityComparer.Instance);
-        private int _previous, _index;
-        internal bool Complete => _previous == (displayed?.Visuals.Length ?? 0) && _index == visuals.Length;
-
-        internal void Advance()
-        {
-            if (displayed is not null && _previous < displayed.Visuals.Length)
-            {
-                var previous = displayed.Visuals[_previous++];
-                if (previous.Visual is SceneVisual.Geometry source)
-                {
-                    if (!_geometry.TryGetValue(source.Mesh, out var available)) _geometry.Add(source.Mesh, available = new());
-                    available.Enqueue(previous);
-                }
-                return;
-            }
-            var visual = visuals[_index];
-            if (visual is SceneVisual.Geometry geometry)
-            {
-                if (_geometry.TryGetValue(geometry.Mesh, out var available) && available.TryDequeue(out var previous))
-                    Matched[_index] = previous;
-            }
-            else if (displayed is not null && _index < displayed.Visuals.Length && displayed.Visuals[_index].CanUpdate(visual))
-                Matched[_index] = displayed.Visuals[_index];
-            _index++;
-        }
     }
 
     private static bool _budgetAdvanced;
