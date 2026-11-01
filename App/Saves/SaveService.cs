@@ -11,7 +11,7 @@ internal sealed record LeavePrompt(bool CanSave, bool Waiting);
 internal sealed record MissingPrompt(ImmutableArray<string> Details);
 internal enum LeaveChoice { Save, Discard, Cancel }
 
-internal sealed class SaveService : IDisposable
+internal sealed partial class SaveService : IDisposable
 {
     internal const int DefaultAutoSaveMinutes = 60;
 
@@ -108,69 +108,17 @@ internal sealed class SaveService : IDisposable
         if (string.IsNullOrWhiteSpace(name)) return Fail("invalid-name", "存档名称不能为空。");
         return StartWrite(WriteKind.SaveAs, new(Guid.NewGuid(), name.Trim()));
     }
-    internal SaveFailure? Export(string path, bool overwriteConfirmed = false)
-    {
-        if (File.Exists(path) && !overwriteConfirmed)
-            return Fail("overwrite-confirmation", "目标文件已存在，请确认覆盖。");
-        return StartWrite(WriteKind.Export, path: path, overwrite: overwriteConfirmed);
-    }
-
-    private SaveFailure? StartWrite(WriteKind kind, SaveIdentity? target = null, string? path = null,
-        bool overwrite = true, bool leaving = false)
-    {
-        if (_host.GetStatus() is { IsReplay: true } && kind != WriteKind.Export)
-            return Fail("replay_read_only", "重放只允许显式导出边界为普通存档。");
-        if (_read is not null || _import is not null || _restore is not null || (!leaving && _leave is not null))
-            return Fail("busy", "正在处理其他存档操作。");
-        var status = _host.GetStatus();
-        if (status is null) return Fail("no-session", "当前没有对局。");
-        if (_writes.Any(write => write.Capture.Binding == status.Binding)) return Fail("busy", "当前对局正在写入存档。");
-        var (capture, failure) = _host.CaptureSave();
-        if (failure is not null) return Fail(failure.Code, failure.Message);
-        target ??= capture!.Identity;
-        var slot = kind == WriteKind.Automatic ? NextSlot(target.Id) : -1;
-        path = Path.GetFullPath(path ?? (slot >= 0 ? _store.AutoPathFor(target.Id, slot) : _store.PathFor(target.Id)));
-        if (_writes.Any(write => string.Equals(write.Path, path, StringComparison.OrdinalIgnoreCase)))
-            return Fail("busy", "目标文件正在写入。");
-        var cancellation = new CancellationTokenSource();
-        var savedAt = _date();
-        var writeTarget = target;
-        var writePath = path;
-        var work = Task.Run(() => _store.Write(writePath, capture!.Encode(writeTarget, savedAt),
-            kind == WriteKind.SaveAs ? false : overwrite, cancellation.Token));
-        _writes.Add(new(capture!, target, path, kind, slot, cancellation, work, leaving));
-        LastMessage = "正在保存…";
-        Changed?.Invoke();
-        return null;
-    }
 
     internal SaveFailure? Load(SaveEntry entry) => RequestLeave(() => StartRead(entry));
 
     internal SaveFailure? StartExample(SaveDocument document) => RequestLeave(() =>
         StartRestore(document, new(Guid.NewGuid(), document.Header.Name), unsaved: true));
 
-    private void StartRead(SaveEntry entry)
+    internal SaveFailure? Export(string path, bool overwriteConfirmed = false)
     {
-        if (_host.SessionOptions is null) { Fail("session-options-unavailable", "宿主尚未配置会话环境。"); return; }
-        if (_host.LockLeaving() is not null) { Fail("busy", "正在处理其他操作。"); return; }
-        _read = new(entry, Task.Run(() => _store.Read(entry.Path)));
-        LastMessage = "正在读取存档…";
-        Changed?.Invoke();
-    }
-
-    internal SaveFailure? Import(string path)
-    {
-        if (IsBusy) return Fail("busy", "正在处理其他存档操作。");
-        if (_host.SessionOptions is not { } options)
-            return Fail("session-options-unavailable", "宿主尚未配置会话环境。");
-        _import = new(Task.Run(() =>
-        {
-            var document = _store.Read(path);
-            return new ImportPreparation(document, _host.PrepareRestore(document.CorePayload, document.ContentPayload, options));
-        }));
-        LastMessage = "正在校验导入存档…";
-        Changed?.Invoke();
-        return null;
+        if (File.Exists(path) && !overwriteConfirmed)
+            return Fail("overwrite-confirmation", "目标文件已存在，请确认覆盖。");
+        return StartWrite(WriteKind.Export, path: path, overwrite: overwriteConfirmed);
     }
 
     internal bool ConfirmMissing()
@@ -251,7 +199,8 @@ internal sealed class SaveService : IDisposable
         if (_restore is { } operation) { _host.Cancel(operation); return; }
         if (_read is { } read)
         {
-            _read = null; _ = Observe(read.Work);
+            read.Cancellation.Cancel();
+            _read = null; _ = Observe(read.Work, read.Cancellation);
             _host.UnlockLeaving();
             LastMessage = "读档已取消。";
         }
@@ -259,12 +208,13 @@ internal sealed class SaveService : IDisposable
         {
             if (import.Published is not null)
             {
-                import.Cancellation!.Cancel();
+                import.Cancellation.Cancel();
                 return;
             }
             _import = null;
-            if (import.Prepared is { } prepared) prepared.Prepared.Dispose();
-            else _ = DiscardImport(import.Work);
+            import.Cancellation.Cancel();
+            if (import.Prepared is { } prepared) { prepared.Prepared.Dispose(); import.Cancellation.Dispose(); }
+            else _ = DiscardImport(import.Work, import.Cancellation);
             LastMessage = "导入已取消。";
         }
         foreach (var write in _writes) write.Cancellation.Cancel();
@@ -310,6 +260,7 @@ internal sealed class SaveService : IDisposable
     {
         if (_read is not { } read || !read.Work.IsCompleted) return;
         _read = null;
+        read.Cancellation.Dispose();
         _host.UnlockLeaving();
         try
         {
@@ -348,32 +299,19 @@ internal sealed class SaveService : IDisposable
                 if (result.CleanupMessage is { } cleanup) LastMessage += $"\n{cleanup}";
             }
             catch (Exception error) { ReportFileFailure(error); }
-            import.Cancellation!.Dispose();
+            import.Cancellation.Dispose();
             Changed?.Invoke();
             return;
         }
         if (import.Prepared is not null || !import.Work.IsCompleted) return;
         ImportPreparation prepared;
         try { prepared = import.Work.GetAwaiter().GetResult(); }
-        catch (Exception error) { _import = null; ReportFileFailure(error); Changed?.Invoke(); return; }
+        catch (Exception error) { _import = null; import.Cancellation.Dispose(); ReportFileFailure(error); Changed?.Invoke(); return; }
         if (PreparationFailure(prepared.Prepared) is { } failure)
-        { prepared.Prepared.Dispose(); _import = null; Fail(failure.Code, failure.Message); return; }
+        { prepared.Prepared.Dispose(); _import = null; import.Cancellation.Dispose(); Fail(failure.Code, failure.Message); return; }
         import.Prepared = prepared;
         if (MissingFor(prepared.Prepared) is null) PublishImport(prepared);
         else Changed?.Invoke();
-    }
-
-    private void PublishImport(ImportPreparation imported)
-    {
-        imported.Prepared.Dispose();
-        var id = Guid.NewGuid();
-        var document = imported.Document with { Header = imported.Document.Header with { Id = id } };
-        var cancellation = new CancellationTokenSource();
-        _import!.Prepared = null;
-        _import.Published = Task.Run(() => _store.Write(_store.PathFor(id), document, false, cancellation.Token));
-        _import.Cancellation = cancellation;
-        LastMessage = "正在写入导入存档…";
-        Changed?.Invoke();
     }
 
     private void OnOperationEnded(HostOperationResult result)
@@ -433,9 +371,10 @@ internal sealed class SaveService : IDisposable
     private static ImmutableArray<string> MissingDetails(ContentPreparationReport content, ImmutableArray<MissingCoreReference> core)
         => content.RuntimeMissing.Select(missing => $"{missing.Reference}（包 {missing.Package?.Value ?? "未知"}；{missing.Field}）")
             .Concat(core.Select(missing => $"{missing.Reference}（{missing.FieldPath}）")).ToImmutableArray();
-    private static async Task Observe(Task work) { try { await work.ConfigureAwait(false); } catch { /* 异常退出的后台结果已失去接入资格。 */ } }
-    private static async Task DiscardImport(Task<ImportPreparation> work)
-    { try { (await work.ConfigureAwait(false)).Prepared.Dispose(); } catch { /* 取消后的准备只负责清理。 */ } }
+    private static async Task Observe(Task work, CancellationTokenSource cancellation)
+    { try { await work.ConfigureAwait(false); } catch { /* 异常退出的后台结果已失去接入资格。 */ } finally { cancellation.Dispose(); } }
+    private static async Task DiscardImport(Task<ImportPreparation> work, CancellationTokenSource cancellation)
+    { try { (await work.ConfigureAwait(false)).Prepared.Dispose(); } catch { /* 取消后的准备只负责清理。 */ } finally { cancellation.Dispose(); } }
 
     public void Dispose()
     {
@@ -445,7 +384,7 @@ internal sealed class SaveService : IDisposable
         Cancel();
         foreach (var write in _writes) _ = FinishWrite(write.Work, write.Cancellation);
         _writes.Clear();
-        if (_import?.Published is { } imported) _ = FinishWrite(imported, _import.Cancellation!);
+        if (_import?.Published is { } imported) _ = FinishWrite(imported, _import.Cancellation);
     }
 
     private static async Task FinishWrite(Task<FileWriteResult> work, CancellationTokenSource cancellation)
@@ -454,13 +393,13 @@ internal sealed class SaveService : IDisposable
     private enum WriteKind { Manual, SaveAs, Automatic, Export }
     private sealed record PendingWrite(SaveCapture Capture, SaveIdentity Target, string Path, WriteKind Kind,
         int Slot, CancellationTokenSource Cancellation, Task<FileWriteResult> Work, bool Leaving);
-    private sealed record PendingRead(SaveEntry Entry, Task<SaveDocument> Work);
+    private sealed record PendingRead(SaveEntry Entry, CancellationTokenSource Cancellation, Task<SaveDocument> Work);
     private sealed record ImportPreparation(SaveDocument Document, HostCoordinator.PreparedOperation Prepared);
-    private sealed class PendingImport(Task<ImportPreparation> work)
+    private sealed class PendingImport(Task<ImportPreparation> work, CancellationTokenSource cancellation)
     {
         internal Task<ImportPreparation> Work { get; } = work;
         internal ImportPreparation? Prepared { get; set; }
         internal Task<FileWriteResult>? Published { get; set; }
-        internal CancellationTokenSource? Cancellation { get; set; }
+        internal CancellationTokenSource Cancellation { get; } = cancellation;
     }
 }

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Text;
@@ -136,6 +137,66 @@ public sealed class RecordingPackageTests
     }
 
     [TestMethod]
+    [DataRow(CompressionLevel.NoCompression, false, false)]
+    [DataRow(CompressionLevel.Optimal, false, false)]
+    [DataRow(CompressionLevel.NoCompression, true, false)]
+    [DataRow(CompressionLevel.Optimal, true, false)]
+    [DataRow(CompressionLevel.NoCompression, false, true)]
+    [DataRow(CompressionLevel.Optimal, false, true)]
+    [DataRow(CompressionLevel.NoCompression, true, true)]
+    [DataRow(CompressionLevel.Optimal, true, true)]
+    public void Read_and_validation_reject_manifest_length_exceeding_available_bytes(
+        CompressionLevel compression, bool oversized, bool validate)
+    {
+        WithFile(path =>
+        {
+            var package = Package();
+            package.Write(path);
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+            {
+                var manifest = Read(zip, "manifest.json");
+                zip.GetEntry("manifest.json")!.Delete();
+                using var writer = new StreamWriter(zip.CreateEntry("manifest.json", compression).Open(),
+                    new UTF8Encoding(false));
+                writer.Write(manifest);
+            }
+            package.Validate(path);
+            InflateManifestLength(path, oversized);
+            Assert.ThrowsExactly<InvalidDataException>(() =>
+            {
+                if (validate) package.Validate(path);
+                else RecordingPackage.Read(path);
+            });
+        });
+    }
+
+    private static void InflateManifestLength(string path, bool oversized)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var end = bytes.Length - 22;
+        Assert.AreEqual(0x06054b50u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(end)));
+        var offset = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(end + 16)));
+        var count = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(end + 10));
+        for (var i = 0; i < count; i++)
+        {
+            Assert.AreEqual(0x02014b50u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset)));
+            var nameLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 28));
+            var extraLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 30));
+            var commentLength = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 32));
+            if (Encoding.UTF8.GetString(bytes, offset + 46, nameLength) == "manifest.json")
+            {
+                var size = bytes.AsSpan(offset + 24, 4);
+                BinaryPrimitives.WriteUInt32LittleEndian(size,
+                    oversized ? uint.MaxValue : checked(BinaryPrimitives.ReadUInt32LittleEndian(size) + 1));
+                File.WriteAllBytes(path, bytes);
+                return;
+            }
+            offset += 46 + nameLength + extraLength + commentLength;
+        }
+        Assert.Fail("录制 ZIP 缺少 manifest.json 中央目录记录。");
+    }
+
+    [TestMethod]
     public void Read_rejects_invalid_container_and_missing_required_structures()
     {
         foreach (var mutation in new Action<ZipArchive>[]
@@ -182,7 +243,59 @@ public sealed class RecordingPackageTests
         });
     }
 
-    private static RecordingPackage Package()
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(4095)]
+    [DataRow(4096)]
+    [DataRow(4097)]
+    [DataRow(1024 * 1024)]
+    public void Opaque_payloads_and_fault_commands_round_trip_without_changing_values(int length)
+    {
+        WithFile(path =>
+        {
+            var source = Package();
+            var payload = length == 0 ? string.Empty : new string('x', length) + "🚂𝄞\\\"\r\n\t\0 内容";
+            var commands = source.Commands.Select(c => c with { CanonicalPayload = payload }).ToImmutableArray();
+            var start = source.Header.Starts[0] with { Payload = payload };
+            var fault = source.Header.FaultSegments[0] with { Start = start, Commands = commands };
+            var package = source with
+            {
+                Header = source.Header with { Starts = [start], FaultSegments = [fault] },
+                Commands = commands,
+                ContentPayload = payload
+            };
+            package.Write(path);
+            package.Validate(path);
+            var decoded = RecordingPackage.Read(path);
+            Assert.AreEqual(payload, decoded.ContentPayload);
+            Assert.AreEqual(payload, decoded.Header.Starts[0].Payload);
+            Assert.AreEqual(payload, decoded.Header.FaultSegments[0].Start.Payload);
+            CollectionAssert.AreEqual(commands.Select(c => c.CanonicalPayload).ToArray(),
+                decoded.Commands.Select(c => c.CanonicalPayload).ToArray());
+            CollectionAssert.AreEqual(commands.Select(c => c.CanonicalPayload).ToArray(),
+                decoded.Header.FaultSegments[0].Commands.Select(c => c.CanonicalPayload).ToArray());
+        });
+    }
+
+    [TestMethod]
+    public void Validation_rejects_changed_fault_start_payload_even_when_main_start_is_unchanged()
+    {
+        WithFile(path =>
+        {
+            var package = Package();
+            package.Write(path);
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+                Replace(zip, "manifest.json", text =>
+                {
+                    var manifest = JsonNode.Parse(text)!;
+                    manifest["FaultSegments"]![0]!["Start"]!["Payload"] = "changed opaque fault start";
+                    return manifest.ToJsonString();
+                });
+            Assert.ThrowsExactly<InvalidDataException>(() => package.Validate(path));
+        });
+    }
+
+    internal static RecordingPackage Package()
     {
         CoreReferenceManifest references = new([new("design")],
             [new(new(4), new("template"), [new(7, PlotSize.SmallStation)])],

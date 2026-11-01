@@ -366,14 +366,14 @@ public sealed class HostCoordinatorTests
             Assert.IsTrue(fixture.Host.Cancel(a.Operation));
             var b = fixture.Host.BeginRestore("B", "content-state", HostFixture.Options);
             Assert.IsNull(b.Problem);
+            releaseA.Set();
             HostFixture.WaitForSignal(enteredB, "B 的准备任务未进入");
-            Assert.IsFalse(releaseA.IsSet, "B 开始准备时 A 尚未放行。");
+            fixture.PumpUntil(() => candidateA.DisposeCount == 1);
+            Assert.IsNull(fixture.Host.GetStatus(), "取消的 A 不能激活。");
             releaseB.Set();
             fixture.PumpUntil(() => fixture.Host.GetStatus()?.View.Position.CompletedSteps == 22);
             var bindingB = fixture.Host.GetStatus()!.Binding;
-            Assert.IsFalse(releaseA.IsSet, "B 必须在 A 返回前激活。");
-            releaseA.Set();
-            fixture.PumpUntil(() => candidateA.DisposeCount == 1);
+            fixture.Host.ProcessFrame(0);
             Assert.AreEqual(bindingB, fixture.Host.GetStatus()!.Binding);
             Assert.AreEqual(22UL, fixture.Host.GetStatus()!.View.Position.CompletedSteps);
             Assert.AreEqual(0, candidateA.ActivationCount);
