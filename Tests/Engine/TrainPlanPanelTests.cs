@@ -38,11 +38,11 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             var train = Train(view, 7) with { Plan = new(true,
                 Enumerable.Range(0, 40).Select(_ => (PlanStop)new PlanStop.Station(new(1), 60, [])).ToImmutableArray()) };
             panel.Open(new(app.Host!.GetStatus()!.Binding, content.Generation, new WorldObjectId.Train(train.Id)), train, view, content);
-            tree.Root.ContentScaleSize = Vector2I.Zero;
             float firstHeight = 0;
             foreach (var (windowSize, uiScale) in new[] {
-                (new Vector2I(1920, 1080), 1f), (new Vector2I(1280, 720), 1.25f), (new Vector2I(1280, 720), 1.75f), (new Vector2I(960, 1080), 2f) })
+                (new Vector2I(1920, 1080), 1f), (new Vector2I(1280, 720), 1.25f), (new Vector2I(1280, 720), 1.75f), (new Vector2I(800, 720), 2f), (new Vector2I(960, 1080), 2f) })
             {
+                tree.Root.ContentScaleSize = windowSize.X == 960 ? Vector2I.Zero : canvas;
                 tree.Root.Size = windowSize;
                 tree.Root.ContentScaleFactor = uiScale;
                 await new UiTestInput(TestScene).Frames(6);
@@ -57,7 +57,7 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
                 }
                 else
                 {
-                    if (uiScale == 2f) Require(bar.Size.Y > firstHeight, "窄视口的顶栏必须确实换行。");
+                    if (windowSize.X == 960) Require(bar.Size.Y > firstHeight, "窄视口的顶栏必须确实换行。");
                     foreach (var name in new[] { "Navigation", "ListRegion", "InspectorRegion", "WorkspaceRegion" })
                         Require(Find<Control>(ui, name).GetGlobalRect().Position.Y >= bar.End.Y,
                             $"{name} 侵入顶栏：{bar}。");
@@ -67,8 +67,8 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
         }
         finally
         {
-            await fixture.Cleanup();
             tree.Root.ContentScaleSize = canvas; tree.Root.Size = size; tree.Root.ContentScaleFactor = scale;
+            await fixture.Cleanup();
         }
     }
 

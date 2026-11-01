@@ -121,7 +121,8 @@ internal static class UiStyle
                 scroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Auto;
                 var frame = panel.GetThemeStylebox("panel").GetMinimumSize().Y +
                     box.GetCombinedMinimumSize().Y - scroll.GetCombinedMinimumSize().Y;
-                scroll.CustomMinimumSize = new(0, Math.Max(0, dock.Size.Y - frame));
+                // 容器按整像素测量；向下取整避免半像素高度让最小尺寸反复增减。
+                scroll.CustomMinimumSize = new(0, Math.Max(0, Mathf.Floor(dock.Size.Y - frame)));
                 panel.Position = dock.Position - panel.GetParent<Control>().GlobalPosition;
                 panel.Size = dock.Size;
                 return;

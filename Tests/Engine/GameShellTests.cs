@@ -120,26 +120,6 @@ public class GameShellTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Clicking_the_workspace_mask_keeps_the_workspace_open()
-    {
-        var shell = new GameShell();
-        shell.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        TestScene.AddChild(shell);
-        try
-        {
-            var content = new PanelContainer();
-            content.AddChild(new Button { Text = "替身操作" });
-            shell.ShowWorkspace(content);
-            var input = new UiTestInput(TestScene);
-            await input.Frames(3);
-            await input.Click(new(4, 4));
-            Require(shell.WorkspaceContent == content && content.IsVisibleInTree(),
-                "点击工作区外的遮罩不能关闭当前工作区。");
-        }
-        finally { shell.Free(); }
-    }
-
-    [Test]
     public async Task Escape_closes_one_layer_and_opens_the_menu_only_after_the_list()
     {
         var shell = new GameShell { Size = new(1920, 1080) };

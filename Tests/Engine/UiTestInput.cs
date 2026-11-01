@@ -7,6 +7,29 @@ namespace Train.Engine.Tests;
 
 internal sealed class UiTestInput(Node scene)
 {
+    internal async Task ClickLastTabWithScrollArrow(TabContainer tabs)
+    {
+        var bar = tabs.GetTabBar();
+        var last = tabs.GetTabCount() - 1;
+        Require(bar.GetTabOffset() == 0 && bar.GetOffsetButtonsVisible(), "页签栏必须从第一页开始且显示滚动箭头。");
+        var increment = bar.GetThemeIcon("increment");
+        var decrement = bar.GetThemeIcon("decrement");
+        var right = bar.Size.X - increment.GetWidth() - decrement.GetWidth();
+        var arrow = bar.GlobalPosition + new Vector2(bar.Size.X - increment.GetWidth() / 2f, bar.Size.Y / 2);
+        var clicks = 0;
+        while ((bar.GetTabIdxAtPoint(bar.GetTabRect(last).GetCenter()) != last ||
+            bar.GetTabRect(last).GetCenter().X >= right) && clicks++ < tabs.GetTabCount())
+        {
+            await Click(arrow);
+            await Frames(2);
+        }
+        Require(clicks > 0 && bar.GetTabIdxAtPoint(bar.GetTabRect(last).GetCenter()) == last &&
+            bar.GetTabRect(last).GetCenter().X < right,
+            $"鼠标点击滚动箭头必须把最后一页滚入可见区域：offset={bar.GetTabOffset()} size={bar.Size} last={bar.GetTabRect(last)} right={right} arrow={arrow} clicks={clicks}。");
+        await Click(bar.GlobalPosition + bar.GetTabRect(last).GetCenter());
+        Require(tabs.CurrentTab == last, "滚动后必须能用鼠标点开最后一页。");
+    }
+
     internal async Task ClickTab(TabContainer tabs, int index)
     {
         var bar = tabs.GetTabBar();

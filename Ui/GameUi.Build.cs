@@ -78,7 +78,6 @@ public partial class GameUi
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, Submit, _icons, Submit);
             _world.AddChild(_economy);
-            _panels.SettlementRequested += (_, id) => SelectObject(new WorldObjectId.Settlement(id));
             _founding = new SettlementFoundingPanel { Name = "SettlementFounding" };
             _founding.Initialize(_host, Submit);
             _world.AddChild(_founding);
@@ -104,7 +103,6 @@ public partial class GameUi
             _notices.Chosen += OpenNotice;
             _world.AddChild(_notices);
             _panels.TrainCombatRequested += train => { _combat.OpenTrain(train); SelectObject(new WorldObjectId.Train(train), _combat); };
-            _panels.SettlementCombatRequested += settlement => { _combat.OpenSettlement(settlement); SelectObject(new WorldObjectId.Settlement(settlement), _combat); };
             _formation.TrainCreated += train =>
             {
                 if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;

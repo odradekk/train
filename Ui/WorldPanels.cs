@@ -23,14 +23,12 @@ public partial class WorldPanels : Control
 
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
-    internal event Action<PanelTarget, SettlementId>? SettlementRequested;
     internal event Action<PanelTarget, NodeId>? FoundingRequested;
     internal event Action<PanelTarget, EdgeId>? RailwayWorkRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
     internal event Action<TrainId>? TrainCombatRequested;
-    internal event Action<SettlementId>? SettlementCombatRequested;
     internal event Action<WorldObjectId>? SelectionRequested;
     internal event Action<Control>? ListOpened;
     internal event Action<WorldObjectId, Control>? InspectorOpened;
@@ -119,8 +117,6 @@ public partial class WorldPanels : Control
         {
             WorldObjectId.Node { Id: var nodeId } => new NodeDetailPanel(panel, body, bound, nodeId, () => Available(bound),
                 (source, id) => FormationRequested?.Invoke(source, id, _view, _content),
-                (source, id) => SettlementRequested?.Invoke(source, id),
-                id => SettlementCombatRequested?.Invoke(id),
                 (source, id) => FoundingRequested?.Invoke(source, id),
                 refit, service, NameOf).Controls,
             WorldObjectId.Edge { Id: var edgeId } => new EdgeDetailPanel(panel, body, bound, edgeId, () => Available(bound),

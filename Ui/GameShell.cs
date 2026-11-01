@@ -59,21 +59,9 @@ public partial class GameShell : Control
     public override void _Input(InputEvent input)
     {
         if (!IsVisibleInTree() || input is not InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape }) return;
-        // 子窗口和弹出菜单接收自己的输入；这里不能顺手再关掉它们下面的一层。
-        if (VisibleWindow(GetTree().Root)) return;
         if (CloseOverlay?.Invoke() == true || CloseTop()) GetViewport().SetInputAsHandled();
         else if (SceneVisible?.Invoke() != true && OpenMenu is { } open)
         { open(); GetViewport().SetInputAsHandled(); }
-    }
-
-    private static bool VisibleWindow(Node node)
-    {
-        foreach (var child in node.GetChildren())
-        {
-            if (child is Window { Visible: true } window && window.HasFocus()) return true;
-            if (child is not Node3D && VisibleWindow(child)) return true;
-        }
-        return false;
     }
 
     // 内容是调用者复用的有限实例；关闭只隐藏，随外壳退出场景树时释放。

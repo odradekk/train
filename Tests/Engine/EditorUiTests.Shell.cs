@@ -25,7 +25,7 @@ public partial class EditorUiTests
             Require(fixture.Editor.IsOpen && library.IsVisibleInTree() && library.GetParent() == ui.GetNode("Root") &&
                 shell.WorkspaceContent is null, "编辑期间蓝图库必须显示在 Root，不能留在隐藏的世界外壳。");
             await new UiTestInput(TestScene).PressKey(Key.Escape);
-            Require(!library.Visible && fixture.Editor.IsOpen,
+            Require(!library.Visible && fixture.Editor.IsOpen && !fixture.Editor.Leaving,
                 "根视口 Esc 应关闭独立蓝图库，不能顺带退出编辑器。");
             var basis = fixture.App.Host!.Content!;
             var published = new FixedContentView(basis.Core, basis.Generation, new(1)) { Blueprints = [], LocalDrafts = [], Voxels = [] };
