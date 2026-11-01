@@ -124,7 +124,7 @@ internal sealed partial class MeasurementRun
         finally { StopEditorMeasurement(); }
     }
 
-    // 与 #365 的 TitanEditingTests 相同的序列：泰坦内部一块空长方体整块加入 5,000 格（需确认），
+    // 与 #365 的 TitanEditingTests 相同的序列：泰坦内部一块空长方体整块加入 5,000 格，
     // 再 49 次单格删除凑满 50 步历史，然后连续撤销 50 步、重做 50 步。每步等新修订实际绘制后才做下一步。
     private async Task RunEditorSequence(EditorService editor, DesignEditorPanel panel)
     {
@@ -184,17 +184,19 @@ internal sealed partial class MeasurementRun
             _editorStepStamp = null;
         }
 
-        var box = Preview(new EditOperation.Cells(new EditFootprint.Box(region), new CellEdit.Add(cube)), out var boxSeconds);
-        if (box is not { CoveredCells: 5000, AffectedCells: 5000, CanApply: true, RequiresConfirmation: true })
+        var boxOperation = new EditOperation.Cells(new EditFootprint.Box(region), new CellEdit.Add(cube));
+        var box = Preview(boxOperation, out var boxSeconds);
+        if (box is not { CoveredCells: 5000, AffectedCells: 5000, CanApply: true })
             throw new InvalidDataException($"5,000 格区域编辑预览不符：覆盖 {box.CoveredCells}，改动 {box.AffectedCells}，冲突 {box.Conflicts.Length}。");
-        await Step("edit", 1, () => editor.Apply(box, true), boxSeconds);
+        await Step("edit", 1, () => editor.Apply(boxOperation), boxSeconds);
         if (editor.State!.Snapshot.Draft.Layout.Cells.Length != original.Layout.Cells.Length + 5000)
             throw new InvalidDataException("区域编辑没有加入 5,000 格。");
         var index = 1;
         foreach (var at in Cells(region).Take(49))
         {
-            var remove = Preview(new EditOperation.Cells(new EditFootprint.Cell(at), new CellEdit.Remove()), out var removeSeconds);
-            await Step("edit", ++index, () => editor.Apply(remove, false), removeSeconds);
+            var removeOperation = new EditOperation.Cells(new EditFootprint.Cell(at), new CellEdit.Remove());
+            Preview(removeOperation, out var removeSeconds);
+            await Step("edit", ++index, () => editor.Apply(removeOperation), removeSeconds);
         }
         var final = editor.State!.Snapshot.Draft;
         for (var step = 1; step <= 50; step++) await Step("undo", step, editor.Undo);
@@ -211,7 +213,7 @@ internal sealed partial class MeasurementRun
             original_cells = original.Layout.Cells.Length, edited_cells = final.Layout.Cells.Length,
             steps = 150, seconds = Seconds() - sequenceStarted, after = SceneSteady()
         };
-        _sceneEvidence["editor_step_timing_scope"] = "first_present_seconds measures only the first session.Present call for the new EditStamp, including geometry and frame diff, not pure geometry. Process frames include both the first Present frame and first commit frame (same-frame commit = 1). Longest frame uses actual draw-to-draw intervals in that inclusive process-frame range, including the frame blocked by Present. list_update_seconds includes row text generation and ShowElements, not the whole UI Process. Resource work observes the editor SceneDisplay.";
+        _sceneEvidence["editor_step_timing_scope"] = "preview_seconds measures the read-only Preview query. Apply now prepares and applies the operation, so call_seconds and call_to_displayed_seconds are not comparable to records from before #900. first_present_seconds measures only the first session.Present call for the new EditStamp, including geometry and frame diff, not pure geometry. Process frames include both the first Present frame and first commit frame (same-frame commit = 1). Longest frame uses actual draw-to-draw intervals in that inclusive process-frame range, including the frame blocked by Present. list_update_seconds includes row text generation and ShowElements, not the whole UI Process. Resource work observes the editor SceneDisplay.";
     }
 
     // 在泰坦占用范围内找一块体积正好 5,000 格、完全空着的长方体，与 TitanEditingTests 的选法相同。
