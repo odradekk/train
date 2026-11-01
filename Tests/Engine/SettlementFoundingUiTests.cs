@@ -224,7 +224,9 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             var shell = Find<GameShell>(ui, "World");
             Require(shell.SelectedObject == new WorldObjectId.Settlement(new(2)) &&
                 shell.InspectorContent is { Visible: true } settlement &&
-                Find<TabContainer>(settlement, "Pages").GetTabCount() == 8 &&
+                Enumerable.Range(0, Find<TabContainer>(settlement, "Pages").GetTabCount())
+                    .Select(Find<TabContainer>(settlement, "Pages").GetTabTitle)
+                    .SequenceEqual(new[] { "概况", "库存", "建筑", "现车", "建造与工地" }) &&
                 !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(),
                 "占用者变化没有把建城入口替换为聚居地检查器。");
             var entry = Find<Button>(shell.InspectorContent!, "OpenSettlementCombat");

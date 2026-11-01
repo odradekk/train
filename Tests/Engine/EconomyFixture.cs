@@ -21,7 +21,7 @@ internal static class EconomyFixture
         IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>>? leaseQuotes = null,
         bool trainAtNode = true, long wallet = 1234567,
         IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>? tradeQuotes = null,
-        SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1)
+        SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1, InventoryView? settlementInventory = null)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -122,7 +122,7 @@ internal static class EconomyFixture
             },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
             {
-                [new(10)] = new Lookup<InventoryView>.Found(Inventory(10, new InventoryOwner.Settlement(new(1)))),
+                [new(10)] = new Lookup<InventoryView>.Found(settlementInventory ?? Inventory(10, new InventoryOwner.Settlement(new(1)))),
                 [new(11)] = new Lookup<InventoryView>.Found(Inventory(11, new InventoryOwner.Lease(new(1)))),
                 [new(12)] = new Lookup<InventoryView>.Found(Inventory(12, new InventoryOwner.Train(train.Id))),
                 [new(14)] = new Lookup<InventoryView>.Found(Inventory(14, new InventoryOwner.Lease(new(2)))),
@@ -145,7 +145,8 @@ internal static class EconomyFixture
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
-        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false)
+        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
+        string? equipmentName = null)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -188,7 +189,8 @@ internal static class EconomyFixture
             {
                 [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new(foodName, "有限经济情景"), icon, null, false), null, false)),
                 [new GoodId.Voxel(new("fixture:ore"))] = new ContentLookup<GoodPresentation>.Missing([]),
-                [Equipment] = new ContentLookup<GoodPresentation>.Missing([])
+                [Equipment] = equipmentName is null ? new ContentLookup<GoodPresentation>.Missing([])
+                    : new ContentLookup<GoodPresentation>.Found(new(Equipment, new(new(equipmentName, ""), icon, null, false), null, false))
             },
             Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
             {

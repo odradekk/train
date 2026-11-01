@@ -85,7 +85,7 @@ public partial class ProductionPopulationUiTests(Node testScene) : TestClass(tes
         var content = EconomyFixture.Content(
             processes:
             [
-                new(new ProcessDetails.Production(press.Definition, [], [new(EconomyFixture.Food, 2)]), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, []),
+                new(new ProcessDetails.Production(press.Definition, [new(EconomyFixture.Food, 3)], [new(EconomyFixture.Equipment, 2)]), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, []),
                 new(new ProcessDetails.Production(weave.Definition, [], []), new("v2"), 10, 1, 1, FacilityTag.Assembly, []),
                 new(new ProcessDetails.Recovery(reuse.Definition, [], [new(EconomyFixture.Food, 1)]), new("v2"), 8, 1, 1, FacilityTag.FoodProcessing, []),
                 new(new ProcessDetails.Extraction(dig.Definition, new(EconomyFixture.Food, 1)), new("v2"), 6, 1, 1, FacilityTag.FoodProcessing, [])
@@ -112,7 +112,7 @@ public partial class ProductionPopulationUiTests(Node testScene) : TestClass(tes
             var facility = Find<VBoxContainer>(economy, "Facility");
             var choice = Find<OptionButton>(facility, "Process");
             var names = Enumerable.Range(0, choice.ItemCount).Select(choice.GetItemText).ToArray();
-            Require(names[0] == "选择流程" && names.Any(name => name.Contains("压榨") && name.Contains("主食") && name.Contains("产出") && name.Contains("消耗")) &&
+            Require(names[0] == "选择流程" && names.Any(name => name.Contains("压榨") && name.Contains("产出") && name.Contains("消耗") && name.Contains("主食")) &&
                 names.Any(name => name.Contains("回收")) && !names.Any(name => name.Contains("装配") || name.Contains("开采")),
                 "流程应按能力和标签筛选，并写明产出与消耗。");
             Require(Find<Label>(facility, "CurrentSpecification").Text.Contains("未选择流程") && setup.Session.SubmitCount == 0,
@@ -139,7 +139,8 @@ public partial class ProductionPopulationUiTests(Node testScene) : TestClass(tes
             await _input.Activate(Find<CheckButton>(facility, "Enabled"));
             Require(setup.Session.SubmitCount == 5 && !Find<CheckButton>(facility, "Enabled").ButtonPressed &&
                 Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨") &&
-                !facility.FindChildren("ApplyPlan*", "Button", true, false).Any(), "改动应立即提交，并保留当前流程和冻结批次。");
+                !economy.GetNode<Control>("Layout/Content/Body/Pages/建筑").FindChildren("*", "Button", true, false)
+                    .Cast<Button>().Any(button => button.Text.Contains("应用")), "改动应立即提交，并保留当前流程和冻结批次。");
             await ShowPlanControls(economy);
             HideCaptureChrome(ui);
             await UiCapture.Capture(TestScene, "production-plan");
@@ -161,6 +162,7 @@ public partial class ProductionPopulationUiTests(Node testScene) : TestClass(tes
         var empty = View(basis, 1, new PopulationExecution.NotStarted([]), [Facility(null, false, 7, null)], buildingDesign: "fixture-food-building");
         var stepped = View(basis, 2, new PopulationExecution.NotStarted([]), [Facility(null, false, 7, null)], buildingDesign: "fixture-food-building");
         var planned = View(basis, 3, new PopulationExecution.NotStarted([]), [Facility(press, true, 7, null)], buildingDesign: "fixture-food-building");
+        var stopped = View(basis, 4, new PopulationExecution.NotStarted([]), [Facility(press, false, 7, null)], buildingDesign: "fixture-food-building");
         var setup = new HostSimulationTests.HostSetup(empty, content);
         await Run(setup, async (ui, economy) =>
         {
@@ -178,28 +180,12 @@ public partial class ProductionPopulationUiTests(Node testScene) : TestClass(tes
             Require(setup.Session.SubmitCount == 1 && Find<Button>(facility, "PriorityLow").ButtonPressed &&
                 Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨"),
                 "菜单打开时的新修订不能改写已有整数优先级，流程选择应立即提交。");
-        });
-        setup.Session.AssertComplete();
-    }
-
-    [Test]
-    public async Task Unowned_production_plan_controls_do_not_submit()
-    {
-        var press = new ProcessRef.Production(new("fixture:press"));
-        var view = View(EconomyFixture.Create(), 1, new PopulationExecution.NotStarted([]), [Facility(press, true, 2, null)],
-            SettlementRelation.NonHostile, "fixture-food-building");
-        var content = EconomyFixture.Content(
-            processes: [new(new ProcessDetails.Production(press.Definition, [], []), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])],
-            definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
-            {
-                [new CoreDefinitionReference.Process(press)] = new ContentLookup<ContentDisplay>.Found(new(new("压榨", ""), null, null, false))
-            });
-        var setup = new HostSimulationTests.HostSetup(view, content);
-        await Run(setup, async (_, economy) =>
-        {
-            var tabs = Find<TabContainer>(economy, "Pages");
-            Require(!Enumerable.Range(0, tabs.GetTabCount()).Any(i => tabs.GetTabTitle(i) == "生产") &&
-                setup.Session.SubmitCount == 0, "非敌对聚居地仍展示生产页或提交了生产命令。");
+            setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, false, 7),
+                CommandSource.UserInterface, Completed(2, planned, stopped, new CommandDecision.Accepted([], [])), stopped);
+            await _input.Activate(Find<CheckButton>(facility, "Enabled"));
+            Require(setup.Session.SubmitCount == 2 && !Find<CheckButton>(facility, "Enabled").ButtonPressed &&
+                Find<Button>(facility, "PriorityLow").ButtonPressed,
+                "切换启用状态不能把已有整数优先级改写成优先级按钮的档位值。");
         });
         setup.Session.AssertComplete();
     }

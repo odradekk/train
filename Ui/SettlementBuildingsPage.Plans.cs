@@ -64,7 +64,7 @@ internal sealed partial class SettlementBuildingsPage
                 ProductionState.OutputBlocked => "把库存里的货物装上列车，腾出仓储空间。",
                 ProductionState.ZeroCapability => "修理受损设备，或改装建筑以提供所需能力。",
                 ProductionState.ConditionsNotMet => "选择适合这座建筑和当地地形的流程。",
-                ProductionState.Locked => "等待建筑的施工或交战结束。",
+                ProductionState.Locked => "改装或修理完成后会自动恢复生产；拆除中的建筑不会恢复生产。",
                 ProductionState.ProcessMissing => "恢复缺失的流程内容，或选择其他流程。",
                 _ => ""
             };

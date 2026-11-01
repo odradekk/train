@@ -13,13 +13,17 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Owned_stock_shows_local_quantity_target_and_only_owned_transfer_actions()
     {
+        var inventory = new InventoryView(new(10), new InventoryOwner.Settlement(new(1)), new WorldLocation.Node(new(1)),
+            InventoryAccess.ReadWrite, 137, 17, 3, 117, 1.25,
+            [new(EconomyFixture.Food, 0, false), new(EconomyFixture.Equipment, 1, false)], []);
         var setup = new HostSimulationTests.HostSetup(
-            EconomyFixture.Create(relation: SettlementRelation.PlayerOwned, foodQuantity: 0, leaseCount: 2), EconomyFixture.Content());
+            EconomyFixture.Create(relation: SettlementRelation.PlayerOwned, leaseCount: 2, settlementInventory: inventory), EconomyFixture.Content());
         await Run(setup, async (_, panel) =>
         {
             var stock = await OwnedStock(panel);
             var text = string.Join("\n", stock.FindChildren("*", "Label", true, false).Cast<Label>().Select(label => label.Text));
-            Require(text.Contains("补货目标") && text.Contains("50") && text.Contains("已用") && text.Contains("预留"),
+            Require(text.Contains("补货目标") && text.Contains("50") && Find<Label>(stock, "StockStorage").Text.Contains("17/137") &&
+                Find<Label>(stock, "StockStorage").Text.Contains("预留 3") && Find<Label>(stock, "StockStorage").Text.Contains("可用 117"),
                 "库存页应显示仓储用量和补货目标。");
             var row = stock.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First();
             var values = row.FindChildren("*", "Label", true, false).Cast<Label>().Select(label => label.Text).ToArray();
@@ -30,8 +34,7 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
                 "自有库存只能装上列车或卸到库存。");
             Require(!Find<OptionButton>(stock, "TradeLease").Visible, "自有装卸不能选择租用仓库。");
             var train = Find<OptionButton>(stock, "Train");
-            Require(train.GetItemText(train.Selected).Contains("列车") && !train.GetItemText(train.Selected).Contains("7"),
-                "在站列车应有展示名称，不显示内部编号。");
+            Require(train.GetItemText(train.Selected) == "列车 7", "在站列车名称应与车队列表和运行计划里的名称一致。");
             await UiCapture.Capture(TestScene, "owned-stock");
         });
         setup.Session.AssertComplete();
@@ -95,7 +98,7 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
     public async Task Owned_stock_refresh_keeps_expanded_good_action_and_quantity()
     {
         var before = EconomyFixture.Create(relation: SettlementRelation.PlayerOwned);
-        var after = EconomyFixture.Create(2, relation: SettlementRelation.PlayerOwned, foodQuantity: 9);
+        var after = EconomyFixture.Create(2, relation: SettlementRelation.PlayerOwned, foodQuantity: 37);
         var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
         setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
         await Run(setup, async (ui, panel) =>
@@ -104,12 +107,13 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(stock.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First());
             await _input.Choose(Find<OptionButton>(stock, "Action"), 1);
             await _input.Enter(Find<LineEdit>(stock, "Quantity"), "1");
+            Require(!Find<Label>(stock, "TrainCargo").Text.Contains("车上主食：37"), "旧修订不能已经显示刷新后的货物数量。");
             var host = ui.GetParent<Train.App.App>().Host!;
             Require(host.Step(1).Problem is null, "测试必须发布新修订。");
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, after, host.Content!);
             Require(Find<VBoxContainer>(stock, "Trade").Visible && Find<LineEdit>(stock, "Quantity").Text == "1" &&
                 Find<OptionButton>(stock, "Action").GetItemText(Find<OptionButton>(stock, "Action").Selected) == "卸到库存" &&
-                Find<Label>(stock, "TrainCargo").Text.Contains("9"), "刷新应保留展开货物、动作和数量，并更新货物数据。");
+                Find<Label>(stock, "TrainCargo").Text.Contains("车上主食：37"), "刷新应保留展开货物、动作和数量，并更新货物数据。");
         });
         setup.Session.AssertComplete();
     }

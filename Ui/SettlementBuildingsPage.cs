@@ -70,12 +70,12 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
             }
         }
         var emptyPlots = settlement.Plots.Where(plot => plot.Occupant is PlotOccupant.Empty).ToArray();
-        var sites = settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Construction>()
-            .Select(site => view.FindJob(site.Id)).OfType<Lookup<JobView>.Found>().Select(item => item.Value).OfType<JobView.Construction>();
-        _plots.Text = (emptyPlots.Length == 0 ? "" : "空地块：" + string.Join("、", emptyPlots.GroupBy(plot => plot.Size)
-            .Select(group => $"{EconomyPanels.PlotSizeName(group.Key)} {group.Count()} 块"))) +
-            string.Concat(sites.Select(job => $"\n{EconomyPanels.ServiceKind(job.Value.Kind)}工地 · {job.Value.Progress:P0} · {EconomyPanels.ServiceState(job.Value.State)}"));
+        var otherPlots = ConstructionSites(view, content, settlement).ToList();
+        if (emptyPlots.Length > 0) otherPlots.Add("空地块：" + string.Join("、", emptyPlots.GroupBy(plot => plot.Size)
+            .Select(group => $"{EconomyPanels.PlotSizeName(group.Key)} {group.Count()} 块")));
+        _plots.Text = string.Join("\n", otherPlots);
         _plots.Visible = _plots.Text.Length > 0;
+        _body.MoveChild(_plots, _body.GetChildCount() - 1);
         UpdateActions();
         if (_dismantle.Visible) RefreshDemolition();
     }
@@ -112,6 +112,23 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
         content.FindDesign(found.Value.Design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
             ? complete.Definition.Display.Name : "建筑内容缺失";
 
+    internal static IEnumerable<string> ConstructionSites(ICoreReadView view, IContentView content, SettlementView settlement)
+    {
+        foreach (var plot in settlement.Plots)
+        {
+            if (plot.Occupant is not PlotOccupant.Construction site ||
+                view.FindJob(site.Id) is not Lookup<JobView>.Found { Value: JobView.Construction construction } ||
+                construction.Value.Target is not ConstructionTarget.NewBuilding target) continue;
+            var job = construction.Value;
+            var name = content.FindDesign(target.Design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
+                ? complete.Definition.Display.Name : "建筑内容缺失";
+            var remaining = job.ActualWorkPerSecond > 0
+                ? $"预计还需 {Math.Ceiling(Math.Max(0, job.FrozenTotalWork - job.ProgressWork) / job.ActualWorkPerSecond):0} 秒" : "当前未施工";
+            yield return $"正在建造{name} · {EconomyPanels.PlotSizeName(plot.Size)}地块 · 进度 {job.Progress:P0} · {remaining}" +
+                (job.State == ConstructionState.Working ? "" : $" · {EconomyPanels.ServiceState(job.State)}");
+        }
+    }
+
     internal static bool NeedsAttention(FacilityView facility) => facility.Enabled &&
         facility.State is not (ProductionState.Running or ProductionState.Disabled);
 
@@ -123,7 +140,7 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
         ProductionState.OutputBlocked => "产出无法入库",
         ProductionState.ZeroCapability => "没有可用的生产能力",
         ProductionState.ConditionsNotMet => "流程条件不满足",
-        ProductionState.Locked => "建筑正在施工或交战",
+        ProductionState.Locked => "建筑正在改装、修理或拆除",
         ProductionState.ProcessMissing => "流程内容缺失",
         _ => "生产状态不可用"
     };

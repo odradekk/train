@@ -11,7 +11,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testScene)
+public partial class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
@@ -25,8 +25,7 @@ public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testSce
             var tabs = Find<TabContainer>(panel, "Pages");
             Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
                 .SequenceEqual(new[] { "概况", "库存", "建筑", "现车", "建造与工地" }), "自有聚居地应显示三个新页和两个保留页。");
-            Require(Find<Label>(panel, "Title").Text == "青川" &&
-                !panel.FindChildren("LocalInventory", "OptionButton", true, false).Any(), "标题应为聚居地名称，且不提供租用库存选择。");
+            Require(Find<Label>(panel, "Title").Text == "青川", "标题应为聚居地显示名。");
             var population = Find<Label>(panel, "PopulationSummary").Text;
             Require(population.Contains("常住人口 120") && population.Contains("80.0%") && population.Contains("暂无统计"),
                 "概况应区分已统计的基本满足率和未知改善满足率。");
@@ -35,9 +34,11 @@ public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testSce
             Require(Find<Label>(panel, "OwnedSites").Text.Contains("50%") && Find<Label>(panel, "OwnedSites").Text.Contains("10 秒"),
                 "工地应显示实际进度和按当前工作速率换算的剩余秒数。");
             Require(Find<Label>(panel, "DefenseSummary").Text.Contains("没有防御建筑"), "无武器建筑时应说明缺少防御。");
-            var text = string.Join("\n", tabs.GetChild(0).FindChildren("*", "Label", true, false).Cast<Label>().Select(item => item.Text));
-            Require(!text.Contains("fixture") && !text.Contains("Building") && !text.Contains("建筑 1") && !text.Contains("任务 90"),
-                "概况不能显示内部编号、定义标识或枚举。");
+            var text = string.Join("\n", Enumerable.Range(0, 3).SelectMany(index =>
+                tabs.GetChild(index).FindChildren("*", "", true, false).Select(node => node switch
+                { Label label => label.Text, Button button => button.Text, _ => "" })));
+            Require(new[] { "fixture", "Building", "建筑 1", "任务 90", "private-revision", "private-hash" }.All(value => !text.Contains(value)),
+                "概况、库存和建筑页的标签与按钮不能显示内部编号、定义标识、修订或枚举。");
             await UiCapture.Capture(TestScene, "owned-overview");
         });
         setup.Session.AssertComplete();
@@ -51,18 +52,29 @@ public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testSce
         {
             var attention = Find<VBoxContainer>(panel, "Attention");
             var buildings = attention.FindChildren("BlockedBuilding*", "Button", true, false).Cast<Button>().ToArray();
-            Require(buildings.Length == 1 && buildings[0].Text.Contains("食品建筑"), "只有启用但停工的建筑应进入需要处理。");
+            Require(buildings.Length == 1 && buildings[0].Text.Contains("食品建筑") &&
+                !attention.FindChildren("BlockedBuilding_1", "Button", true, false).Any() &&
+                !attention.FindChildren("BlockedBuilding_4", "Button", true, false).Any(),
+                "只有启用但停工的后排建筑应进入需要处理，生产中和已停用的建筑不应出现。");
             await _input.Activate(buildings[0]);
             var tabs = Find<TabContainer>(panel, "Pages");
-            Require(tabs.GetTabTitle(tabs.CurrentTab) == "建筑" && Find<VBoxContainer>(Find<VBoxContainer>(panel, "Building_1"), "Details").Visible,
+            var building = Find<VBoxContainer>(panel, "Building_2");
+            Require(tabs.GetTabTitle(tabs.CurrentTab) == "建筑" && Find<VBoxContainer>(building, "Details").Visible &&
+                !Find<VBoxContainer>(Find<VBoxContainer>(panel, "Building_1"), "Details").Visible,
                 "点击停工事项应打开并展开对应建筑。");
+            var reason = Find<Label>(building, "Blockers").Text;
+            Require(Find<Label>(building, "State").Text.Contains("等待原料") && reason.Contains("原料") && reason.Contains("补充") &&
+                !reason.Contains("inputs_missing") && !reason.Contains("Facility"), "停工建筑应显示中文状态、原因与补充原料的处理办法。");
             await _input.ClickTab(tabs, 0);
-            var shortage = attention.FindChildren("LowStock*", "Button", true, false).Cast<Button>().First();
-            Require(shortage.Text.Contains("主食") && shortage.Text.Contains("50"), "补货事项应显示货物和目标。");
+            var shortage = attention.GetChildren().OfType<Button>().Single(button => button.Text.Contains("装备"));
+            Require(shortage.Text.Contains("5"), "补货事项应显示装备的目标。");
             await _input.Activate(shortage);
             await _input.Frames(2);
             Require(tabs.GetTabTitle(tabs.CurrentTab) == "库存" && Find<VBoxContainer>(panel, "Trade").Visible &&
-                Find<Label>(panel, "TrainCargo").Text.Contains("主食"), "点击缺货事项应展开这项货物的装卸。");
+                Find<Label>(panel, "TrainCargo").Text.Contains("装备"), "点击装备缺货事项应展开装备的装卸。");
+            var expandedRow = Find<VBoxContainer>(panel, "Trade").GetParent();
+            Require(expandedRow.GetIndex() > 0 && expandedRow.GetChild<Button>(0).FindChildren("*", "Label", true, false)
+                .Cast<Label>().Any(label => label.Text == "装备"), "展开的必须是后排装备行，而不是第一项主食。");
             Require(Find<VBoxContainer>(panel, "Trade").GetParent().GetChild<Button>(0).HasFocus(),
                 "从需要处理进入库存后，键盘焦点应跟随对应货物行。");
             Require(setup.Session.SubmitCount == 0, "导航不应提交命令。");
@@ -108,7 +120,7 @@ public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testSce
     internal static Train.Content.ContractSupport.FixedContentView Content(bool armed = false)
     {
         var process = new ProcessRef.Production(new("fixture:press"));
-        return EconomyFixture.Content(mapPresentation: true, armedBuilding: armed,
+        return EconomyFixture.Content(mapPresentation: true, armedBuilding: armed, equipmentName: "装备",
             processes: [new(new ProcessDetails.Production(process.Definition, [new(EconomyFixture.Food, 8)], [new(EconomyFixture.Food, 3)]),
                 new("private-revision"), 10, 1, 1, FacilityTag.FoodProcessing, [])],
             definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
@@ -118,32 +130,35 @@ public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testSce
             });
     }
 
-    internal static FixedCoreReadView View(ulong revision = 1, bool defenseDestroyed = false, bool includeSite = true)
+    internal static FixedCoreReadView View(ulong revision = 1, bool defenseDestroyed = false, bool includeSite = true,
+        DesignHash? siteDesign = null, bool includeVehicleJob = false, ProductionState stoppedState = ProductionState.WaitingForInputs)
     {
         var basis = EconomyFixture.Create(revision, relation: SettlementRelation.PlayerOwned, leaseCount: 0);
         var settlement = ((Lookup<SettlementView>.Found)basis.FindSettlement(new(1))).Value;
         var process = new ProcessRef.Production(new("fixture:press"));
         var sites = new JobView.Construction(new(new(90), ConstructionKind.Construction, settlement.Id,
-            new(new(3), CapabilityKind.Construction), new ConstructionTarget.NewBuilding(new(4), new("fixture-food-building")), ConstructionState.Working,
+            new(new(3), CapabilityKind.Construction), new ConstructionTarget.NewBuilding(new(4), siteDesign ?? new("fixture-food-building")), ConstructionState.Working,
             0, 100, 50, .5, 5, [], [], []));
         var owned = settlement with
         {
             Plots = [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(1))),
                 new(new(2), 2, PlotSize.Small, [], new PlotOccupant.Building(new(2))),
                 new(new(3), 3, PlotSize.Small, [], new PlotOccupant.Building(new(3))),
-                new(new(4), 4, PlotSize.Small, [], includeSite ? new PlotOccupant.Construction(new(90)) : new PlotOccupant.Empty())],
-            Facilities = [new(new(new(1), CapabilityKind.Production), process, true, 7, ProductionState.WaitingForInputs,
-                1, 0, [], null, [], [], [new("inputs_missing", "Facility", null, [])]),
-                new(new(new(2), CapabilityKind.Production), process, false, 0, ProductionState.Disabled, defenseDestroyed ? 0 : 1, 0, [], null, [], [], [])],
+                new(new(4), 4, PlotSize.Small, [], includeSite ? new PlotOccupant.Construction(new(90)) : new PlotOccupant.Empty()),
+                new(new(5), 5, PlotSize.Small, [], new PlotOccupant.Building(new(4)))],
+            Facilities = [new(new(new(1), CapabilityKind.Production), process, true, 0, ProductionState.Running, 1, 1, [], null, [], [], []),
+                new(new(new(2), CapabilityKind.Production), process, true, 7, stoppedState, 1, 0, [], null, [], [],
+                    [new(stoppedState == ProductionState.Locked ? "instance_locked" : "inputs_missing", "Facility", null, [])]),
+                new(new(new(4), CapabilityKind.Production), null, false, 0, ProductionState.Disabled, defenseDestroyed ? 0 : 1, 0, [], null, [], [], [])],
             Population = settlement.Population with { Residents = 120, AvailableLabor = 60, AllocatedLabor = 40, IdleLabor = 20,
                 Execution = new PopulationExecution.InProgress(new(new("fixture:population"), new("private-revision"),
                     720, 10, [], .8, null), PopulationTrend.Stable) },
-            OwnedJobs = includeSite ? [new(90)] : []
+            OwnedJobs = [.. includeSite ? new JobId[] { new(90) } : [], .. includeVehicleJob ? new JobId[] { new(91) } : []]
         };
         Lookup<InstanceView> Building(ulong id, string design) => new Lookup<InstanceView>.Found(new(
             new InstanceId.Building(new(id)), new(design), new("private-hash"), new WorldLocation.Node(new(1)),
             SettlementRelation.PlayerOwned, new InstanceDetails.Building(new(id), PlotSize.Small), InstanceLock.None, new(100, 100),
-            [new(new(1), new(id == 2 && defenseDestroyed ? 0 : 50, 100), false, id == 2 && defenseDestroyed)], []));
+            [new(new(1), new(id == 4 && defenseDestroyed ? 0 : 50, 100), false, id == 4 && defenseDestroyed)], []));
         return new(basis.Position, basis.InputIdentity, basis.Fault, basis.Revision)
         {
             World = basis.World, Economy = basis.Economy,
@@ -158,11 +173,16 @@ public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testSce
                 [new InstanceId.Vehicle(new(9))] = basis.FindInstance(new InstanceId.Vehicle(new(9))),
                 [new InstanceId.Vehicle(new(10))] = basis.FindInstance(new InstanceId.Vehicle(new(10))),
                 [new InstanceId.Building(new(1))] = Building(1, "fixture-food-building"),
-                [new InstanceId.Building(new(2))] = Building(2, "fixture-plain-building"),
-                [new InstanceId.Building(new(3))] = Building(3, "fixture-service-building")
+                [new InstanceId.Building(new(2))] = Building(2, "fixture-food-building"),
+                [new InstanceId.Building(new(3))] = Building(3, "fixture-service-building"),
+                [new InstanceId.Building(new(4))] = Building(4, "fixture-plain-building")
             },
-            Jobs = new Dictionary<JobId, Lookup<JobView>> { [new(90)] = new Lookup<JobView>.Found(sites) },
-            TradeQuotes = new[] { 1L, 10L }.Select(quantity => new TradeQuoteRequest(new(7), new(1), new(10), TradeAction.Load, EconomyFixture.Food, quantity)).ToDictionary(request => request,
+            Jobs = new Dictionary<JobId, Lookup<JobView>> { [new(90)] = new Lookup<JobView>.Found(sites),
+                [new(91)] = new Lookup<JobView>.Found(new JobView.Construction(new(new(91), ConstructionKind.Construction, settlement.Id,
+                    new(new(3), CapabilityKind.Construction), new ConstructionTarget.NewVehicle(new("fixture-vehicle")), ConstructionState.Queued,
+                    0, 200, 0, 0, 0, [], [], []))) },
+            TradeQuotes = (from quantity in new[] { 1L, 10L } from good in new[] { EconomyFixture.Food, EconomyFixture.Equipment }
+                select new TradeQuoteRequest(new(7), new(1), new(10), TradeAction.Load, good, quantity)).ToDictionary(request => request,
                 request => (CoreResult<TradeQuote>)new CoreResult<TradeQuote>.Success(new(request, new(revision), request.Quantity, null, [], [])))
         };
     }

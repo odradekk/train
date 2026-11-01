@@ -90,7 +90,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
         if (_train is { } chosen && trains.All(item => item.Id != chosen)) _train = null;
         if (_train is null && trains.Length == 1) _train = trains[0].Id;
         EconomyPanels.SyncChoices(_trainChoice, _trains, trains.Select(item => item.Id), _train,
-            id => Owned ? $"第{Array.FindIndex(trains, item => item.Id == id) + 1}列车" : $"列车 {id.Value}", "请选择在站列车");
+            id => $"列车 {id.Value}", "请选择在站列车");
         var leases = _locals.Where(item => item.Lease is not null).Select(item => item.Lease!).ToArray();
         if (_lease is { } selected && leases.All(item => item.Id != selected)) _lease = null;
         if (_lease is null && leases.Length == 1) _lease = leases[0].Id;

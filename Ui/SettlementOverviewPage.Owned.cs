@@ -69,8 +69,7 @@ internal sealed partial class SettlementOverviewPage
             button.Text = $"{GoodName(item.Good, content)}低于补货目标：{quantity} / {item.RestockTarget}";
         }
         _nothingPending.Visible = stopped.Length == 0 && shortages.Length == 0;
-        _sites.Text = Join(_settlement.OwnedJobs.Select(_view.FindJob).OfType<Lookup<JobView>.Found>()
-            .Select(item => item.Value).OfType<JobView.Construction>().Select(job => DescribeJob(job.Value)), "没有进行中的工地。");
+        _sites.Text = Join(SettlementBuildingsPage.ConstructionSites(_view, content, _settlement), "没有进行中的工地。");
         var armedBuildings = 0; var weapons = 0; var incomplete = false;
         foreach (var building in _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>())
         {

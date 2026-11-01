@@ -37,13 +37,17 @@ internal static class SettlementFoundingUiFixture
             return town with { Id = occupied.Id, Node = node.Id, Relation = occupied.Relation,
                 Inventory = new(100 + occupied.Id.Value), ParkedVehicles = [], VehiclesForSale = [], Leases = [] };
         }).ToArray();
+        var inventories = settlements.ToDictionary(item => item.Inventory, item => (Lookup<InventoryView>)new Lookup<InventoryView>.Found(
+            new(item.Inventory, new InventoryOwner.Settlement(item.Id), new WorldLocation.Node(item.Node),
+                InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], [])));
+        foreach (var train in trains)
+            inventories.Add(train.Inventory, new Lookup<InventoryView>.Found(new(train.Inventory, new InventoryOwner.Train(train.Id),
+                new WorldLocation.Node(((TrainPosition.Node)train.Position).Id), InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], [])));
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
         {
             Economy = UiWorldFixture.Economy,
             Settlements = settlements.ToDictionary(item => item.Id, item => (Lookup<SettlementView>)new Lookup<SettlementView>.Found(item)),
-            Inventories = settlements.ToDictionary(item => item.Inventory, item => (Lookup<InventoryView>)new Lookup<InventoryView>.Found(
-                new(item.Inventory, new InventoryOwner.Settlement(item.Id), new WorldLocation.Node(item.Node),
-                    InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], []))),
+            Inventories = inventories,
             Instances = trains.ToDictionary(train => (InstanceId)new InstanceId.Vehicle(train.Vehicles.Single()), train =>
                 (Lookup<InstanceView>)new Lookup<InstanceView>.Found(new(new InstanceId.Vehicle(train.Vehicles.Single()),
                     new("fixture-vehicle"), new("fixture-composition"), new WorldLocation.Node(((TrainPosition.Node)train.Position).Id),
