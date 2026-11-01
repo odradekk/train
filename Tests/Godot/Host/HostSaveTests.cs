@@ -112,6 +112,24 @@ public sealed class HostSaveTests
         Assert.IsNull(fixture.Host.BeginNewGame(new("fixture:profile"), 1, "fixed", HostFixture.Options).Problem);
         fixture.PumpUntil(() => !fixture.Host.IsBusy);
         Assert.IsTrue(fixture.Host.GetSaveStatus()!.Unsaved);
+        Assert.AreEqual("未命名存档", fixture.Host.GetSaveStatus()!.Identity.Name);
+        Assert.AreNotEqual(Guid.Empty, fixture.Host.GetSaveStatus()!.Identity.Id);
+    }
+
+    [TestMethod]
+    public void New_game_keeps_the_requested_save_identity()
+    {
+        using var fixture = new HostFixture();
+        fixtureUnderTest = fixture;
+        fixture.Load = _ => new ContentResult<IContentCandidate>.Success(fixture.ContentCandidate);
+        fixture.World = (_, _, _, _) => new ContentResult<WorldGenerationInput>.Success(HostCoreScenario.World);
+        fixture.Copies = (view, _) => view;
+        fixture.Core.PrepareNewCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(fixture.CoreCandidate);
+        var identity = new SaveIdentity(Guid.NewGuid(), "  山间铁路  ");
+        Assert.IsNull(fixture.Host.BeginNewGame(new("fixture:profile"), 1, "fixed", HostFixture.Options, identity).Problem);
+        fixture.PumpUntil(() => !fixture.Host.IsBusy);
+        Assert.AreEqual(identity, fixture.Host.GetSaveStatus()!.Identity);
+        Assert.IsTrue(fixture.Host.GetSaveStatus()!.Unsaved);
     }
 
     [TestMethod]

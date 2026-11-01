@@ -11,7 +11,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class NewGameUiTests(Node testScene) : TestClass(testScene)
+public partial class NewGameUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
@@ -67,8 +67,8 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input);
         var contentView = new FixedContentView(projection, new(1))
         {
-            GenerationProfiles = [new(new("fixture:first"), new("首个配置", "")),
-                new(new("fixture:second"), new("第二配置", ""))]
+            GenerationProfiles = [new(new("fixture:first"), new("首个配置", "适合开始的小型世界。")),
+                new(new("fixture:second"), new(string.Concat(Enumerable.Repeat("线路更长且聚居地更多的测试世界", 4)), "线路更长的测试世界。"))]
         };
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
         { Economy = UiWorldFixture.Economy, World = new(42, new("fixture:railway"), 100, 100, [], [], [], [], []) };
@@ -96,7 +96,12 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
             {
                 Require(request.Purpose is ContentLoadPurpose.Initial && ++loads <= 2,
                     "有限情景只接受启动和新游戏的两次初始加载。");
-                return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(contentView));
+                var report = missing && loads == 2 ? new ContentPreparationReport(
+                    [new(new(new("fixture"), "测试内容包", "1.0", [], []), new("fixture"), PackageState.Available, [])],
+                    [new(new ContentReference.Core(new CoreDefinitionReference.Voxel(new("fixture:missing"))), new("fixture"), "vehicles[0]", []),
+                        new(new ContentReference.Generation(new("lost:world")), new("lost"), "internal-profile", []),
+                        new(new ContentReference.Draft(new(Guid.NewGuid())), null, "internal-draft", [])], [], []) : null;
+                return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(contentView, report: report));
             },
             CreateWorldInputCall = (basis, profile, seed, generator) =>
             {
@@ -113,6 +118,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                 new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture", []), logger, sessionOptions: sessionOptions);
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.Content is not null && !app.Host.IsBusy);
+            UiCapture.ConfigureWindowIfNeeded(tree.Root);
             tree.Root.ContentScaleFactor = 1;
             await _input.Frames();
             var menu = app.GetNode<MainMenu>("MainMenu");
@@ -121,7 +127,21 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
             await _input.PressKey(Key.Space);
             var panel = ui.GetNode<Control>("Root/NewGame");
             Require(panel.IsVisibleInTree(), "菜单实际按键未打开新游戏面板。");
-            var seedInput = panel.GetNode<LineEdit>("Layout/Content/Body/Seed");
+            if (!missing && !reject) await MenuCapture.Capture(TestScene, "newgame");
+            var seedInput = Find<LineEdit>(panel, "Seed");
+            Require(ulong.TryParse(seedInput.Text, out _), "默认随机种子必须是合法的无符号整数。");
+            Require(Find<Label>(panel, "ProfileDescription").Text == "适合开始的小型世界。",
+                "新游戏没有读取生成配置的说明。");
+            seedInput.Text = "无效种子";
+            await _input.Activate(Find<Button>(panel, "RandomSeed"));
+            Require(ulong.TryParse(seedInput.Text, out _), "随机按钮没有替换成有效种子。");
+            var nameInput = Find<LineEdit>(panel, "SaveName");
+            Require(nameInput.Text == "新的对局", "新游戏应预填玩家可读的存档名称。");
+            nameInput.Text = "  ";
+            await _input.Activate(Find<Button>(panel, "Create"));
+            Require(Find<Label>(panel, "Problem").Text == "存档名称不能为空。" && worldInputs == 0,
+                "空名称应停留在表单并说明原因。");
+            nameInput.Text = "  山间新局  ";
             seedInput.GrabFocus();
             await _input.Frames();
             await _input.PressKey(Key.A, control: true);
@@ -134,23 +154,30 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
             await _input.PressKey(Key.Down);
             await _input.PressKey(Key.Enter);
             Require(profileInput.Selected == 1, "真实键盘输入未选择第二个生成配置。");
-            panel.GetNode<Button>("Layout/Content/Body/Create").GrabFocus();
+            Require(Find<Label>(panel, "ProfileDescription").Text == "线路更长的测试世界。",
+                "切换配置后没有更新说明。");
+            Find<Button>(panel, "Create").GrabFocus();
             await _input.PressKey(Key.Space);
             await _input.WaitUntil(() => missing
-                ? app.Host!.MissingConfirmation is not null && ui.ErrorText.Contains("fixture:missing")
+                ? app.Host!.MissingConfirmation is not null && Find<Button>(panel, "Create").Text == "仍然开始"
                 : !app.Host!.IsBusy && (reject ? ui.ErrorText.Length > 0 : app.Host.GetStatus() is not null));
             Require(loads == 2 && worldInputs == 1 && core.PrepareNewCount == 1,
                 "新游戏未完成规定的有限准备序列。");
             if (missing)
             {
                 Require(app.Host!.IsBusy && app.Host.GetStatus() is null && menu.IsVisibleInTree() &&
-                    panel.IsVisibleInTree() && ui.ErrorText.Contains("vehicles[0]") &&
-                    ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
-                    "缺失引用未显示具体引用、字段和等待确认状态，或提前替换了活动局。");
-                var action = panel.GetNode<Button>(confirm ? "Layout/Content/Body/ConfirmMissing" : "Layout/Content/Body/Cancel");
+                    panel.IsVisibleInTree() && Find<Label>(panel, "Problem").Text.Contains("测试内容包") &&
+                    Find<Label>(panel, "Problem").Text.Contains("lost") &&
+                    Find<Label>(panel, "Problem").Text.Contains("另有 1 项内容找不到来源") &&
+                    !Find<Label>(panel, "Problem").Text.Contains("vehicles[0]") &&
+                    !Find<Label>(panel, "Problem").Text.Contains("Voxel") &&
+                    !ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
+                    "缺失确认必须在表单中说明来源和后果，不能显示字段路径或另弹错误。");
+                var action = Find<Button>(panel, confirm ? "Create" : "Cancel");
                 Require(action.IsVisibleInTree() && !action.Disabled, "缺失确认的操作入口不可用。");
                 Require(candidate.ActivationCount == 0, "缺失确认前已激活候选。");
-                if (preserveError) ui.ShowError(ui.ErrorText);
+                if (!confirm) await MenuCapture.Capture(TestScene, "newgame-missing");
+                if (preserveError) ui.ShowError("另一项操作未完成。");
                 action.GrabFocus();
                 await _input.PressKey(Key.Space);
                 await _input.WaitUntil(() => !app.Host.IsBusy);
@@ -176,6 +203,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                     ui.ErrorText.Contains("无法完成此操作。") && !ui.ErrorText.Contains("fixture_generation_rejected") &&
                     ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
                     "创建失败未保留菜单与输入面板，或未显示中文拒绝原因。");
+                await MenuCapture.Capture(TestScene, "newgame-rejected");
             }
             else
             {
@@ -184,6 +212,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                 Require(app.Host!.GetStatus()!.PlayerPaused && map.IsVisibleInTree() &&
                     !menu.IsVisibleInTree() && !panel.IsVisibleInTree() && candidate.ActivationCount == 1,
                     "创建成功后未进入暂停地图，或候选重复激活。");
+                Require(app.Host.GetSaveStatus()!.Identity.Name == "山间新局", "新游戏没有保存去除首尾空白的名称。");
                 session.AssertComplete();
             }
         }
