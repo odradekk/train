@@ -19,6 +19,7 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
     private ConfirmationDialog _confirmation = null!;
     private ICoreReadView _view = null!;
     private SettlementView _settlement = null!;
+    private string _warFailure = "", _warCondition = "";
 
     internal void Build(VBoxContainer body)
     {
@@ -36,6 +37,7 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
         _declare = UiStyle.Button("DeclareWar", "宣战…", () =>
         {
             if (!canAct()) return;
+            _warFailure = "";
             UpdateActions(); _confirmation.PopupCentered(new(480, 320));
         });
         body.AddChild(_declare);
@@ -46,12 +48,15 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
         {
             if (!canAct() || WarReason().Length > 0) return;
             var result = submit(new CoreCommand.DeclareWar(_settlement.Id));
-            if (result is SubmissionResult.NotAccepted rejected)
-                _warReason.Text = CommandDiagnostics.Describe(rejected.Reason with { Subject = null });
-            else if (result is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected failure })
-                _warReason.Text = string.Join("\n", failure.Problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null })));
-            else if (result is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted fault })
-                _warReason.Text = CommandDiagnostics.Describe(fault.Fault);
+            _warFailure = result switch
+            {
+                SubmissionResult.NotAccepted rejected => CommandDiagnostics.Describe(rejected.Reason with { Subject = null }),
+                SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected failure } =>
+                    string.Join("\n", failure.Problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }))),
+                SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted fault } => CommandDiagnostics.Describe(fault.Fault),
+                _ => ""
+            };
+            UpdateActions();
         };
     }
 
@@ -79,7 +84,9 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
         if (_settlement is null) return;
         _declare.Disabled = !canAct();
         var reason = WarReason();
-        _warReason.Text = reason;
+        if (reason != _warCondition) _warFailure = "";
+        _warCondition = reason;
+        _warReason.Text = reason.Length > 0 ? reason : _warFailure;
         _confirmation.GetOkButton().Disabled = !canAct() || reason.Length > 0;
         _confirmation.DialogText = "宣战后，这个聚居地将与你敌对，停止货物和现车交易，不再接受委托。\n" +
             "租用仓库将冻结，无法存取货物，也无法新租或续租。已有租约保留，租期继续计算。\n" +
@@ -100,12 +107,10 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
 
     private static string DescribeJob(ConstructionJobView job)
     {
-        var kind = job.Kind switch { ConstructionKind.Construction => "制造", ConstructionKind.Refit => "改装",
-            ConstructionKind.Repair => "修理", _ => "拆解" };
         var remaining = job.ActualWorkPerSecond > 0
             ? $" · 预计还需 {Math.Ceiling(Math.Max(0, job.FrozenTotalWork - job.ProgressWork) / job.ActualWorkPerSecond):0} 秒"
             : " · 当前未施工";
-        return $"{kind} · {job.Progress:P0}{remaining}";
+        return $"{EconomyPanels.ServiceKind(job.Kind)} · {job.Progress:P0}{remaining}";
     }
 
     private static string Join(IEnumerable<string> lines, string empty)

@@ -21,7 +21,7 @@ public partial class EconomyUiTests
             Require(tabs.CurrentTab == 0, "选中聚居地后应先显示概况。");
             Require(!panel.FindChildren("OpenSettlementCombat", "Button", true, false).Any(), "概况已提供宣战，不应重复显示战斗入口。");
             Require(!panel.FindChildren("LocalInventory", "OptionButton", true, false).Any(), "非敌对聚居地顶部不应显示本地库存选择。");
-            Require(Find<Label>(panel, "Title").Text == "聚居地 1", "检查器标题应使用内容提供的聚居地名称。");
+            Require(Find<Label>(panel, "Title").Text == "青川", "检查器标题应使用内容提供的聚居地名称。");
             await UiCapture.Capture(TestScene, "settlement-overview");
         });
         setup.Session.AssertComplete();
@@ -104,6 +104,9 @@ public partial class EconomyUiTests
             Require(Find<Label>(panel, "WarReason").Text.Contains("状态不符合操作要求") && ui.ErrorText.Length == 0,
                 "宣战被拒后应持续在概况显示原因，不弹全局错误。");
             Require(setup.Session.SubmitCount == 1, "宣战被拒后不能自动重试。");
+            await _input.Activate(Find<Button>(panel, "DeclareWar"));
+            Require(Find<Label>(panel, "WarReason").Text.Length == 0, "重新操作宣战时应清除旧拒绝原因。");
+            await _input.Activate(dialog.GetCancelButton(), dialog);
         });
         setup.Session.AssertComplete();
     }

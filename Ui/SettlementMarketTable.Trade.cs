@@ -43,11 +43,11 @@ internal sealed partial class SettlementMarketTable
             ? _settlement.Market.Goods.FirstOrDefault(item => item.Good == good)?.SellableQuantity ?? 0
             : (Action == TradeAction.Load ? local : TrainInventory(train))?.Stacks.FirstOrDefault(item => item.Good == good)?.Quantity ?? 0;
         _result.Text = "";
-        if (quantity == 0) { _quantity.Text = "0"; _description.Text = "来源中没有可交易的货物。"; UpdateActions(); return; }
+        if (quantity == 0) { Changed(); return; }
         while (quantity > 0)
         {
             var quote = Read(new(train, _settlement.Id, local.Id, Action, good, quantity));
-            if (quote is null) { _quote = null; UpdateActions(); return; }
+            if (quote is null) { Changed(); return; }
             if (quote.Blockers.IsEmpty && quote.CurrentlyExecutableQuantity >= quantity)
             {
                 _quantity.Text = quantity.ToString(CultureInfo.InvariantCulture);
@@ -55,7 +55,7 @@ internal sealed partial class SettlementMarketTable
             }
             if (quote.CurrentlyExecutableQuantity <= 0 || quote.CurrentlyExecutableQuantity >= quantity)
             {
-                _quote = quote; ShowQuote(); UpdateActions(); return;
+                Changed(); return;
             }
             quantity = quote.CurrentlyExecutableQuantity;
         }

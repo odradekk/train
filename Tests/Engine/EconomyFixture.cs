@@ -180,7 +180,7 @@ internal static class EconomyFixture
                 [new(1)] = mapPresentation
                     ? new ContentLookup<SettlementLayoutProjection>.Found(new(new(1), new("fixture:town"),
                         new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
-                            new("地面", "")), [], new("聚居地 1", "有限外壳情景")))
+                            new("地面", "")), [], new("青川", "有限外壳情景")))
                     : new ContentLookup<SettlementLayoutProjection>.NotFound(),
                 [new(2)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
             },
