@@ -46,7 +46,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
         var after = EconomyFixture.Create(2, tradeTotal: 900);
         CoreProblem[] problems = [new("insufficient_money", "wallet", new WorldObjectId.Settlement(new(1)), ["reason-a"]),
             new("insufficient_capacity", "inventory", new WorldObjectId.Inventory(new(10)), ["reason-b"])];
-        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content(mapPresentation: true));
         var command = new CoreCommand.BuyGoods(new(7), new(1), new(10), EconomyFixture.Food, 1, new(731));
         setup.Session.QueueSubmit(command, CommandSource.UserInterface,
             Completed(1, before, after, new CommandDecision.Rejected([.. problems])), after);
@@ -61,14 +61,14 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             Require(result.Contains("资金不足") && result.Contains("可用容量不足") &&
                 !result.Contains("insufficient_") && !result.Contains("reason-") &&
                 !result.Contains("库存 10") && !result.Contains("聚居地 1") && ui.ErrorText.Length == 0,
-                "拒绝原因未在原位用中文说明。");
+                "拒绝原因或位置错误。");
             await UiCapture.Capture(TestScene, "economy-command-rejection");
             Require(Find<LineEdit>(economy, "Quantity").Text == "1", "拒绝丢失数量输入。");
             await _input.Frames(3);
-            Require(setup.Session.SubmitCount == 1, "拒绝后自动重提命令。");
+            Require(setup.Session.SubmitCount == 1, "拒绝后自动重试。");
             Require(Find<Label>(economy, "Quote").Text.Contains("总额：900"), "拒绝后未按新视图自动报价。");
             await _input.Activate(Find<Button>(economy, "ConfirmTrade"));
-            Require(setup.Session.SubmitCount == 2, "再次确认未使用新报价。");
+            Require(setup.Session.SubmitCount == 2, "重试未用新报价。");
         });
         setup.Session.AssertComplete();
     }

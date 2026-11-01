@@ -91,7 +91,7 @@ public partial class EconomyUiTests
     public async Task Rejected_war_keeps_its_reason_in_the_overview_without_opening_a_global_error()
     {
         var before = EconomyFixture.Create(trainAtNode: false);
-        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content(mapPresentation: true));
         setup.Session.QueueSubmit(new CoreCommand.DeclareWar(new(1)), CommandSource.UserInterface,
             Completed(1, before, before, new CommandDecision.Rejected([
                 new("invalid_state", "Settlement.Relation", new WorldObjectId.Settlement(new(1)), [])])), before);
@@ -101,8 +101,9 @@ public partial class EconomyUiTests
             var dialog = Find<ConfirmationDialog>(panel, "DeclareWarConfirmation");
             await _input.Activate(dialog.GetOkButton(), dialog);
             await _input.Frames(3);
-            Require(Find<Label>(panel, "WarReason").Text.Contains("状态不符合操作要求") && ui.ErrorText.Length == 0,
-                "宣战被拒后应持续在概况显示原因，不弹全局错误。");
+            Require(Find<Label>(panel, "WarReason").Text.Contains("状态不符合操作要求"),
+                "宣战拒绝原因未保留：" + Find<Label>(panel, "WarReason").Text);
+            Require(ui.ErrorText.Length == 0, "宣战拒绝不应弹全局错误：" + ui.ErrorText);
             Require(setup.Session.SubmitCount == 1, "宣战被拒后不能自动重试。");
             await _input.Activate(Find<Button>(panel, "DeclareWar"));
             Require(Find<Label>(panel, "WarReason").Text.Length == 0, "重新操作宣战时应清除旧拒绝原因。");

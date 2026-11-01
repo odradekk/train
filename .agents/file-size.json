@@ -120,7 +120,7 @@
     "Tests/Engine/ArtCaptureTests.cs": 7351,
     "Tests/Engine/CombatEffectTests.cs": 13724,
     "Tests/Engine/CombatUiTests.cs": 9247,
-    "Tests/Engine/EconomyUiTests.cs": 10451,
+    "Tests/Engine/EconomyUiTests.cs": 10449,
     "Tests/Engine/EditorUiTests.cs": 17201,
     "Tests/Engine/GoodsIconTests.cs": 6983,
     "Tests/Engine/ObservationIndependenceTests.cs": 6419,

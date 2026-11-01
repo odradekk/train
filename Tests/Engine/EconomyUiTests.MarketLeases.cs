@@ -15,7 +15,7 @@ public partial class EconomyUiTests
         {
             await Market(panel);
             Require(Find<OptionButton>(panel, "Action").ItemCount == 2, "无租约时只能买入或卖出。");
-            Require(!Find<OptionButton>(panel, "Lease").IsVisibleInTree(), "无租约时不应显示仓库选择。");
+            Require(!Find<OptionButton>(panel, "TradeLease").IsVisibleInTree(), "无租约时不应显示仓库选择。");
         });
         none.Session.AssertComplete();
         var view = EconomyFixture.Create(leaseCount: 2);
@@ -26,7 +26,7 @@ public partial class EconomyUiTests
         {
             await Market(panel);
             await _input.Choose(Find<OptionButton>(panel, "Action"), 2);
-            var lease = Find<OptionButton>(panel, "Lease");
+            var lease = Find<OptionButton>(panel, "TradeLease");
             Require(lease.IsVisibleInTree() && Find<Button>(panel, "ConfirmTrade").Disabled,
                 "多租约时应选择仓库，选择前不能装卸。");
             await _input.Choose(lease, 2);

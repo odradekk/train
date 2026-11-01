@@ -51,7 +51,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
         Text(_editor, "TrainLabel", "在站列车");
         _trainChoice = new OptionButton { Name = "Train" }; _editor.AddChild(_trainChoice);
         _leaseLabel = Text(_editor, "LeaseLabel", "租用仓库");
-        _leaseChoice = new OptionButton { Name = "Lease" }; _editor.AddChild(_leaseChoice);
+        _leaseChoice = new OptionButton { Name = "TradeLease" }; _editor.AddChild(_leaseChoice);
         _cargo = Text(_editor, "TrainCargo", "");
         var quantity = new HBoxContainer(); _editor.AddChild(quantity);
         Text(quantity, "QuantityLabel", "数量");
