@@ -18,6 +18,7 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
     {
         await Run(async (ui, shell) =>
         {
+            Require(ui.ErrorText.Length == 0, "默认世界截图必须没有内容错误覆盖层。");
             Require(shell.ListContent is null && shell.InspectorContent is null && shell.WorkspaceContent is null,
                 "进入世界不能默认打开列表、检查器或工作区。");
             Require(ui.GetNode<MacroMap>("Root/World/MacroMap").IsVisibleInTree(), "默认应显示宏观地图。");
@@ -125,10 +126,10 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
                     var layers = Find<Control>(ui, "InformationLayers");
                     Require(layers.IsVisibleInTree(), "宏观地图布局检查必须显示真实地图信息层。");
                     ShellGeometry.Check(ui);
-                    await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent, "Pages"), 7);
+                    await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent!, "Pages"), 7);
                     ShellGeometry.Check(ui);
                     await UiCapture.Capture(TestScene, $"shell-settlement-services-scale-{scale:0}", scale);
-                    await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent, "Pages"), 0);
+                    await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent!, "Pages"), 0);
                     ShellGeometry.Check(ui);
                     await UiCapture.Capture(TestScene, $"shell-settlement-stock-scale-{scale:0}", scale);
                     foreach (var entry in new[] { "EconomyReports", "BlueprintLibrary" })
@@ -151,7 +152,7 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
     {
         var before = EconomyFixture.Create(wallet: 1000);
         var after = EconomyFixture.Create(2, wallet: 269);
-        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content(mapPresentation: true));
         setup.Session.QueueSubmit(new CoreCommand.BuyGoods(new(7), new(1), new(10), EconomyFixture.Food,
             EconomyFixture.LargeQuantity, new(731)), CommandSource.UserInterface,
             Completed(1, before, after, new CommandDecision.Accepted([], [])), after);
@@ -181,7 +182,7 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var scale = tree.Root.ContentScaleFactor;
-        var setup = scenario ?? new HostSimulationTests.HostSetup(EconomyFixture.Create(), EconomyFixture.Content());
+        var setup = scenario ?? new HostSimulationTests.HostSetup(EconomyFixture.Create(), EconomyFixture.Content(mapPresentation: true));
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");

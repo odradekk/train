@@ -138,7 +138,7 @@ internal static class EconomyFixture
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
-        ImmutableArray<SavedContentDraft> drafts = default)
+        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -149,7 +149,8 @@ internal static class EconomyFixture
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
             MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market],
-            Processes = processes.IsDefault ? [] : processes
+            Processes = processes.IsDefault ? [] : processes,
+            SettlementTemplates = mapPresentation ? [new(new("fixture:town"), new("fixture:town"), 1, [], [], [], [], 80)] : []
         };
         return new(projection, new(generation))
         {
@@ -160,10 +161,20 @@ internal static class EconomyFixture
                     ((DesignEvaluation.Complete)record.Evaluation).Design, true, []))],
             BlueprintRecords = new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().ToDictionary(
                 record => record.Address, record => (ContentLookup<BlueprintRecord>)new ContentLookup<BlueprintRecord>.Found(record)),
-            DefinitionDisplays = definitionDisplays ?? ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty,
+            DefinitionDisplays = definitionDisplays ?? (mapPresentation
+                ? new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+                {
+                    [new CoreDefinitionReference.SettlementType(new("fixture:town"))] =
+                        new ContentLookup<ContentDisplay>.Found(new(new("聚居地", "有限外壳情景"), null, icon, false))
+                }
+                : ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty),
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {
-                [new(1)] = new ContentLookup<SettlementLayoutProjection>.NotFound(),
+                [new(1)] = mapPresentation
+                    ? new ContentLookup<SettlementLayoutProjection>.Found(new(new(1), new("fixture:town"),
+                        new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
+                            new("地面", "")), [], new("聚居地 1", "有限外壳情景")))
+                    : new ContentLookup<SettlementLayoutProjection>.NotFound(),
                 [new(2)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
             },
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
