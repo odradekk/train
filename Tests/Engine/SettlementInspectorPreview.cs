@@ -16,7 +16,7 @@ public partial class SettlementInspectorPreview : Node
         GetTree().Root.ContentScaleFactor = 1;
         GetTree().Root.Size = new(1920, 1080);
         var hud = new CanvasLayer { Name = "SettlementPreviewHud", Layer = 10 }; AddChild(hud);
-        var box = new VBoxContainer { Position = new(16, 96) }; hud.AddChild(box);
+        var box = new VBoxContainer { Position = new(16, 780) }; hud.AddChild(box);
         box.AddChild(new Label
         {
             Text = "聚居地检查器固定情景\n生产 App 与界面，Core / Content 为有限契约替身。\n从顶部“节点”列表打开聚居地；每次交易后可重置情景。",
