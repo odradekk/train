@@ -18,7 +18,7 @@ internal sealed class WorldListPanel
         Panel = panel;
         _search = new LineEdit { Name = "Search", PlaceholderText = "搜索名称或编号" };
         body.AddChild(_search);
-        _list = new ItemList { Name = "Objects", CustomMinimumSize = new(0, 340),
+        _list = new ItemList { Name = "Objects", SizeFlagsVertical = Control.SizeFlags.ExpandFill,
             AllowReselect = true, MouseForcePassScrollEvents = false };
         body.AddChild(_list);
         var hint = UiStyle.Label("点列表打开详情，不改变当前视角。");

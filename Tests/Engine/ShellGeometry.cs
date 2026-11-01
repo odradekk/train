@@ -60,6 +60,9 @@ internal static class ShellGeometry
         Require(rect.Position.X >= area.Position.X && rect.End.X <= area.End.X &&
             rect.Position.Y >= area.Position.Y && rect.End.Y <= area.End.Y,
             $"列表底部提示应能完整滚入可见区域，不能被横向滚动条压住：提示={rect}，可见区={area}。");
+        var search = Find<LineEdit>(shell.ListContent!, "Search").GetGlobalRect();
+        Require(search.Position.Y >= area.Position.Y && search.End.Y <= area.End.Y,
+            "搜索框和列表底部提示必须同时在内容区内，列表行在自己的区域滚动。");
     }
 
     internal static async Task CheckBothScales(Node scene, GameUi ui)
