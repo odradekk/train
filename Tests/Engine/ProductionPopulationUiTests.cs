@@ -102,7 +102,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                 new(removed, new("v0"), 17, 4, 4.0 / 17, [new(EconomyFixture.Food, 4)], true), [], [], [])
         ];
         var view = View(original, 2, new PopulationExecution.NotStarted([]), facilities);
-        var setup = new HostSimulationTests.HostSetup(original, content);
+        var setup = new HostSimulationTests.HostSetup(view, content);
         var fixture = new Fixture(TestScene.GetTree());
         try
         {
@@ -142,7 +142,9 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
     {
         var original = EconomyFixture.Create();
         var content = EconomyFixture.Content();
-        var setup = new HostSimulationTests.HostSetup(original, content);
+        var needs = Enum.GetValues<PopulationNeed>().Select(kind => new PopulationNeedView(kind, 2, 0, 0, null)).ToImmutableArray();
+        var pending = View(original, 2, new PopulationExecution.NotStarted(needs));
+        var setup = new HostSimulationTests.HostSetup(pending, content);
         var fixture = new Fixture(TestScene.GetTree());
         try
         {
@@ -154,8 +156,6 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             var binding = host.GetStatus()!.Binding;
             var economy = Find<EconomyPanels>(app, "EconomyPanels");
             economy.OpenSettlement(new(binding, content.Generation, new WorldObjectId.Settlement(new(1))), new(1));
-            var needs = Enum.GetValues<PopulationNeed>().Select(kind => new PopulationNeedView(kind, 2, 0, 0, null)).ToImmutableArray();
-            var pending = View(original, 2, new PopulationExecution.NotStarted(needs));
             economy.Refresh(binding, pending, content);
             var population = Find<Label>(app, "Population");
             Require(population.Text.Contains("尚未开始") && population.Text.Contains("未结算") &&
@@ -307,11 +307,9 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         var setup = new HostSimulationTests.HostSetup(view, content);
         await Run(setup, async (_, economy) =>
         {
-            await OpenProduction(economy);
-            var facility = Find<VBoxContainer>(economy, "Facility");
-            Require(Find<OptionButton>(facility, "PlanProcess_1").Disabled && !Find<LineEdit>(facility, "PlanPriority_1").Editable &&
-                Find<Button>(facility, "ApplyPlan_1").Disabled && Find<Button>(facility, "StopPlan_1").Disabled &&
-                setup.Session.SubmitCount == 0, "非自有聚居地可以修改生产计划。");
+            var tabs = Find<TabContainer>(economy, "Pages");
+            Require(!Enumerable.Range(0, tabs.GetTabCount()).Any(i => tabs.GetTabTitle(i) == "生产") &&
+                setup.Session.SubmitCount == 0, "非敌对聚居地仍展示生产页或提交了生产命令。");
         });
         setup.Session.AssertComplete();
     }

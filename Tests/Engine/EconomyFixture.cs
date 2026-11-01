@@ -19,12 +19,14 @@ internal static class EconomyFixture
         bool blocked = false, bool shortage = false, long foodQuantity = 4, long tradeTotal = 731, long? executableQuantity = null,
         bool missingMarketRule = false,
         IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>>? leaseQuotes = null,
-        bool trainAtNode = true, long wallet = 1234567)
+        bool trainAtNode = true, long wallet = 1234567,
+        IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>? tradeQuotes = null,
+        SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
         var terrain = new TerrainView(new("fixture:plain"), 0, []);
-        var occupant = new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile);
+        var occupant = new NodeOccupant.Settlement(new(1), relation);
         var node = new NodeMapItem(new(1), new(250, 300), terrain, occupant, [], 0, 1, null);
         TrainPosition trainPosition = trainAtNode
             ? new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null)
@@ -44,11 +46,12 @@ internal static class EconomyFixture
             new InstanceDetails.Vehicle(SizeClass.Medium, vehicle == VehicleState.Formed ? purchasedTrain.Id : null),
             InstanceLock.None, new(100, 100), [], []);
         var settlement = new SettlementView(new(1), new(1), new("fixture:town"), null,
-            SettlementRelation.NonHostile, new(10), [], vehicle == VehicleState.Formed ? [] : [new(9)], 4, 1, 0,
+            relation, new(10), [], vehicle == VehicleState.Formed ? [] : [new(9)], 4, 1, 0,
             vehicle == VehicleState.ForSale && forSale > 0 ? [new(9)] : [],
             [new(SizeClass.Medium, forSale, 4, purchaseAvailable)], [], new(0, 0, 0, 0),
             new(rule, 10, 10, 0, 10, new PopulationExecution.NotStarted([]), null, []),
-            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [new(1)],
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [],
+            [.. Enumerable.Range(1, leaseCount).Select(id => new LeaseId((ulong)id))],
             new(missingMarketRule ? rule with { Problems = [
                     new("content_missing", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:missing-market"]),
                     new("invalid_state", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:invalid-market"])] } : rule,
@@ -62,10 +65,11 @@ internal static class EconomyFixture
         ImmutableArray<CoreProblem> warnings = shortage
             ? [new("insufficient_goods", "quantity", new WorldObjectId.Inventory(new(12)), ["fixture:shortage"]), new("content_missing", "goods", new WorldObjectId.Inventory(new(12)), ["fixture:missing"])] : [];
         var trades = new Dictionary<TradeQuoteRequest, CoreResult<TradeQuote>>();
-        foreach (var local in new InventoryId[] { new(10), new(11) })
+        foreach (var local in new InventoryId[] { new(10), new(11), new(14) })
         foreach (var good in new[] { Food, Equipment })
         foreach (var action in new[] { TradeAction.Buy, TradeAction.Sell, TradeAction.Load, TradeAction.Unload })
-        foreach (var quantity in new[] { 1L, LargeQuantity })
+        foreach (var quantity in Enumerable.Range(1, LargeQuantity.ToString().Length)
+            .Select(length => long.Parse(LargeQuantity.ToString()[..length])).Concat([1L, 10L]).Distinct())
         {
             var request = new TradeQuoteRequest(new(7), new(1), local, action, good, quantity);
             trades.Add(request, new CoreResult<TradeQuote>.Success(new(request, new(revision), executableQuantity ?? quantity,
@@ -121,6 +125,7 @@ internal static class EconomyFixture
                 [new(10)] = new Lookup<InventoryView>.Found(Inventory(10, new InventoryOwner.Settlement(new(1)))),
                 [new(11)] = new Lookup<InventoryView>.Found(Inventory(11, new InventoryOwner.Lease(new(1)))),
                 [new(12)] = new Lookup<InventoryView>.Found(Inventory(12, new InventoryOwner.Train(train.Id))),
+                [new(14)] = new Lookup<InventoryView>.Found(Inventory(14, new InventoryOwner.Lease(new(2)))),
                 [new(13)] = vehicle == VehicleState.Formed
                     ? new Lookup<InventoryView>.Found(Inventory(13, new InventoryOwner.Train(purchasedTrain.Id)))
                     : new Lookup<InventoryView>.Missing()
@@ -128,9 +133,11 @@ internal static class EconomyFixture
             Leases = new Dictionary<LeaseId, Lookup<LeaseView>>
             {
                 [new(1)] = new Lookup<LeaseView>.Found(new(new(1), new(1), new(11), 20, LeaseDuration, new(419), false)),
-                [new(2)] = new Lookup<LeaseView>.Missing()
+                [new(2)] = leaseCount > 1
+                    ? new Lookup<LeaseView>.Found(new(new(2), new(1), new(14), 20, LeaseDuration * 2, new(419), false))
+                    : new Lookup<LeaseView>.Missing()
             },
-            TradeQuotes = trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
+            TradeQuotes = tradeQuotes ?? trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
         };
     }
 
@@ -138,7 +145,7 @@ internal static class EconomyFixture
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
-        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false)
+        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食")
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -173,13 +180,13 @@ internal static class EconomyFixture
                 [new(1)] = mapPresentation
                     ? new ContentLookup<SettlementLayoutProjection>.Found(new(new(1), new("fixture:town"),
                         new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
-                            new("地面", "")), [], new("聚居地 1", "有限外壳情景")))
+                            new("地面", "")), [], new("青川", "有限外壳情景")))
                     : new ContentLookup<SettlementLayoutProjection>.NotFound(),
                 [new(2)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
             },
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
             {
-                [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new("主食", "有限经济情景"), icon, null, false), null, false)),
+                [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new(foodName, "有限经济情景"), icon, null, false), null, false)),
                 [new GoodId.Voxel(new("fixture:ore"))] = new ContentLookup<GoodPresentation>.Missing([]),
                 [Equipment] = new ContentLookup<GoodPresentation>.Missing([])
             },
