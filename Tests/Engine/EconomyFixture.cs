@@ -21,7 +21,8 @@ internal static class EconomyFixture
         IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>>? leaseQuotes = null,
         bool trainAtNode = true, long wallet = 1234567,
         IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>? tradeQuotes = null,
-        SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1)
+        SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1, InventoryView? settlementInventory = null,
+        IReadOnlyList<ConstructionJobView>? commissionJobs = null)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -57,6 +58,7 @@ internal static class EconomyFixture
                     new("invalid_state", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:invalid-market"])] } : rule,
                 new(100, 5, 2, 20, 0, 75, 50),
                 [new(Food, 42, 50, 2, 40, 20, []), new(Equipment, 3, 5, 0, 3, 2, [])]));
+        if (commissionJobs is not null) settlement = settlement with { CommissionJobs = [.. commissionJobs.Select(job => job.Id)] };
         InventoryView Inventory(ulong id, InventoryOwner owner) => new(new(id), owner, location, InventoryAccess.ReadWrite,
             100, 5, 2, 93, 1.25, [new(Food, foodQuantity, false), new(Equipment, 1, false)], []);
         ImmutableArray<CoreProblem> blockers = blocked
@@ -122,7 +124,7 @@ internal static class EconomyFixture
             },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
             {
-                [new(10)] = new Lookup<InventoryView>.Found(Inventory(10, new InventoryOwner.Settlement(new(1)))),
+                [new(10)] = new Lookup<InventoryView>.Found(settlementInventory ?? Inventory(10, new InventoryOwner.Settlement(new(1)))),
                 [new(11)] = new Lookup<InventoryView>.Found(Inventory(11, new InventoryOwner.Lease(new(1)))),
                 [new(12)] = new Lookup<InventoryView>.Found(Inventory(12, new InventoryOwner.Train(train.Id))),
                 [new(14)] = new Lookup<InventoryView>.Found(Inventory(14, new InventoryOwner.Lease(new(2)))),
@@ -137,6 +139,8 @@ internal static class EconomyFixture
                     ? new Lookup<LeaseView>.Found(new(new(2), new(1), new(14), 20, LeaseDuration * 2, new(419), false))
                     : new Lookup<LeaseView>.Missing()
             },
+            Jobs = (commissionJobs ?? []).ToDictionary(job => job.Id,
+                job => (Lookup<JobView>)new Lookup<JobView>.Found(new JobView.Construction(job))),
             TradeQuotes = tradeQuotes ?? trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
         };
     }
@@ -145,7 +149,8 @@ internal static class EconomyFixture
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
-        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食")
+        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
+        string? equipmentName = null)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -188,7 +193,8 @@ internal static class EconomyFixture
             {
                 [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new(foodName, "有限经济情景"), icon, null, false), null, false)),
                 [new GoodId.Voxel(new("fixture:ore"))] = new ContentLookup<GoodPresentation>.Missing([]),
-                [Equipment] = new ContentLookup<GoodPresentation>.Missing([])
+                [Equipment] = equipmentName is null ? new ContentLookup<GoodPresentation>.Missing([])
+                    : new ContentLookup<GoodPresentation>.Found(new(Equipment, new(new(equipmentName, ""), icon, null, false), null, false))
             },
             Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
             {
@@ -198,7 +204,7 @@ internal static class EconomyFixture
             {
                 [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
                 [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
-                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding()),
+                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding(armedBuilding)),
                 [new("fixture-food-building")] = new ContentLookup<DesignEvaluation>.Found(FoodBuilding())
             }
         };
@@ -218,7 +224,7 @@ internal static class EconomyFixture
             new(null, null, null, true, null, null, [], [], [], [], []), true, []);
     }
 
-    private static DesignEvaluation.Complete PlainBuilding()
+    private static DesignEvaluation.Complete PlainBuilding(bool armed)
     {
         var definition = new DesignDraft(new("普通建筑", ""),
             new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, []), new([], [], []));
@@ -226,7 +232,7 @@ internal static class EconomyFixture
             new(new("fixture-plain-building"), new("fixture-plain-composition"),
                 new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
                 [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
-                    [new PartCapability.Production(1)], false)],
+                    [new PartCapability.Production(1), .. (armed ? new PartCapability[] { new PartCapability.Weapon(12, 2) } : [])], false)],
                 100, 1, 1, new(1), [], [], 0, [], true, []), []);
         return new(design.Design.Design, design.Design.Composition, definition, design,
             new(null, null, null, true, null, null, [], [], [], [], []), true, []);

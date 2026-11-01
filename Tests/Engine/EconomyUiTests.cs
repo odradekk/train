@@ -623,9 +623,9 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
 
     private Task Page(Control economy, int index)
     {
-        string[] titles = ["库存", "市场", "现车", "仓库租用", "生产", "人口", "地块与建筑", "建造与工地"];
+        var title = index switch { 1 => "市场", 2 => "现车", 3 => "仓库租用", _ => "建造与工地" };
         var tabs = Find<TabContainer>(economy, "Pages");
-        return _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == titles[index]));
+        return _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == title));
     }
 
 }

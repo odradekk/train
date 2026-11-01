@@ -49,6 +49,26 @@ public partial class EconomyUiTests
     }
 
     [Test]
+    public async Task Overview_commissions_show_rounded_remaining_seconds_or_no_current_work()
+    {
+        var working = new ConstructionJobView(new(90), ConstructionKind.Construction, new(1),
+            new(new(1), CapabilityKind.Construction), new ConstructionTarget.NewVehicle(new("fixture-vehicle")),
+            ConstructionState.Working, 0, 100, 51, .51, 6, [], [], []);
+        var paused = working with { Id = new(91), Kind = ConstructionKind.Repair,
+            Target = new ConstructionTarget.Existing(new InstanceId.Vehicle(new(10)), new("fixture-vehicle")),
+            State = ConstructionState.Paused, ProgressWork = 20, Progress = .2, ActualWorkPerSecond = 0 };
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(commissionJobs: [working, paused]), EconomyFixture.Content());
+        await Run(setup, (_, panel) =>
+        {
+            Require(Find<Label>(panel, "Commissions").Text ==
+                "进行中的委托\n制造 · 51% · 预计还需 9 秒\n修理 · 20% · 当前未施工",
+                "委托应向上取整显示剩余秒数，零工作速率时保持未施工提示。");
+            return Task.CompletedTask;
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
     public async Task Declaration_requires_a_consequence_confirmation_and_cancel_submits_nothing()
     {
         var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(), EconomyFixture.Content());
@@ -81,8 +101,10 @@ public partial class EconomyUiTests
             await _input.Activate(dialog.GetOkButton(), dialog);
             await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
             var current = Find<PanelContainer>(ui, "Settlement");
-            Require(Find<TabContainer>(current, "Pages").GetTabCount() == 8 && setup.Session.SubmitCount == 1,
-                "宣战后应使用既有敌对页面，而且只提交一次。");
+            var tabs = Find<TabContainer>(current, "Pages");
+            Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
+                .SequenceEqual(new[] { "现车", "仓库租用", "建造与工地" }) && setup.Session.SubmitCount == 1,
+                "宣战后应只保留敌对聚居地的剩余旧页，而且只提交一次。");
         });
         setup.Session.AssertComplete();
     }
