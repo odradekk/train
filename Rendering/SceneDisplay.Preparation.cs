@@ -16,7 +16,6 @@ internal sealed partial class SceneDisplay
         try
         {
             AdvanceRetirement(started, budget, singleStep: true);
-            if (_retirement is not null && ChangesSpace(frame.Update.Frame)) return null;
             if (_candidatePromoted && !HasCandidateFor(frame.Update.Frame))
             {
                 _budgetAdvanced = true;
@@ -38,13 +37,18 @@ internal sealed partial class SceneDisplay
                 _budgetAdvanced = true;
                 CancelPreparation();
             }
+            var spaceChanged = DisplayedFrame is { } displayed
+                ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
+                : _completeInitialFrame;
+            if (spaceChanged)
+            {
+                _retirement?.Dispose();
+                _retirement = null;
+            }
             if (_preparation is null) { _preparation = new(frame, _resources, _packingCosts); _candidate++; }
             var preparation = _preparation;
             frame = preparation.Frame;
             var update = frame.Update;
-            var spaceChanged = DisplayedFrame is { } displayed
-                ? displayed.Update.Frame.Session != update.Frame.Session || displayed.Update.Frame.Space != update.Frame.Space
-                : _completeInitialFrame;
             // 新空间正式首帧仍一次准备并原子提交，后续调用共享每进程帧的额度。
             var slice = new PreparationSlice(this, started, budget, spaceChanged);
             if (!InitializePreparation(preparation, slice, spaceChanged)) return null;

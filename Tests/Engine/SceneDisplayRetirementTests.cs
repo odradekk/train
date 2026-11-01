@@ -97,7 +97,7 @@ public partial class SceneDisplayTests
     }
 
     [Test]
-    public async Task Rapid_space_switches_wait_for_the_bounded_retirement_and_close_releases_everything()
+    public async Task Rapid_space_switches_clear_previous_retirement_and_close_releases_everything()
     {
         await new UiTestInput(TestScene).Frames(1);
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -108,20 +108,20 @@ public partial class SceneDisplayTests
         var second = Frame(2, [Object(2, Peak(2))], space: 2);
         await Commit(display, second);
         var secondMesh = MeshOf(display.Objects[new(2)]);
-        var third = Frame(3, [Object(3, Peak(3))], space: 3);
-        for (var attempt = 0; attempt < 8; attempt++)
+        for (ulong space = 3; space <= 8; space++)
         {
-            using var pending = display.Prepare(third);
-            Require(pending is null && ReferenceEquals(display.DisplayedFrame, second) &&
-                display.Objects.Count == 1 && GodotObject.IsInstanceValid(firstMesh),
-                "前批退役未清空时不能接入下一空间或积累新的退役批次。");
+            await new UiTestInput(TestScene).Frames(1);
+            var next = Frame(space, [Object(space, Peak(space))], space: space);
+            using var prepared = display.Prepare(next);
+            Require(prepared is not null && !GodotObject.IsInstanceValid(firstMesh) &&
+                GodotObject.IsInstanceValid(secondMesh), "新首帧必须先清上批旧债，保留当前显示的资源。");
+            prepared!.Commit();
+            firstMesh = secondMesh;
+            secondMesh = MeshOf(display.Objects[new(space)]);
+            Require(GodotObject.IsInstanceValid(firstMesh), "本次刚退役的资源仍留给后续帧。");
         }
-        await Commit(display, third);
-        var thirdMesh = MeshOf(display.Objects[new(3)]);
-        Require(!GodotObject.IsInstanceValid(firstMesh) && GodotObject.IsInstanceValid(secondMesh),
-            "第三空间只能在第一空间清空后接入，第二空间刚退役不能当帧释放。");
         display.Dispose();
-        Require(!GodotObject.IsInstanceValid(secondMesh) && !GodotObject.IsInstanceValid(thirdMesh),
+        Require(!GodotObject.IsInstanceValid(firstMesh) && !GodotObject.IsInstanceValid(secondMesh),
             "关闭必须同时清空待退役资源和当前显示，不依赖之后还有Prepare。");
     }
 
@@ -147,14 +147,12 @@ public partial class SceneDisplayTests
         Require(root.IsInsideTree() && root.GetChildCount() == 2 && !removedBox.IsInsideTree() &&
             GodotObject.IsInstanceValid(removedMesh) && GodotObject.IsInstanceValid(material),
             "旧雾只摘掉未保留矩形，共享root和material必须随新组继续存活。");
-        using (var blocked = display.Prepare(Frame(3, [], fog: [added], space: 3)))
-            Require(blocked is null, "下一代雾必须等前代退役清空，不能倒序释放共享所有者。");
-        await new UiTestInput(TestScene).Frames(1);
-        using (var later = display.Prepare(next)) { }
+        using var prepared = display.Prepare(Frame(3, [], fog: [added], space: 3));
+        Require(prepared is not null, "新空间首帧必须在本次调用内清掉前代雾的积压。");
         Require(!GodotObject.IsInstanceValid(removedBox) && !GodotObject.IsInstanceValid(removedMesh) &&
             GodotObject.IsInstanceValid(material) && root.IsInsideTree() &&
             currentMeshes.All(GodotObject.IsInstanceValid), "后续预算只释放旧代剩余box，当前雾仍完整可见。");
-        await Commit(display, Frame(4, [], fog: [added], space: 3));
+        prepared!.Commit();
         display.Dispose();
         Require(!GodotObject.IsInstanceValid(removedMesh) && !GodotObject.IsInstanceValid(root) &&
             !GodotObject.IsInstanceValid(material) && currentMeshes.All(mesh => !GodotObject.IsInstanceValid(mesh)),

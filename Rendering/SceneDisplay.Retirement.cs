@@ -9,6 +9,7 @@ internal sealed partial class SceneDisplay
 {
     private Retirement? _retirement;
     private ulong _retirementFrame;
+    private ulong _retirementProgressFrame;
     private readonly RetirementCosts _retirementCosts = new();
 
     private bool ChangesSpace(SceneFrameStamp frame) => DisplayedFrame is { } displayed &&
@@ -16,9 +17,13 @@ internal sealed partial class SceneDisplay
 
     private void AdvanceRetirement(long started, TimeSpan? budget, bool singleStep)
     {
-        if (_retirement is null || _retirementFrame == Engine.GetProcessFrames()) return;
+        var frame = Engine.GetProcessFrames();
+        if (_retirement is null || _retirementFrame == frame ||
+            singleStep && _retirementProgressFrame + 1 >= frame) return;
+        var released = _retirementCosts.Released;
         if (_retirement.Release(new(this, started, budget, false), _retirementCosts, singleStep))
             _retirement = null;
+        if (_retirementCosts.Released != released) _retirementProgressFrame = frame;
     }
 
     private void ReleasePrevious(ImmutableDictionary<SceneObjectId, DisplayObject> old,
@@ -56,9 +61,10 @@ internal sealed partial class SceneDisplay
             }
         }
         if (retirement is not { IsEmpty: false }) return;
-        // Prepare 在积压清完前不接入下一个空间，最多保留一份旧显示帧的资源。
+        // 下一正式首帧先清掉这批旧债，始终只保留一批已摘下的资源。
         _retirement = retirement;
         _retirementFrame = Engine.GetProcessFrames();
+        _retirementProgressFrame = _retirementFrame;
     }
 
     private sealed class Retirement : IDisposable
@@ -102,14 +108,15 @@ internal sealed partial class SceneDisplay
     internal sealed class RetirementCosts
     {
         private TimeSpan _node, _resource;
+        internal ulong Released { get; private set; }
 
         internal bool Free(PreparationSlice slice, Node node)
         {
             if (!slice.Start(_node)) return false;
             var started = slice.Timestamp();
             node.Free();
-            var elapsed = Stopwatch.GetElapsedTime(started, slice.Timestamp());
-            if (elapsed > _node) _node = elapsed;
+            _node = Stopwatch.GetElapsedTime(started, slice.Timestamp());
+            Released++;
             return true;
         }
 
@@ -118,8 +125,8 @@ internal sealed partial class SceneDisplay
             if (!slice.Start(_resource)) return false;
             var started = slice.Timestamp();
             resource.Dispose();
-            var elapsed = Stopwatch.GetElapsedTime(started, slice.Timestamp());
-            if (elapsed > _resource) _resource = elapsed;
+            _resource = Stopwatch.GetElapsedTime(started, slice.Timestamp());
+            Released++;
             return true;
         }
     }
