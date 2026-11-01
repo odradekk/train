@@ -574,10 +574,7 @@ internal sealed class EditorService : IDisposable
         {
             return Session.Preview(operation);
         }
-        catch (Exception error)
-        {
-            return new SceneResult<IEditPreview>.Faulted(new("editor_preview_failed", SceneStage.Edit, null, null, null, null, error.Message));
-        }
+        catch { return null; }
     }
     internal void Locate(DesignElementPath path)
     {

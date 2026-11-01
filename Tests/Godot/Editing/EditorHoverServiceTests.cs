@@ -24,7 +24,7 @@ public sealed partial class EditorServiceTests
 
         var result = fixture.Editor.Preview(new EditOperation.Cells(new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Remove()));
 
-        if (outcome == 2) Assert.IsInstanceOfType<SceneResult<IEditPreview>.Faulted>(result);
+        if (outcome == 2) Assert.IsNull(result);
         else Assert.AreSame(rejected, result);
         Assert.IsFalse(fixture.Editor.HasError, "悬停拒绝不能把编辑器设为操作失败。");
         Assert.AreEqual(message, fixture.Editor.Message);
