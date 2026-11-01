@@ -16,12 +16,13 @@ namespace Train.Engine.Tests;
 public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
 {
     [Test]
-    public async Task Long_plan_stays_below_the_top_bar_and_inside_the_window_when_the_bar_wraps()
+    public async Task Long_plan_and_shell_regions_stay_below_the_wrapped_top_bar()
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var size = tree.Root.Size;
         var scale = tree.Root.ContentScaleFactor;
+        var canvas = tree.Root.ContentScaleSize;
         var view = EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Formed);
         var content = EconomyFixture.Content();
         var setup = new HostSimulationTests.HostSetup(view, content);
@@ -33,44 +34,41 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
             var ui = app.GetNode<GameUi>("GameUi");
-            var panel = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            var panel = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
             var train = Train(view, 7) with { Plan = new(true,
                 Enumerable.Range(0, 40).Select(_ => (PlanStop)new PlanStop.Station(new(1), 60, [])).ToImmutableArray()) };
             panel.Open(new(app.Host!.GetStatus()!.Binding, content.Generation, new WorldObjectId.Train(train.Id)), train, view, content);
-            var firstBarHeight = 0f;
+            float firstHeight = 0;
             foreach (var (windowSize, uiScale) in new[] {
-                (new Vector2I(1920, 1080), 1f), (new Vector2I(1280, 720), 1.25f), (new Vector2I(1280, 720), 1.75f) })
+                (new Vector2I(1920, 1080), 1f), (new Vector2I(1280, 720), 1.25f), (new Vector2I(1280, 720), 1.75f), (new Vector2I(800, 720), 2f), (new Vector2I(960, 1080), 2f) })
             {
+                tree.Root.ContentScaleSize = windowSize.X == 960 ? Vector2I.Zero : canvas;
                 tree.Root.Size = windowSize;
                 tree.Root.ContentScaleFactor = uiScale;
                 await new UiTestInput(TestScene).Frames(6);
-                var bounds = panel.GetNode<PanelContainer>("Plan").GetGlobalRect();
+                var bounds = Find<Control>(panel, "Plan").GetGlobalRect();
                 var bar = ui.GetNode<PanelContainer>("Root/World/Bar").GetGlobalRect();
                 Require(bounds.Position.Y >= bar.End.Y && bounds.End.Y <= tree.Root.GetVisibleRect().End.Y,
-                    $"运行计划超出顶栏下方的可用区域：window={windowSize}，bar={bar}，panel={bounds}。");
-                if (firstBarHeight == 0)
+                    $"运行计划超出顶栏下方：window={windowSize}，bar={bar}，panel={bounds}。");
+                if (firstHeight == 0)
                 {
-                    firstBarHeight = bar.Size.Y;
+                    firstHeight = bar.Size.Y;
                     await UiCapture.Capture(TestScene, "long-plan");
                 }
                 else
                 {
-                    if (uiScale == 1.75f) Require(bar.Size.Y > firstBarHeight, "窄窗口没有覆盖顶栏换行情景。");
-                    if (DisplayServer.GetName() != "headless" &&
-                        System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR") is { } output)
-                    {
-                        await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-                        using var image = tree.Root.GetTexture().GetImage();
-                        Require(image.SavePng(Path.Combine(output, $"long-plan-{uiScale}.png")) == Error.Ok,
-                            "窄窗口计划截图保存失败。");
-                    }
+                    if (windowSize.X == 960) Require(bar.Size.Y > firstHeight, "窄视口的顶栏必须确实换行。");
+                    foreach (var name in new[] { "Navigation", "ListRegion", "InspectorRegion", "WorkspaceRegion" })
+                        Require(Find<Control>(ui, name).GetGlobalRect().Position.Y >= bar.End.Y,
+                            $"{name} 侵入顶栏：{bar}。");
+                    Require(((GameShell)ui.World).SceneArea.Position.Y >= bar.End.Y, "场景区域侵入顶栏。");
                 }
             }
         }
         finally
         {
+            tree.Root.ContentScaleSize = canvas; tree.Root.Size = size; tree.Root.ContentScaleFactor = scale;
             await fixture.Cleanup();
-            tree.Root.Size = size; tree.Root.ContentScaleFactor = scale;
         }
     }
 
@@ -198,7 +196,7 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
-            var parent = new Control();
+            var parent = fixture.AutoFree(new Control());
             var panel = new TrainPlanPanel();
             panel.Initialize(app.Host!, (_, command) => { submit(command); return new([], []); },
                 error => throw new InvalidOperationException(error));

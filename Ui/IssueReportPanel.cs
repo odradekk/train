@@ -29,6 +29,7 @@ public partial class IssueReportPanel : Window
         DialogText = "目标文件已存在。确认覆盖？"
     };
     private string? _exportPath;
+    public override void _UnhandledInput(InputEvent input) => UiStyle.CloseOnEscape(this, input);
 
     public override void _Ready()
     {

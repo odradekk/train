@@ -8,6 +8,7 @@ namespace Train.Ui;
 
 internal partial class TrainPlanPanel : Control
 {
+    internal event Action? Opened;
     private HostCoordinator _host = null!;
     private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
     private Action<string> _reportError = null!;
@@ -78,6 +79,7 @@ internal partial class TrainPlanPanel : Control
         Show();
         UiStyle.BringToFront(this);
         RefreshState(target.Binding, view, content);
+        Opened?.Invoke();
     }
 
     private void AddRow() => BindRow(CreateRow(), null);
@@ -165,7 +167,7 @@ internal partial class TrainPlanPanel : Control
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
-        if (!IsVisibleInTree()) return;
+        if (!IsVisibleInTree() && (_target is null || _target.Binding == binding)) return;
         RefreshState(binding, view, content);
     }
 

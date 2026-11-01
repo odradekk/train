@@ -48,12 +48,11 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             UiCapture.ConfigureWindowIfNeeded(tree.Root);
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var nodes = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            var nodes = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
             await _input.ClickItem(nodes, 0);
-            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            await _input.Activate(Find<Button>(panels, "Form"));
-            var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
+            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
             var available = Find<ItemList>(formation, "AvailableVehicles");
             Require(available.ItemCount == 2, "有限车辆情景未在编组列表显示。");
             await _input.ClickItem(available, 0);
@@ -70,8 +69,8 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             Require(setup.Session.SubmitCount == 1 && !formation.Visible &&
                 ReferenceEquals(ui.View, formed), "编组接受后没有发布新列车视图并关闭表单。");
 
-            await _input.Activate(Find<Button>(panels, "EditPlan"));
-            var editor = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "EditPlan"));
+            var editor = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
             var rows = editor.GetNode<VBoxContainer>("Plan/Layout/Content/Body/RowsScroll/Rows");
             var station = rows.GetNode<VBoxContainer>("Row0");
             await _input.Enter(station.GetNode<LineEdit>("Stop/DwellSeconds"), "2");
@@ -99,9 +98,9 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             Require(setup.Session.SubmitCount == 3 && !editor.Visible,
                 "再次应用没有提交保留的计划或更新列车视图。");
             await UiCapture.Capture(TestScene, "train-details");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            if (!nodes.IsVisibleInTree()) await _input.Activate(Find<Button>(ui, "Nodes"));
             await _input.ClickItem(nodes, 0);
-            await _input.Activate(Find<Button>(panels, "Form"));
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
             Require(formation.IsVisibleInTree() && available.ItemCount == 0 &&
                 Find<Button>(formation, "Form").Disabled && Find<Label>(formation, "Reason").Text.Length > 0 &&
                 setup.Session.SubmitCount == 3,

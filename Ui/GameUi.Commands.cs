@@ -32,6 +32,7 @@ public partial class GameUi
 
     private void SetSpeed(SimulationSpeed? speed)
     {
+        _notificationPause = null;
         if (_host is null) return;
         if (speed is null) { Report(_host.SetPaused(true)); return; }
         var problem = _host.SetSpeed(speed.Value);

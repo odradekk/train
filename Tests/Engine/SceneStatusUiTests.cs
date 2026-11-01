@@ -82,10 +82,9 @@ public class SceneStatusUiTests(Node testScene) : TestClass(testScene)
             RequireIds(overlay, Building);
             panels.OpenObject(new WorldObjectId.Instance(Vehicle));
             await Frame();
-            RequireIds(overlay, Building, Vehicle);
+            RequireIds(overlay, Vehicle);
             RequireMarker(overlay, Vehicle, 1, UiStyle.Success, new SceneStatus.Icon.Train(TrainActivity.Running));
-            foreach (var button in panels.FindChildren("Close", "Button", true, false).Cast<Button>())
-                button.EmitSignal(BaseButton.SignalName.Pressed);
+            Find<Button>(((GameShell)ui.World).InspectorContent!, "Close").EmitSignal(BaseButton.SignalName.Pressed);
             await Frame();
             Require(overlay.Markers.Count == 0, "关闭详情后面板选中的标记仍在。");
 

@@ -19,8 +19,42 @@ public partial class GameUi
     private WorldSceneController? _scenes;
     private Button? _returnToMap;
 
+    private void RefreshSelection()
+    {
+        if (_shell.SelectedObject is WorldObjectId.Node node &&
+            _view!.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is NodeOccupant.Settlement settlement)
+            SelectObject(new WorldObjectId.Settlement(settlement.Id));
+    }
+
+    private void SelectObject(WorldObjectId id, Control? content = null)
+    {
+        if (_host?.GetStatus() is not { } status || _content is null ||
+            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
+                _host.PanelGenerationCurrent(_binding, _content.Generation)))
+        { ReportUiError("对象已不存在或所属对局已更换。"); return; }
+        if (content is not null) { _shell.Inspect(id, content); return; }
+        if (id is WorldObjectId.Node node && status.View.World.Nodes.First(item => item.Id == node.Id).Occupant
+            is NodeOccupant.Settlement occupied)
+        { SelectObject(new WorldObjectId.Settlement(occupied.Id)); return; }
+        switch (id)
+        {
+            case WorldObjectId.Settlement settlement:
+                _economy!.OpenSettlement(new(_binding, _content.Generation, id), settlement.Id);
+                break;
+            case WorldObjectId.Combat combat:
+                _combat!.Close(); _combat.OpenCombat(combat.Id);
+                _shell.Inspect(id, _combat);
+                break;
+            default:
+                _panels!.Refresh(status.Binding, status.View, _content);
+                _panels.OpenObject(id);
+                break;
+        }
+    }
+
     private void OpenScene(WorldObjectId id)
     {
+        SelectObject(id);
         if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is null ||
             !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
                 _host.PanelGenerationCurrent(_binding, _content.Generation)))
@@ -36,17 +70,11 @@ public partial class GameUi
         };
         if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }
         _scenes.Open(target);
-        var openDetail = id is WorldObjectId.Edge || id is WorldObjectId.Node clicked &&
-            status.View.World.Nodes.FirstOrDefault(item => item.Id == clicked.Id)?.Occupant is NodeOccupant.Empty;
-        if (openDetail)
-        {
-            _panels?.Refresh(_binding, status.View, _content!);
-            _panels?.OpenObject(id);
-        }
     }
 
     private void OpenCombat(CombatId id)
     {
+        SelectObject(new WorldObjectId.Combat(id));
         if (_host?.GetStatus() is not { } status) return;
         var item = status.View.World.Combats.FirstOrDefault(combat => combat.Id == id);
         if (item is null) { ReportUiError("已不存在"); return; }
@@ -87,7 +115,6 @@ public partial class GameUi
             !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
                 _host.PanelGenerationCurrent(_binding, _content.Generation)))
             return;
-        _panels!.Refresh(status.Binding, status.View, content);
-        _panels.OpenObject(id);
+        SelectObject(id);
     }
 }

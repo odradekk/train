@@ -54,7 +54,7 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             Require(app.Host!.RenameSave("unsaved fixture") is null, "无法准备离开保护。");
             var binding = app.Host.GetStatus()!.Binding;
             var ui = app.GetNode<GameUi>("GameUi");
-            ui.GetNode<Button>("Root/World/Bar/TopBar/Settings").EmitSignal(BaseButton.SignalName.Pressed);
+            await new UiTestInput(TestScene).ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "设置");
             var settings = ui.GetNode<SettingsPanel>("Root/SettingsPanel");
             settings.GetNode<Button>("Settings/Layout/Content/Body/ReportIssue").EmitSignal(BaseButton.SignalName.Pressed);
             var report = settings.GetNode<IssueReportPanel>("IssueReportPanel");

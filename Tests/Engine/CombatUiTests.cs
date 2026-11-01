@@ -16,7 +16,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class CombatUiTests(Node testScene) : TestClass(testScene)
+public partial class CombatUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
@@ -68,7 +68,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             var setup = new HostSimulationTests.HostSetup();
             app = await Boot(fixture, (loaded, logger) => setup.Create(logger, loaded.Notifications.Decide));
             var ui = app.GetNode<GameUi>("GameUi");
-            await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Settings"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "设置");
             var choice = Find<OptionButton>(ui, "Notify_encounter");
             await _input.WaitUntil(() => choice.IsVisibleInTree());
             await _input.Choose(choice, (int)NotificationAction.Pause);
@@ -171,7 +171,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 combat.SelectedFocus == new WorldObjectId.Instance(new InstanceId.Building(new(13))) &&
                 Find<Label>(combat, "CombatState").Text.Contains("已不存在"),
                 $"count={host.Session.AdvanceCount} {Find<Label>(combat, "CombatState").Text}");
-            await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Notices"));
+            await Press(Find<Button>(ui, "Notices"));
             var log = Find<PanelContainer>(ui, "NoticeLog");
             var row = log.FindChildren("Notice", "Button", true, false).Cast<Button>().Single();
             Require(row.Text.Contains("遭遇战斗"), row.Text);
@@ -185,29 +185,11 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Surrender_or_relation_notice_opens_the_settlement_node_until_it_is_gone()
+    public async Task Surrender_or_relation_notice_selects_the_settlement_until_it_is_gone()
     {
         var fixture = new Fixture(TestScene.GetTree());
         var host = new CombatHost(rich: true);
-        FixedDisplaySession? scene = null;
-        var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
-        var failure = new SceneResult<ISceneFrame>.Failure([
-            new("notice_probe", SceneStage.Present, null, null, null, null, "只记录聚居地节点。")]);
-        var scenes = new FixedDisplayFactory
-        {
-            OpenWorldCall = (binding, _) =>
-            {
-                scene = new FixedDisplaySession
-                {
-                    Id = new(Guid.Parse("00000000-0000-0000-0000-000000330354")),
-                    Binding = binding,
-                    RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(
-                        target, new SceneResult<SceneRequestId>.Success(new(1))),
-                    PresentResults = [failure]
-                };
-                return new SceneResult<IWorldSceneSession>.Success(scene);
-            }
-        };
+        var scenes = new FixedDisplayFactory();
         Train.App.App? app = null;
         try
         {
@@ -223,7 +205,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             app.Host.SetPaused(true);
             await _input.Frames();
             var ui = app.GetNode<GameUi>("GameUi");
-            await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Notices"));
+            await Press(Find<Button>(ui, "Notices"));
             var log = Find<PanelContainer>(ui, "NoticeLog");
             var rows = log.FindChildren("*", "Button", true, false).Cast<Button>().ToArray();
             var surrender = rows.Single(button => button.Text.Contains("投降"));
@@ -232,11 +214,12 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 relation.Text.Contains("完成") && relation.Text.Contains("Town"),
                 $"{surrender.Text} / {relation.Text}");
             await Press(surrender);
-            await _input.WaitUntil(() => scene is { RequestCalls.Count: 1, IsDisposed: true });
-            Require(scene!.RequestCalls[0] == target, $"投降没有打开节点：{string.Join(", ", scene.RequestCalls)}。");
+            Require(((GameShell)ui.World).SelectedObject == new WorldObjectId.Settlement(new(4)) &&
+                Find<PanelContainer>(ui, "Settlement").IsVisibleInTree(), "投降通知没有选中聚居地检查器。");
+            ((GameShell)ui.World).Inspect(null, null);
             await Press(relation);
-            await _input.WaitUntil(() => scenes.OpenCalls.Count == 2 && scene is { RequestCalls.Count: 1, IsDisposed: true });
-            Require(scene.RequestCalls[0] == target, $"关系变化没有打开节点：{string.Join(", ", scene.RequestCalls)}。");
+            Require(((GameShell)ui.World).SelectedObject == new WorldObjectId.Settlement(new(4)) &&
+                scenes.OpenCalls.Count == 0, "关系变化通知没有选中聚居地，或跳进了场景。");
             host.Session.QueueAdvance(new(1, new(2, 0), [], null, null), host.View(new(2, 0), settlementPresent: false));
             Require(app.Host.SetPaused(false) is null, "无法推进到聚居地消失。");
             app.Host.ProcessFrame(SimulationTime.StepSeconds);
@@ -251,29 +234,11 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task One_retreat_notice_per_train_and_cleared_lair_notice_opens_its_node()
+    public async Task One_retreat_notice_per_train_and_cleared_lair_notice_selects_its_node()
     {
         var fixture = new Fixture(TestScene.GetTree());
         var host = new CombatHost(rich: true);
-        FixedDisplaySession? scene = null;
-        var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(2)));
-        var failure = new SceneResult<ISceneFrame>.Failure([
-            new("notice_probe", SceneStage.Present, null, null, null, null, "只记录清剿节点。")]);
-        var scenes = new FixedDisplayFactory
-        {
-            OpenWorldCall = (binding, _) =>
-            {
-                scene = new FixedDisplaySession
-                {
-                    Id = new(Guid.Parse("00000000-0000-0000-0000-000000674001")),
-                    Binding = binding,
-                    RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(
-                        target, new SceneResult<SceneRequestId>.Success(new(1))),
-                    PresentResults = [failure]
-                };
-                return new SceneResult<IWorldSceneSession>.Success(scene);
-            }
-        };
+        var scenes = new FixedDisplayFactory();
         Train.App.App? app = null;
         try
         {
@@ -291,16 +256,16 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             app.Host.SetPaused(true);
             await _input.Frames();
             var ui = app.GetNode<GameUi>("GameUi");
-            await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Notices"));
+            await Press(Find<Button>(ui, "Notices"));
             var rows = Find<PanelContainer>(ui, "NoticeLog").FindChildren("*", "Button", true, false).Cast<Button>().ToArray();
             var retreats = rows.Where(button => button.Text.Contains("开始撤退")).ToArray();
             var cleared = rows.Where(button => button.Text.Contains("生物聚落被清剿")).ToArray();
             Require(retreats.Length == 1 && retreats[0].Text.Contains("列车 7") && cleared.Length == 1,
                 $"同一列车的一次撤退应只有一条通知，清剿应有一条：{string.Join(" | ", rows.Select(button => button.Text))}");
             await Press(cleared[0]);
-            await _input.WaitUntil(() => scene is { RequestCalls.Count: 1, IsDisposed: true });
-            Require(scene!.RequestCalls[0] == target && ui.ErrorText != "已不存在",
-                $"清剿通知没有打开节点：{string.Join(", ", scene.RequestCalls)} / {ui.ErrorText}");
+            Require(((GameShell)ui.World).SelectedObject == new WorldObjectId.Node(new(2)) &&
+                ((GameShell)ui.World).InspectorContent?.IsVisibleInTree() == true &&
+                scenes.OpenCalls.Count == 0 && ui.ErrorText != "已不存在", "清剿通知没有选中节点检查器，或跳进了场景。");
         }
         finally { await Cleanup(fixture, app); }
     }
@@ -380,7 +345,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 !app.Host.GetStatus()!.IsFrozen && first.SubmitCount == 0 &&
                 !expected.Contains("核心模拟发生故障") && !ui.ErrorText.Contains("核心模拟发生故障"),
                 $"全毁通知或冻结状态不对：{string.Join(" | ", notices)} / {ui.ErrorText}");
-            await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             var menu = app.GetNode<MainMenu>("MainMenu");
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
             await _input.WaitUntil(() => panel.Visible && UiTestInput.SaveButton(panel, "保存").Visible);
@@ -395,7 +360,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 !ui.FindChildren("Notice", "Button", true, false).Cast<Button>().Any(button => button.Text.Contains(expected)));
             Require(!app.Host.GetStatus()!.IsFrozen && first.SubmitCount == 0 && host.Session.SubmitCount == 0,
                 "读档后核心被冻结，或界面自动提交了命令。");
-            if (!panel.Visible) await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            if (!panel.Visible) await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             await _input.WaitUntil(() => panel.Visible);
             await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
             await _input.WaitUntil(() => app.Host.GetStatus() is null || LeaveDialog(panel)?.Visible == true);
@@ -421,35 +386,6 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
         await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
         await _input.Frames(2);
         return app;
-    }
-
-    private async Task<CombatPanel> SelectBattlefield(GameUi ui)
-    {
-        var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-        await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-        var nodes = panels.GetNode<ItemList>("NodesList/Layout/Content/Body/Objects");
-        await _input.ClickItem(nodes, 0);
-        await _input.WaitUntil(() => panels.FindChildren("OpenSettlementCombat", "Button", true, false).Count == 1);
-        await Press(panels.FindChildren("OpenSettlementCombat", "Button", true, false).Cast<Button>().Single());
-        var combat = ui.GetNode<CombatPanel>("Root/World/CombatPanel");
-        await _input.WaitUntil(() => combat.Visible && combat.FindChildren("Combat5", "Button", true, false).Count == 1);
-        await Press(Button(combat, "Combat5"));
-        await _input.WaitUntil(() => combat.FindChildren("Vehicle11", "Button", true, false).Count == 1);
-        await Press(Button(combat, "Vehicle11"));
-        await _input.WaitUntil(() => combat.FindChildren("FocusVehicle11", "Button", true, false).Count == 0 &&
-            combat.FindChildren("FocusBuilding13", "Button", true, false).Count == 1 &&
-            Find<Label>(combat, "CombatState").Text.Contains("士气：0.40"));
-        await Press(Button(combat, "FocusBuilding13"));
-        await _input.WaitUntil(() => !Button(combat, "Retreat").Disabled && !Button(combat, "FocusFire").Disabled);
-        return combat;
-    }
-
-    private async Task Press(Button button)
-    {
-        for (var parent = button.GetParent(); parent is not null; parent = parent.GetParent())
-            if (parent is ScrollContainer scroll) scroll.EnsureControlVisible(button);
-        await _input.Frames();
-        await _input.Activate(button);
     }
 
     private async Task Cleanup(Fixture fixture, Train.App.App? app, HashSet<Guid>? owned = null)
@@ -568,6 +504,8 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 new(new("ground"), scene, new("Ground", "")), [], new("Town", ""));
             return new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
             {
+                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                { [new("station")] = new ContentLookup<DesignEvaluation>.NotFound() },
                 SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
                 {
                     [new(4)] = new ContentLookup<SettlementLayoutProjection>.Found(layout)
@@ -629,7 +567,9 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
                 {
                     [nodeLocation] = new Lookup<LocationView>.Found(new(nodeLocation, [train.Id],
-                        [vehicle.Id, building.Id], [], [], occupant))
+                        [vehicle.Id, building.Id], [], [], occupant)),
+                    [new WorldLocation.Node(far.Id)] = new Lookup<LocationView>.Found(
+                        new(new WorldLocation.Node(far.Id), [], [], [], [], far.Occupant))
                 },
                 Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },
                 Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
@@ -638,6 +578,9 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                     [SecondVehicle] = new Lookup<InstanceView>.Found(vehicle with { Id = SecondVehicle }),
                     [building.Id] = new Lookup<InstanceView>.Found(building)
                 },
+                Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
+                { [settlement.Inventory] = new Lookup<InventoryView>.Found(new(settlement.Inventory,
+                    new InventoryOwner.Settlement(settlement.Id), nodeLocation, InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], [])) },
                 Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
                 {
                     [settlement.Id] = settlementPresent

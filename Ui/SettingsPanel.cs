@@ -14,6 +14,8 @@ public partial class SettingsPanel : Control
     private HostCoordinator? _host;
     private NotificationPolicy _policy = null!;
     private RecordingService? _recording;
+    private IssueReportPanel? _issueReport;
+    internal void OpenIssueReport() => _issueReport?.Open();
     private SaveService? _saves;
     private Action<bool>? _setHighQuality;
     private Action<bool>? _setAlwaysShowSceneStatus;
@@ -135,7 +137,7 @@ public partial class SettingsPanel : Control
         body.AddChild(UiStyle.Label("更改立即生效，并自动保存。等级过滤只保留在本次运行。"));
         if (_recording is not null)
         {
-            var report = new IssueReportPanel { Name = "IssueReportPanel" };
+            var report = _issueReport = new IssueReportPanel { Name = "IssueReportPanel" };
             AddChild(report);
             report.Configure(_recording);
             body.AddChild(UiStyle.Button("ReportIssue", "报告问题", report.Open));

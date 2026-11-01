@@ -16,7 +16,7 @@ using NVector3 = System.Numerics.Vector3;
 
 namespace Train.Engine.Tests;
 
-public class SceneUiTests(Node testScene) : TestClass(testScene)
+public partial class SceneUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
     private float _previousScale;
@@ -55,23 +55,27 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 ui.GetNode<WorldPanels>("Root/World/WorldPanels").IsObjectOpen(new WorldObjectId.Instance(Vehicle)),
                 "场景真实点击未经过Pick/Resolve打开实例详情。");
             var pickedRay = frame.LastPickRay;
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            var list = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
             await _input.ClickItem(list, 0);
             Require(session.ResolveCalls.Count == 1 && ReferenceEquals(frame.LastPickRay, pickedRay), "顶栏或列表点击穿透场景拾取。");
-            foreach (var panel in ui.GetNode<WorldPanels>("Root/World/WorldPanels").GetChildren().OfType<PanelContainer>()) panel.Hide();
+            Find<PanelContainer>(ui, "Details").Hide();
+            Find<PanelContainer>(ui, "NodesList").Hide();
             await UiCapture.Capture(TestScene, "world-scene");
             await _input.PressKey(Key.Escape);
             await _input.WaitUntil(() => map.IsVisibleInTree());
             Require(map.Offset == offset && map.Zoom == zoom && session.IsDisposed &&
                 !ui.GetNode<Control>("Root/ErrorPanel").Visible, "Escape返回地图丢失视角、未释放场景或将正常返回显示成错误。");
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(500, 300)), EdgeTarget);
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/ReturnToMap"));
+            await _input.Activate(Find<Button>(ui, "ReturnToMap"));
             await _input.WaitUntil(() => map.IsVisibleInTree());
             Require(map.IsVisibleInTree() && map.Offset == offset && map.Zoom == zoom, "返回地图按钮未恢复原地图视角。");
             Require(resources.ButtonPressed && platforms.ButtonPressed,
                 "场景往返重置了地图信息层开关。");
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)) + new Vector2(25, -22), TrainTarget);
+            await _input.PressKey(Key.Escape);
+            Require(app.WorldScenes!.View.Visible && ((GameShell)ui.World).InspectorContent is null,
+                "首个 Escape 应只关闭检查器。");
             await _input.PressKey(Key.Escape);
             setup.RejectNext = true;
             await _input.WaitUntil(() => map.IsVisibleInTree());
@@ -97,7 +101,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var resources = map.GetNode<CheckBox>("InformationLayers/Body/Resources");
             await _input.Activate(resources);
             var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
             await _input.WaitUntil(() => !app.Saves!.HasPendingWork);
             var identity = app.Saves!.Status!.Identity;
@@ -107,7 +111,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var minimap = ui.GetNode<NodeMinimap>("Root/World/NodeMinimap");
             await _input.WaitUntil(minimap.IsVisibleInTree);
             var oldCore = setup.Session;
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             var list = panel.FindChildren("*", "ItemList", true, false).Cast<ItemList>().Single(item => item.GetWindow() == panel);
             var row = Enumerable.Range(0, list.ItemCount).Single(index => list.GetItemText(index).StartsWith(identity.Name + " ·", StringComparison.Ordinal));
             await _input.ClickItem(list, row, window: panel);
@@ -149,7 +153,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var returned = 0;
             app.WorldScenes!.ReturnedToMap += _ => returned++;
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
             await _input.WaitUntil(() => panel.GetChildren().OfType<ConfirmationDialog>().Any(dialog => dialog.Title == "未保存的更改" && dialog.Visible));
             Require(!scene.IsDisposed && app.Host!.GetStatus() is not null, "未保存确认前离开了场景对局。");
@@ -231,27 +235,23 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             Require(camera.Focus.DistanceTo(focus) < .001f &&
                 Math.Abs(camera.Camera.Position.DistanceTo(focus) - distance) < .001f,
                 "小地图滚轮或中键穿透到世界相机。");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var panel = ui.GetNode<PanelContainer>("Root/World/WorldPanels/NodesList");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            var panel = Find<PanelContainer>(ui, "NodesList");
             var list = panel.GetNode<ItemList>("Layout/Content/Body/Objects");
             await _input.WaitUntil(() => list.ItemCount > 0 && list.GetItemRect(0).Size.Y > 0 &&
                 list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
-            panel.Position = minimap.Position;
-            await _input.Frames();
             var clearanceRay = frame.LastPickRay;
-            var overlap = minimap.GlobalPosition + new Vector2(20, 45);
-            Require(panel.GetGlobalRect().HasPoint(overlap) && minimap.GetGlobalRect().HasPoint(overlap),
-                $"覆盖夹具没有重叠：panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，click={overlap}。");
-            await _input.Click(overlap);
+            await _input.Click(list.GlobalPosition + list.GetItemRect(0).GetCenter());
             Require(camera.Focus.DistanceTo(focus) < .001f && ReferenceEquals(frame.LastPickRay, clearanceRay),
-                $"覆盖小地图的面板点击穿透：before={focus}，after={camera.Focus}，pick={frame.LastPickRay}，" +
-                $"panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，mask={Input.GetMouseButtonMask()}，" +
-                $"hover={TestScene.GetViewport().GuiGetHoveredControl()?.GetPath()}。");
+                "停靠列表点击穿透到小地图或场景拾取。");
+            await ShellGeometry.CheckBothScales(TestScene, ui);
             panel.Hide();
+            await _input.PressKey(Key.Escape);
             await _input.PressKey(Key.Escape);
             await _input.WaitUntil(() => map.IsVisibleInTree() && !minimap.IsVisibleInTree());
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(500, 300)), EdgeTarget);
             Require(!minimap.IsVisibleInTree(), "线路场景不应显示节点小地图。");
+            await _input.PressKey(Key.Escape);
             await _input.PressKey(Key.Escape);
             await _input.WaitUntil(map.IsVisibleInTree);
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)) + new Vector2(25, -22), TrainTarget);
@@ -291,9 +291,6 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
         }
         finally { await Cleanup(fixture, app); }
     }
-
-    private static bool IsDownward(SceneRay? ray) => ray is not null &&
-        Math.Abs(ray.Direction.X) < 0.001f && ray.Direction.Y < -0.99f && Math.Abs(ray.Direction.Z) < 0.001f;
 
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup)
     {
