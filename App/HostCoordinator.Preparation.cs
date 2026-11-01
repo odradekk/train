@@ -99,7 +99,8 @@ internal sealed partial class HostCoordinator
             new ContentLoadPurpose.Restore(((ContentResult<IContentCapture>.Success)embedded).Value, saved.References)), _files, _assets);
         if (content is not ContentResult<IContentCandidate>.Success loaded) return new(content, null, null);
         try { return new(content, _core.PrepareRestore(saved, loaded.Value.View.Core, options), loaded.Value.View)
-            { Saved = new(saved.Revision, ((ContentResult<IContentCapture>.Success)embedded).Value.Revision, "") }; }
+            { Saved = new(saved.Revision, ((ContentResult<IContentCapture>.Success)embedded).Value.Revision, ""),
+                SavedPackages = ((ContentResult<IContentCapture>.Success)embedded).Value.ReferencedPackages }; }
         catch { loaded.Value.Dispose(); throw; }
     }
 }

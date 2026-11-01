@@ -32,6 +32,8 @@ internal sealed class FileSaveStore
         return Path.Combine(DirectoryFor(id), $"autosave-{slot}.json");
     }
 
+    internal string[] PathsFor(Guid id) => [PathFor(id), AutoPathFor(id, 0), AutoPathFor(id, 1), AutoPathFor(id, 2)];
+
     internal SaveDocument Read(string target)
     {
         try
