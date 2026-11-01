@@ -78,6 +78,7 @@ public partial class EditorUiTests
                 var point = fixture.Controller.VisibleArea.GetCenter();
                 await input.Click(point);
                 Require(session.ApplyCalls.Count == 0, "长方体首击只能选定首角。");
+                Require(Displayed(panel, "再点一下确定对角，Esc 取消。"), "首角与悬停范围相同也必须显示下一步提示。");
                 await DirectHit(fixture, second);
                 await DirectHover(point + new Vector2(8, 0));
                 Require(session.ApplyCalls.Count == 0, "长方体悬停不得写入。");
@@ -151,7 +152,7 @@ public partial class EditorUiTests
             var panel = EditorPanel(fixture);
             var session = fixture.Factory.Session!;
             await input.Choose(DirectAction(panel), 1);
-            await DirectHit(fixture, new(2, 3, 4));
+            var targetX = 2;
             foreach (var state in new[] { (Allowed: true, Affected: 1), (Allowed: false, Affected: 1), (Allowed: true, Affected: 0) })
             {
                 session.PreviewCall = _ => new SceneResult<IEditPreview>.Success(new FixedEditPreview(session.Capture().Stamp)
@@ -161,6 +162,7 @@ public partial class EditorUiTests
                     Conflicts = state.Allowed ? [] :
                     [new(new(2, 3, 4), null, new("occupancy_conflict", SceneStage.Edit, null, null, null, null, "fixture conflict"))]
                 });
+                await DirectHit(fixture, new(targetX++, 3, 4));
                 await DirectHover(fixture.Controller.VisibleArea.GetCenter() + new Vector2(state.Affected * 8, state.Allowed ? 0 : 8));
                 var mesh = DirectHighlights(fixture);
                 var material = (StandardMaterial3D)mesh.MaterialOverride;

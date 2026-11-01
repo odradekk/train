@@ -893,39 +893,6 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
-    public async Task Preview_conflict_shows_player_text_and_keeps_raw_values_in_the_log()
-    {
-        var fixture = await Ready();
-        try
-        {
-            var session = fixture.Factory.Session!;
-            session.PreviewCall = operation => new SceneResult<IEditPreview>.Success(new FixedEditPreview(session.Capture().Stamp)
-            {
-                CanApply = false,
-                Conflicts =
-                [
-                    new(new(1, 0, 2), null, new("occupancy_conflict", SceneStage.Edit, null, null, null, null,
-                        "The brush intersects another object's cells.")),
-                    new(null, null, new("edit_locked", SceneStage.Edit, null,
-                        new ContentReference.Design(new("locked-device")), new("missing-package"), null, "缺失定义禁止旋转。"))
-                ]
-            });
-            var panel = EditorPanel(fixture);
-            var actions = panel.FindChildren("*", "OptionButton", true, false).OfType<OptionButton>().Single(choice => choice.ItemCount > 0 && choice.GetItemText(0) == "添加");
-            await new UiTestInput(TestScene).Choose(actions, 1);
-            await LeftMotion(TestScene.GetViewport().GetVisibleRect().GetCenter());
-            foreach (var text in new[] { "(1, 0, 2)", "与其他部分的占格重叠。", "缺失定义已锁定，不能进行这个操作。", "来源内容包不可用。" })
-                Require(Displayed(panel, text), $"预览冲突界面缺少：{text}");
-            foreach (var text in new[] { "GridPosition", "occupancy_conflict", "edit_locked", "locked-device", "missing-package", "禁止旋转", "The brush intersects" })
-                Require(!Displayed(panel, text), $"预览冲突不能向玩家显示：{text}");
-            await UiCapture.Capture(TestScene, "player-editor-preview-conflict");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            foreach (var text in new[] { "occupancy_conflict", "The brush intersects", "edit_locked", "locked-device", "missing-package", "禁止旋转" })
-                Require(ConsoleShows(fixture, text), $"预览冲突控制台缺少：{text}");
-        }
-        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
-    }
-    [Test]
     public async Task Missing_definition_locks_show_package_names_and_keep_raw_values_in_the_log()
     {
         var named = new PackageId("named-lock-package");

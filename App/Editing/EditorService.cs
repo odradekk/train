@@ -572,14 +572,11 @@ internal sealed class EditorService : IDisposable
         if (Session is null || SceneUnavailable || IsBusy) return null;
         try
         {
-            var result = Session.Preview(operation);
-            if (result is not SceneResult<IEditPreview>.Success) ReportResult(result);
-            return result;
+            return Session.Preview(operation);
         }
         catch (Exception error)
         {
-            Report(error.Message);
-            return null;
+            return new SceneResult<IEditPreview>.Faulted(new("editor_preview_failed", SceneStage.Edit, null, null, null, null, error.Message));
         }
     }
     internal void Locate(DesignElementPath path)
