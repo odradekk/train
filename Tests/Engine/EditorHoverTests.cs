@@ -100,7 +100,14 @@ public partial class EditorUiTests
             Require(session.PreviewCalls.Count == queries && ReferenceEquals(DirectHighlights(fixture).Multimesh, mesh),
                 "同格移动会重新分配 Stroke.Samples；内容相同不得重查或重建 MultiMesh。");
             var camera = fixture.Controller.View.CameraRig.Camera.GlobalTransform;
-            await input.Drag(point, new Vector2(12, 0));
+            await input.MouseButton(point, MouseButton.Right, true);
+            var screen = TestScene.GetViewport().GetScreenTransform();
+            var end = screen * (point + new Vector2(12, 0));
+            using var orbit = new InputEventMouseMotion { Position = end, GlobalPosition = end,
+                Relative = end - screen * point, ButtonMask = MouseButtonMask.Right };
+            Input.ParseInputEvent(orbit);
+            await input.Frames(2);
+            await input.MouseButton(point + new Vector2(12, 0), MouseButton.Right, false);
             Require(fixture.Controller.View.CameraRig.Camera.GlobalTransform != camera,
                 "相机回归必须通过真实输入实际改变相机变换。");
             Require(session.PreviewCalls.Count == queries && ReferenceEquals(DirectHighlights(fixture).Multimesh, mesh),
@@ -134,13 +141,19 @@ public partial class EditorUiTests
             await input.Choose(DirectAction(panel), 3);
             Require(session.PreviewCalls.Count > queries && session.PreviewCalls.Last() is EditOperation.Cells { Action: CellEdit.Paint },
                 "动作改变必须重新查询，即使目标格不变。");
+            await DirectHover(point);
+            Require(DirectHighlights(fixture).Multimesh.InstanceCount == 1, "关闭动作菜单后先回到视口，建立颜色变化前的悬停。");
             queries = session.PreviewCalls.Count;
             var swatch = panel.FindChildren("*", "Button", true, false).OfType<Button>().Single(button => button.Text == "工程黄");
             await EnsureVisible(swatch);
             await input.Activate(swatch);
+            var picker = panel.FindChildren("*", "ColorPickerButton", true, false).OfType<ColorPickerButton>().Single();
+            Require(picker.Color == new Color("#d9a62b"),
+                $"工程黄色板必须已被真实输入激活。实际 {picker.Color.ToHtml(false)}，焦点 {panel.GetViewport().GuiGetFocusOwner()}。");
+            await FramesUntil(TestScene, () => session.PreviewCalls.Count > queries);
             Require(session.PreviewCalls.Count > queries && session.PreviewCalls.Last() is EditOperation.Cells
                 { Action: CellEdit.Paint { Color: { } color } } && color.Value == "#d9a62b",
-                "相同涂装动作的颜色改变必须刷新预览。");
+                $"相同涂装动作的颜色改变必须刷新预览。查询 {queries} → {session.PreviewCalls.Count}，末次操作 {session.PreviewCalls.Last()}。");
         }
         finally { fixture.QueueFree(); await input.Frames(3); }
     }
