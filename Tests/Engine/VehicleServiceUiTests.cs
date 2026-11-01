@@ -596,7 +596,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 "发布蓝图后服务页设计下拉没有新蓝图。");
             shell.Inspect(new WorldObjectId.Train(new(7)), train);
             await _input.Activate(Find<Button>(ui, "EditPlan"));
-            var plan = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
+            var plan = Find<TrainPlanWorkspace>(ui, "*");
             Require(plan.Visible && !ui.ErrorText.Contains("已不存在") && !ui.ErrorText.Contains("操作未提交"),
                 $"发布蓝图后编辑计划没有打开或报了对象失效。visible={plan.Visible} error={ui.ErrorText}");
         });

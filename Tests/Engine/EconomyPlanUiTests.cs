@@ -167,33 +167,36 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             panels.OpenObject(new WorldObjectId.Train(trainId));
             await input.Activate(Find<Button>(ui, "EditPlan"));
-            var editor = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
-            var stop = editor.GetNode<VBoxContainer>("Plan/Layout/Content/Body/RowsScroll/Rows/Row0");
-            await input.Choose(stop.GetNode<OptionButton>("Stop/Node"), view.World.Nodes.Select(item => item.Id).ToList().IndexOf(node));
-            await input.Activate(stop.GetNode<Button>("AddRule"));
-            var rule = stop.GetNode<VBoxContainer>("Rules").GetChild<VBoxContainer>(0);
+            var editor = Find<TrainPlanWorkspace>(ui, "TrainPlanWorkspace");
+            var stop = Find<VBoxContainer>(editor, "StopEditor");
+            await input.Activate(Find<Button>(stop, "AddRule"));
+            var rule = Find<VBoxContainer>(stop, "Rules").GetChild<VBoxContainer>(0);
             var goods = Find<OptionButton>(rule, "Good");
             var foodName = WorldPanels.GoodName(new GoodId.Voxel(new("core:staple-food")), host.Content!);
             var foodIndex = Enumerable.Range(0, goods.ItemCount).Single(index => goods.GetItemText(index) == foodName);
             await input.Choose(goods, foodIndex);
-            await input.Choose(Find<OptionButton>(rule, "Action"), 1);
+            var action = Find<OptionButton>(rule, "Action");
+            await input.Choose(action, Enumerable.Range(0, action.ItemCount)
+                .Single(index => action.GetItemId(index) == (int)TradeAction.Sell));
             await input.Choose(Find<OptionButton>(rule, "Inventory"), 1);
             await input.Enter(Find<LineEdit>(rule, "TargetQuantity"), "1");
             await input.Enter(Find<LineEdit>(rule, "UnitPrice"), "1");
-            Require(stop.GetNode<OptionButton>("Stop/Kind").IsItemDisabled(1), "含规则的站点仍可改为途经点并丢失规则。");
+            Require(Find<OptionButton>(stop, "Kind").IsItemDisabled(1), "含规则的站点仍可改为途经点并丢失规则。");
             await UiCapture.Capture(TestScene, "automatic-rule-editor");
-            await input.Activate(stop.GetNode<Button>("AddRule"));
-            var secondRule = stop.GetNode<VBoxContainer>("Rules").GetChild<VBoxContainer>(1);
+            await input.Activate(Find<Button>(stop, "AddRule"));
+            var secondRule = Find<VBoxContainer>(stop, "Rules").GetChild<VBoxContainer>(1);
             var secondGoods = Find<OptionButton>(secondRule, "Good");
             var otherGood = host.Content!.Core.Goods.First(item => item.Good != new GoodId.Voxel(new("core:staple-food"))).Good;
             var otherName = WorldPanels.GoodName(otherGood, host.Content);
             await input.Choose(secondGoods, Enumerable.Range(0, secondGoods.ItemCount)
                 .Single(index => secondGoods.GetItemText(index) == otherName));
+            var secondAction = Find<OptionButton>(secondRule, "Action");
+            await input.Choose(secondAction, Enumerable.Range(0, secondAction.ItemCount)
+                .Single(index => secondAction.GetItemId(index) == (int)TradeAction.Buy));
             await input.Choose(Find<OptionButton>(secondRule, "Inventory"), 1);
             await input.Enter(Find<LineEdit>(secondRule, "UnitPrice"), "2");
             await input.Activate(Find<Button>(editor, "Apply"));
             Require(!editor.Visible, "规则计划未被真实核心接受。");
-            await input.Activate(Find<Button>(ui, "Start"));
             for (var step = 0; step < 5000; step++)
             {
                 train = ((Lookup<TrainView>.Found)host.GetStatus()!.View.FindTrain(trainId)).Value;

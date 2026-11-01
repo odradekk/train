@@ -82,6 +82,8 @@ public partial class SaveTests
                     Require(request.Purpose is ContentLoadPurpose.Restore, "存档引擎情景只允许恢复。");
                     var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
                     {
+                        DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+                        { [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound() },
                         Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
                         { [new("engine-vehicle")] = new ContentLookup<DesignEvaluation>.NotFound() }
                     };

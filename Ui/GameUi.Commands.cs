@@ -10,18 +10,25 @@ public partial class GameUi
         => Submit(target, command, null);
 
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
-        => (SubmitResult(target, command, candidate, true) as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
+        => Submit(target, command, candidate, ShowError);
+
+    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command,
+        IContentCandidate? candidate, Action<string> reportError)
+        => (SubmitResult(target, command, candidate, reportError) as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
 
     private SubmissionResult SubmitInline(PanelTarget? target, CoreCommand command)
-        => SubmitResult(target, command, null, false);
+        => SubmitResult(target, command, null, null);
 
-    private SubmissionResult SubmitResult(PanelTarget? target, CoreCommand command, IContentCandidate? candidate, bool reportError)
+    private SubmissionResult SubmitResult(PanelTarget? target, CoreCommand command,
+        IContentCandidate? candidate, Action<string>? reportError)
     {
         var status = _host?.GetStatus();
         if (status is null || _host!.Content is not { } content || target is null ||
             !target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)) || _host.IsBusy)
         {
-            if (reportError) ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
+            const string message = "当前操作不可提交：对象已失效或宿主正在操作。";
+            _logger.Warning("ui", "ui_operation_invalid", message);
+            reportError?.Invoke(message);
             return new SubmissionResult.NotAccepted(new("object_missing", "Target", null, []));
         }
         SubmissionResult result;
@@ -29,10 +36,10 @@ public partial class GameUi
         catch (NotImplementedException)
         {
             _logger.Warning("ui", "command_not_implemented", command.GetType().Name);
-            if (reportError) ShowError("该操作尚未实现。");
+            reportError?.Invoke("该操作尚未实现。");
             return new SubmissionResult.NotAccepted(new("command_not_implemented", "Command", null, []));
         }
-        if (CommandDiagnostics.Report(_logger, result, content) is { } problem && reportError) ShowError(problem);
+        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) reportError?.Invoke(problem);
         return result;
     }
 

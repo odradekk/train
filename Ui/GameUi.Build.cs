@@ -70,8 +70,8 @@ public partial class GameUi
             _formation = new TrainFormationPanel();
             _formation.Initialize(_host, Submit, ReportUiError);
             _world.AddChild(_formation);
-            _plan = new TrainPlanPanel();
-            _plan.Initialize(_host, Submit, ReportUiError);
+            _plan = new TrainPlanWorkspace();
+            _plan.Initialize(_host, (target, command, reportError) => Submit(target, command, null, reportError));
             _world.AddChild(_plan);
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
