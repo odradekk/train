@@ -18,10 +18,12 @@ internal sealed class WorldListPanel
         Panel = panel;
         _search = new LineEdit { Name = "Search", PlaceholderText = "搜索名称或编号" };
         body.AddChild(_search);
-        _list = new ItemList { Name = "Objects", CustomMinimumSize = new(328, 340),
+        _list = new ItemList { Name = "Objects", CustomMinimumSize = new(0, 340),
             AllowReselect = true, MouseForcePassScrollEvents = false };
         body.AddChild(_list);
-        body.AddChild(UiStyle.Label("点列表打开详情，不改变当前视角。"));
+        var hint = UiStyle.Label("点列表打开详情，不改变当前视角。");
+        hint.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        body.AddChild(hint);
         _list.ItemSelected += index =>
         {
             if (index >= 0 && index < _ids.Count) selected(_ids[(int)index]);

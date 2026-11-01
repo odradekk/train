@@ -126,6 +126,10 @@ internal static class UiStyle
                 panel.Size = dock.Size;
                 return;
             }
+            panel.CustomMinimumSize = new(width, 0);
+            scroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
+            label.ClipText = false;
+            label.TextOverrunBehavior = TextServer.OverrunBehavior.NoTrimming;
             var area = ui?.PanelArea ?? parent.GetGlobalRect().Grow(-8);
             area.Position -= parent.GlobalPosition;
             var frameHeight = panel.GetThemeStylebox("panel").GetMinimumSize().Y +

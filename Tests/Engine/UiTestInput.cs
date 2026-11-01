@@ -7,6 +7,17 @@ namespace Train.Engine.Tests;
 
 internal sealed class UiTestInput(Node scene)
 {
+    internal async Task ClickTab(TabContainer tabs, int index)
+    {
+        var bar = tabs.GetTabBar();
+        bar.EnsureTabVisible(index);
+        await Frames(2);
+        var point = bar.GlobalPosition + bar.GetTabRect(index).GetCenter();
+        Require(bar.GetGlobalRect().HasPoint(point), "目标页签必须滚入可见范围后再点击。");
+        await Click(point);
+        Require(tabs.CurrentTab == index, $"鼠标没有切换到第 {index + 1} 页。");
+    }
+
     internal async Task ChooseTab(TabContainer tabs, int index)
     {
         tabs.GetTabBar().GrabFocus();

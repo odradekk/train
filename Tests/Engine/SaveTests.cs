@@ -10,13 +10,10 @@ using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
-
 namespace Train.Engine.Tests;
-
 public class SaveTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
-
     [Test]
     public async Task Main_menu_load_real_input_enters_paused_macro_map_without_active_session()
     {
@@ -66,7 +63,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
         }
         finally { await Cleanup(fixture, app, owned); }
     }
-
     [Test]
     public async Task Loading_a_save_in_game_closes_the_previous_sessions_panels()
     {
@@ -107,7 +103,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
         }
         finally { await Cleanup(fixture, app, owned); }
     }
-
     [Test]
     public async Task In_game_saves_real_input_discards_unsaved_session_and_invalidates_old_drafts()
     {
@@ -129,12 +124,12 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             await _input.ClickItem(nodes, 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
             var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
-            var available = formation.FindChildren("AvailableVehicles", "ItemList", true, false).Cast<ItemList>().Single();
+            var available = Find<ItemList>(formation, "AvailableVehicles");
             await _input.ClickItem(available, 0);
-            await _input.Activate(formation.FindChildren("AddSelected", "Button", true, false).Cast<Button>().Single());
-            var form = formation.FindChildren("Form", "Button", true, false).Cast<Button>().Single();
+            await _input.Activate(Find<Button>(formation, "AddSelected"));
+            var form = Find<Button>(formation, "Form");
             Require(formation.IsVisibleInTree() && !form.Disabled &&
-                formation.FindChildren("OrderedVehicles", "ItemList", true, false).Cast<ItemList>().Single().ItemCount == 1,
+                Find<ItemList>(formation, "OrderedVehicles").ItemCount == 1,
                 "未建立可提交的编组草稿。");
             await _input.PressKey(Key.Escape);
             await _input.Activate(Find<Button>(ui, "Fleet"));
@@ -143,12 +138,11 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "EditPlan"));
             var plan = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
             await _input.Activate(plan.GetNode<CheckBox>("Plan/Layout/Content/Body/Loop"));
-            var apply = plan.FindChildren("Apply", "Button", true, false).Cast<Button>().Single();
+            var apply = Find<Button>(plan, "Apply");
             var descriptions = ui.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
             Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 1 &&
                 descriptions.All(label => !label.Text.Contains("已不存在", StringComparison.Ordinal)),
                 "未建立有效节点、列车详情和可提交的计划草稿。");
-            await _input.PressKey(Key.Escape);
             var session = setup.Session!;
             var menu = app.GetNode<MainMenu>("MainMenu");
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
@@ -180,7 +174,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
         }
         finally { await Cleanup(fixture, app, owned); }
     }
-
     [Test]
     public async Task Save_and_save_as_buttons_publish_files_and_load_requires_missing_confirmation()
     {
@@ -268,7 +261,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
         }
         finally { await Cleanup(fixture, app, owned); }
     }
-
     [Test]
     public async Task Save_button_publication_failure_preserves_unsaved_status_identity_message_and_old_file()
     {
@@ -344,7 +336,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             }
         }
     }
-
     [Test]
     public async Task Window_close_and_console_quit_share_protection_and_quit_only_after_publication()
     {
@@ -400,17 +391,14 @@ public class SaveTests(Node testScene) : TestClass(testScene)
         }
         finally { await Cleanup(fixture, app, owned); }
     }
-
     private static T Dialog<T>(SavePanel panel, string title) where T : Window =>
         panel.GetChildren().OfType<T>().Single(dialog => dialog.Title == title);
-
     private static void Press(SavePanel panel, string text)
     {
         var button = UiTestInput.SaveButton(panel, text);
         Require(!button.Disabled && button.Visible, $"按钮不可用：{text}。");
         button.EmitSignal(BaseButton.SignalName.Pressed);
     }
-
     private async Task Cleanup(Fixture fixture, Train.App.App? app, HashSet<Guid> owned)
     {
         try
@@ -431,13 +419,11 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             }
         }
     }
-
     private sealed class SaveSetup
     {
         internal ScriptedCoreSession? Session { get; private set; }
         internal ScriptedContentFactory? Content { get; private set; }
         internal bool MissingOnRestore { get; set; }
-
         internal HostCoordinator Create(TrainLogger logger)
         {
             var capture = new FixedCoreCapture(new(new(0, 0), "engine save", "engine sha"),
@@ -482,6 +468,5 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             Require(host.BeginRestore("engine core", "engine content", options).Problem is null, "无法开始初始恢复。");
             return host;
         }
-
     }
 }

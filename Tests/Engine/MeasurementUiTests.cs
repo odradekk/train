@@ -19,14 +19,14 @@ public class MeasurementUiTests(Node testScene) : TestClass(testScene)
         {
             shell.ShowList(new Control());
             shell.Inspect(new Train.Core.Contracts.WorldObjectId.Node(new(1)), new Control());
-            Require(MeasurementRun.ReadSceneUi(shell).BlockingControls.Length == 0,
+            Require(MeasurementRun.ReadSceneUi(viewport).BlockingControls.Length == 0,
                 "透明的全屏外壳和停靠区不应算作全屏遮挡。");
             shell.ShowWorkspace(new Control());
-            var blockers = MeasurementRun.ReadSceneUi(shell).BlockingControls;
+            var blockers = MeasurementRun.ReadSceneUi(viewport).BlockingControls;
             Require(blockers.Length == 1 && blockers[0].EndsWith("/WorkspaceMask", StringComparison.Ordinal),
                 "工作区打开后的全屏遮罩仍须被测量识别。");
             shell.ShowWorkspace(null);
-            Require(MeasurementRun.ReadSceneUi(shell).BlockingControls.Length == 0,
+            Require(MeasurementRun.ReadSceneUi(viewport).BlockingControls.Length == 0,
                 "关闭工作区后应恢复场景可操作状态。");
         }
         finally { viewport.Free(); }

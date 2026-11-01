@@ -40,14 +40,14 @@ public sealed class UiInputTests
         var generation = new ContentGeneration(3);
         var terrain = new TerrainView(new("plain"), 0, []);
         var world = new WorldSummary(1, new("rail"), 10, 10,
-            [new(new(1), new(0, 0), terrain, new NodeOccupant.Lair(new(1)), [], 0, 1, null)],
+            [new(new(1), new(0, 0), terrain, new NodeOccupant.Empty(), [], 0, 1, null)],
             [new(new(1), new(1), new(2), 10, terrain, 1, 1, [], [])],
             [new(new(1), new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped)],
             [], [new(new(1), new WorldLocation.Node(new(1)))]);
         var present = new FixedCoreReadView { World = world };
         var absent = new FixedCoreReadView { World = world with { Nodes = [], Edges = [], Trains = [], Combats = [] } };
         WorldObjectId[] objects = [new WorldObjectId.Node(new(1)), new WorldObjectId.Edge(new(1)),
-            new WorldObjectId.Train(new(1)), new WorldObjectId.Combat(new(1)), new WorldObjectId.Lair(new(1))];
+            new WorldObjectId.Train(new(1)), new WorldObjectId.Combat(new(1))];
         foreach (var obj in objects)
         {
             var target = new PanelTarget(binding, generation, obj);

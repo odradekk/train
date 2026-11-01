@@ -44,8 +44,11 @@ internal static class SettlementFoundingUiFixture
             Inventories = settlements.ToDictionary(item => item.Inventory, item => (Lookup<InventoryView>)new Lookup<InventoryView>.Found(
                 new(item.Inventory, new InventoryOwner.Settlement(item.Id), new WorldLocation.Node(item.Node),
                     InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], []))),
-            Instances = trains.SelectMany(train => train.Vehicles).ToDictionary(id => (InstanceId)new InstanceId.Vehicle(id),
-                _ => (Lookup<InstanceView>)new Lookup<InstanceView>.Missing()),
+            Instances = trains.ToDictionary(train => (InstanceId)new InstanceId.Vehicle(train.Vehicles.Single()), train =>
+                (Lookup<InstanceView>)new Lookup<InstanceView>.Found(new(new InstanceId.Vehicle(train.Vehicles.Single()),
+                    new("fixture-vehicle"), new("fixture-composition"), new WorldLocation.Node(((TrainPosition.Node)train.Position).Id),
+                    SettlementRelation.PlayerOwned, new InstanceDetails.Vehicle(SizeClass.Medium, train.Id),
+                    InstanceLock.None, new(100, 100), [], []))),
             World = new(1, new("fixture:railway"), 4000, 2400, nodes.ToImmutableArray(), [],
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),

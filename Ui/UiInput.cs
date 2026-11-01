@@ -29,7 +29,6 @@ internal sealed record PanelTarget(HostBinding Binding, ContentGeneration Genera
             WorldObjectId.Settlement settlement => view.FindSettlement(settlement.Id) is Lookup<SettlementView>.Found,
             WorldObjectId.Inventory inventory => view.FindInventory(inventory.Id) is Lookup<InventoryView>.Found,
             WorldObjectId.Combat combat => view.World.Combats.Any(item => item.Id == combat.Id),
-            WorldObjectId.Lair lair => view.World.Nodes.Any(item => item.Occupant is NodeOccupant.Lair occupied && occupied.Id == lair.Id),
             _ => false
         };
     }

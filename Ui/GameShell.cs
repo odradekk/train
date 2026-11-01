@@ -70,7 +70,7 @@ public partial class GameShell : Control
     {
         foreach (var child in node.GetChildren())
         {
-            if (child is Window { Visible: true }) return true;
+            if (child is Window { Visible: true } window && window.HasFocus()) return true;
             if (child is not Node3D && VisibleWindow(child)) return true;
         }
         return false;
@@ -155,7 +155,9 @@ public partial class GameShell : Control
         _listHost.Size = new(listWidth, height);
         _inspectorHost.Position = new(Size.X - inspectorWidth - 8, TopInset + 8);
         _inspectorHost.Size = new(inspectorWidth, Math.Max(0, height - 16));
-        _workspaceHost.Position = new(24, TopInset + 16);
+        _mask.OffsetTop = TopInset;
+        _mask.OffsetBottom = -BottomInset;
+        _workspaceHost.Position = new(24, 16);
         _workspaceHost.Size = new(Math.Max(0, Size.X - 48), Math.Max(0, height - 32));
         SceneArea = new(new(navigationWidth + listWidth + 8, TopInset + 8),
             new(Math.Max(0, Size.X - navigationWidth - listWidth - inspectorWidth - 24), Math.Max(0, height - 16)));

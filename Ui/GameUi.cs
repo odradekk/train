@@ -135,7 +135,6 @@ public partial class GameUi : CanvasLayer
             }
             if (_view is not null && _content is not null)
             {
-                RefreshSelection();
                 _panels!.Refresh(_binding, _view, _content);
                 _formation!.Refresh(_binding, _view, _content);
                 _plan!.Refresh(_binding, _view, _content);
@@ -196,6 +195,7 @@ public partial class GameUi : CanvasLayer
         // 边界内 IsBusy 为 true；面板在 _Process 消费此视图，避免禁用按钮打断当前点击。
         _binding = binding; _view = view; _content = content;
         RefreshNavigation(view);
+        RefreshSelection();
         _menu.Hide(); _world.Show();
     }
 

@@ -23,7 +23,7 @@ internal static class ShellGeometry
             regions.AddRange(new[] { Find<Control>(ui, "InformationLayers"), Find<Control>(ui, "NodeMinimap") }
                 .Where(control => control.IsVisibleInTree()));
         }
-        var bounds = shell.GetGlobalRect();
+        var bounds = ui.GetViewport().GetVisibleRect();
         for (var index = 0; index < regions.Count; index++)
         {
             var current = regions[index];
@@ -35,6 +35,31 @@ internal static class ShellGeometry
                 Require(!rect.Intersects(other.GetGlobalRect()),
                     $"缩放 {scale}：{current.Name} {rect} 与 {other.Name} {other.GetGlobalRect()} 重叠。");
         }
+    }
+
+    internal static async Task CheckNavigationAndListText(Node scene, GameUi ui)
+    {
+        var shell = (GameShell)ui.World;
+        foreach (var button in shell.Navigation.GetChildren().OfType<Button>())
+        {
+            var font = button.GetThemeFont("font");
+            var padding = button.GetThemeStylebox("normal").GetMinimumSize().X;
+            foreach (var line in button.Text.Split('\n'))
+                Require(font.GetStringSize(line, fontSize: button.GetThemeFontSize("font_size")).X <= button.Size.X - padding,
+                    $"导航文字被裁掉：{button.Name}，文字={line}，按钮宽={button.Size.X}，内边距={padding}。");
+        }
+        var body = Find<VBoxContainer>(shell.ListContent!, "Body");
+        var hint = body.GetChildren().OfType<Label>().Last();
+        var scroll = Find<ScrollContainer>(shell.ListContent!, "Content");
+        scroll.EnsureControlVisible(hint);
+        await new UiTestInput(scene).Frames(3);
+        var area = scroll.GetGlobalRect();
+        var horizontal = scroll.GetHScrollBar();
+        if (horizontal.IsVisibleInTree()) area.Size -= new Vector2(0, horizontal.Size.Y);
+        var rect = hint.GetGlobalRect();
+        Require(rect.Position.X >= area.Position.X && rect.End.X <= area.End.X &&
+            rect.Position.Y >= area.Position.Y && rect.End.Y <= area.End.Y,
+            $"列表底部提示应能完整滚入可见区域，不能被横向滚动条压住：提示={rect}，可见区={area}。");
     }
 
     internal static async Task CheckBothScales(Node scene, GameUi ui)

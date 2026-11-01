@@ -16,7 +16,7 @@ using NVector3 = System.Numerics.Vector3;
 
 namespace Train.Engine.Tests;
 
-public class SceneUiTests(Node testScene) : TestClass(testScene)
+public partial class SceneUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
     private float _previousScale;
@@ -291,9 +291,6 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
         }
         finally { await Cleanup(fixture, app); }
     }
-
-    private static bool IsDownward(SceneRay? ray) => ray is not null &&
-        Math.Abs(ray.Direction.X) < 0.001f && ray.Direction.Y < -0.99f && Math.Abs(ray.Direction.Z) < 0.001f;
 
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup)
     {

@@ -35,12 +35,14 @@ internal sealed class SettlementPanel
     private VBoxContainer _body = null!;
     private Label _state = null!;
     private Label _wallet = null!;
+    private Button _combat = null!;
     private OptionButton _localChoice = null!;
     private readonly List<InventoryId?> _localOptions = [];
 
     internal SettlementView? Settlement => _settlement;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<InstanceId>? ServiceDesignRequested;
+    internal event Action<SettlementId>? SettlementCombatRequested;
     internal event Action<WorldObjectId, Control>? Opened;
 
     internal SettlementPanel(Control parent, HostCoordinator host,
@@ -71,6 +73,11 @@ internal sealed class SettlementPanel
         _panel = UiStyle.Panel(_parent, "Settlement", $"聚居地 {id.Value}", new(408, 68), 720,
             () => _panel!.Hide(), out _body, fill: true);
         _state = Text(_body, "State", ""); _wallet = Text(_body, "Wallet", "");
+        _combat = UiStyle.Button("OpenSettlementCombat", "战斗…", () =>
+        {
+            if (CanAct) SettlementCombatRequested?.Invoke(_settlementId);
+        });
+        _body.AddChild(_combat);
         _localChoice = new OptionButton { Name = "LocalInventory" };
         _body.AddChild(_localChoice);
         _localChoice.ItemSelected += index =>
@@ -151,7 +158,7 @@ internal sealed class SettlementPanel
 
     private void UpdateActions()
     {
-        _localChoice.Disabled = !CanAct;
+        _localChoice.Disabled = _combat.Disabled = !CanAct;
         _market.UpdateTradeActions(); _vehicles.UpdateVehicleActions(); _leases.UpdateLeaseActions();
         _state.Text = _view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : _host.IsBusy ? "当前操作尚未结束" : "";
     }

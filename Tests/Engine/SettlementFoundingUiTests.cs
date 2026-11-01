@@ -227,6 +227,10 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
                 Find<TabContainer>(settlement, "Pages").GetTabCount() == 8 &&
                 !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(),
                 "占用者变化没有把建城入口替换为聚居地检查器。");
+            var entry = Find<Button>(shell.InspectorContent!, "OpenSettlementCombat");
+            await _input.Click(entry.GetGlobalRect().GetCenter());
+            Require(Find<Button>(ui, "DeclareWar").IsVisibleInTree() && Find<Button>(ui, "Occupy").IsVisibleInTree(),
+                "新聚居地的战斗入口没有打开宣战和占领。");
         });
         setup.Session.AssertComplete();
     }

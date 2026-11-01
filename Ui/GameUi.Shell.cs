@@ -77,7 +77,6 @@ public partial class GameUi
         var button = UiStyle.Button(name, symbol + "\n" + label, open);
         button.CustomMinimumSize = new(64, 58);
         button.TooltipText = label;
-        button.ClipText = true;
         _shell.Navigation.AddChild(button);
         return button;
     }
@@ -145,7 +144,6 @@ public partial class GameUi
             _gameMenu.GetPopup().SetItemDisabled(_authoringMenuIndex, !_authoring!.CanUse || _authoring.IsBusy || _host!.IsBusy);
             _gameMenu.GetPopup().SetItemTooltip(_authoringMenuIndex, "制作内容；需要可编辑的对局且当前没有其他操作。");
         }
-        PositionOverlays();
     }
 
     private void RefreshNavigation(ICoreReadView view)

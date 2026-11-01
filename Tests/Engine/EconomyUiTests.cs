@@ -11,7 +11,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class EconomyUiTests(Node testScene) : TestClass(testScene)
+public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
@@ -405,6 +405,7 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             Require(app.Saves!.ReturnToMenu() is null, "无法返回主菜单。");
             if (app.Saves.Leaving is not null) app.Saves.ChooseLeave(Train.App.Saves.LeaveChoice.Discard);
             await _input.WaitUntil(() => !GodotObject.IsInstanceValid(economy));
+            Require(!GodotObject.IsInstanceValid(inventory), "返回菜单后列车库存面板没有释放。");
             Require(app.Host!.GetStatus() is null, "关闭经济窗口时旧对局仍活动。");
         });
         setup.Session.AssertComplete();
@@ -525,21 +526,20 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Settlement_inspector_replaces_node_actions_and_blocks_map_clicks()
+    public async Task Settlement_inspector_opens_combat_and_blocks_map_clicks()
     {
         var setup = new HostSimulationTests.HostSetup(
             EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned), EconomyFixture.Content());
         await Run(setup, async (ui, economy) =>
         {
             var shell = Find<GameShell>(ui, "*");
-            var panels = Find<WorldPanels>(ui, "WorldPanels");
-            panels.OpenObject(new WorldObjectId.Node(new(1)));
-            var detail = shell.InspectorContent!;
-            Require(Find<Button>(detail, "Economy").IsVisibleInTree(), "节点详情没有聚居地入口。");
-            await _input.Activate(Find<Button>(detail, "Economy"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            var entry = Find<Button>(shell.InspectorContent!, "OpenSettlementCombat");
+            await _input.Click(entry.GetGlobalRect().GetCenter());
+            Require(Find<Button>(ui, "DeclareWar").IsVisibleInTree() && Find<Button>(ui, "Occupy").IsVisibleInTree(),
+                "聚居地没有宣战和占领入口。");
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
             economy = shell.InspectorContent!;
-            Require(shell.SelectedObject == new WorldObjectId.Settlement(new(1)) &&
-                economy.IsVisibleInTree() && !detail.IsVisibleInTree(), "聚居地检查器没有替换节点动作。");
             var map = Find<MacroMap>(ui, "MacroMap");
             WorldObjectId? clicked = null;
             map.ObjectClicked += id => clicked = id;
@@ -619,47 +619,6 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
         Require(control.IsVisibleInTree() && rect.Position.X >= window.Position.X - 1 && rect.Position.Y >= window.Position.Y - 1 &&
             rect.End.X <= window.End.X + 1 && rect.End.Y <= window.End.Y + 1,
             $"{control.Name} 不在默认窗口内：控件 {rect}，窗口 {window}。");
-    }
-
-    private async Task Boot(HostSimulationTests.HostSetup setup, Func<GameUi, Task> body)
-    {
-        var tree = TestScene.GetTree();
-        var fixture = new Fixture(tree);
-        var scale = tree.Root.ContentScaleFactor;
-        try
-        {
-            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
-            app.CreateHost = logger => setup.Create(logger);
-            await fixture.AddToRoot(app);
-            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
-            tree.Root.ContentScaleFactor = 1;
-            UiCapture.ConfigureWindowIfNeeded(tree.Root);
-            await _input.Frames(2);
-            await body(app.GetNode<GameUi>("GameUi"));
-        }
-        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
-    }
-
-    private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, Control, Task> body)
-    {
-        var tree = TestScene.GetTree();
-        var fixture = new Fixture(tree);
-        var scale = tree.Root.ContentScaleFactor;
-        try
-        {
-            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
-            app.CreateHost = logger => setup.Create(logger);
-            await fixture.AddToRoot(app);
-            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
-            tree.Root.ContentScaleFactor = 1;
-            UiCapture.ConfigureWindowIfNeeded(tree.Root);
-            await _input.Frames(2);
-            var ui = app.GetNode<GameUi>("GameUi");
-            await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
-            await body(ui, Find<PanelContainer>(ui, "Settlement"));
-        }
-        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
     private async Task Market(Control economy)
