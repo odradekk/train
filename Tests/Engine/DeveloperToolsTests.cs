@@ -61,7 +61,7 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             Require(report.Visible, "没有打开报告问题窗口。");
             Require(tools.OpenReplay(setup.ReplayPath) is null && app.Saves!.Leaving is { Waiting: false },
                 "打开复现包绕过了未保存对局的离开保护。");
-            var saves = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            var saves = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             await Until(() => saves.Visible);
             Require(!output.Contains("another exclusive child"),
                 "报告问题窗口开着时弹出离开确认，触发了 Godot 的独占子窗口错误。");

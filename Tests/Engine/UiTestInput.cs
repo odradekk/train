@@ -93,7 +93,11 @@ internal sealed class UiTestInput(Node scene)
     {
         Require(edit.IsVisibleInTree(), "输入框不可见。");
         edit.GrabFocus(); await PressKey(Key.A, true);
-        foreach (var digit in value) await PressKey((Key)((long)Key.Key0 + digit - '0'), unicode: digit);
+        foreach (var character in value)
+        {
+            var key = char.IsAsciiLetterOrDigit(character) ? (Key)char.ToUpperInvariant(character) : Key.None;
+            await PressKey(key, unicode: character);
+        }
     }
 
     internal async Task ClickAcrossRevision(Button button, Action advance)
@@ -111,7 +115,13 @@ internal sealed class UiTestInput(Node scene)
 
     internal static Button SaveButton(SavePanel panel, string text) =>
         panel.FindChildren("*", "Button", true, false).Cast<Button>()
-            .Single(button => button.Text == text && button.GetWindow() == panel);
+            .Single(button => button.Text == text && button.GetWindow() == panel.GetWindow());
+
+    internal static bool SavePromptVisible(SavePanel panel, string title) =>
+        panel.GetNode<Control>("PromptMask").IsVisibleInTree() && Find<Label>(panel, "PromptTitle").Text == title;
+
+    internal static Button SavePromptButton(SavePanel panel, string name) =>
+        Find<Control>(panel, "PromptActions").GetNode<Button>(name);
 
     internal static void DeleteSaves(IEnumerable<Guid> owned)
     {
@@ -151,12 +161,12 @@ internal sealed class UiTestInput(Node scene)
         => await SendMouseButton(position, button, pressed, false);
 
     private async Task SendMouseButton(Vector2 position, Godot.MouseButton button, bool pressed, bool control,
-        Window? window = null)
+        Window? window = null, bool doubleClick = false)
     {
         // ParseInputEvent 接收窗口坐标，需计入项目的 canvas_items 缩放。
         if (window is null) position = scene.GetViewport().GetScreenTransform() * position;
         using var input = new InputEventMouseButton { Position = position, GlobalPosition = position,
-            ButtonIndex = button, Pressed = pressed, CtrlPressed = control,
+            ButtonIndex = button, Pressed = pressed, CtrlPressed = control, DoubleClick = doubleClick,
             ButtonMask = !pressed ? 0 : button switch
             {
                 Godot.MouseButton.Middle => MouseButtonMask.Middle,
@@ -191,5 +201,13 @@ internal sealed class UiTestInput(Node scene)
             list.GetItemRect(index).Size.Y > 0 &&
             list.GetItemAtPosition(list.GetItemRect(index).GetCenter(), true) == index);
         await Click(list.GlobalPosition + list.GetItemRect(index).GetCenter(), control, window);
+    }
+
+    internal async Task DoubleClickItem(ItemList list, int index)
+    {
+        await ClickItem(list, index);
+        var position = list.GlobalPosition + list.GetItemRect(index).GetCenter();
+        await SendMouseButton(position, Godot.MouseButton.Left, true, false, doubleClick: true);
+        await SendMouseButton(position, Godot.MouseButton.Left, false, false);
     }
 }

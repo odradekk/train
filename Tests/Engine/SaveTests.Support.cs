@@ -15,9 +15,6 @@ namespace Train.Engine.Tests;
 
 public partial class SaveTests
 {
-    private static T Dialog<T>(SavePanel panel, string title) where T : Window =>
-        panel.GetChildren().OfType<T>().Single(dialog => dialog.Title == title);
-
     private static void Press(SavePanel panel, string text)
     {
         var button = UiTestInput.SaveButton(panel, text);
