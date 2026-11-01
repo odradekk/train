@@ -116,14 +116,7 @@ public partial class GameUi : CanvasLayer
             missing.Operation == _newOperation && _reportedMissing != missing.Operation)
         {
             _reportedMissing = missing.Operation;
-            var details = missing.Content.RuntimeMissing.Select(item => $"{item.Reference} · {item.Field}")
-                .Concat(missing.Core.Select(item => $"{item.Reference} · {item.FieldPath}"));
-            var message = "等待缺失确认，可确认继续或取消创建。\n" + string.Join("\n", details);
-            _newGameError!.Text = message;
-            _confirmMissing!.Show();
-            _logger.Warning("ui", "new_game_missing_confirmation", message);
-            ShowError(message);
-            _missingErrorOperation = missing.Operation;
+            ShowNewGameMissing(missing.Content, missing.Core);
         }
         if (status is not null)
         {
@@ -149,10 +142,11 @@ public partial class GameUi : CanvasLayer
             CloseSessionPanels();
             _icons.Bind(default, null);
             _view = null; _content = null; _binding = default;
-            _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
+            _world.Hide(); _errorPanel.Hide(); _settings.Hide();
             _menu.Show();
         }
-        _menu.SetGameStartEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
+        _menu.SetGameStartEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null,
+            _host?.Content, _host?.IsBusy == true);
     }
 
     private void CloseSessionPanels()

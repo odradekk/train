@@ -37,12 +37,13 @@ public class ScreenshotTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => app.Host!.Content is not null && !app.Host.IsBusy,
+                timeout: ContentPreparationTimeout);
             Require(app.GetNode<MainMenu>("MainMenu").IsVisibleInTree(), "Main menu must be visible before capture.");
             // 等待尺寸变更和场景首次绘制完成后，读取已经提交的 viewport。
             await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-            // 仅归位鼠标坐标仍可能残留 GUI 悬停状态，布局完成后显式发送移动事件。
-            Input.WarpMouse(Vector2.Zero);
+            // 在游戏进程内清除 GUI 悬停，不移动系统鼠标。
             using (var motion = new InputEventMouseMotion { Position = Vector2.Zero, GlobalPosition = Vector2.Zero })
                 window.PushInput(motion, true);
             await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
