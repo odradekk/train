@@ -104,13 +104,14 @@ public sealed class EditingBoundaryTests
             At = new(replacementX, 0, 0),
             Design = oldDraft with { Layout = new([EditingFixtures.Cube], newCells == 0 ? [] : [new(new(0, 0, 0), 0)], []) }
         };
-        var preview = EditingFixtures.Preview(session, new EditOperation.ReplaceNested(parent.Id, replacement));
+        var previewOperation = new EditOperation.ReplaceNested(parent.Id, replacement);
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.IsTrue(preview.CanApply);
         Assert.AreEqual(affected, preview.AffectedCells);
         Assert.AreEqual(affected, preview.CoveredCells);
         CollectionAssert.AreEquivalent(newCells == 0 ? Array.Empty<GridPosition>() : new[] { new GridPosition(replacementX, 0, 0) }, preview.HighlightCells.ToArray());
         Assert.IsFalse(session.Read().CanUndo);
-        var applied = EditingFixtures.Value(session.Apply(preview, false));
+        var applied = EditingFixtures.Value(session.Apply(previewOperation));
         Assert.AreEqual(newCells, ((NestedDesignItem.AssemblyCopy)applied.Snapshot.Draft.Layout.NestedItems.Single()).Design.Layout.Cells.Length);
     }
 

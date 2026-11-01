@@ -540,7 +540,7 @@ internal sealed class EditorService : IDisposable
     internal void Redo() => Change(session => session.Redo(), "没有可重做的步骤。");
     internal void Select(EditSelection selection) => Change(session => session.Select(selection));
     internal void Enter(EditElementId? element) => Change(session => session.Enter(element));
-    internal void Apply(IEditPreview preview, bool confirmed) => Change(session => session.Apply(preview, confirmed));
+    internal void Apply(EditOperation operation) => Change(session => session.Apply(operation));
 
     internal DesignDraft? CaptureObject(EditElementId element)
     {
@@ -695,7 +695,7 @@ internal sealed class EditorService : IDisposable
         "edit_locked" => "缺失定义已锁定，不能进行这个操作。",
         "target_missing" => "目标已不存在，请重新选择。",
         "region_limit" => "选区超过上限，请缩小范围。",
-        "confirmation_required" => "请先确认这次修改。",
+        "outside_envelope" => "超出外形范围。",
         "design_invalid" => "设计不合法，不能开始编辑。",
         "editor_read_failed" => "无法读取当前设计，详情见日志。",
         "editor_capture_failed" => "无法捕获当前设计，详情见日志。",

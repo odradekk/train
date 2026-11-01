@@ -6,7 +6,7 @@
 
 SceneResult.Success 表示本次操作正常完成，包括仍在加载的帧和含无效设计的编辑状态。Failure 表示预期拒绝，至少一条 SceneProblem；Faulted 表示体素内部故障，宿主报告并停止故障会话的可变调用，不影响核心。缺失内容本身是诊断和占位，不强制变成整个场景故障。正常输入的生成算法失败必须报告，不能偷偷换种子或篡改核心长度。
 
-稳定错误码至少覆盖 `target_missing`、`stale_request`、`stale_hit`、`content_missing`、`build_failed`、`edit_locked`、`invalid_operation`、`region_limit`、`occupancy_conflict`、`stale_preview`、`confirmation_required`、`scene_internal_fault`。Godot 不解析 Detail 分支；SceneProblem.Content 和 Package 保留引用及已知来源包，内容提供了来源时不得丢弃，确实未知时 Package 为空。宿主据此同时在界面与控制台显示缺失资料，不按设计哈希猜包名。绑定、内容世代或业务输入身份不匹配、Observe 位置倒退及事件顺序或重复错误属于接口前提违反，抛 ArgumentException，接入前仍须检查；真实交互过期继续返回 stale_hit、stale_request 或 stale_preview。default 集合/非有限数/无效枚举等编程前提错误抛 ArgumentException；关闭后的修改调用抛 ObjectDisposedException，AcceptEvaluation/MarkSaved 则按约定返回 false。
+稳定错误码至少覆盖 `target_missing`、`stale_request`、`stale_hit`、`content_missing`、`build_failed`、`edit_locked`、`invalid_operation`、`region_limit`、`occupancy_conflict`、`outside_envelope`、`scene_internal_fault`。Godot 不解析 Detail 分支；SceneProblem.Content 和 Package 保留引用及已知来源包，内容提供了来源时不得丢弃，确实未知时 Package 为空。宿主据此同时在界面与控制台显示缺失资料，不按设计哈希猜包名。绑定、内容世代或业务输入身份不匹配、Observe 位置倒退及事件顺序或重复错误属于接口前提违反，抛 ArgumentException，接入前仍须检查；真实交互过期继续返回 stale_hit、stale_request。default 集合/非有限数/无效枚举等编程前提错误抛 ArgumentException；关闭后的修改调用抛 ObjectDisposedException，AcceptEvaluation/MarkSaved 则按约定返回 false。
 
 工厂无可变调用会话状态，可独立创建多个候选；世界和编辑会话的变更只在各自协调线程串行执行。只读设计预览的 Present 和 Dispose 在调用方协调线程串行调用。固定帧、输入快照与模板预览可并发只读。体素背景线程不调用 Godot 或内容加载器、不读文件；除可选流式观察器的诊断事件外，不回调宿主。产品使用的内部任务完成状态仍只经 Present 暴露。
 

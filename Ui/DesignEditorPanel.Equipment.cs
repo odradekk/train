@@ -26,11 +26,11 @@ internal partial class DesignEditorPanel
             NestedDesignItem Item() => composite is { } definition
                 ? new NestedDesignItem.FunctionalCompositeReference(At(), VoxelOrientation.PxPy, definition, Paint())
                 : new NestedDesignItem.AssemblyCopy(At(), VoxelOrientation.PxPy, draft);
-            Add(_equipment, "PlaceEquipment", $"放置 {EconomyPanels.ServiceLibrary(summary.Address.Library)} · {summary.Display.Name}", () => Preview(new EditOperation.PlaceNested(Item())));
+            Add(_equipment, "PlaceEquipment", $"放置 {EconomyPanels.ServiceLibrary(summary.Address.Library)} · {summary.Display.Name}", () => Execute(new EditOperation.PlaceNested(Item())));
             Add(_equipment, "ReplaceEquipment", $"替换为 {summary.Display.Name}", () =>
             {
                 if (_elements.GetSelectedItems().Length == 0) { _service.Report("请先选择设备。"); return; }
-                Preview(new EditOperation.ReplaceNested(_elementRows[_elements.GetSelectedItems()[0]].Id, Item()));
+                Execute(new EditOperation.ReplaceNested(_elementRows[_elements.GetSelectedItems()[0]].Id, Item()));
             });
         }
     }

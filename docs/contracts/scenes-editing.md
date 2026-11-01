@@ -8,7 +8,7 @@
 
 `Read` 返回不可变 EditState，`Capture` 返回整份固定草稿与 EditStamp；后续修改不影响它们。Elements 是当前固定修订的可定位元素清单，内部 ID 跨不改身份的操作保持，删除后不复用；诊断路径和数组下标只对应本修订。体素实现按原缺失引用维护锁，不等待迟到的完整内容评估才执行锁定。
 
-`Select` 替换选区；`Enter` 只能进入可编辑的组装体/场景模型副本，null 回根。封闭功能复合体不能进入。切换层级清空选区及未应用预览；选取、相机、平面、剖切均不修改草稿修订、脏状态或撤销栈。框选遇到封闭复合体按整件处理。
+`Select` 替换选区；`Enter` 只能进入可编辑的组装体/场景模型副本，null 回根。封闭功能复合体不能进入。切换层级清空选区，宿主丢弃旧悬停预览；选取、相机、平面、剖切均不修改草稿修订、脏状态或撤销栈。框选遇到封闭复合体按整件处理。
 
 所有操作坐标属于当前进入对象。Properties 改该对象文字与同类别参数，不偷偷转换设计类别。PlaceNested 使用内容公开的副本或封闭引用；体素解析自己的工作布局进行编辑，但不重做内容哈希、BOM 或完整合法性。CaptureObject 导出可编辑嵌套副本在自身坐标中的独立草稿；它不改变宿主设计，不给封闭引用解封，也不能绕过缺失项的复制锁。另存蓝图仍须完整校验，并在结束编辑后由内容发布。
 
@@ -16,13 +16,21 @@
 
 ## 预览、提交与撤销
 
-`Preview` 固定操作、选区、当前进入对象和 EditStamp，不修改草稿。区域覆盖去重、上限、确认门槛沿用[编辑规则](../design/15-design-editor-and-tools.md#编辑)。CoveredCells 是覆盖格数，AffectedCells 是实际将改变的格数，SkippedCells 是空格或无变化等不适用格数，不能把冲突计为跳过后部分提交。未知占格时 OccupancyComplete=false，不能声称已完成完整冲突检查。
+`Preview(EditOperation)` 是悬停查询，按调用时的草稿、选区和当前进入对象计算结果，不修改草稿，也不提交或保留待应用的操作。返回值的 Basis 标明计算所用的 EditStamp；宿主丢弃过期结果，并在输入参数、选区或进入对象改变后重新查询。提交无需先调用 Preview。
 
-Conflicts 提供具体格或元素及原因。HighlightCells 在当前进入对象坐标中表示 RotateSelection 第 1 到第 QuarterTurns 个离散姿态的占格并集、放置/替换/移动/复制的目标覆盖，其余为操作范围；旋转的冲突与锁只按最终姿态检查，中间姿态只展示。Godot 画覆盖层，不自行算扫掠。工作平面与包络分别来自 EditViewOptions 和内容评估，Godot 可按这些公开几何值画线框。体素只做动作约束，内容诊断负责完整设计合法性；草稿暂时不连通或不合法仍可保存。
+CoveredCells 是去重后的覆盖格数，AffectedCells 是实际将改变的格数，SkippedCells 是空格、当前对象已有的格或无变化等不适用格数。Add 跳过当前对象已有的格；Remove、Paint、Replace 跳过空格；这些规则不能绕过锁定或嵌套占格冲突。冲突导致整笔拒绝，不能计为跳过后部分提交。笔刷宽度最多 16，Cells 操作的单次覆盖最多 5000 格；上限按覆盖格数计算，即使其中大部分会跳过也不放宽。选区操作不设此覆盖上限，具体范围定义见[编辑规则](../design/15-design-editor-and-tools.md#编辑)。未知占格时 OccupancyComplete=false，不能声称已完成完整冲突检查。
+
+宿主在悬停处绘制半透明范围：有冲突或 AffectedCells=0 时显示红色并说明原因，其他情况显示绿色。Preview 返回 Failure 时，宿主按输入中可表示的范围绘制红色覆盖并显示失败原因。绿色只表示本次操作可以改变草稿，不代表设计已通过完整合法性检查；占格未知仍须明确提示。
+
+Conflicts 提供具体格或元素及原因。HighlightCells 在当前进入对象坐标中表示 RotateSelection 第 1 到第 QuarterTurns 个离散姿态的占格并集、放置/替换/移动/复制的目标覆盖，其余为操作范围；旋转的冲突与锁只按最终姿态检查，中间姿态只展示。Godot 画覆盖层，不自行算扫掠。工作平面与包络分别来自 EditViewOptions 和内容评估，Godot 可按这些公开几何值画线框。
+
+Cells.Add 只对实际新增的格检查内容评估中的 Scene.AllowedEnvelope，超出时报告 outside_envelope，整笔拒绝。包络来自打开会话的初始评估，或最近一次 AcceptEvaluation 接受的评估；只有该评估草稿的 Specification 与当前整份草稿的 Specification 深层内容相同时才使用。当前对象中的格先转换到根对象坐标再检查。草稿修改清空 CurrentEvaluation 后，只要 Specification 仍相同，该包络仍有效；Specification 不匹配或 AllowedEnvelope=null 时不做包络检查。MoveSelection、CopySelection、RotateSelection 及其他操作不新增这项约束。内容层仍负责完整设计合法性，草稿暂时不连通或不合法仍可保存。
 
 设备 rotation 行为的全角度范围与冲突格读取当前评估的 Scene.RotationSweeps，不能用 HighlightCells 代替。按 NestedItemIndices 匹配选中对象（空路径为根），体素用已有层级放置与本帧原点变换生成覆盖线框，经 Present 返回帧的 DebugLines 交出；这些编辑线框不要求开启开发调试图层。Godot 直接绘制帧中线框，不转换嵌套设计坐标或重算内容合法性几何。SweptCells 与 ConflictCells 的 Known/Unknown 分别显示，未知提示读取 CurrentEvaluation，不能将未知冲突显示为完整无冲突。AcceptEvaluation 拒绝的迟到结果不能更新这些覆盖层；草稿改变后随 CurrentEvaluation 清空，不能保留旧范围冒充当前结果。
 
-`Apply` 只接受本会话产生的当前预览。新预览、切换进入对象、草稿改变或关闭后旧预览失效；选择改变不重定向已固定的预览。RequiresConfirmation=true 时必须显式 confirmed=true；否则返回 confirmation_required。已知冲突导致整笔拒绝，草稿、修订与撤销不变。未知引用保留并锁定，父级、选区、移动、旋转、复制、替换等均不能间接改变它；允许编辑其他已知部分不意味着未知处被推定为空。
+`Apply(EditOperation)` 按调用时的草稿、选区和当前进入对象重新检查并同步提交操作，不接收 Preview 的返回值。改变选区或进入对象后，Apply 使用新的选择和坐标空间；此前查过哪份预览不影响提交。操作无需二次确认，超过单次覆盖上限或存在已知冲突时整笔拒绝，草稿、修订与撤销不变。未知引用保留并锁定，父级、选区、移动、旋转、复制、替换等均不能间接改变它；允许编辑其他已知部分不意味着未知处被推定为空。
+
+宿主将单格点击直接交给 Apply；笔刷从按下到松开累计 Stroke，松开后提交一笔。长方体第一击确定角 A，第二击确定角 B 并提交：每个轴分别取两角的最小值和最大值，添加时再把最大 Y 增加高度减一，高度至少为 1；移除、涂装和替换使用两角范围，不叠加高度。选区操作和属性按钮也直接提交各自的 EditOperation，不设“应用预览”步骤。
 
 一次成功修改整笔入栈，草稿修订增加；无变化操作不制造修订或历史。Undo/Redo 同样产生新的编辑修订，恢复对应工作值，不能使旧异步结果重新有效；新编辑清空重做。撤销不限步数但只活在本会话中，不进存档。体素内部用不可变共享或其他实现控制成本，不把存储结构列入契约。
 

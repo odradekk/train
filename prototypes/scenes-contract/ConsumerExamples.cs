@@ -208,23 +208,13 @@ public sealed class EditorConsumer(IDesignEditSession session, ISceneDisplay dis
     public static SceneResult<IDesignEditSession> Open(IScenesFactory factory,
         IContentView content, DesignEvaluation initial) => factory.OpenEditor(content, initial);
 
-    public SceneResult<EditState>? Edit(EditOperation operation,
-        Func<IEditPreview, bool> confirm, Action<object> report)
+    public SceneResult<IEditPreview> Preview(EditOperation operation) => session.Preview(operation);
+
+    public SceneResult<EditState> Edit(EditOperation operation, Action<object> report)
     {
-        var prepared = session.Preview(operation);
-        if (prepared is not SceneResult<IEditPreview>.Success success)
-        {
-            report(prepared);
-            return null;
-        }
-        var preview = success.Value;
-        report(preview);
-        if (!preview.CanApply)
-            return null;
-        var confirmed = preview.RequiresConfirmation && confirm(preview);
-        if (preview.RequiresConfirmation && !confirmed)
-            return null;
-        return session.Apply(preview, confirmed);
+        var result = session.Apply(operation);
+        report(result);
+        return result;
     }
 
     public bool Evaluate(IContentFactory factory, IContentView content, Action<object> report)

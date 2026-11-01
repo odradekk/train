@@ -31,11 +31,10 @@ internal sealed partial class DesignEditSession
             EditOperation.PaintSelection => LockedDesignOperation.Paint,
             _ => LockedDesignOperation.ChangeShape
         };
-        var checks = selection.Select(id => (Id: id, Operation: action)).ToImmutableArray();
         var lockProblems = LockProblems(Elements);
         var conflicts = ImmutableArray.CreateBuilder<EditConflict>();
-        foreach (var check in checks)
-            if (lockProblems.GetValueOrDefault(check) is { } problem) conflicts.Add(new(null, check.Id, problem));
+        foreach (var id in selection)
+            if (lockProblems.GetValueOrDefault((id, action)) is { } problem) conflicts.Add(new(null, id, problem));
         var affected = new HashSet<GridPosition>();
         var highlight = new HashSet<GridPosition>();
         var copying = operation is EditOperation.CopySelection;
@@ -123,7 +122,7 @@ internal sealed partial class DesignEditSession
                     conflicts.Add(new(group.Key, group.First().Id, Problem("occupancy_conflict", "Nested anchors overlap.")));
         }
         return FinishPreview(new(Stamp, EditLayout.Update(root, path, _ => next), covered.Count, affected.Count,
-            covered.Count(at => !affected.Contains(at)), false, conflicts.ToImmutable(), Ordered(highlight), checks), path);
+            covered.Count(at => !affected.Contains(at)), conflicts.ToImmutable(), Ordered(highlight)), path);
 
         GridPosition Transform(GridPosition at) => operation switch
         {

@@ -27,9 +27,10 @@ public static class AuthoringCoreProbe
             await fixture.Pump(() => fixture.Editor.Session is not null);
             var draft = fixture.Editor.State!.Snapshot.Draft;
             var name = draft.Display.Name + "（源码写入验证）";
-            var preview = fixture.Editor.Preview(new EditOperation.Properties(draft.Display with { Name = name }, draft.Specification));
+            var operation = new EditOperation.Properties(draft.Display with { Name = name }, draft.Specification);
+            var preview = fixture.Editor.Preview(operation);
             Require(preview is SceneResult<IEditPreview>.Success { Value.CanApply: true }, "真实 core 编辑预览不可应用。");
-            fixture.Editor.Apply(((SceneResult<IEditPreview>.Success)preview!).Value, false);
+            fixture.Editor.Apply(operation);
             fixture.Editor.SaveDraft(); await fixture.Pump(() => !fixture.Editor.IsBusy);
             fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);
             Require(fixture.Service.LastWrite is { Success: true } && fixture.LastOperation?.Succeeded == true,

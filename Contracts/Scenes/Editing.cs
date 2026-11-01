@@ -62,7 +62,6 @@ public interface IEditPreview
     int SkippedCells { get; }
     bool OccupancyComplete { get; }
     bool CanApply { get; }
-    bool RequiresConfirmation { get; }
     ImmutableArray<EditConflict> Conflicts { get; }
     ImmutableArray<GridPosition> HighlightCells { get; }
 }
@@ -76,7 +75,7 @@ public interface IDesignEditSession : IDisposable
     SceneResult<EditState> Select(EditSelection selection);
     SceneResult<EditState> Enter(EditElementId? element);
     SceneResult<IEditPreview> Preview(EditOperation operation);
-    SceneResult<EditState> Apply(IEditPreview preview, bool confirmed);
+    SceneResult<EditState> Apply(EditOperation operation);
     SceneResult<EditState> Undo();
     SceneResult<EditState> Redo();
     bool AcceptEvaluation(EditStamp requested, DesignEvaluation result);
