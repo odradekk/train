@@ -117,44 +117,34 @@ public partial class GameUi
 
     private void ShowNewGameMissing(ContentPreparationReport content, System.Collections.Immutable.ImmutableArray<MissingCoreReference> core)
     {
-        var missing = content.RuntimeMissing.Select(item => (item.Reference, Package: item.Package ?? ReferencePackage(item.Reference)))
-            .Concat(core.Select(item => (Reference: (ContentReference)new ContentReference.Core(item.Reference),
-                Package: ReferencePackage(new ContentReference.Core(item.Reference)))))
-            .DistinctBy(item => item.Reference).ToArray();
-        var packages = missing.Where(item => item.Package is not null).Select(item => item.Package!.Value).Distinct()
+        var packages = core.Select(item => ReferencePackage(item.Reference))
+            .Where(id => id is not null).Select(id => id!.Value).Distinct()
             .Select(id => content.Packages.FirstOrDefault(package => package.Metadata?.Id == id)?.Metadata?.Name ?? id.Value);
-        var lines = new List<string>();
-        if (packages.Any()) lines.Add("缺失内容的来源内容包：" + string.Join("、", packages) + "。");
-        var unknown = missing.Count(item => item.Package is null);
-        if (unknown > 0) lines.Add($"另有 {unknown} 项内容找不到来源。");
-        lines.Add("继续后，缺失内容保留为占位，相关功能失效；缺失货物不能使用或交易，缺失的格子不能改装或修理。装回内容包后可恢复。");
-        _newGameError!.Text = string.Join("\n", lines);
+        _newGameError!.Text = "缺失内容的来源内容包：" + string.Join("、", packages) + "。\n"
+            + "继续后，缺失内容保留为占位，相关功能失效；缺失货物不能使用或交易，缺失的格不能改装或修理。装回内容包后可恢复。";
         _newGameError.AddThemeColorOverride("font_color", UiStyle.Warning);
         _newGameProgress!.Hide();
         _createNewGame!.Text = "仍然开始";
         _createNewGame.Disabled = false;
         _createNewGame.GrabFocus();
-        var details = content.RuntimeMissing.Select(item => $"{item.Reference} · {item.Field}")
-            .Concat(core.Select(item => $"{item.Reference} · {item.FieldPath}"));
+        var details = core.Select(item => $"{item.Reference} · {item.FieldPath}");
         _logger.Warning("ui", "new_game_missing_confirmation", string.Join("\n", details));
     }
 
-    private static PackageId? ReferencePackage(ContentReference reference)
+    private static PackageId? ReferencePackage(CoreDefinitionReference reference)
     {
         var id = reference switch
         {
-            ContentReference.Core { Definition: CoreDefinitionReference.Voxel item } => item.Id.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Composite item } => item.Id.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Process { Id: ProcessRef.Production item } } => item.Definition.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Process { Id: ProcessRef.Recovery item } } => item.Definition.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Rule item } => item.Id.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.SettlementType item } => item.Id.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Template item } => item.Id.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Terrain item } => item.Id.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Creature item } => item.Id.Value,
-            ContentReference.Core { Definition: CoreDefinitionReference.Lair item } => item.Id.Value,
-            ContentReference.Generation item => item.Id.Value,
-            ContentReference.Blueprint { Address.Library: BlueprintLibrary.Packages } item => item.Address.Id.Value,
+            CoreDefinitionReference.Voxel item => item.Id.Value,
+            CoreDefinitionReference.Composite item => item.Id.Value,
+            CoreDefinitionReference.Process { Id: ProcessRef.Production item } => item.Definition.Value,
+            CoreDefinitionReference.Process { Id: ProcessRef.Recovery item } => item.Definition.Value,
+            CoreDefinitionReference.Rule item => item.Id.Value,
+            CoreDefinitionReference.SettlementType item => item.Id.Value,
+            CoreDefinitionReference.Template item => item.Id.Value,
+            CoreDefinitionReference.Terrain item => item.Id.Value,
+            CoreDefinitionReference.Creature item => item.Id.Value,
+            CoreDefinitionReference.Lair item => item.Id.Value,
             _ => null
         };
         return id?.IndexOf(':') is > 0 and var separator ? new(id[..separator]) : null;

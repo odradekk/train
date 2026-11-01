@@ -67,6 +67,7 @@ public partial class NewGameUiTests(Node testScene) : TestClass(testScene)
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input);
         var contentView = new FixedContentView(projection, new(1))
         {
+            Packages = [new(new(new("fixture"), "测试内容包", "1.0", [], []), new("fixture"), PackageState.Available, [])],
             GenerationProfiles = [new(new("fixture:first"), new("首个配置", "适合开始的小型世界。")),
                 new(new("fixture:second"), new(string.Concat(Enumerable.Repeat("线路更长且聚居地更多的测试世界", 4)), "线路更长的测试世界。"))]
         };
@@ -74,7 +75,8 @@ public partial class NewGameUiTests(Node testScene) : TestClass(testScene)
         { Economy = UiWorldFixture.Economy, World = new(42, new("fixture:railway"), 100, 100, [], [], [], [], []) };
         var session = UiWorldFixture.Session(view);
         var candidate = new ScriptedCoreCandidate(session, HostCoreScenario.References,
-            missing ? [new(new CoreDefinitionReference.Voxel(new("fixture:missing")), "vehicles[0]")] : []);
+            missing ? [new(new CoreDefinitionReference.Voxel(new("fixture:missing")), "vehicles[0]"),
+                new(new CoreDefinitionReference.Composite(new("lost:missing")), "vehicles[1]")] : []);
         var loads = 0;
         var worldInputs = 0;
         var sessionOptions = new CoreSessionOptions(new("fixture-game", "fixture-core", "fixture-os", "fixture-arch", "fixture-runtime"), true, 1);
@@ -96,12 +98,7 @@ public partial class NewGameUiTests(Node testScene) : TestClass(testScene)
             {
                 Require(request.Purpose is ContentLoadPurpose.Initial && ++loads <= 2,
                     "有限情景只接受启动和新游戏的两次初始加载。");
-                var report = missing && loads == 2 ? new ContentPreparationReport(
-                    [new(new(new("fixture"), "测试内容包", "1.0", [], []), new("fixture"), PackageState.Available, [])],
-                    [new(new ContentReference.Core(new CoreDefinitionReference.Voxel(new("fixture:missing"))), new("fixture"), "vehicles[0]", []),
-                        new(new ContentReference.Generation(new("lost:world")), new("lost"), "internal-profile", []),
-                        new(new ContentReference.Draft(new(Guid.NewGuid())), null, "internal-draft", [])], [], []) : null;
-                return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(contentView, report: report));
+                return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(contentView));
             },
             CreateWorldInputCall = (basis, profile, seed, generator) =>
             {
@@ -168,9 +165,10 @@ public partial class NewGameUiTests(Node testScene) : TestClass(testScene)
                 Require(app.Host!.IsBusy && app.Host.GetStatus() is null && menu.IsVisibleInTree() &&
                     panel.IsVisibleInTree() && Find<Label>(panel, "Problem").Text.Contains("测试内容包") &&
                     Find<Label>(panel, "Problem").Text.Contains("lost") &&
-                    Find<Label>(panel, "Problem").Text.Contains("另有 1 项内容找不到来源") &&
                     !Find<Label>(panel, "Problem").Text.Contains("vehicles[0]") &&
+                    !Find<Label>(panel, "Problem").Text.Contains("vehicles[1]") &&
                     !Find<Label>(panel, "Problem").Text.Contains("Voxel") &&
+                    !Find<Label>(panel, "Problem").Text.Contains("Composite") &&
                     !ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
                     "缺失确认必须在表单中说明来源和后果，不能显示字段路径或另弹错误。");
                 var action = Find<Button>(panel, confirm ? "Create" : "Cancel");
