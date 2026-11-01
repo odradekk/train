@@ -7,11 +7,11 @@ using static Train.Ui.EconomyPanelControls;
 namespace Train.Ui;
 
 /// <summary>
-/// 非敌对聚居地的经营摘要。
+/// 聚居地的经营摘要。
 /// Decision note: 2026-10-31-object-centric-management-screens
 /// </summary>
-internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool> canAct,
-    Func<CoreCommand, SubmissionResult> submit)
+internal sealed partial class SettlementOverviewPage(Action<string> openPage, Func<bool> canAct,
+    Func<CoreCommand, SubmissionResult> submit, Action<GoodId> openGood, Action<BuildingId> openBuilding)
 {
     private Label _trains = null!, _jobs = null!, _leases = null!, _market = null!;
     private Label _warReason = null!;
@@ -21,8 +21,12 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
     private SettlementView _settlement = null!;
     private string _warFailure = "", _warCondition = "";
 
-    internal void Build(VBoxContainer body)
+    private bool _owned;
+
+    internal void Build(VBoxContainer body, bool owned)
     {
+        _owned = owned;
+        if (owned) { BuildOwned(body); return; }
         _trains = Text(body, "PresentTrains", "");
         _jobs = Text(body, "Commissions", "");
         _leases = Text(body, "LeaseSummary", "");
@@ -64,6 +68,7 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
         IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> locals)
     {
         _view = view; _settlement = settlement;
+        if (_owned) { RefreshOwned(content); return; }
         _confirmation.Title = content.FindSettlementLayout(settlement.Id) is ContentLookup<SettlementLayoutProjection>.Found layout
             ? $"向{layout.Value.Display.Name}宣战？" : "向这个聚居地宣战？";
         var trains = view.World.Trains.Where(item => item.Position is TrainPosition.Node node && node.Id == settlement.Node);
@@ -82,6 +87,11 @@ internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool>
     internal void UpdateActions()
     {
         if (_settlement is null) return;
+        if (_owned)
+        {
+            foreach (var button in _blockedBuildings.Values.Concat(_lowStock.Values)) button.Disabled = !canAct();
+            return;
+        }
         _declare.Disabled = !canAct();
         var reason = WarReason();
         if (reason != _warCondition) _warFailure = "";

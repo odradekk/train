@@ -81,8 +81,10 @@ public partial class EconomyUiTests
             await _input.Activate(dialog.GetOkButton(), dialog);
             await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
             var current = Find<PanelContainer>(ui, "Settlement");
-            Require(Find<TabContainer>(current, "Pages").GetTabCount() == 8 && setup.Session.SubmitCount == 1,
-                "宣战后应使用既有敌对页面，而且只提交一次。");
+            var tabs = Find<TabContainer>(current, "Pages");
+            Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
+                .SequenceEqual(new[] { "现车", "仓库租用", "建造与工地" }) && setup.Session.SubmitCount == 1,
+                "宣战后应只保留敌对聚居地的剩余旧页，而且只提交一次。");
         });
         setup.Session.AssertComplete();
     }

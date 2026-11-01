@@ -145,7 +145,7 @@ internal static class EconomyFixture
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
-        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食")
+        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -198,7 +198,7 @@ internal static class EconomyFixture
             {
                 [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
                 [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
-                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding()),
+                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding(armedBuilding)),
                 [new("fixture-food-building")] = new ContentLookup<DesignEvaluation>.Found(FoodBuilding())
             }
         };
@@ -218,7 +218,7 @@ internal static class EconomyFixture
             new(null, null, null, true, null, null, [], [], [], [], []), true, []);
     }
 
-    private static DesignEvaluation.Complete PlainBuilding()
+    private static DesignEvaluation.Complete PlainBuilding(bool armed)
     {
         var definition = new DesignDraft(new("普通建筑", ""),
             new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, []), new([], [], []));
@@ -226,7 +226,7 @@ internal static class EconomyFixture
             new(new("fixture-plain-building"), new("fixture-plain-composition"),
                 new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
                 [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
-                    [new PartCapability.Production(1)], false)],
+                    [new PartCapability.Production(1), .. (armed ? new PartCapability[] { new PartCapability.Weapon(12, 2) } : [])], false)],
                 100, 1, 1, new(1), [], [], 0, [], true, []), []);
         return new(design.Design.Design, design.Design.Composition, definition, design,
             new(null, null, null, true, null, null, [], [], [], [], []), true, []);
