@@ -96,7 +96,7 @@ internal sealed partial class NodeScene : IAsyncDisposable
             }
         }
         private static long FixedBytes(Cached built) => built.Boundaries.Values.Sum(boundary =>
-            boundary.Grid.ArrayBytes + boundary.Dependencies.ArrayBytes + ProblemBytes(boundary.Problems));
+            boundary.Grid.ArrayBytes + boundary.Dependencies.Bytes + ProblemBytes(boundary.Problems));
         private static long Bytes(Cached built) => FixedBytes(built) + built.Parts.Values.Sum(part => part.ArrayBytes);
     }
 
