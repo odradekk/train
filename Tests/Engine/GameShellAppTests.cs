@@ -29,8 +29,8 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
             var list = shell.ListContent!;
             await _input.ClickItem(Find<ItemList>(list, "Objects"), 0);
             Require(shell.SelectedObject == new WorldObjectId.Settlement(new(1)), "聚居地应通过统一选择进入检查器。");
-            Require(Find<TabContainer>(shell.InspectorContent!, "Pages").GetTabCount() == 8,
-                "聚居地检查器应保留原有八页。");
+            Require(Find<TabContainer>(shell.InspectorContent!, "Pages").GetTabCount() == 5,
+                "非敌对聚居地检查器应显示五页。");
             await _input.Activate(Find<Button>(ui, "Nodes"));
             Require(shell.ListContent is null && shell.InspectorContent is not null,
                 "再次点导航只收起列表，不能丢掉当前检查器。");
@@ -147,8 +147,8 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
                     {
                         await _input.ClickTab(pages, page);
                         ShellGeometry.Check(ui);
-                        if (page == 0 || page == 7)
-                            await UiCapture.Capture(TestScene, $"shell-settlement-{(page == 0 ? "stock" : "services")}-scale-{scale:0}", scale);
+                        if (page == 0 || pages.GetTabTitle(page) == "建造与工地")
+                            await UiCapture.Capture(TestScene, $"shell-settlement-{(page == 0 ? "overview" : "services")}-scale-{scale:0}", scale);
                     }
                     foreach (var entry in new[] { "EconomyReports", "BlueprintLibrary" })
                     {
@@ -181,10 +181,8 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
             await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
             var inspector = shell.InspectorContent!;
             await _input.ChooseTab(Find<TabContainer>(inspector, "Pages"), 1);
-            await _input.Choose(Find<OptionButton>(inspector, "Train"), 1);
             await _input.Activate(inspector.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First());
             await _input.Enter(Find<LineEdit>(inspector, "Quantity"), EconomyFixture.LargeQuantity.ToString());
-            await _input.Activate(Find<Button>(inspector, "QuoteTrade"));
             await _input.Activate(Find<Button>(inspector, "ConfirmTrade"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
             var wallet = ui.GetNode<Label>("Root/World/Bar/TopBar/Wallet");

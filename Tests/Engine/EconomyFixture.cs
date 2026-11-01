@@ -19,7 +19,8 @@ internal static class EconomyFixture
         bool blocked = false, bool shortage = false, long foodQuantity = 4, long tradeTotal = 731, long? executableQuantity = null,
         bool missingMarketRule = false,
         IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>>? leaseQuotes = null,
-        bool trainAtNode = true, long wallet = 1234567)
+        bool trainAtNode = true, long wallet = 1234567,
+        IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>? tradeQuotes = null)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -65,7 +66,8 @@ internal static class EconomyFixture
         foreach (var local in new InventoryId[] { new(10), new(11) })
         foreach (var good in new[] { Food, Equipment })
         foreach (var action in new[] { TradeAction.Buy, TradeAction.Sell, TradeAction.Load, TradeAction.Unload })
-        foreach (var quantity in new[] { 1L, LargeQuantity })
+        foreach (var quantity in Enumerable.Range(1, LargeQuantity.ToString().Length)
+            .Select(length => long.Parse(LargeQuantity.ToString()[..length])).Concat([1L, 10L]).Distinct())
         {
             var request = new TradeQuoteRequest(new(7), new(1), local, action, good, quantity);
             trades.Add(request, new CoreResult<TradeQuote>.Success(new(request, new(revision), executableQuantity ?? quantity,
@@ -130,7 +132,7 @@ internal static class EconomyFixture
                 [new(1)] = new Lookup<LeaseView>.Found(new(new(1), new(1), new(11), 20, LeaseDuration, new(419), false)),
                 [new(2)] = new Lookup<LeaseView>.Missing()
             },
-            TradeQuotes = trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
+            TradeQuotes = tradeQuotes ?? trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
         };
     }
 

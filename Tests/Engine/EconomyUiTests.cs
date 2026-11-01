@@ -28,15 +28,12 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
         {
             await Market(economy);
             await _input.Enter(Find<LineEdit>(economy, "Quantity"), EconomyFixture.LargeQuantity.ToString());
-            await _input.Activate(Find<Button>(economy, "QuoteTrade"));
             Require(Find<Label>(economy, "Quote").Text.Contains("731"), "报价总额未按核心结果显示。");
             await UiCapture.Capture(TestScene, "economy-market");
             await _input.Activate(Find<Button>(economy, "ConfirmTrade"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
             Require(setup.Session.SubmitCount == 1, "买入未只提交一次。");
-            await Page(economy, 0);
-            Require(economy.FindChildren("GoodName", "Label", true, false).Cast<Label>()
-                .Any(label => label.IsVisibleInTree() && label.Text.Contains("主食 × 9")), "接受后库存未刷新。");
+            Require(Find<Label>(economy, "TrainCargo").Text.Contains("9"), "接受后列车库存未刷新。");
             await UiCapture.Capture(TestScene, "economy-inventory");
         });
         setup.Session.AssertComplete();
@@ -58,13 +55,13 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
         await Run(setup, async (ui, economy) =>
         {
             await Market(economy);
-            await _input.Activate(Find<Button>(economy, "QuoteTrade"));
             await _input.Activate(Find<Button>(economy, "ConfirmTrade"));
             await _input.WaitUntil(() => setup.Session.SubmitCount == 1);
-            Require(ui.ErrorText.Contains("资金不足。对象：聚居地 1。") && ui.ErrorText.Contains("可用容量不足。对象：库存 10。") &&
-                !ui.ErrorText.Contains("insufficient_") && !ui.ErrorText.Contains("reason-"), "拒绝原因未用中文说明。");
-            Require(ui.ErrorText.Contains("聚居地 1") && ui.ErrorText.Contains("库存 10") && !ui.ErrorText.Contains("{"),
-                "拒绝提示中的对象未按可读种类和编号显示。");
+            var result = Find<Label>(economy, "TradeResult").Text;
+            Require(result.Contains("资金不足") && result.Contains("可用容量不足") &&
+                !result.Contains("insufficient_") && !result.Contains("reason-") &&
+                !result.Contains("库存 10") && !result.Contains("聚居地 1") && ui.ErrorText.Length == 0,
+                "拒绝原因未在原位用中文说明。");
             await UiCapture.Capture(TestScene, "economy-command-rejection");
             Require(Find<LineEdit>(economy, "Quantity").Text == "1", "拒绝丢失数量输入。");
             await _input.Frames(3);
@@ -89,17 +86,14 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             CommandSource.UserInterface, Completed(2, loaded, unloaded, new CommandDecision.Accepted([], [])), unloaded);
         await Run(setup, async (ui, economy) =>
         {
-            await _input.Choose(Find<OptionButton>(economy, "LocalInventory"), 1);
             await Market(economy);
             await _input.Choose(Find<OptionButton>(economy, "Action"), 2);
-            await _input.Activate(Find<Button>(economy, "QuoteTrade"));
             await _input.Activate(Find<Button>(economy, "ConfirmTrade"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, loaded));
             await _input.Choose(Find<OptionButton>(economy, "Action"), 3);
-            await _input.Activate(Find<Button>(economy, "QuoteTrade"));
             await _input.Activate(Find<Button>(economy, "ConfirmTrade"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, unloaded));
-            Require(Find<OptionButton>(economy, "LocalInventory").Selected == 1 && setup.Session.SubmitCount == 2,
+            Require(setup.Session.SubmitCount == 2,
                 "装卸没有保留租用库存或命令次数错误。");
         });
         setup.Session.AssertComplete();
@@ -367,7 +361,6 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 Find<Label>(economy, "VehicleQuote").Text.Contains("可用容量不足") &&
                 !Find<Label>(economy, "VehicleQuote").Text.Contains("insufficient_capacity"), "收购受阻时不得允许卖车。");
             await Market(economy);
-            await _input.Activate(Find<Button>(economy, "QuoteTrade"));
             Require(Find<Button>(economy, "ConfirmTrade").Disabled &&
                 Find<Label>(economy, "Quote").Text.Contains("资金不足") &&
                 Find<Label>(economy, "Quote").Text.Contains("可用容量不足") &&
@@ -384,7 +377,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             economy = Find<PanelContainer>(ui, "Settlement");
             await Market(economy);
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(new HostBinding(Guid.NewGuid()), view, content);
-            Require(Find<Button>(economy, "QuoteTrade").Disabled && !Find<LineEdit>(economy, "Quantity").Editable,
+            Require(Find<Button>(economy, "ConfirmTrade").Disabled && !Find<LineEdit>(economy, "Quantity").Editable,
                 "旧绑定窗口仍允许操作。");
             var host = ui.GetParent<Train.App.App>().Host!;
             var binding = host.GetStatus()!.Binding;
@@ -398,7 +391,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             Require(host.BeginReload(CommandSource.UserInterface).Problem is null, "内容重载被拒绝。");
             await _input.WaitUntil(() => !host.IsBusy && ReferenceEquals(host.Content, reloaded));
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(binding, view, host.Content!);
-            Require(Find<Button>(economy, "QuoteTrade").Disabled && Find<Button>(economy, "ConfirmTrade").Disabled,
+            Require(Find<Button>(economy, "ConfirmTrade").Disabled,
                 "内容重载后旧窗口仍允许操作。");
             Require(setup.Session.SubmitCount == 0, "无效窗口提交了命令。");
             var app = ui.GetParent<Train.App.App>();
@@ -429,10 +422,12 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, next, host.Content!);
             }
             await Page(economy, 1);
+            var goods = economy.FindChildren("SelectGood", "Button", true, false).Cast<Button>().ToArray();
+            var good = goods[0];
+            await _input.Activate(goods[1]);
+            await _input.Enter(Find<LineEdit>(economy, "Quantity"), "1");
             await _input.Choose(Find<OptionButton>(economy, "Train"), 1, () => Advance(EconomyFixture.Create(2)));
-            var good = economy.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First();
             await _input.ClickAcrossRevision(good, () => Advance(changed));
-            await _input.Activate(Find<Button>(economy, "QuoteTrade"));
             Require(Find<Label>(economy, "Quote").Text.Contains("总额：900"), "修订变化吞掉货物选择点击。");
             setup.Session.QueueAdvance(new(1, latest.Position, [], null, null), latest);
             setup.Session.QueueSubmit(new CoreCommand.BuyGoods(new(7), new(1), new(10), EconomyFixture.Food, 1, new(900)),
@@ -473,10 +468,9 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
         {
             await Market(economy);
             await _input.Enter(Find<LineEdit>(economy, "Quantity"), EconomyFixture.LargeQuantity.ToString());
-            await _input.Activate(Find<Button>(economy, "QuoteTrade"));
             var text = Find<Label>(economy, "Quote").Text;
             Require(text.Contains("报价不锁定") && text.Contains("当前可执行数量：1") &&
-                text.Contains("货物不足。对象：库存 12。") && text.Contains("所需内容缺失。对象：库存 12。") &&
+                text.Contains("货物不足") && text.Contains("所需内容缺失") &&
                 !text.Contains("insufficient_goods") && !text.Contains("content_missing") &&
                 !text.Contains("fixture:shortage") && !text.Contains("fixture:missing"), "报价遗漏可执行数量、短缺风险或不锁定提示。");
             Require(Find<Button>(economy, "ConfirmTrade").Disabled && text.Contains("可执行数量不足"), "数量不足而无Blockers时未说明禁用确认的原因。");
@@ -503,7 +497,6 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 Require(visible == new Vector2(1920, 1080), $"默认窗口不是 1920×1080：{visible}。");
                 await Page(economy, 1);
                 RequireInWindow(Find<Button>(economy, "ConfirmTrade"));
-                RequireInWindow(Find<Button>(economy, "QuoteTrade"));
                 await Page(economy, 2);
                 RequireInWindow(Find<Button>(economy, "ConfirmVehicle"));
                 RequireInWindow(Find<Button>(economy, "QuoteVehicle"));
@@ -526,7 +519,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Settlement_inspector_opens_combat_and_blocks_map_clicks()
+    public async Task Settlement_inspector_confirms_war_and_blocks_map_clicks()
     {
         var setup = new HostSimulationTests.HostSetup(
             EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned), EconomyFixture.Content());
@@ -534,12 +527,11 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
         {
             var shell = Find<GameShell>(ui, "*");
             await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
-            var entry = Find<Button>(shell.InspectorContent!, "OpenSettlementCombat");
-            await _input.Click(entry.GetGlobalRect().GetCenter());
-            Require(Find<Button>(ui, "DeclareWar").IsVisibleInTree() && Find<Button>(ui, "Occupy").IsVisibleInTree(),
-                "聚居地没有宣战和占领入口。");
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
             economy = shell.InspectorContent!;
+            await _input.Activate(Find<Button>(economy, "DeclareWar"));
+            var confirmation = Find<ConfirmationDialog>(economy, "DeclareWarConfirmation");
+            Require(confirmation.Visible && setup.Session.SubmitCount == 0, "宣战没有先展示确认。");
+            await _input.Activate(confirmation.GetCancelButton(), confirmation);
             var map = Find<MacroMap>(ui, "MacroMap");
             WorldObjectId? clicked = null;
             map.ObjectClicked += id => clicked = id;
@@ -624,11 +616,16 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
     private async Task Market(Control economy)
     {
         await Page(economy, 1);
-        await _input.Choose(Find<OptionButton>(economy, "Train"), 1);
         var select = economy.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First();
         await _input.Activate(select);
+        await _input.Enter(Find<LineEdit>(economy, "Quantity"), "1");
     }
 
-    private Task Page(Control economy, int index) => _input.ChooseTab(Find<TabContainer>(economy, "Pages"), index);
+    private Task Page(Control economy, int index)
+    {
+        string[] titles = ["库存", "市场", "现车", "仓库租用", "生产", "人口", "地块与建筑", "建造与工地"];
+        var tabs = Find<TabContainer>(economy, "Pages");
+        return _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == titles[index]));
+    }
 
 }

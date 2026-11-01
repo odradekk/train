@@ -22,6 +22,8 @@ internal sealed class SettlementPanel
     private readonly SettlementPopulationPage _population;
     private readonly SettlementPlotsPage _plots;
     private readonly SettlementServicesPage _services;
+    private SettlementOverviewPage? _overview;
+    private bool _neutral;
     private HostBinding _binding;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
@@ -69,31 +71,46 @@ internal sealed class SettlementPanel
         RemoveWindow(_panel);
         _target = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
         _settlementId = id; _settlement = null; _revision = null; _localId = null; _localOptions.Clear();
+        _neutral = _view.FindSettlement(id) is Lookup<SettlementView>.Found { Value.Relation: SettlementRelation.NonHostile };
         BindPages();
-        _panel = UiStyle.Panel(_parent, "Settlement", $"聚居地 {id.Value}", new(408, 68), 720,
+        var title = _neutral ? _content.FindSettlementLayout(id) is ContentLookup<SettlementLayoutProjection>.Found layout
+            ? layout.Value.Display.Name : "非敌对聚居地" : $"聚居地 {id.Value}";
+        _panel = UiStyle.Panel(_parent, "Settlement", title, new(408, 68), 720,
             () => _panel!.Hide(), out _body, fill: true);
         _state = Text(_body, "State", ""); _wallet = Text(_body, "Wallet", "");
-        _combat = UiStyle.Button("OpenSettlementCombat", "战斗…", () =>
+        if (!_neutral)
         {
-            if (CanAct) SettlementCombatRequested?.Invoke(_settlementId);
-        });
-        _body.AddChild(_combat);
-        _localChoice = new OptionButton { Name = "LocalInventory" };
-        _body.AddChild(_localChoice);
-        _localChoice.ItemSelected += index =>
-        {
-            _localId = _localOptions[(int)index]; BindPages();
-            _stock.Render(Local, _content, _settlement); _market.ClearTradeQuote(); _market.RenderMarket();
-        };
+            _combat = UiStyle.Button("OpenSettlementCombat", "战斗…", () =>
+            {
+                if (CanAct) SettlementCombatRequested?.Invoke(_settlementId);
+            });
+            _body.AddChild(_combat);
+            _localChoice = new OptionButton { Name = "LocalInventory" };
+            _body.AddChild(_localChoice);
+            _localChoice.ItemSelected += index =>
+            {
+                _localId = _localOptions[(int)index]; BindPages();
+                _stock.Render(Local, _content, _settlement); _market.ClearTradeQuote(); _market.RenderMarket();
+            };
+        }
         var tabs = new TabContainer { Name = "Pages", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             SizeFlagsVertical = Control.SizeFlags.ExpandFill, CustomMinimumSize = new(0, 160) };
         _body.AddChild(tabs);
-        _stock.Build(Page(tabs, "库存"));
+        _overview = null;
+        if (_neutral)
+        {
+            _overview = new(title => tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == title));
+            _overview.Build(Page(tabs, "概况"));
+        }
+        else _stock.Build(Page(tabs, "库存"));
         _market.BuildTrade(Page(tabs, "市场"));
         _vehicles.BuildVehicles(Page(tabs, "现车"));
         _leases.BuildLeases(Page(tabs, "仓库租用"));
-        _production.BuildProduction(Page(tabs, "生产")); _population.BuildPopulation(Page(tabs, "人口"));
-        _plots.BuildPlots(Page(tabs, "地块与建筑"));
+        if (!_neutral)
+        {
+            _production.BuildProduction(Page(tabs, "生产")); _population.BuildPopulation(Page(tabs, "人口"));
+            _plots.BuildPlots(Page(tabs, "地块与建筑"));
+        }
         _services.BuildServices(Page(tabs, "建造与工地"));
         tabs.TabChanged += _ => _services.RefreshServices();
         _refresh(_binding, _view, _content);
@@ -140,11 +157,16 @@ internal sealed class SettlementPanel
         }
         _localId ??= _settlement.Inventory;
         BindPages();
-        EconomyPanels.SyncChoices(_localChoice, _localOptions, _locals.Select(item => item.Inventory.Id), _localId,
+        if (!_neutral) EconomyPanels.SyncChoices(_localChoice, _localOptions, _locals.Select(item => item.Inventory.Id), _localId,
             id => _locals.First(item => item.Inventory.Id == id).Lease is { } lease
                 ? $"租用库存 {id.Value} · 租约 {lease.Id.Value}" : $"聚居地库存 {id.Value}");
-        _stock.Render(Local, _content, _settlement); _market.RefreshTrade(); _vehicles.RefreshVehicles(); _leases.RefreshLeases();
-        _production.RefreshProduction(); _population.RefreshPopulation(); _plots.RefreshPlots();
+        if (!_neutral)
+        {
+            _stock.Render(Local, _content, _settlement);
+            _production.RefreshProduction(); _population.RefreshPopulation(); _plots.RefreshPlots();
+        }
+        _overview?.Refresh(_view, _content, _settlement, _locals);
+        _market.RefreshTrade(); _vehicles.RefreshVehicles(); _leases.RefreshLeases();
     }
 
     private void AddInventory(InventoryId id, LeaseView? lease)
@@ -158,7 +180,7 @@ internal sealed class SettlementPanel
 
     private void UpdateActions()
     {
-        _localChoice.Disabled = _combat.Disabled = !CanAct;
+        if (!_neutral) _localChoice.Disabled = _combat.Disabled = !CanAct;
         _market.UpdateTradeActions(); _vehicles.UpdateVehicleActions(); _leases.UpdateLeaseActions();
         _state.Text = _view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : _host.IsBusy ? "当前操作尚未结束" : "";
     }

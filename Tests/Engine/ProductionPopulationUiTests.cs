@@ -307,11 +307,9 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         var setup = new HostSimulationTests.HostSetup(view, content);
         await Run(setup, async (_, economy) =>
         {
-            await OpenProduction(economy);
-            var facility = Find<VBoxContainer>(economy, "Facility");
-            Require(Find<OptionButton>(facility, "PlanProcess_1").Disabled && !Find<LineEdit>(facility, "PlanPriority_1").Editable &&
-                Find<Button>(facility, "ApplyPlan_1").Disabled && Find<Button>(facility, "StopPlan_1").Disabled &&
-                setup.Session.SubmitCount == 0, "非自有聚居地可以修改生产计划。");
+            var tabs = Find<TabContainer>(economy, "Pages");
+            Require(!Enumerable.Range(0, tabs.GetTabCount()).Any(i => tabs.GetTabTitle(i) == "生产") &&
+                setup.Session.SubmitCount == 0, "非敌对聚居地仍展示生产页或提交了生产命令。");
         });
         setup.Session.AssertComplete();
     }
