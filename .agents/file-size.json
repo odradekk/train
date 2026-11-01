@@ -124,7 +124,7 @@
     "Tests/Engine/EditorUiTests.cs": 17201,
     "Tests/Engine/GoodsIconTests.cs": 6983,
     "Tests/Engine/ObservationIndependenceTests.cs": 6419,
-    "Tests/Engine/ProductionPopulationUiTests.cs": 6889,
+    "Tests/Engine/ProductionPopulationUiTests.cs": 6886,
     "Tests/Engine/RailwayWorkUiTests.cs": 6017,
     "Tests/Engine/RenderingResourceTests.cs": 10334,
     "Tests/Engine/SaveTests.cs": 6127,

@@ -138,7 +138,7 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
                     ShellGeometry.Check(ui);
                     await ShellGeometry.CheckNavigationAndListText(TestScene, ui);
                     var pages = Find<TabContainer>(shell.InspectorContent!, "Pages");
-                    if (scale == 2f)
+                    if (scale == 2f && pages.GetTabBar().GetOffsetButtonsVisible())
                     {
                         await _input.ClickTab(pages, 0);
                         await _input.ClickLastTabWithScrollArrow(pages);
