@@ -103,9 +103,12 @@ internal partial class TrainPlanMap : Control
                 _ => UiStyle.Foreground
             };
             DrawCircle(point, 8, color); DrawArc(point, 8, 0, Mathf.Tau, 24, new Color("#252b29"), 2, true);
-            var text = _name(node.Id); var width = font.GetStringSize(text, HorizontalAlignment.Left, -1, 14).X;
-            DrawStringOutline(font, point + new Vector2(-width / 2, 27), text, HorizontalAlignment.Left, -1, 14, 3, new Color("#182021"));
-            DrawString(font, point + new Vector2(-width / 2, 27), text, HorizontalAlignment.Left, -1, 14, UiStyle.Foreground);
+            if (_stops.Contains(node.Id) || _zoom >= _fitZoom * 1.5f)
+            {
+                var text = _name(node.Id); var width = font.GetStringSize(text, HorizontalAlignment.Left, -1, 14).X;
+                DrawStringOutline(font, point + new Vector2(-width / 2, 27), text, HorizontalAlignment.Left, -1, 14, 3, new Color("#182021"));
+                DrawString(font, point + new Vector2(-width / 2, 27), text, HorizontalAlignment.Left, -1, 14, UiStyle.Foreground);
+            }
             var orders = _stops.Select((id, index) => (id, index)).Where(item => item.id == node.Id).Select(item => item.index + 1).ToArray();
             if (orders.Length > 0)
             {

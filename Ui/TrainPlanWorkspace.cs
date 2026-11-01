@@ -74,7 +74,7 @@ internal partial class TrainPlanWorkspace : Control
         _searchResults = new VBoxContainer { Name = "SearchResults" }; left.AddChild(_searchResults);
         _search.TextChanged += _ => Search();
         var middle = Column(columns, "Route", 280); middle.SizeFlagsStretchRatio = 1.6f;
-        middle.AddChild(Wrap("点地点添加停靠站；按住 Shift 点地点添加途经点。黄线为计划路线。"));
+        middle.AddChild(Wrap("点地点添加停靠站，按住 Shift 点地点添加途经点；黄线为计划路线，悬停可看地名，滚轮放大可显示全部地名。"));
         _map = new TrainPlanMap { Name = "RouteMap", SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
         middle.AddChild(_map); _map.PlaceClicked += AddPlace;
         var right = Column(columns, "Settings", 320);
