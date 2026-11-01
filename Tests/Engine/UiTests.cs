@@ -510,13 +510,13 @@ internal static class UiCapture
         window.Size = new Vector2I(1920, 1080);
     }
 
-    internal static async Task Capture(Node scene, string name)
+    internal static async Task Capture(Node scene, string name, float scale = 1)
     {
         var output = OutputDirectory;
         if (string.IsNullOrWhiteSpace(output)) return;
         var window = scene.GetTree().Root;
-        Require(window.Size == new Vector2I(1920, 1080) && Mathf.IsEqualApprox(window.ContentScaleFactor, 1),
-            "UI 原型截图需要 1920×1080 窗口和 1 倍界面缩放。");
+        Require(window.Size == new Vector2I(1920, 1080) && Mathf.IsEqualApprox(window.ContentScaleFactor, scale),
+            "UI 截图尺寸或缩放不符。");
         await scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         await scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         Directory.CreateDirectory(output);
@@ -526,7 +526,7 @@ internal static class UiCapture
             displayServer = DisplayServer.GetName(), renderingMethod = RenderingServer.GetCurrentRenderingMethod(),
             driver = RenderingServer.GetCurrentRenderingDriverName(), adapter = RenderingServer.GetVideoAdapterName(),
             vendor = RenderingServer.GetVideoAdapterVendor(), adapterType = RenderingServer.GetVideoAdapterType().ToString(),
-            apiVersion = RenderingServer.GetVideoAdapterApiVersion(), viewportWidth = 1920, viewportHeight = 1080
+            apiVersion = RenderingServer.GetVideoAdapterApiVersion(), viewportWidth = 1920, viewportHeight = 1080, scale
         }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         using var image = window.GetTexture().GetImage();
         Require(image.GetWidth() == 1920 && image.GetHeight() == 1080, "UI 截图实际 viewport 尺寸不符。");

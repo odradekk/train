@@ -24,6 +24,7 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
             foreach (var name in new[] { "Fleet", "Edges", "Nodes", "EconomyReports", "BlueprintLibrary", "Combats" })
                 Require(Find<Button>(shell.Navigation, name).IsVisibleInTree(), "导航入口必须默认可见。");
             Require(Find<Button>(ui, "Fleet").TooltipText.Contains("1 列"), "车队数字应包含没有运行计划的列车。");
+            await UiCapture.Capture(TestScene, "shell-default");
             await _input.Activate(Find<Button>(ui, "Nodes"));
             var list = shell.ListContent!;
             await _input.ClickItem(Find<ItemList>(list, "Objects"), 0);
@@ -47,10 +48,12 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
         {
             await _input.Activate(Find<Button>(ui, "EconomyReports"));
             Require(shell.WorkspaceContent is not null, "报告应在工作区打开。");
+            await UiCapture.Capture(TestScene, "shell-reports");
             await _input.PressKey(Key.Escape);
             await _input.Activate(Find<Button>(ui, "BlueprintLibrary"));
             Require(shell.WorkspaceContent is BlueprintLibraryPanel &&
                 Find<Button>(shell.WorkspaceContent, "NewDesign").IsVisibleInTree(), "设计工作区应提供原来的新建设计入口。");
+            await UiCapture.Capture(TestScene, "shell-library");
             await _input.PressKey(Key.Escape);
             var menu = Find<MenuButton>(ui, "GameMenu");
             var popup = menu.GetPopup();
@@ -120,7 +123,9 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
                         list.Position.Y >= shell.TopInset && inspector.Position.Y >= shell.TopInset && inspector.End.Y <= shell.Size.Y,
                         $"列表和聚居地检查器在缩放 {scale} 时不应重叠或越界：{list} / {inspector}。");
                     await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent, "Pages"), 7);
+                    await UiCapture.Capture(TestScene, $"shell-settlement-services-scale-{scale:0}", scale);
                     await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent, "Pages"), 0);
+                    await UiCapture.Capture(TestScene, $"shell-settlement-stock-scale-{scale:0}", scale);
                 }
             }
             finally { window.Size = size; }
@@ -170,6 +175,7 @@ public class GameShellAppTests(Node testScene) : TestClass(testScene)
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
+            UiCapture.ConfigureWindowIfNeeded(tree.Root);
             await _input.Frames(3);
             var ui = app.GetNode<GameUi>("GameUi");
             await check(ui, ui.GetNode<GameShell>("Root/World"));
