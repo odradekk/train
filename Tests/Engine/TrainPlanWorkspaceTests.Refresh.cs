@@ -14,7 +14,7 @@ public partial class TrainPlanWorkspaceTests
         await WithWorkspace(sent, async (panel, binding, parent, view, content) =>
         {
             Open(panel, binding, Train(view, 7), view, content);
-            await EnterText(Field(panel, "Search"), "聚居地");
+            await EnterText(Field(panel, "Search"), "青川");
             var next = World(revision: 2, running: true);
             Require(next.Revision != view.Revision, "场景必须在按下与松开之间推进修订。");
             var input = new UiTestInput(TestScene);
