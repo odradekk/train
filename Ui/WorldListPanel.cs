@@ -1,4 +1,5 @@
 using Godot;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 
 namespace Train.Ui;
@@ -11,7 +12,7 @@ internal sealed class WorldListPanel
     private readonly List<WorldObjectId> _ids = [];
     internal PanelContainer Panel { get; }
 
-    internal WorldListPanel(PanelContainer panel, VBoxContainer body, WorldListKind kind, Action<long, List<WorldObjectId>> selected, Action refresh)
+    internal WorldListPanel(PanelContainer panel, VBoxContainer body, WorldListKind kind, Action<WorldObjectId> selected, Action refresh)
     {
         _kind = kind;
         Panel = panel;
@@ -21,22 +22,25 @@ internal sealed class WorldListPanel
             AllowReselect = true, MouseForcePassScrollEvents = false };
         body.AddChild(_list);
         body.AddChild(UiStyle.Label("点列表打开详情，不改变当前视角。"));
-        _list.ItemSelected += index => selected(index, _ids);
+        _list.ItemSelected += index =>
+        {
+            if (index >= 0 && index < _ids.Count) selected(_ids[(int)index]);
+        };
         _search.TextChanged += _ => refresh();
     }
 
-    internal void Refresh(ICoreReadView view, Func<WorldObjectId, string> nameOf)
+    internal void Refresh(ICoreReadView view, IContentView content, Func<WorldObjectId, ICoreReadView, IContentView, string> nameOf)
     {
-        var items = Items(view).Where(id => nameOf(id).Contains(_search.Text, StringComparison.OrdinalIgnoreCase)).ToList();
+        var items = Items(view).Where(id => nameOf(id, view, content).Contains(_search.Text, StringComparison.OrdinalIgnoreCase)).ToList();
         if (!_ids.SequenceEqual(items))
         {
             _list.Clear(); _ids.Clear(); _ids.AddRange(items);
-            foreach (var item in items) _list.AddItem(nameOf(item));
+            foreach (var item in items) _list.AddItem(nameOf(item, view, content));
         }
         else
             for (var i = 0; i < items.Count; i++)
             {
-                var name = nameOf(items[i]);
+                var name = nameOf(items[i], view, content);
                 if (_list.GetItemText(i) != name) _list.SetItemText(i, name);
             }
     }

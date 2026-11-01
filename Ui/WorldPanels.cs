@@ -53,11 +53,11 @@ public partial class WorldPanels : Control
             _lists.Clear();
         }
         _binding = binding; _view = view; _content = content;
-        foreach (var entry in _lists.Values) entry.Refresh(view, NameOf);
+        foreach (var entry in _lists.Values) entry.Refresh(view, content, NameOf);
         foreach (var detail in _details)
         {
             var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
-            detail.Refresh(view, content, valid ? NameOf(detail.Target.Object) : "", valid, _host.IsBusy);
+            detail.Refresh(view, content, valid ? NameOf(detail.Target.Object, view, content) : "", valid, _host.IsBusy);
         }
         if (_disbandTarget is { } target)
         {
@@ -76,12 +76,11 @@ public partial class WorldPanels : Control
         panel = UiStyle.Panel(this, kind + "List", title, new(24, 68), 360, () => panel.Hide(), out var body);
         var binding = _binding;
         var generation = _content.Generation;
-        var list = new WorldListPanel(panel, body, kind, (index, ids) =>
+        var list = new WorldListPanel(panel, body, kind, id =>
         {
             var status = _host.GetStatus();
-            if (status is null || !_host.PanelGenerationCurrent(binding, generation) ||
-                index < 0 || index >= ids.Count) return;
-            OpenObject(ids[(int)index]);
+            if (status is null || !_host.PanelGenerationCurrent(binding, generation)) return;
+            OpenObject(id);
         }, () => Refresh(_binding, _view, _content));
         _lists.Add(kind, list);
         Refresh(_binding, _view, _content);
@@ -110,27 +109,30 @@ public partial class WorldPanels : Control
         var existing = _details.FirstOrDefault(detail => detail.Target == bound);
         if (existing is not null) { existing.Panel.Show(); UiStyle.BringToFront(existing.Panel); return; }
         PanelContainer panel = null!;
-        panel = UiStyle.Panel(this, "Details", NameOf(target), new(408, 68), 420,
+        panel = UiStyle.Panel(this, "Details", NameOf(target, _view, _content), new(408, 68), 420,
             () => { _details.RemoveAll(detail => detail.Panel == panel); panel.QueueFree(); }, out var body);
+        Action<InstanceId> refit = id => RefitRequested?.Invoke(id);
+        Action<InstanceId> service = id => VehicleServiceRequested?.Invoke(id);
         var detail = target switch
         {
-            WorldObjectId.Node => new NodeDetailPanel(panel, body, bound, () => Available(bound),
+            WorldObjectId.Node { Id: var nodeId } => new NodeDetailPanel(panel, body, bound, nodeId, () => Available(bound),
                 (source, id) => FormationRequested?.Invoke(source, id, _view, _content),
                 (source, id) => SettlementRequested?.Invoke(source, id),
                 id => SettlementCombatRequested?.Invoke(id),
                 (source, id) => FoundingRequested?.Invoke(source, id),
-                id => RefitRequested?.Invoke(id), id => VehicleServiceRequested?.Invoke(id), NameOf).Controls,
-            WorldObjectId.Edge => new EdgeDetailPanel(panel, body, bound, () => Available(bound),
+                refit, service, NameOf).Controls,
+            WorldObjectId.Edge { Id: var edgeId } => new EdgeDetailPanel(panel, body, bound, edgeId, () => Available(bound),
                 (source, id) => RailwayWorkRequested?.Invoke(source, id)).Controls,
-            WorldObjectId.Train => new TrainDetailPanel(panel, body, bound, () => Available(bound),
+            WorldObjectId.Train { Id: var trainId } => new TrainDetailPanel(panel, body, bound, trainId, () => Available(bound),
                 (source, id) => InventoryRequested?.Invoke(source, id), id => TrainCombatRequested?.Invoke(id),
                 (source, id) =>
                 {
                     if (_view.FindTrain(id) is Lookup<TrainView>.Found found)
                         PlanRequested?.Invoke(source, found.Value, _view, _content);
-                }, _submit, ConfirmDisband, id => RefitRequested?.Invoke(id), id => VehicleServiceRequested?.Invoke(id)).Controls,
-            _ => new InstanceDetailPanel(panel, body, bound, () => Available(bound),
-                id => RefitRequested?.Invoke(id), id => VehicleServiceRequested?.Invoke(id)).Controls
+                }, _submit, ConfirmDisband, refit, service).Controls,
+            WorldObjectId.Instance { Id: var instanceId } => new InstanceDetailPanel(panel, body, bound, instanceId, () => Available(bound),
+                refit, service).Controls,
+            _ => new DetailPanelControls(panel, body, bound, (_, _) => "已不存在", _ => [])
         };
         detail.BuildActions(_view);
         _details.Add(detail);
@@ -156,18 +158,16 @@ public partial class WorldPanels : Control
         _disband.PopupCentered(new(480, 180));
     }
 
-    private string NameOf(WorldObjectId id) => id switch
+    private static string NameOf(WorldObjectId id, ICoreReadView view, IContentView content) => id switch
     {
-        WorldObjectId.Node node => NodeName(node.Id),
-        WorldObjectId.Edge edge when _view.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
-            $"线路 {edge.Id.Value} · {NodeName(found.Value.Map.Start)}—{NodeName(found.Value.Map.End)}",
-        WorldObjectId.Train train => $"列车 {train.Id.Value} · {Activity(_view.World.Trains.First(item => item.Id == train.Id).Activity)}",
+        WorldObjectId.Node node => NodeName(node.Id, view, content),
+        WorldObjectId.Edge edge when view.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
+            $"线路 {edge.Id.Value} · {NodeName(found.Value.Map.Start, view, content)}—{NodeName(found.Value.Map.End, view, content)}",
+        WorldObjectId.Train train => $"列车 {train.Id.Value} · {Activity(view.World.Trains.First(item => item.Id == train.Id).Activity)}",
         WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle } => $"车辆 {vehicle.Id.Value}",
         WorldObjectId.Instance { Id: InstanceId.Building building } => $"建筑 {building.Id.Value}",
         _ => id.ToString()
     };
-
-    private string NodeName(NodeId id) => NodeName(id, _view, _content);
 
     internal static string NodeName(NodeId id, ICoreReadView view, IContentView content)
     {

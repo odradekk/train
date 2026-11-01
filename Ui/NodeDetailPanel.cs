@@ -7,6 +7,7 @@ namespace Train.Ui;
 
 internal sealed class NodeDetailPanel
 {
+    private readonly NodeId _id;
     private readonly PanelTarget _target;
     private readonly Func<bool> _available;
     private readonly Action<PanelTarget, NodeId> _formation;
@@ -15,10 +16,10 @@ internal sealed class NodeDetailPanel
     private readonly Action<PanelTarget, NodeId> _founding;
     private readonly Action<InstanceId> _refit;
     private readonly Action<InstanceId> _service;
-    private readonly Func<WorldObjectId, string> _nameOf;
+    private readonly Func<WorldObjectId, ICoreReadView, IContentView, string> _nameOf;
     internal DetailPanelControls Controls { get; }
 
-    internal NodeDetailPanel(PanelContainer panel, VBoxContainer body, PanelTarget target,
+    internal NodeDetailPanel(PanelContainer panel, VBoxContainer body, PanelTarget target, NodeId id,
         Func<bool> available,
         Action<PanelTarget, NodeId> formation,
         Action<PanelTarget, SettlementId> settlement,
@@ -26,8 +27,9 @@ internal sealed class NodeDetailPanel
         Action<PanelTarget, NodeId> founding,
         Action<InstanceId> refit,
         Action<InstanceId> service,
-        Func<WorldObjectId, string> nameOf)
+        Func<WorldObjectId, ICoreReadView, IContentView, string> nameOf)
     {
+        _id = id;
         _target = target;
         _available = available;
         _formation = formation;
@@ -40,51 +42,46 @@ internal sealed class NodeDetailPanel
         Controls = new(panel, body, target, Describe, Actions);
     }
 
-    private List<(string Name, string Text, bool Primary, Action Press)> Actions(ICoreReadView view)
+    private List<DetailAction> Actions(ICoreReadView view)
     {
-        var bound = _target;
-        var target = bound.Object;
-        var actions = new List<(string Name, string Text, bool Primary, Action Press)>();
-        if (target is WorldObjectId.Node node)
+        var actions = new List<DetailAction>();
+        actions.Add(new("Form", "编组", true, () =>
         {
-            actions.Add(("Form", "编组", true, () =>
+            if (_available()) _formation(_target, _id);
+        }));
+        var occupant = view.World.Nodes.FirstOrDefault(item => item.Id == _id)?.Occupant;
+        if (occupant is NodeOccupant.Settlement settlement)
+        {
+            actions.Add(new("Economy", "库存、市场与服务…", false, () =>
             {
-                if (_available()) _formation(bound, node.Id);
+                if (_available()) _settlement(_target, settlement.Id);
             }));
-            var occupant = view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant;
-            if (occupant is NodeOccupant.Settlement settlement)
+            actions.Add(new("OpenSettlementCombat", "战斗…", false, () =>
             {
-                actions.Add(("Economy", "库存、市场与服务…", false, () =>
-                {
-                    if (_available()) _settlement(bound, settlement.Id);
-                }));
-                actions.Add(("OpenSettlementCombat", "战斗…", false, () =>
-                {
-                    if (_available()) _combat(settlement.Id);
-                }));
-            }
-            else if (occupant is NodeOccupant.Empty)
-                actions.Add(("FoundSettlement", "建立聚居地…", false, () =>
-                {
-                    if (_available()) _founding(bound, node.Id);
-                }));
+                if (_available()) _combat(settlement.Id);
+            }));
         }
-        if (target is WorldObjectId.Node refitNode && view.FindLocation(new WorldLocation.Node(refitNode.Id)) is Lookup<LocationView>.Found locationForRefit)
+        else if (occupant is NodeOccupant.Empty)
+            actions.Add(new("FoundSettlement", "建立聚居地…", false, () =>
+            {
+                if (_available()) _founding(_target, _id);
+            }));
+
+        if (view.FindLocation(new WorldLocation.Node(_id)) is Lookup<LocationView>.Found locationForRefit)
             foreach (var vehicle in locationForRefit.Value.Instances.OfType<InstanceId.Vehicle>())
             {
                 var id = vehicle;
-                actions.Add(("RefitParkedVehicle", $"改装车辆 {id.Id.Value}…", false, () => { if (_available()) _refit(id); }));
+                actions.Add(new("RefitParkedVehicle", $"改装车辆 {id.Id.Value}…", false, () => { if (_available()) _refit(id); }));
                 if (view.FindInstance(id) is Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned })
-                    actions.Add(("ParkedVehicleServices", $"车辆 {id.Id.Value} 服务…", false, () => { if (_available()) _service(id); }));
+                    actions.Add(new("ParkedVehicleServices", $"车辆 {id.Id.Value} 服务…", false, () => { if (_available()) _service(id); }));
             }
         return actions;
     }
 
     private string Describe(ICoreReadView view, IContentView content)
     {
-        var target = _target.Object;
         var text = new StringBuilder();
-        if (target is WorldObjectId.Node node && view.FindNode(node.Id) is Lookup<NodeView>.Found foundNode)
+        if (view.FindNode(_id) is Lookup<NodeView>.Found foundNode)
         {
             var map = foundNode.Value.Map;
             var occupant = map.Occupant switch { NodeOccupant.Settlement owned => $"聚居地 · {WorldPanels.Relation(owned.Relation)}",
@@ -94,12 +91,12 @@ internal sealed class NodeDetailPanel
             text.AppendLine("节点资源");
             foreach (var resource in map.Resources) text.AppendLine($"{WorldPanels.GoodName(resource.Good, content)}：{resource.Quantity}");
             text.AppendLine("\n地点车辆");
-            if (view.FindLocation(new WorldLocation.Node(node.Id)) is Lookup<LocationView>.Found location)
+            if (view.FindLocation(new WorldLocation.Node(_id)) is Lookup<LocationView>.Found location)
                 foreach (var instance in location.Value.Instances.OfType<InstanceId.Vehicle>())
                     if (view.FindInstance(instance) is Lookup<InstanceView>.Found vehicle)
                         text.AppendLine($"车辆 {instance.Id.Value} · {(vehicle.Value.Details is InstanceDetails.Vehicle details && details.Train is { } trainId ? $"列车 {trainId.Value}" : "未编组")} · {WorldPanels.Relation(vehicle.Value.Ownership)}");
             text.AppendLine("\n相邻线路");
-            foreach (var edge in foundNode.Value.AdjacentEdges) text.AppendLine(_nameOf(new WorldObjectId.Edge(edge)));
+            foreach (var edge in foundNode.Value.AdjacentEdges) text.AppendLine(_nameOf(new WorldObjectId.Edge(edge), view, content));
         }
         else return "已不存在";
         return text.ToString().ReplaceLineEndings("\n");

@@ -8,44 +8,38 @@ namespace Train.Ui;
 
 internal sealed class InstanceDetailPanel
 {
-    private readonly PanelTarget _target;
+    private readonly InstanceId _id;
     private readonly Func<bool> _available;
     private readonly Action<InstanceId> _refit;
     private readonly Action<InstanceId> _service;
     internal DetailPanelControls Controls { get; }
 
-    internal InstanceDetailPanel(PanelContainer panel, VBoxContainer body, PanelTarget target,
+    internal InstanceDetailPanel(PanelContainer panel, VBoxContainer body, PanelTarget target, InstanceId id,
         Func<bool> available,
         Action<InstanceId> refit,
         Action<InstanceId> service)
     {
-        _target = target;
+        _id = id;
         _available = available;
         _refit = refit;
         _service = service;
         Controls = new(panel, body, target, Describe, Actions);
     }
 
-    private List<(string Name, string Text, bool Primary, Action Press)> Actions(ICoreReadView view)
+    private List<DetailAction> Actions(ICoreReadView view)
     {
-        var bound = _target;
-        var target = bound.Object;
-        var actions = new List<(string Name, string Text, bool Primary, Action Press)>();
-        if (target is WorldObjectId.Instance instance)
-        {
-            actions.Add(("RefitDesign", "改装设计…", false, () => { if (_available()) _refit(instance.Id); }));
-            if (instance.Id is InstanceId.Vehicle && view.FindInstance(instance.Id) is Lookup<InstanceView>.Found
-                { Value.Ownership: SettlementRelation.PlayerOwned, Value.Location: WorldLocation.Node })
-                actions.Add(("VehicleServices", "车辆服务…", false, () => { if (_available()) _service(instance.Id); }));
-        }
+        var actions = new List<DetailAction>();
+        actions.Add(new("RefitDesign", "改装设计…", false, () => { if (_available()) _refit(_id); }));
+        if (_id is InstanceId.Vehicle && view.FindInstance(_id) is Lookup<InstanceView>.Found
+            { Value.Ownership: SettlementRelation.PlayerOwned, Value.Location: WorldLocation.Node })
+            actions.Add(new("VehicleServices", "车辆服务…", false, () => { if (_available()) _service(_id); }));
         return actions;
     }
 
     private string Describe(ICoreReadView view, IContentView content)
     {
-        var target = _target.Object;
         var text = new StringBuilder();
-        if (target is WorldObjectId.Instance instance && view.FindInstance(instance.Id) is Lookup<InstanceView>.Found foundInstance)
+        if (view.FindInstance(_id) is Lookup<InstanceView>.Found foundInstance)
         {
             var value = foundInstance.Value;
             var location = WorldPanels.LocationText(value.Location, view, content);

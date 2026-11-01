@@ -4,6 +4,8 @@ using Train.Core.Contracts;
 
 namespace Train.Ui;
 
+internal readonly record struct DetailAction(string Name, string Text, bool Primary, Action Press);
+
 internal sealed class DetailPanelControls
 {
     private readonly Label _title;
@@ -11,13 +13,13 @@ internal sealed class DetailPanelControls
     private readonly VBoxContainer _body;
     private readonly List<Button> _buttons = [];
     private readonly Func<ICoreReadView, IContentView, string> _describe;
-    private readonly Func<ICoreReadView, List<(string Name, string Text, bool Primary, Action Press)>> _actions;
+    private readonly Func<ICoreReadView, List<DetailAction>> _actions;
     internal PanelTarget Target { get; }
     internal PanelContainer Panel { get; }
 
     internal DetailPanelControls(PanelContainer panel, VBoxContainer body, PanelTarget target,
         Func<ICoreReadView, IContentView, string> describe,
-        Func<ICoreReadView, List<(string Name, string Text, bool Primary, Action Press)>> actions)
+        Func<ICoreReadView, List<DetailAction>> actions)
     {
         Target = target; _describe = describe; _actions = actions;
         Panel = panel;
@@ -45,7 +47,7 @@ internal sealed class DetailPanelControls
         foreach (var button in _buttons) button.Disabled = !valid || busy;
     }
 
-    private static bool SameActions(List<Button> buttons, List<(string Name, string Text, bool Primary, Action Press)> actions)
+    private static bool SameActions(List<Button> buttons, List<DetailAction> actions)
     {
         if (buttons.Count != actions.Count) return false;
         for (var index = 0; index < buttons.Count; index++)
@@ -58,7 +60,7 @@ internal sealed class DetailPanelControls
         return true;
     }
 
-    private void ReplaceActions(List<(string Name, string Text, bool Primary, Action Press)> actions)
+    private void ReplaceActions(List<DetailAction> actions)
     {
         foreach (var button in _buttons)
         {

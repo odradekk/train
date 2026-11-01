@@ -8,6 +8,7 @@ namespace Train.Ui;
 
 internal sealed class TrainDetailPanel
 {
+    private readonly TrainId _id;
     private readonly PanelTarget _target;
     private readonly Func<bool> _available;
     private readonly Action<PanelTarget, TrainId> _inventory;
@@ -19,7 +20,7 @@ internal sealed class TrainDetailPanel
     private readonly Action<InstanceId> _service;
     internal DetailPanelControls Controls { get; }
 
-    internal TrainDetailPanel(PanelContainer panel, VBoxContainer body, PanelTarget target,
+    internal TrainDetailPanel(PanelContainer panel, VBoxContainer body, PanelTarget target, TrainId id,
         Func<bool> available,
         Action<PanelTarget, TrainId> inventory,
         Action<TrainId> combat,
@@ -29,6 +30,7 @@ internal sealed class TrainDetailPanel
         Action<InstanceId> refit,
         Action<InstanceId> service)
     {
+        _id = id;
         _target = target;
         _available = available;
         _inventory = inventory;
@@ -41,41 +43,36 @@ internal sealed class TrainDetailPanel
         Controls = new(panel, body, target, Describe, Actions);
     }
 
-    private List<(string Name, string Text, bool Primary, Action Press)> Actions(ICoreReadView view)
+    private List<DetailAction> Actions(ICoreReadView view)
     {
-        var bound = _target;
-        var target = bound.Object;
-        var actions = new List<(string Name, string Text, bool Primary, Action Press)>();
-        if (target is WorldObjectId.Train train)
+        var actions = new List<DetailAction>();
+        actions.Add(new("Inventory", "列车库存…", false, () =>
+        { if (_available()) _inventory(_target, _id); }));
+        actions.Add(new("OpenCombat", "战斗…", false, () =>
+        { if (_available()) _combat(_id); }));
+        actions.Add(new("EditPlan", "编辑计划", true, () =>
         {
-            actions.Add(("Inventory", "列车库存…", false, () =>
-            { if (_available()) _inventory(bound, train.Id); }));
-            actions.Add(("OpenCombat", "战斗…", false, () =>
-            { if (_available()) _combat(train.Id); }));
-            actions.Add(("EditPlan", "编辑计划", true, () =>
-            {
-                if (_available()) _plan(bound, train.Id);
-            }));
-            actions.Add(("Start", "启动", true, () => _submit(bound, new CoreCommand.StartTrain(train.Id))));
-            actions.Add(("Stop", "停车", false, () => _submit(bound, new CoreCommand.StopTrain(train.Id))));
-            actions.Add(("Disband", "解编…", false, () => _disband(bound, train.Id)));
-        }
-        if (target is WorldObjectId.Train refitTrain && view.FindTrain(refitTrain.Id) is Lookup<TrainView>.Found trainForRefit)
+            if (_available()) _plan(_target, _id);
+        }));
+        actions.Add(new("Start", "启动", true, () => _submit(_target, new CoreCommand.StartTrain(_id))));
+        actions.Add(new("Stop", "停车", false, () => _submit(_target, new CoreCommand.StopTrain(_id))));
+        actions.Add(new("Disband", "解编…", false, () => _disband(_target, _id)));
+
+        if (view.FindTrain(_id) is Lookup<TrainView>.Found trainForRefit)
             foreach (var vehicle in trainForRefit.Value.Vehicles)
             {
                 var id = vehicle;
-                actions.Add(("RefitVehicle", $"改装车辆 {id.Value}…", false, () => { if (_available()) _refit(new InstanceId.Vehicle(id)); }));
+                actions.Add(new("RefitVehicle", $"改装车辆 {id.Value}…", false, () => { if (_available()) _refit(new InstanceId.Vehicle(id)); }));
                 if (trainForRefit.Value.Position is TrainPosition.Node)
-                    actions.Add(("VehicleServices", $"车辆 {id.Value} 服务…", false, () => { if (_available()) _service(new InstanceId.Vehicle(id)); }));
+                    actions.Add(new("VehicleServices", $"车辆 {id.Value} 服务…", false, () => { if (_available()) _service(new InstanceId.Vehicle(id)); }));
             }
         return actions;
     }
 
     private string Describe(ICoreReadView view, IContentView content)
     {
-        var target = _target.Object;
         var text = new StringBuilder();
-        if (target is WorldObjectId.Train train && view.FindTrain(train.Id) is Lookup<TrainView>.Found foundTrain)
+        if (view.FindTrain(_id) is Lookup<TrainView>.Found foundTrain)
         {
             var value = foundTrain.Value;
             text.AppendLine($"状态：{WorldPanels.Activity(value.Activity)}\n位置：{PositionText(value.Position, view, content)}\n速度：{value.SpeedMetersPerSecond:0.00} m/s\n编组：{string.Join(" → ", value.Vehicles.Select(id => $"车辆 {id.Value}"))}\n总长：{value.LengthMeters:0.##} m\n总质量：{value.MassTons:0.##} t\n牵引：{value.TractionKilonewtons:0.##} kN\n加速度：{value.Acceleration:0.##} m/s²\n");
