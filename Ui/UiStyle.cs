@@ -94,7 +94,8 @@ internal static class UiStyle
         heading.AddChild(label);
         heading.AddChild(Button("Close", "×", close));
         box.AddChild(heading);
-        box.AddChild(new HSeparator());
+        var separator = new HSeparator();
+        box.AddChild(separator);
         var scroll = new ScrollContainer { Name = "Content", HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
             VerticalScrollMode = ScrollContainer.ScrollMode.Auto };
         body = new VBoxContainer { Name = "Body", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
@@ -119,9 +120,10 @@ internal static class UiStyle
                 label.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
                 label.ClipText = true;
                 scroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Auto;
-                var frame = panel.GetThemeStylebox("panel").GetMinimumSize().Y +
-                    box.GetCombinedMinimumSize().Y - scroll.GetCombinedMinimumSize().Y;
-                // 容器按整像素测量；向下取整避免半像素高度让最小尺寸反复增减。
+                // 外框独立测量并向上取整，剩余高度向下取整，避免滚动区最小高度反馈到自身。
+                var frame = Mathf.Ceil(panel.GetThemeStylebox("panel").GetMinimumSize().Y +
+                    heading.GetCombinedMinimumSize().Y + separator.GetCombinedMinimumSize().Y +
+                    2 * box.GetThemeConstant("separation"));
                 scroll.CustomMinimumSize = new(0, Math.Max(0, Mathf.Floor(dock.Size.Y - frame)));
                 panel.Position = dock.Position - panel.GetParent<Control>().GlobalPosition;
                 panel.Size = dock.Size;
