@@ -1,16 +1,25 @@
 using Godot;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
 
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal sealed class SettlementPlotsPage
 {
+    private ICoreReadView _view = null!;
+    private IContentView _content = null!;
+    private SettlementView _settlement = null!;
+
+    internal void Bind(ICoreReadView view, IContentView content, SettlementView settlement)
+    { _view = view; _content = content; _settlement = settlement; }
+
     private Label _plots = null!;
 
-    private void BuildPlots(VBoxContainer body) => _plots = Text(body, "Plots", "");
+    internal void BuildPlots(VBoxContainer body) => _plots = Text(body, "Plots", "");
 
-    private void RefreshPlots()
+    internal void RefreshPlots()
     {
         if (_plots is null || !GodotObject.IsInstanceValid(_plots) || _settlement is null) return;
         if (_settlement.Plots.IsEmpty) { _plots.Text = "没有地块。"; return; }
@@ -55,4 +64,5 @@ internal partial class EconomyPanels
         if (value.HasFlag(InstanceLock.Combat)) names.Add("战斗中");
         return names.Count == 0 ? value.ToString() : string.Join("、", names);
     }
+    internal void Close() => _plots = null!;
 }
