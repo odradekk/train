@@ -12,10 +12,11 @@ namespace Train.Ui;
 internal partial class SettlementServicesPage
 {
     private readonly HostCoordinator _host;
+    private readonly Func<bool> _canAct;
     private readonly Func<bool> _readCurrent;
     private readonly Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit;
     private readonly Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> _submitTarget;
-    private readonly Action _refreshSettlement;
+    private readonly Func<Action?, bool> _refreshAfterSubmission;
     private HostBinding _binding;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
@@ -26,13 +27,13 @@ internal partial class SettlementServicesPage
 
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
 
-    internal SettlementServicesPage(HostCoordinator host, Func<bool> readCurrent,
+    internal SettlementServicesPage(HostCoordinator host, Func<bool> canAct, Func<bool> readCurrent,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit,
         Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget,
-        Action refreshSettlement)
+        Func<Action?, bool> refreshAfterSubmission)
     {
-        _host = host; _readCurrent = readCurrent; _submit = submit;
-        _submitTarget = submitTarget; _refreshSettlement = refreshSettlement;
+        _host = host; _canAct = canAct; _readCurrent = readCurrent; _submit = submit;
+        _submitTarget = submitTarget; _refreshAfterSubmission = refreshAfterSubmission;
     }
 
     internal void Bind(HostBinding binding, ICoreReadView view, IContentView content,
@@ -42,12 +43,6 @@ internal partial class SettlementServicesPage
         _binding = binding; _view = view; _content = content; _settlementTarget = target;
         _settlementId = id; _settlement = settlement; _locals = locals;
     }
-
-    private bool ReadCurrent() => _readCurrent();
-    private bool Current(PanelTarget? target) => target is not null && target.Binding == _binding &&
-        _host.PanelGenerationCurrent(target.Binding, target.Generation);
-    private bool CanAct => Current(_settlementTarget) && _settlement is not null &&
-        !_host.IsBusy && _view.Fault is null;
 
     private VBoxContainer _services = null!;
     private OptionButton _serviceOperation = null!, _serviceFacility = null!, _serviceBlueprint = null!, _serviceVehicle = null!, _serviceSource = null!;
@@ -130,14 +125,14 @@ internal partial class SettlementServicesPage
         _serviceConfirm = UiStyle.Button("ConfirmService", "确认服务", ConfirmService, true); footer.AddChild(_serviceConfirm);
         footer.AddChild(UiStyle.Button("RefreshServiceQuote", "重新获取报价", () =>
         {
-            if (!ReadCurrent() || !CanAct) return;
+            if (!_readCurrent() || !_canAct()) return;
             _serviceDirty = true; RefreshServices();
             PrepareServiceDesign(); RequestServiceQuote();
         }));
         _serviceResult = Text(body, "ServiceResult", "完工以核心事件为准；任务从队列消失不代表完工。");
         body.AddChild(UiStyle.Button("FormServiceVehicle", "编组…", () =>
         {
-            if (CanAct) FormationRequested?.Invoke(new(_binding, _content.Generation, new WorldObjectId.Node(_settlement!.Node)), _settlement.Node, _view, _content);
+            if (_canAct()) FormationRequested?.Invoke(new(_binding, _content.Generation, new WorldObjectId.Node(_settlement!.Node)), _settlement.Node, _view, _content);
         }));
         Text(body, "ServiceJobsTitle", "施工任务 · NPC 委托与自有任务");
         _serviceJobs = new() { Name = "ServiceJobs" }; body.AddChild(_serviceJobs);
@@ -172,8 +167,9 @@ internal partial class SettlementServicesPage
 
     internal void RefreshServices()
     {
-        if (_services is null || !_services.IsVisibleInTree() || _settlement is null || !Current(_settlementTarget)) return;
-        _serviceConfirm.Disabled = !CanAct || _serviceQuote is not { Blockers.IsEmpty: true } ||
+        if (_services is null || !_services.IsVisibleInTree() || _settlement is null || _settlementTarget is null ||
+            !Current(_host, _binding, _settlementTarget.Binding, _settlementTarget.Generation)) return;
+        _serviceConfirm.Disabled = !_canAct() || _serviceQuote is not { Blockers.IsEmpty: true } ||
             (_settlement.Relation != SettlementRelation.PlayerOwned && _serviceQuote.TotalPayment is null);
         if (_host.IsBusy) return;
         if (!_serviceDirty && ReferenceEquals(_serviceShownView, _view) && ReferenceEquals(_serviceShownContent, _content)) return;

@@ -12,12 +12,10 @@ internal sealed class SettlementLeasesPage
 {
     private PanelTarget _settlementTarget = null!;
     private readonly Func<bool> _canAct;
-    private bool CanAct => _canAct();
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
     private SettlementView _settlement = null!;
     private IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> _locals = null!;
-    private SettlementId _settlementId => _settlement.Id;
     private readonly Action<Action> _quote;
     private readonly Action<PanelTarget, CoreCommand, Action> _submit;
 
@@ -160,7 +158,7 @@ internal sealed class SettlementLeasesPage
         {
             if (!long.TryParse(_leaseCapacity.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var capacity) || capacity <= 0)
             { ResetQuote(ref _leaseQuote, _leaseDescription, "新租容量须为正整数。"); return; }
-            request = new LeaseRequest.Rent(_settlementId, capacity, duration);
+            request = new LeaseRequest.Rent(_settlement.Id, capacity, duration);
         }
         _leaseQuote = ReadQuote(_view.QuoteLease(request), _leaseDescription, _content);
     }
@@ -174,7 +172,7 @@ internal sealed class SettlementLeasesPage
     internal void UpdateLeaseActions()
     {
         var present = _leaseId is null || _leaseItems.ContainsKey(_leaseId.Value);
-        var available = CanAct && _leaseRule is not null;
+        var available = _canAct() && _leaseRule is not null;
         _leaseChoice.Disabled = !available; _leaseMultipleChoice.Disabled = !available;
         _leaseQuoteButton.Disabled = !available || !present || !LeaseTermAvailable;
         _leaseCapacity.Editable = available && _leaseId is null;

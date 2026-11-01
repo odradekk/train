@@ -28,7 +28,7 @@ internal partial class SettlementServicesPage
         { _serviceSelectedDraft = _serviceDrafts[(int)index]; ClearServiceDesign(); ServiceChanged(); };
         _serviceEdit = UiStyle.Button("EditServiceVehicle", "编辑改装草稿…", () =>
         {
-            if (CanAct && _serviceSelectedTarget is { } target && IsLocalServiceTarget(target))
+            if (_canAct() && _serviceSelectedTarget is { } target && IsLocalServiceTarget(target))
                 ServiceDesignRequested?.Invoke(target.Instance);
         });
         body.AddChild(_serviceEdit);
@@ -53,7 +53,7 @@ internal partial class SettlementServicesPage
         _serviceBlueprint.Visible = _serviceOperation.Selected == 0 || refit && _serviceTargetKind.Selected == 0;
         _serviceVehicle.Visible = _serviceOperation.Selected != 0;
         _serviceApply.Visible = refit && _serviceDifference?.CanApplyImmediately == true;
-        _serviceEdit.Disabled = !CanAct || _serviceSelectedTarget is not { } selected || !IsLocalServiceTarget(selected);
+        _serviceEdit.Disabled = !_canAct() || _serviceSelectedTarget is not { } selected || !IsLocalServiceTarget(selected);
         var drafts = _content.LocalDrafts.Where(draft => draft.Target is DraftTarget.Instance { Id: var id } &&
             _serviceSelectedTarget is { } target && id == target.Instance && draft.Payload is DraftPayload.Design).ToArray();
         SyncChoices(_serviceDraft, _serviceDrafts, drafts.Select(draft => draft.Id), _serviceSelectedDraft,
@@ -107,7 +107,7 @@ internal partial class SettlementServicesPage
                 $"\n改动单位：{difference.Core.ChangedItemCount}\n返还由核心按完工时损伤结算；委托返还进入当地玩家租用库存。\n" +
                 (difference.CanApplyImmediately ? "构成未变，可立即应用；不建任务、不消耗材料。" : "构成改变，须正式改装。") +
                 string.Join("\n", difference.Diagnostics.Select(Train.App.Editing.EditorService.Describe));
-            _serviceApply.Disabled = !CanAct || !difference.CanApplyImmediately;
+            _serviceApply.Disabled = !_canAct() || !difference.CanApplyImmediately;
         }
     }
 
@@ -148,12 +148,12 @@ internal partial class SettlementServicesPage
             ResetQuote(ref _serviceQuote, _serviceDescription, reason); ClearServiceDesign();
             _serviceConfirm.Disabled = true;
         }
-        if (_serviceApply is not null) _serviceApply.Disabled = !CanAct || _serviceDifference?.CanApplyImmediately != true;
+        if (_serviceApply is not null) _serviceApply.Disabled = !_canAct() || _serviceDifference?.CanApplyImmediately != true;
     }
 
     private void ApplyServiceDesign()
     {
-        if (!CanAct || _serviceApply.Disabled || _serviceDifference is not { CanApplyImmediately: true } difference ||
+        if (!_canAct() || _serviceApply.Disabled || _serviceDifference is not { CanApplyImmediately: true } difference ||
             _serviceSelectedTarget is not { } target) return;
         _serviceCompletion = null;
         _serviceResult.Text = "等待核心设计变化事件。";
@@ -161,7 +161,7 @@ internal partial class SettlementServicesPage
         ResetQuote(ref _serviceQuote, _serviceDescription, "请重新获取报价与设计差额。");
         ClearServiceDesign();
         if (accepted is null) _serviceResult.Text = "立即应用未受理或被拒绝；已保存草稿保留，请查看错误。";
-        RefreshAfterService();
+        _refreshAfterSubmission(null);
     }
 
     internal void SelectVehicle(InstanceId.Vehicle vehicle)

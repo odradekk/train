@@ -63,7 +63,7 @@ internal partial class SettlementServicesPage
             string.Join("\n", quote.SourceConsumption.Select(source => $"库存 {source.Inventory.Value}：{ServiceGoods(source.Goods)}")) +
             $"\nNPC 补购：{ServiceGoods(quote.NpcPurchases)}\n材料款：{Amount(quote.MaterialPayment)} · 工钱：{Amount(quote.ServicePayment)} · 总额：{Amount(quote.TotalPayment)}", quote.Blockers,
             reason: reasons.Length == 0 ? null : string.Join("\n", reasons));
-        _serviceConfirm.Disabled = !CanAct || !quote.Blockers.IsEmpty || (funding == JobFunding.NpcCommission && quote.TotalPayment is null);
+        _serviceConfirm.Disabled = !_canAct() || !quote.Blockers.IsEmpty || (funding == JobFunding.NpcCommission && quote.TotalPayment is null);
     }
 
     // 执行建筑正被施工锁定和施工上限不够，核心报同一个问题；这里按读视图区分，并写出实际档位。
@@ -125,7 +125,7 @@ internal partial class SettlementServicesPage
 
     private void ConfirmService()
     {
-        if (_serviceConfirm.Disabled || !CanAct || _serviceQuote is not { } quote) return;
+        if (_serviceConfirm.Disabled || !_canAct() || _serviceQuote is not { } quote) return;
         CoreCommand command = quote.Funding == JobFunding.OwnInventory ? new CoreCommand.StartOwnedJob(quote.Request)
             : new CoreCommand.CommissionVehicleWork(quote.Request, quote.TotalPayment!.Value);
         _serviceCompletion = null;
@@ -135,13 +135,7 @@ internal partial class SettlementServicesPage
         _serviceConfirm.Disabled = true;
         _serviceResult.Text = accepted is null ? "提交未受理或被拒绝，请查看错误；不会自动重报或重试。" : "任务已受理，等待核心完工事件。";
         if (accepted is not null) ClearServiceDesign();
-        RefreshAfterService();
-    }
-
-    private void RefreshAfterService()
-    {
-        if (!ReadCurrent()) return;
-        _refreshSettlement();
+        _refreshAfterSubmission(null);
     }
 
     private void UpdateServicePlot()

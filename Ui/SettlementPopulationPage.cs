@@ -64,4 +64,5 @@ internal sealed class SettlementPopulationPage
     }
 
     private static string Ratio(double? value) => value is { } ratio ? $"{ratio:P1}" : "未结算（暂无消费统计）";
+    internal void Close() => _population = null!;
 }

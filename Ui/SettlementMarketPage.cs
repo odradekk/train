@@ -12,12 +12,10 @@ internal sealed class SettlementMarketPage
 {
     private PanelTarget _settlementTarget = null!;
     private readonly Func<bool> _canAct;
-    private bool CanAct => _canAct();
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
     private SettlementView _settlement = null!;
-    private InventoryView? Local;
-    private SettlementId _settlementId => _settlement.Id;
+    private InventoryView? _local;
     private readonly GoodsRows _goods;
     private readonly Action<Action> _quote;
     private readonly Action<PanelTarget, CoreCommand, Action> _submit;
@@ -26,7 +24,7 @@ internal sealed class SettlementMarketPage
     { _canAct = canAct; _goods = goods; _quote = quote; _submit = submit; }
 
     internal void Bind(ICoreReadView view, IContentView content, SettlementView settlement, InventoryView? local, PanelTarget target)
-    { _view = view; _content = content; _settlement = settlement; Local = local; _settlementTarget = target; }
+    { _view = view; _content = content; _settlement = settlement; _local = local; _settlementTarget = target; }
 
     private OptionButton _tradeTrainChoice = null!;
     private readonly List<TrainId?> _tradeTrains = [];
@@ -91,7 +89,7 @@ internal sealed class SettlementMarketPage
         {
             if (_view.FindInventory(train.Value.Inventory) is Lookup<InventoryView>.Found inventory) trainGoods = inventory.Value.Stacks.ToArray();
         }
-        var goods = market.Goods.Select(item => item.Good).Concat(Local?.Stacks.Select(stack => stack.Good) ?? [])
+        var goods = market.Goods.Select(item => item.Good).Concat(_local?.Stacks.Select(stack => stack.Good) ?? [])
             .Concat(trainGoods.Select(stack => stack.Good)).Concat(_tradeGood is null ? [] : new[] { _tradeGood }).Distinct().ToArray();
         _marketEmpty.Visible = goods.Length == 0;
         foreach (var good in _marketItems.Keys.Except(goods).ToArray())
@@ -117,7 +115,7 @@ internal sealed class SettlementMarketPage
                 row.Blockers.AddThemeColorOverride("font_color", UiStyle.Error); _marketItems.Add(good, row);
             }
             _goods.UpdateGoodRow(row.Good, good, item?.Stock, _content, item is { Blockers.IsEmpty: false }, _tradeGood == good);
-            row.Choose.Text = _tradeGood == good ? "已选择" : "选择"; row.Choose.Disabled = !CanAct;
+            row.Choose.Text = _tradeGood == good ? "已选择" : "选择"; row.Choose.Disabled = !_canAct();
             row.Amounts.Visible = item is not null;
             if (item is not null) row.Amounts.Text = $"库存 {item.Stock} · 补货目标 {item.RestockTarget} · 留货 {item.ReservedForUse} · 可售 {item.SellableQuantity} · 可收 {item.ReceivableQuantity}";
             row.Blockers.Text = item is null ? "" : Problems(item.Blockers, _content); row.Blockers.Visible = row.Blockers.Text.Length > 0;
@@ -130,10 +128,10 @@ internal sealed class SettlementMarketPage
     private void RequestTradeQuote()
     {
         _tradeQuote = null;
-        if (_tradeTrain is not { } train || _tradeGood is not { } good || Local is not { } inventory ||
+        if (_tradeTrain is not { } train || _tradeGood is not { } good || _local is not { } inventory ||
             !long.TryParse(_quantity.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var quantity) || quantity <= 0)
         { ResetQuote(ref _tradeQuote, _tradeDescription, "请选择列车、本地库存和货物，并输入正整数数量。"); return; }
-        var request = new TradeQuoteRequest(train, _settlementId, inventory.Id, (TradeAction)_tradeAction.GetSelectedId(), good, quantity);
+        var request = new TradeQuoteRequest(train, _settlement.Id, inventory.Id, (TradeAction)_tradeAction.GetSelectedId(), good, quantity);
         _tradeQuote = ReadQuote(_view.QuoteTrade(request), _tradeDescription, _content);
     }
 
@@ -156,11 +154,11 @@ internal sealed class SettlementMarketPage
     {
         var trainPresent = _tradeTrain is { } train && _view.FindTrain(train) is Lookup<TrainView>.Found
             { Value.Position: TrainPosition.Node node } && node.Id == _settlement!.Node;
-        _tradeQuoteButton.Disabled = !CanAct || Local is null || !trainPresent;
-        _tradeConfirm.Disabled = !CanAct || Local is null || !trainPresent || _tradeQuote is not { Blockers.IsEmpty: true } quote ||
+        _tradeQuoteButton.Disabled = !_canAct() || _local is null || !trainPresent;
+        _tradeConfirm.Disabled = !_canAct() || _local is null || !trainPresent || _tradeQuote is not { Blockers.IsEmpty: true } quote ||
             quote.CurrentlyExecutableQuantity < quote.Request.Quantity ||
             (quote.Request.Action is TradeAction.Buy or TradeAction.Sell && quote.Total is null);
-        _tradeTrainChoice.Disabled = _tradeAction.Disabled = !CanAct; _quantity.Editable = CanAct;
+        _tradeTrainChoice.Disabled = _tradeAction.Disabled = !_canAct(); _quantity.Editable = _canAct();
         if (_tradeQuote is { } displayed)
         {
             var free = displayed.Request.Action is TradeAction.Load or TradeAction.Unload;

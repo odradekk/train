@@ -64,4 +64,5 @@ internal sealed class SettlementPlotsPage
         if (value.HasFlag(InstanceLock.Combat)) names.Add("战斗中");
         return names.Count == 0 ? value.ToString() : string.Join("、", names);
     }
+    internal void Close() => _plots = null!;
 }

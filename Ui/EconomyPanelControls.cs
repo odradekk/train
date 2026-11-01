@@ -10,9 +10,12 @@ namespace Train.Ui;
 
 internal static class EconomyPanelControls
 {
+    internal static bool Current(HostCoordinator host, HostBinding binding, HostBinding expectedBinding, ContentGeneration generation)
+        => binding == expectedBinding && host.PanelGenerationCurrent(expectedBinding, generation);
+
     internal static void Invalidate(Control body, Label state)
     { state.Text = "已不存在：对象或所属对局已失效，请重新打开。"; state.AddThemeColorOverride("font_color", UiStyle.Error); Disable(body); }
-    internal static void Disable(Control body)
+    private static void Disable(Control body)
     {
         foreach (var button in body.FindChildren("*", "BaseButton", true, false).OfType<BaseButton>()) button.Disabled = true;
         foreach (var edit in body.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>()) edit.Editable = false;
@@ -82,5 +85,7 @@ internal static class EconomyPanelControls
     internal static string Problems(ImmutableArray<CoreProblem> problems, IContentView content) =>
         string.Join("\n", problems.Select(problem => CommandDiagnostics.Describe(problem, content)));
     internal static LineEdit IntegerInput(Node parent, string name, string placeholder, string initial = "")
-    { var edit = new LineEdit { Name = name, Text = initial, PlaceholderText = placeholder }; edit.AddThemeFontOverride("font", UiStyle.NumericFont()); parent.AddChild(edit); return edit; }    internal static string Amount(Money? money) => money?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "不可报价";
+    { var edit = new LineEdit { Name = name, Text = initial, PlaceholderText = placeholder }; edit.AddThemeFontOverride("font", UiStyle.NumericFont()); parent.AddChild(edit); return edit; }
+
+    internal static string Amount(Money? money) => money?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "不可报价";
 }

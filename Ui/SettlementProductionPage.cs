@@ -12,15 +12,16 @@ internal sealed class SettlementProductionPage
 {
     private PanelTarget _settlementTarget = null!;
     private readonly Func<bool> _canAct;
-    private bool CanAct => _canAct();
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
     private SettlementView _settlement = null!;
     private readonly GoodsRows _goods;
-    private readonly Action<PanelTarget?, CoreCommand, Action> _submitPlan;
+    private readonly Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit;
+    private readonly Func<Action?, bool> _refreshAfterSubmission;
 
-    internal SettlementProductionPage(Func<bool> canAct, GoodsRows goods, Action<PanelTarget?, CoreCommand, Action> submitPlan)
-    { _canAct = canAct; _goods = goods; _submitPlan = submitPlan; }
+    internal SettlementProductionPage(Func<bool> canAct, GoodsRows goods,
+        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Func<Action?, bool> refreshAfterSubmission)
+    { _canAct = canAct; _goods = goods; _submit = submit; _refreshAfterSubmission = refreshAfterSubmission; }
 
     internal void Bind(ICoreReadView view, IContentView content, SettlementView settlement, PanelTarget target)
     { _view = view; _content = content; _settlement = settlement; _settlementTarget = target; }
@@ -212,7 +213,7 @@ internal sealed class SettlementProductionPage
         return input.Design.Kind is DesignKind.Building building ? building.FacilityTags : null;
     }
 
-    private bool CanEditPlan() => CanAct && _settlement?.Relation == SettlementRelation.PlayerOwned;
+    private bool CanEditPlan() => _canAct() && _settlement?.Relation == SettlementRelation.PlayerOwned;
 
     private void ApplyProductionPlan(FacilityKey key, bool enabled)
     {
@@ -224,7 +225,8 @@ internal sealed class SettlementProductionPage
         if (facility is null || process is null || enabled && row.Apply.Disabled || !enabled && row.Stop.Disabled) return;
         if (!int.TryParse(row.EditedPriority ?? row.Priority.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var priority))
         { row.PlanMessage.Text = "优先级须为整数。"; return; }
-        _submitPlan(_settlementTarget, new CoreCommand.SetProductionPlan(key, process, enabled, priority), () =>
+        var accepted = _submit(_settlementTarget, new CoreCommand.SetProductionPlan(key, process, enabled, priority));
+        if (accepted is not null) _refreshAfterSubmission(() =>
         {
             row.ProcessEdited = false; row.EditedProcess = null; row.EditedPriority = null;
         });

@@ -57,7 +57,7 @@ internal partial class SettlementServicesPage
                         _serviceJobs.AddChild(button); _servicePauseButtons.Add(id, button);
                     }
                     button.Text = value.State == ConstructionState.Paused ? "恢复拆解" : "暂停拆解";
-                    button.Disabled = !CanAct;
+                    button.Disabled = !_canAct();
                 }
             }
             else label.Text += "已不在当前任务查询中；未收到完工事件。";
@@ -77,14 +77,14 @@ internal partial class SettlementServicesPage
 
     private void ToggleServicePause(JobId id)
     {
-        if (!ReadCurrent() || !CanAct || _view.FindSettlement(_settlementId) is not Lookup<SettlementView>.Found settlement ||
+        if (!_readCurrent() || !_canAct() || _view.FindSettlement(_settlementId) is not Lookup<SettlementView>.Found settlement ||
             !settlement.Value.OwnedJobs.Contains(id) || _view.FindJob(id) is not Lookup<JobView>.Found
             { Value: JobView.Construction { Value.Kind: ConstructionKind.Deconstruction } job }) return;
         var accepted = _submit(_settlementTarget, new CoreCommand.SetDeconstructionPaused(id, job.Value.State != ConstructionState.Paused));
         _serviceCompletion = null;
         _serviceResult.Text = accepted is null ? "暂停／恢复未受理或被拒绝，请查看错误。" : "拆解暂停状态已更新。";
         ResetQuote(ref _serviceQuote, _serviceDescription, "任务状态已变化，请重新获取报价。");
-        if (ReadCurrent()) _refreshSettlement();
+        _refreshAfterSubmission(null);
     }
 
     private static string JobTarget(ConstructionTarget target) => target switch

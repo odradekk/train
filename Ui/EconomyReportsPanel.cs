@@ -10,8 +10,9 @@ namespace Train.Ui;
 
 internal sealed class EconomyReportsPanel
 {
+    private readonly Control _parent;
     private readonly HostCoordinator _host;
-    internal EconomyReportsPanel(HostCoordinator host) => _host = host;
+    internal EconomyReportsPanel(Control parent, HostCoordinator host) { _parent = parent; _host = host; }
     private PanelContainer? _reportsPanel;
     private HostBinding _reportsBinding;
     private ContentGeneration _reportsGeneration;
@@ -20,12 +21,16 @@ internal sealed class EconomyReportsPanel
     private Label _reportsState = null!;
     private Label _reportsText = null!;
 
-    internal void Open(PanelContainer panel, VBoxContainer body, HostBinding binding, ContentGeneration generation)
+    internal void Open()
     {
-        _reportsBinding = binding; _reportsGeneration = generation; _reportsRevision = null;
-        _reportsPanel = panel; _reportsBody = body;
+        if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
+        Close();
+        _reportsBinding = status.Binding; _reportsGeneration = content.Generation; _reportsRevision = null;
+        _reportsPanel = UiStyle.Panel(_parent, "EconomyReports", "经营报告", new(420, 70), 720,
+            () => _reportsPanel!.Hide(), out _reportsBody);
         _reportsState = Text(_reportsBody, "State", "");
         _reportsText = Text(List(_reportsBody, "Reports", 570), "ReportsText", "");
+        Refresh(status.Binding, status.View, content);
     }
 
     internal void Close() { RemoveWindow(_reportsPanel); _reportsPanel = null; }
@@ -33,7 +38,7 @@ internal sealed class EconomyReportsPanel
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
         if (_reportsPanel?.Visible != true) return;
-        if (binding != _reportsBinding || !_host.PanelGenerationCurrent(_reportsBinding, _reportsGeneration))
+        if (!Current(_host, binding, _reportsBinding, _reportsGeneration))
         { Invalidate(_reportsBody, _reportsState); return; }
         if (_reportsRevision == view.Revision) return;
         _reportsRevision = view.Revision;

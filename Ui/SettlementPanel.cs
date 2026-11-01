@@ -9,6 +9,11 @@ namespace Train.Ui;
 
 internal sealed class SettlementPanel
 {
+    private readonly Control _parent;
+    private readonly HostCoordinator _host;
+    private readonly Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit;
+    private readonly Action<HostBinding, ICoreReadView, IContentView> _refresh;
+    private readonly Action _invalidateTrainInventory;
     private readonly SettlementStockPage _stock;
     private readonly SettlementMarketPage _market;
     private readonly SettlementVehiclesPage _vehicles;
@@ -17,41 +22,64 @@ internal sealed class SettlementPanel
     private readonly SettlementPopulationPage _population;
     private readonly SettlementPlotsPage _plots;
     private readonly SettlementServicesPage _services;
-    private readonly Func<InventoryId?, InventoryView?> _selectLocal;
+    private HostBinding _binding;
+    private ICoreReadView _view = null!;
+    private IContentView _content = null!;
+    private PanelTarget? _target;
+    private SettlementId _settlementId;
+    private SettlementView? _settlement;
+    private CoreRevision? _revision;
+    private InventoryId? _localId;
+    private readonly List<(InventoryView Inventory, LeaseView? Lease)> _locals = [];
     private PanelContainer? _panel;
     private VBoxContainer _body = null!;
     private Label _state = null!;
     private Label _wallet = null!;
     private OptionButton _localChoice = null!;
     private readonly List<InventoryId?> _localOptions = [];
-    private IContentView _content = null!;
-    private SettlementView? _settlement;
 
-    internal SettlementPanel(SettlementStockPage stock, SettlementMarketPage market, SettlementVehiclesPage vehicles,
-        SettlementLeasesPage leases, SettlementProductionPage production, SettlementPopulationPage population,
-        SettlementPlotsPage plots, SettlementServicesPage services, Func<InventoryId?, InventoryView?> selectLocal)
+    internal SettlementView? Settlement => _settlement;
+    internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
+    internal event Action<InstanceId>? ServiceDesignRequested;
+
+    internal SettlementPanel(Control parent, HostCoordinator host,
+        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit,
+        Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget,
+        GoodsRows goods, Action<HostBinding, ICoreReadView, IContentView> refresh, Action invalidateTrainInventory)
     {
-        _stock = stock; _market = market; _vehicles = vehicles; _leases = leases; _production = production;
-        _population = population; _plots = plots; _services = services; _selectLocal = selectLocal;
+        _parent = parent; _host = host; _submit = submit; _refresh = refresh; _invalidateTrainInventory = invalidateTrainInventory;
+        _stock = new(goods);
+        _market = new(() => CanAct, goods, Quote, Submit);
+        _vehicles = new(() => CanAct, Quote, Submit, (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content));
+        _leases = new(() => CanAct, Quote, Submit);
+        _production = new(() => CanAct, goods, submit, RefreshAfterSubmission);
+        _population = new(); _plots = new();
+        _services = new(host, () => CanAct, ReadCurrent, submit, submitTarget, RefreshAfterSubmission);
+        _services.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
+        _services.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
     }
 
-    internal bool Visible => _panel?.Visible == true;
-    internal void Bind(IContentView content, SettlementView? settlement) { _content = content; _settlement = settlement; }
-
-    internal void Open(PanelContainer panel, VBoxContainer body)
+    internal void Open(PanelTarget source, SettlementId id)
     {
-        _panel = panel; _body = body; _localOptions.Clear();
-        _state = Text(body, "State", ""); _wallet = Text(body, "Wallet", "");
+        if (!ReadCurrent() || !_host.PanelGenerationCurrent(source.Binding, source.Generation)) return;
+        _parent.Show();
+        RemoveWindow(_panel);
+        _target = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
+        _settlementId = id; _settlement = null; _revision = null; _localId = null; _localOptions.Clear();
+        BindPages();
+        _panel = UiStyle.Panel(_parent, "Settlement", $"聚居地 {id.Value}", new(408, 68), 720,
+            () => _panel!.Hide(), out _body, fill: true);
+        _state = Text(_body, "State", ""); _wallet = Text(_body, "Wallet", "");
         _localChoice = new OptionButton { Name = "LocalInventory" };
-        body.AddChild(_localChoice);
+        _body.AddChild(_localChoice);
         _localChoice.ItemSelected += index =>
         {
-            var local = _selectLocal(_localOptions[(int)index]);
-            _stock.Render(local, _content, _settlement); _market.ClearTradeQuote(); _market.RenderMarket();
+            _localId = _localOptions[(int)index]; BindPages();
+            _stock.Render(Local, _content, _settlement); _market.ClearTradeQuote(); _market.RenderMarket();
         };
         var tabs = new TabContainer { Name = "Pages", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             SizeFlagsVertical = Control.SizeFlags.ExpandFill, CustomMinimumSize = new(0, 160) };
-        body.AddChild(tabs);
+        _body.AddChild(tabs);
         _stock.Build(Page(tabs, "库存"));
         _market.BuildTrade(Page(tabs, "市场"));
         _vehicles.BuildVehicles(Page(tabs, "现车"));
@@ -60,35 +88,130 @@ internal sealed class SettlementPanel
         _plots.BuildPlots(Page(tabs, "地块与建筑"));
         _services.BuildServices(Page(tabs, "建造与工地"));
         tabs.TabChanged += _ => _services.RefreshServices();
+        _refresh(_binding, _view, _content);
     }
 
-    internal void ReadSettlement(ICoreReadView view, IContentView content, SettlementView settlement,
-        IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> locals, InventoryId? localId, InventoryView? local)
+    internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
-        _wallet.Text = $"资金：{view.Economy.Wallet.Value}";
-        EconomyPanels.SyncChoices(_localChoice, _localOptions, locals.Select(item => item.Inventory.Id), localId,
-            id => locals.First(item => item.Inventory.Id == id).Lease is { } lease
+        Bind(binding, view, content);
+        if (_panel?.Visible != true) return;
+        if (_target is not { } target || !Current(_host, binding, target.Binding, target.Generation)) Invalidate(_body, _state);
+        else
+        {
+            if (_revision != view.Revision) { _revision = view.Revision; ReadSettlement(); }
+            if (_settlement is not null) UpdateActions();
+            if (_settlement is not null) _services.RefreshServices();
+        }
+    }
+
+    private void Bind(HostBinding binding, ICoreReadView view, IContentView content)
+    { _binding = binding; _view = view; _content = content; BindPages(); }
+
+    private void BindPages()
+    {
+        _market.Bind(_view, _content, _settlement!, Local, _target!);
+        _vehicles.Bind(_binding, _view, _content, _settlement!, _target!);
+        _leases.Bind(_view, _content, _settlement!, _locals, _target!);
+        _production.Bind(_view, _content, _settlement!, _target!);
+        _population.Bind(_content, _settlement!); _plots.Bind(_view, _content, _settlement!);
+        _services.Bind(_binding, _view, _content, _target, _settlementId, _settlement, _locals);
+    }
+
+    private void ReadSettlement()
+    {
+        if (_view.FindSettlement(_settlementId) is not Lookup<SettlementView>.Found found)
+        { _settlement = null; BindPages(); Invalidate(_body, _state); return; }
+        _settlement = found.Value;
+        _wallet.Text = $"资金：{_view.Economy.Wallet.Value}";
+        _locals.Clear();
+        AddInventory(_settlement.Inventory, null);
+        foreach (var leaseId in _settlement.Leases)
+        {
+            if (_view.FindLease(leaseId) is Lookup<LeaseView>.Found lease) AddInventory(lease.Value.Inventory, lease.Value);
+        }
+        _localId ??= _settlement.Inventory;
+        BindPages();
+        EconomyPanels.SyncChoices(_localChoice, _localOptions, _locals.Select(item => item.Inventory.Id), _localId,
+            id => _locals.First(item => item.Inventory.Id == id).Lease is { } lease
                 ? $"租用库存 {id.Value} · 租约 {lease.Id.Value}" : $"聚居地库存 {id.Value}");
-        _stock.Render(local, content, settlement); _market.RefreshTrade(); _vehicles.RefreshVehicles(); _leases.RefreshLeases();
+        _stock.Render(Local, _content, _settlement); _market.RefreshTrade(); _vehicles.RefreshVehicles(); _leases.RefreshLeases();
         _production.RefreshProduction(); _population.RefreshPopulation(); _plots.RefreshPlots();
     }
 
-    internal void UpdateActions(ICoreReadView view, bool busy, bool canAct)
+    private void AddInventory(InventoryId id, LeaseView? lease)
     {
-        _localChoice.Disabled = !canAct;
-        _market.UpdateTradeActions(); _vehicles.UpdateVehicleActions(); _leases.UpdateLeaseActions();
-        _state.Text = view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : busy ? "当前操作尚未结束" : "";
+        if (_view.FindInventory(id) is Lookup<InventoryView>.Found found) _locals.Add((found.Value, lease));
     }
 
-    internal void Invalidate() => EconomyPanelControls.Invalidate(_body, _state);
-    internal bool IsCurrent(SettlementId current, SettlementId requested)
-        => _panel is not null && GodotObject.IsInstanceValid(_panel) && current == requested;
-    internal void Show() { _panel!.Show(); UiStyle.BringToFront(_panel); }
-    internal void SelectServices()
+    private InventoryView? Local => _locals.FirstOrDefault(item => item.Inventory.Id == _localId).Inventory;
+    private bool CanAct => _target is { } target && Current(_host, _binding, target.Binding, target.Generation) &&
+        _settlement is not null && !_host.IsBusy && _view.Fault is null;
+
+    private void UpdateActions()
     {
+        _localChoice.Disabled = !CanAct;
+        _market.UpdateTradeActions(); _vehicles.UpdateVehicleActions(); _leases.UpdateLeaseActions();
+        _state.Text = _view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : _host.IsBusy ? "当前操作尚未结束" : "";
+    }
+
+    private void Submit(PanelTarget target, CoreCommand command, Action requote)
+    {
+        if (!CanAct) return;
+        _submit(target, command);
+        if (!RefreshAfterSubmission(_invalidateTrainInventory)) return;
+        Quote(requote);
+    }
+
+    private bool RefreshAfterSubmission(Action? beforeRefresh)
+    {
+        if (!ReadCurrent()) return false;
+        beforeRefresh?.Invoke();
+        _revision = null;
+        _refresh(_binding, _view, _content);
+        return true;
+    }
+
+    private bool ReadCurrent()
+    {
+        if (_host.GetStatus() is not { } status || _host.Content is not { } content) return false;
+        Bind(status.Binding, status.View, content); return true;
+    }
+
+    private void Quote(Action request)
+    {
+        if (!CanAct) return;
+        request(); _refresh(_binding, _view, _content);
+    }
+
+    internal void Observe(HostBinding binding, ICoreReadView view, ImmutableArray<EventEnvelope> events)
+        => _services.Observe(binding, view, events);
+
+    internal void OpenVehicleServices(InstanceId instance)
+    {
+        if (instance is not InstanceId.Vehicle vehicle || !ReadCurrent() ||
+            _view.FindInstance(instance) is not Lookup<InstanceView>.Found { Value.Location: WorldLocation.Node node } ||
+            _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is not NodeOccupant.Settlement settlement) return;
+        if (IsCurrent(settlement.Id)) { _parent.Show(); _panel!.Show(); UiStyle.BringToFront(_panel); }
+        else Open(new(_binding, _content.Generation, new WorldObjectId.Settlement(settlement.Id)), settlement.Id);
+        _services.SelectVehicle(vehicle);
         var tabs = _body.GetNode<TabContainer>("Pages");
         tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "建造与工地");
+        _services.ServiceChanged();
     }
-    internal void RemoveWindow() => EconomyPanelControls.RemoveWindow(_panel);
-    internal void Close() { RemoveWindow(); _panel = null; _localOptions.Clear(); _stock.Close(); }
+
+    private bool IsCurrent(SettlementId requested) => _panel is not null && GodotObject.IsInstanceValid(_panel) &&
+        _settlementId == requested && _target is { } target && Current(_host, _binding, target.Binding, target.Generation);
+
+    internal void ReleaseResources() => _services.CloseServices();
+
+    internal void Close()
+    {
+        ReleaseResources();
+        RemoveWindow(_panel); _panel = null;
+        _target = null; _settlement = null; _locals.Clear(); _localOptions.Clear();
+        _stock.Close(); _market.Close(); _vehicles.Close(); _leases.Close();
+        _production.Close(); _population.Close(); _plots.Close();
+        _view = null!; _content = null!;
+        BindPages();
+    }
 }

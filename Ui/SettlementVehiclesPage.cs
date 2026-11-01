@@ -11,18 +11,16 @@ internal sealed class SettlementVehiclesPage
 {
     private PanelTarget _settlementTarget = null!;
     private readonly Func<bool> _canAct;
-    private bool CanAct => _canAct();
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
     private SettlementView _settlement = null!;
     private HostBinding _binding;
-    private SettlementId _settlementId => _settlement.Id;
     private readonly Action<Action> _quote;
     private readonly Action<PanelTarget, CoreCommand, Action> _submit;
-    private readonly Action<PanelTarget, NodeId, ICoreReadView, IContentView> FormationRequested;
+    private readonly Action<PanelTarget, NodeId, ICoreReadView, IContentView> _formationRequested;
 
     internal SettlementVehiclesPage(Func<bool> canAct, Action<Action> quote, Action<PanelTarget, CoreCommand, Action> submit, Action<PanelTarget, NodeId, ICoreReadView, IContentView> formationRequested)
-    { _canAct = canAct; _quote = quote; _submit = submit; FormationRequested = formationRequested; }
+    { _canAct = canAct; _quote = quote; _submit = submit; _formationRequested = formationRequested; }
 
     internal void Bind(HostBinding binding, ICoreReadView view, IContentView content, SettlementView settlement, PanelTarget target)
     { _binding = binding; _view = view; _content = content; _settlement = settlement; _settlementTarget = target; }
@@ -55,7 +53,7 @@ internal sealed class SettlementVehiclesPage
         _vehicleConfirm = UiStyle.Button("ConfirmVehicle", "确认买卖", ConfirmVehicle, true);
         _formPurchased = UiStyle.Button("FormPurchased", "编组…", () =>
         {
-            if (CanAct) FormationRequested?.Invoke(new(_binding, _content.Generation, new WorldObjectId.Node(_settlement!.Node)), _settlement.Node, _view, _content);
+            if (_canAct()) _formationRequested?.Invoke(new(_binding, _content.Generation, new WorldObjectId.Node(_settlement!.Node)), _settlement.Node, _view, _content);
         });
         actions.AddChild(_vehicleQuoteButton); actions.AddChild(_vehicleConfirm); actions.AddChild(_formPurchased);
         _vehicleDescription = Text(body, "VehicleQuote", "报价不锁定。成交保留原车辆、位置和损伤，不自动编组。");
@@ -97,7 +95,7 @@ internal sealed class SettlementVehiclesPage
                 box.AddChild(select); row = created = new(box, label, select); _vehicleItems.Add(id, row);
             }
             row.Action = action; row.Select.Name = action == VehicleTradeAction.Buy ? "SelectBuyVehicle" : "SelectSellVehicle";
-            row.Select.Text = action == VehicleTradeAction.Buy ? "买入…" : "卖出…"; row.Select.Disabled = !CanAct;
+            row.Select.Text = action == VehicleTradeAction.Buy ? "买入…" : "卖出…"; row.Select.Disabled = !_canAct();
             row.Description.Text = $"车辆 {id.Value} · 结构耐久 {found.Value.Structure.EffectiveCurrent}/{found.Value.Structure.Maximum} · {(action == VehicleTradeAction.Buy ? "待售" : WorldPanels.Relation(found.Value.Ownership))}";
         }
         ShowVehicleDetails();
@@ -133,7 +131,7 @@ internal sealed class SettlementVehiclesPage
     {
         _vehicleQuote = null;
         if (_vehicle is not { } id || !_vehicleAvailable) return;
-        var request = new VehicleTradeQuoteRequest(_settlementId, id, _vehicleAction);
+        var request = new VehicleTradeQuoteRequest(_settlement.Id, id, _vehicleAction);
         _vehicleQuote = ReadQuote(_view.QuoteVehicle(request), _vehicleDescription, _content);
     }
 
@@ -148,9 +146,9 @@ internal sealed class SettlementVehiclesPage
 
     internal void UpdateVehicleActions()
     {
-        _vehicleQuoteButton.Disabled = !CanAct || !_vehicleAvailable;
-        _vehicleConfirm.Disabled = !CanAct || !_vehicleAvailable || _vehicleQuote is not { Total: not null, Blockers.IsEmpty: true };
-        _formPurchased.Disabled = !CanAct;
+        _vehicleQuoteButton.Disabled = !_canAct() || !_vehicleAvailable;
+        _vehicleConfirm.Disabled = !_canAct() || !_vehicleAvailable || _vehicleQuote is not { Total: not null, Blockers.IsEmpty: true };
+        _formPurchased.Disabled = !_canAct();
         if (_vehicleQuote is { } quote) ShowQuote(_view, _content, _vehicleDescription, quote.Revision, $"整车总额：{Amount(quote.Total)}", quote.Blockers,
             reason: quote.Total is null ? "报价未提供总额，不能确认买卖。" : null);
     }
