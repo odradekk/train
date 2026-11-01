@@ -6,7 +6,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal static class RailwayTerrain
+internal static partial class RailwayTerrain
 {
     internal sealed record BoundaryData(RailwayDependencies Dependencies,
         VoxelGrid Grid, ImmutableDictionary<GridColumn, double> Heights,
@@ -66,7 +66,7 @@ internal static class RailwayTerrain
     }
 
     internal static CellProperties PrepareVoxel(VoxelDefinitionId voxel,
-        Func<VoxelDefinitionId, VoxelAppearanceProjection?> appearance, PickSubject subject)
+        Func<VoxelDefinitionId, VoxelAppearanceProjection?> appearance, PickSubject? subject)
     {
         var projection = appearance(voxel);
         return new(VoxelOrientation.PxPy, projection, null, null, subject, [], projection is null ?
@@ -193,7 +193,7 @@ internal static class RailwayTerrain
         return columns;
     }
 
-    private sealed class SegmentBuilder
+    private sealed partial class SegmentBuilder
     {
         private readonly SceneWorldSnapshot snapshot;
         private readonly RailwayPath path;
@@ -424,64 +424,6 @@ internal static class RailwayTerrain
                 var value = columns[decoration.Column];
                 AddModel(decoration.Design, new(new(decoration.Column.X, (float)(value.Height + 1 - origin.Y), decoration.Column.Z), Quaternion.Identity), decoration.Column, columns);
             }
-
-        }
-
-        private RailwaySegment Render(Dictionary<GridColumn, TerrainColumn> columns, ImmutableArray<(double Start, double End)> tunnels)
-        {
-            var cells = ImmutableArray.CreateBuilder<SceneCell>();
-            var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
-            var outside = new Dictionary<GridColumn, double?>();
-            var waterCount = columns.Values.Count(value => value.Water);
-            var vertices = ImmutableArray.CreateBuilder<SceneVertex>(waterCount * 4);
-            var indices = ImmutableArray.CreateBuilder<int>(waterCount * 6);
-
-            foreach (var (column, value) in columns)
-            {
-                cancellation.ThrowIfCancellationRequested();
-                var trackDistance = surface.TrackDistance(value.Offset);
-                var isTunnel = value.Tunnel;
-                heights.Add(column, value.Height + 1);
-                var subject = new PickSubject.Terrain(new WorldLocation.Edge(path.Edge.Id, value.Arc / RailwayCoordinates.CellsPerMeter));
-                var hasBed = path.Edge.Tracks > 0 && !value.Water && !isTunnel;
-                (double From, double To)? excluded = null;
-                if (isTunnel && Math.Abs(value.Offset) < RailwayCoordinates.TunnelShoulder(path.Edge.Tracks))
-                {
-                    var railY = path.Sample(value.Arc).Position.Y;
-                    var surface = value.Height;
-                    var upper = Math.Min(railY + RailwayCoordinates.TunnelCrownCells, surface);
-                    if (upper > railY) excluded = (railY, upper);
-                }
-                var lowest = LowestNeighbor(columns, outside, column, column.X + origin.X, column.Z + origin.Z);
-                var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, trackDistance, hasBed, excluded,
-                    id => PrepareVoxel(id, Appearance, subject), lowest);
-                FillColumn(cells, column, value.Height, layers.Terrain, layers.Ballast, trackDistance, hasBed, origin.Y, excluded, lowest);
-                if (value.Water)
-                {
-                    var y = (float)(surface.WaterLevel(value.Arc) - origin.Y);
-                    var first = vertices.Count;
-                    foreach (var corner in new Vector2[] { new(0, 0), new(0, 1), new(1, 1), new(1, 0) })
-                        vertices.Add(new(new(column.X + corner.X, y, column.Z + corner.Y), Vector3.UnitY, corner, corner, ExposedFaceEdges.None, 0, 0));
-                    indices.AddRange((ReadOnlySpan<int>)[first, first + 1, first + 2, first, first + 2, first + 3]);
-                }
-            }
-            var grid = VoxelGrid.FromBuilder(cells);
-            var visuals = DesignGeometry.Meshes(grid, false).ToBuilder();
-            objects.AddRange(DesignGeometry.Models(grid, terrainId, null, _ => new(nextId++), false));
-            foreach (var missingTerrain in terrains.Where(item => item.Value is null))
-                visuals.Add(new SceneVisual.Missing(new ContentReference.Core(new CoreDefinitionReference.Terrain(missingTerrain.Key)), false));
-            foreach (var missing in cells.Where(cell => cell.MissingReference is not null))
-                objects.Add(new(new(nextId++), terrainId, SceneGeometry.Placement(missing.At, missing.Orientation), null,
-                [new SceneVisual.Missing(missing.MissingReference!, true)], [], []));
-            foreach (var mesh in RailwayMeshes.Build(path, index, origin))
-                visuals.Add(new SceneVisual.Geometry(mesh, new(false, 0, 0, false)));
-            if (waterCount > 0) visuals.Add(new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(BuiltInMaterial.Water),
-            vertices.MoveToImmutable(), indices.MoveToImmutable()), new(false, 0, 0, false)));
-            objects.Insert(0, new(terrainId, null, new(Vector3.Zero, Quaternion.Identity), null, visuals.ToImmutable(), [], []));
-            picking.Add(new(terrainId, new(Vector3.Zero, Quaternion.Identity), grid));
-            return new(index, origin, new(objects.ToImmutable(), picking.ToImmutable(), diagnostics.ToImmutable()), heights.ToImmutable(),
-            RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
-            readsStartTerrain, readsEndTerrain), tunnels);
 
         }
 
