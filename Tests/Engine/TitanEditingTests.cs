@@ -24,14 +24,18 @@ public class TitanEditingTests(Node testScene) : TestClass(testScene)
         var cube = new VoxelPaletteEntry(new("core:structural-metal"), VoxelOrientation.PxPy, null, null);
 
         var region = EmptyBox(titan.Scene);
-        var preview = Value(session.Preview(new EditOperation.Cells(new EditFootprint.Box(region), new CellEdit.Add(cube))));
-        Require(preview is { CoveredCells: 5000, AffectedCells: 5000, CanApply: true, RequiresConfirmation: true },
+        var operation = new EditOperation.Cells(new EditFootprint.Box(region), new CellEdit.Add(cube));
+        var preview = Value(session.Preview(operation));
+        Require(preview is { CoveredCells: 5000, AffectedCells: 5000, CanApply: true },
             $"泰坦内部 5,000 格区域编辑预览不符：覆盖 {preview.CoveredCells}，改动 {preview.AffectedCells}，冲突 {preview.Conflicts.Length}。");
-        var edited = Value(session.Apply(preview, true)).Snapshot.Draft;
+        var edited = Value(session.Apply(operation)).Snapshot.Draft;
         Require(edited.Layout.Cells.Length == original.Layout.Cells.Length + 5000, "区域编辑没有加入 5,000 格。");
         // 另外 49 次单格删除，凑满 50 步历史。
         foreach (var at in Cells(region).Take(49))
-            Value(session.Apply(Value(session.Preview(new EditOperation.Cells(new EditFootprint.Cell(at), new CellEdit.Remove()))), false));
+        {
+            var remove = new EditOperation.Cells(new EditFootprint.Cell(at), new CellEdit.Remove());
+            Value(session.Apply(remove));
+        }
         var final = session.Capture().Draft;
 
         for (var step = 0; step < 50; step++) Value(session.Undo());

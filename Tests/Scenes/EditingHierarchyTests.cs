@@ -19,12 +19,13 @@ public sealed class EditingHierarchyTests
         using var session = EditingFixtures.Open(EditingFixtures.Draft());
         var state = EditingFixtures.Apply(session, new EditOperation.PlaceNested(new NestedDesignItem.AssemblyCopy(new(4, 0, 0), VoxelOrientation.PxPy, Assembly)));
         var assembly = state.Elements.Single(e => e.Kind == EditElementKind.Assembly);
-        var preview = EditingFixtures.Preview(session, EditingFixtures.Add(new(9, 0, 0)));
+        var previewOperation = EditingFixtures.Add(new(1, 0, 0));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         var entered = EditingFixtures.Value(session.Enter(assembly.Id));
         Assert.AreEqual(state.Snapshot.Stamp, entered.Snapshot.Stamp);
         Assert.IsTrue(entered.Selection.IsEmpty);
-        Assert.AreEqual("stale_preview", EditingFixtures.Code(session.Apply(preview, true)));
-        EditingFixtures.Apply(session, EditingFixtures.Add(new(1, 0, 0)));
+        Assert.AreEqual(state.Snapshot.Stamp, preview.Basis);
+        EditingFixtures.Value(session.Apply(previewOperation));
         EditingFixtures.Apply(session, new EditOperation.Properties(new("Edited", "local"), Assembly.Specification));
         var exported = EditingFixtures.Value(session.CaptureObject(assembly.Id));
         Assert.AreEqual("Edited", exported.Display.Name);
@@ -119,10 +120,11 @@ public sealed class EditingHierarchyTests
         var parent = session.Read().Elements.Single(e => e.Kind == EditElementKind.Assembly);
         EditingFixtures.Value(session.Enter(parent.Id));
         var before = session.Capture();
-        var preview = EditingFixtures.Preview(session, EditingFixtures.Add(new(1, 0, 0)));
+        var previewOperation = EditingFixtures.Add(new(1, 0, 0));
+        var preview = EditingFixtures.Preview(session, previewOperation);
         Assert.IsFalse(preview.CanApply);
         Assert.IsTrue(preview.Conflicts.Any(c => c.Problem.Code == "occupancy_conflict"));
-        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(preview, true)));
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(previewOperation)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         Assert.AreEqual(1, ((NestedDesignItem.AssemblyCopy)session.Capture().Draft.Layout.NestedItems.Single()).Design.Layout.Cells.Length);
     }

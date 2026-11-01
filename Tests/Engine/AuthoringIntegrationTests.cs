@@ -247,9 +247,10 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
     internal static void AddCell(EditorService editor)
     {
         var palette = editor.State!.Snapshot.Draft.Layout.Palette[0];
-        var preview = editor.Preview(new EditOperation.Cells(new EditFootprint.Cell(new(1, 0, 0)), new CellEdit.Add(palette)));
+        var operation = new EditOperation.Cells(new EditFootprint.Cell(new(1, 0, 0)), new CellEdit.Add(palette));
+        var preview = editor.Preview(operation);
         Require(preview is SceneResult<IEditPreview>.Success { Value.CanApply: true }, "真实网格修改预览不可应用：" + preview);
-        editor.Apply(((SceneResult<IEditPreview>.Success)preview!).Value, false);
+        editor.Apply(operation);
         Require(editor.IsDirty && editor.Session!.Capture().Draft.Layout.Cells.Length == 2, "真实网格操作未产生未保存修改。");
     }
     private static LineEdit Field(AuthoringDefinitionForm form, string title) => form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().Single(field => field.TooltipText == title);

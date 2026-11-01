@@ -1037,7 +1037,7 @@ Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|EditSnap
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|EditState Read();
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<DesignDraft> CaptureObject(EditElementId element);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditElementId> Locate(EditStamp stamp, DesignElementPath path);
-Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Apply(IEditPreview preview, bool confirmed);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Apply(EditOperation operation);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Enter(EditElementId? element);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Redo();
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Select(EditSelection selection);
@@ -1053,7 +1053,6 @@ Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|ImmutableArray
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|ImmutableArray<GridPosition> HighlightCells { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|bool CanApply { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|bool OccupancyComplete { get; }
-Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|bool RequiresConfirmation { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|int AffectedCells { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|int CoveredCells { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|int SkippedCells { get; }

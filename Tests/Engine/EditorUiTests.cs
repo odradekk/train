@@ -132,8 +132,8 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             }
             Require(orientation.GetItemText(18) == "右 +Z · 上 +Y", "转轴标签必须按右方向轴、上方向轴解释。");
             await input.Choose(orientation, 23);
-            await ActivateEditorButton(panel, "Preview");
-            Require(fixture.Factory.Session!.PreviewCalls.Last() is EditOperation.Cells { Action: CellEdit.Add { Value.Orientation: VoxelOrientation.NzNy } },
+            await ActivateEditorButton(panel, "ExecuteCells");
+            Require(fixture.Factory.Session!.ApplyCalls.Last() is EditOperation.Cells { Action: CellEdit.Add { Value.Orientation: VoxelOrientation.NzNy } },
                 "更换朝向文字后，所选下标仍必须提交原来的正交朝向。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
@@ -189,8 +189,7 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
                 var latest = session.LastFrame!.DebugLines[0];
                 Require(vertices[1] == new Vector3(latest.To.X, latest.To.Y, latest.To.Z), "选区变化和逐帧Present的新DebugLines必须原样显示，不能保留旧candidate线框。");
             }
-            var preview = (SceneResult<IEditPreview>.Success)fixture.Editor.Preview(new EditOperation.Properties(new("修改后的草稿", ""), EditorPreviewSession.Draft.Specification))!;
-            fixture.Editor.Apply(preview.Value, false);
+            fixture.Editor.Apply(new EditOperation.Properties(new("修改后的草稿", ""), EditorPreviewSession.Draft.Specification));
             Require(controller.Display.Root.Visible && controller.Display.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null && controller.Pick(Vector2.Zero) is null, "草稿变化必须保留已提交几何、清除旧线框并拒绝旧修订拾取。");
             await FramesUntil(TestScene, () => controller.Display?.Root.Visible == true && controller.Display.DisplayedFrame?.DebugLines.IsEmpty == true);
             Require(controller.Display!.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null, "新帧没有DebugLines时必须删除旧线框。");
@@ -215,12 +214,11 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             Require(controller.CellFor(hit, false) == new GridPosition(0, 0, 0) && controller.CellFor(hit, true) == new GridPosition(1, 0, 0),
                 "进入旋转嵌套对象后，命中格与Face必须转换到当前局部坐标，不能使用动画Normal。");
             Require(controller.FaceAxis(hit) == GridAxis.X && controller.EnteredDraft!.Display.Name == "嵌套设备", "表面工作平面和对象文字必须属于当前进入的设备。");
-            controller.ShowPreview(new Train.Scenes.ContractSupport.FixedEditPreview(fixture.Editor.State.Snapshot.Stamp,
-                new EditOperation.Properties(new("高亮", ""), EditorPreviewSession.Draft.Specification))
+            controller.ShowPreview(new FixedEditPreview(fixture.Editor.State.Snapshot.Stamp)
                 { HighlightCells = [new(0, 0, 0)] });
             var root = controller.View.GetNode<Node3D>("EditPreviewHighlights");
-            var box = root.GetChildren().OfType<MeshInstance3D>().Single();
-            Require(box.Position.IsEqualApprox(new(8.5f, 0.5f, 0.5f)), "局部高亮格必须按固定嵌套朝向变回根空间显示。");
+            var boxes = root.GetChildren().OfType<MultiMeshInstance3D>().Single();
+            Require(boxes.Position.IsEqualApprox(new(8.5f, 0.5f, 0.5f)), "局部高亮格必须按固定嵌套朝向变回根空间显示。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
@@ -242,10 +240,11 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             await LeftMotion(center);
             await LeftMotion(center);
             await LeftMotion(center + new Vector2(40, 0));
-            Require(session.ApplyCalls.Count == 0 && session.PreviewCalls.Count == 0, "笔刷按住与移动期间不得写入或提前提交预览。");
+            Require(session.ApplyCalls.Count == 0 && session.PreviewCalls.Count > 0, "笔刷拖动时显示预览，松开前不得提交。");
+            session.PickSamples = null;
             await input.MouseButton(center + new Vector2(40, 0), MouseButton.Left, false);
-            Require(session.PreviewCalls.Count == 1 && session.ApplyCalls.Count == 1, "松开笔刷必须只预览并应用一次。");
-            var operation = session.PreviewCalls.Single() as EditOperation.Cells;
+            Require(session.ApplyCalls.Count == 1, "松开笔刷必须只提交一次。");
+            var operation = session.ApplyCalls.Single() as EditOperation.Cells;
             Require(operation is { Footprint: EditFootprint.Stroke, Action: CellEdit.Remove }, "鼠标笔刷必须作为一个Stroke交给契约。");
             var stroke = (EditFootprint.Stroke)operation!.Footprint;
             Require(stroke.BrushWidth == 1 && stroke.Samples.SequenceEqual(new[] { new GridPosition(0, 0, 0), new(1, 0, 0), new(2, 0, 0) }),
@@ -254,28 +253,7 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
-    public async Task Confirmation_cancel_does_not_apply_and_accept_applies_once_with_confirmation()
-    {
-        var fixture = await Ready();
-        try
-        {
-            var panel = EditorPanel(fixture); var session = fixture.Factory.Session!;
-            var input = new UiTestInput(TestScene); session.ConfirmationRequired = true;
-            await input.Enter(panel.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().Single(edit => edit.PlaceholderText == "名称"), "123");
-            await input.Activate(Find<Button>(panel, "Properties"));
-            await ActivateEditorButton(panel, "Apply");
-            var confirmation = panel.GetChildren().OfType<ConfirmationDialog>().Single();
-            Require(confirmation.Visible && session.ApplyCalls.Count == 0, "RequiresConfirmation预览必须先弹确认，不能提前Apply。");
-            await input.Activate(confirmation.GetCancelButton(), confirmation);
-            Require(!confirmation.Visible && session.ApplyCalls.Count == 0, "取消确认不得应用修改。");
-            await ActivateEditorButton(panel, "Apply");
-            await input.Activate(confirmation.GetOkButton(), confirmation);
-            Require(session.ApplyCalls.Count == 1 && session.ApplyCalls[0].Confirmed, "确认后必须只应用一次并传confirmed=true。");
-        }
-        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
-    }
-    [Test]
-    public async Task Stale_preview_rejection_preserves_draft_and_displays_the_scene_problem()
+    public async Task Properties_button_applies_once_without_preview_or_confirmation()
     {
         var fixture = await Ready();
         try
@@ -284,16 +262,31 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             var input = new UiTestInput(TestScene);
             await input.Enter(panel.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().Single(edit => edit.PlaceholderText == "名称"), "123");
             await input.Activate(Find<Button>(panel, "Properties"));
-            var before = fixture.Editor.Session!.Capture();
-            // 第二次公开预览使UI仍持有的前一份预览过期；不实现Scenes的修订或占格算法。
-            fixture.Editor.Preview(new EditOperation.Properties(new("另一个预览", ""), EditorPreviewSession.Draft.Specification));
-            await ActivateEditorButton(panel, "Apply");
-            Require(session.ApplyCalls.Count == 1 && fixture.Editor.Session.Capture() == before, "被拒绝的旧预览不得改变草稿或修订。");
-            await FramesUntil(TestScene, () => Displayed(panel, "场景已更新，请重新操作。") && !Displayed(panel, "stale_preview"));
-            Require(!Displayed(panel, "预览已过期"), "过期预览的玩家文字不能带出原始说明。");
+            Require(session.ApplyCalls.Single() is EditOperation.Properties { Display.Name: "123" }
+                && session.Capture().Draft.Display.Name == "123", "更新名称应直接提交一次并保留修改。");
+            Require(!panel.GetChildren().OfType<ConfirmationDialog>().Any()
+                && !panel.FindChildren("*", "Button", true, false).OfType<Button>().Any(button => button.Text == "应用预览"),
+                "编辑器不应提供确认弹窗或应用预览按钮。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Apply_rejection_preserves_draft_and_displays_the_scene_problem()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture); var session = fixture.Factory.Session!;
+            session.ApplyCall = _ => new SceneResult<EditState>.Failure([new("occupancy_conflict", SceneStage.Edit,
+                null, null, null, null, "The brush intersects another object's cells.")]);
+            var before = session.Capture();
+            await new UiTestInput(TestScene).Activate(Find<Button>(panel, "Properties"));
+            Require(session.ApplyCalls.Count == 1 && session.Capture() == before, "被拒绝的操作不得改变草稿或修订。");
+            await FramesUntil(TestScene, () => Displayed(panel, "与其他部分的占格重叠。") && !Displayed(panel, "occupancy_conflict"));
+            Require(!Displayed(panel, "The brush intersects"), "玩家提示不得显示原始诊断。");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            Require(ConsoleShows(fixture, "stale_preview") && ConsoleShows(fixture, "预览已过期"),
-                "过期预览的诊断码和原始说明必须留在控制台。");
+            Require(ConsoleShows(fixture, "occupancy_conflict") && ConsoleShows(fixture, "The brush intersects"),
+                "错误码与原始诊断必须保留在控制台。");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
@@ -896,37 +889,6 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             Require(rows.Length == 1, "含「布局必须非空。」的诊断行必须恰好一行。实际：" + rows.Length);
             Require(rows[0].GetChildren().OfType<Button>().Any(button => button.Name == "LocateDiagnostic" && button.Text == "定位"),
                 "设计诊断行必须保留定位按钮。");
-        }
-        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
-    }
-    [Test]
-    public async Task Preview_conflict_shows_player_text_and_keeps_raw_values_in_the_log()
-    {
-        var fixture = await Ready();
-        try
-        {
-            var session = fixture.Factory.Session!;
-            session.PreviewCall = operation => new FixedEditPreview(session.Capture().Stamp, operation)
-            {
-                CanApply = false,
-                Conflicts =
-                [
-                    new(new(1, 0, 2), null, new("occupancy_conflict", SceneStage.Edit, null, null, null, null,
-                        "The brush intersects another object's cells.")),
-                    new(null, null, new("edit_locked", SceneStage.Edit, null,
-                        new ContentReference.Design(new("locked-device")), new("missing-package"), null, "缺失定义禁止旋转。"))
-                ]
-            };
-            var panel = EditorPanel(fixture);
-            await ActivateEditorButton(panel, "Properties");
-            foreach (var text in new[] { "(1, 0, 2)", "与其他部分的占格重叠。", "缺失定义已锁定，不能进行这个操作。", "来源内容包不可用。" })
-                Require(Displayed(panel, text), $"预览冲突界面缺少：{text}");
-            foreach (var text in new[] { "GridPosition", "occupancy_conflict", "edit_locked", "locked-device", "missing-package", "禁止旋转", "The brush intersects" })
-                Require(!Displayed(panel, text), $"预览冲突不能向玩家显示：{text}");
-            await UiCapture.Capture(TestScene, "player-editor-preview-conflict");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            foreach (var text in new[] { "occupancy_conflict", "The brush intersects", "edit_locked", "locked-device", "missing-package", "禁止旋转" })
-                Require(ConsoleShows(fixture, text), $"预览冲突控制台缺少：{text}");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
