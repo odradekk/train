@@ -35,16 +35,21 @@ public partial class SceneUiTests
             await _input.Activate(Find<Button>(ui, "EconomyReports"));
             var workspace = shell.WorkspaceContent!;
             var point = minimap.GlobalPosition + new Vector2(minimap.Size.X / 2, 4);
-            Require(Find<Control>(shell, "WorkspaceMask").GetGlobalRect().HasPoint(point) &&
-                !workspace.GetGlobalRect().HasPoint(point), "点击位置必须由遮罩覆盖，且位于工作区内容之外的小地图上。");
             var camera = app.WorldScenes!.View.CameraRig;
             var focus = camera.Focus;
             var ray = setup.Frames[^1].LastPickRay;
             var resolutions = setup.Scenes[^1].ResolveCalls.Count;
-            await _input.Click(point);
-            Require(camera.Focus.DistanceTo(focus) < .001f && ReferenceEquals(setup.Frames[^1].LastPickRay, ray) &&
-                setup.Scenes[^1].ResolveCalls.Count == resolutions && shell.WorkspaceContent == workspace,
-                "遮罩点击不能定位小地图、触发场景拾取或关闭工作区。");
+            var belowBar = new Vector2(ui.GetViewport().GetVisibleRect().Size.X / 2,
+                Find<Control>(ui, "Bar").GetGlobalRect().End.Y + 4);
+            foreach (var covered in new[] { point, belowBar })
+            {
+                Require(Find<Control>(shell, "WorkspaceMask").GetGlobalRect().HasPoint(covered) &&
+                    !workspace.GetGlobalRect().HasPoint(covered), "小地图边缘和紧贴顶栏下方都应由遮罩覆盖，且位于工作区内容之外。");
+                await _input.Click(covered);
+                Require(camera.Focus.DistanceTo(focus) < .001f && ReferenceEquals(setup.Frames[^1].LastPickRay, ray) &&
+                    setup.Scenes[^1].ResolveCalls.Count == resolutions && shell.WorkspaceContent == workspace,
+                    "遮罩点击不能定位小地图、触发场景拾取或关闭工作区。");
+            }
             await _input.PressKey(Key.Escape);
             Require(shell.WorkspaceContent is null, "Esc 应撤掉工作区及遮罩。");
             await _input.Click(point);

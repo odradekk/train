@@ -63,7 +63,7 @@ public partial class GameUi : CanvasLayer
         {
             var top = _bar.GetParent<Control>().GetGlobalRect().End.Y + 8;
             area = new(new(area.Position.X, top), new(area.Size.X, Math.Max(0, area.End.Y - top)));
-            _shell.TopInset = top;
+            _shell.TopInset = top - 8;
         }
         if (PanelArea == area) return;
         PanelArea = area;
