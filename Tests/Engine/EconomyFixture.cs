@@ -21,7 +21,8 @@ internal static class EconomyFixture
         IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>>? leaseQuotes = null,
         bool trainAtNode = true, long wallet = 1234567,
         IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>? tradeQuotes = null,
-        SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1, InventoryView? settlementInventory = null)
+        SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1, InventoryView? settlementInventory = null,
+        IReadOnlyList<ConstructionJobView>? commissionJobs = null)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -57,6 +58,7 @@ internal static class EconomyFixture
                     new("invalid_state", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:invalid-market"])] } : rule,
                 new(100, 5, 2, 20, 0, 75, 50),
                 [new(Food, 42, 50, 2, 40, 20, []), new(Equipment, 3, 5, 0, 3, 2, [])]));
+        if (commissionJobs is not null) settlement = settlement with { CommissionJobs = [.. commissionJobs.Select(job => job.Id)] };
         InventoryView Inventory(ulong id, InventoryOwner owner) => new(new(id), owner, location, InventoryAccess.ReadWrite,
             100, 5, 2, 93, 1.25, [new(Food, foodQuantity, false), new(Equipment, 1, false)], []);
         ImmutableArray<CoreProblem> blockers = blocked
@@ -137,6 +139,8 @@ internal static class EconomyFixture
                     ? new Lookup<LeaseView>.Found(new(new(2), new(1), new(14), 20, LeaseDuration * 2, new(419), false))
                     : new Lookup<LeaseView>.Missing()
             },
+            Jobs = (commissionJobs ?? []).ToDictionary(job => job.Id,
+                job => (Lookup<JobView>)new Lookup<JobView>.Found(new JobView.Construction(job))),
             TradeQuotes = tradeQuotes ?? trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
         };
     }

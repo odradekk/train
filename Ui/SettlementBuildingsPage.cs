@@ -122,9 +122,7 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
             var job = construction.Value;
             var name = content.FindDesign(target.Design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
                 ? complete.Definition.Display.Name : "建筑内容缺失";
-            var remaining = job.ActualWorkPerSecond > 0
-                ? $"预计还需 {Math.Ceiling(Math.Max(0, job.FrozenTotalWork - job.ProgressWork) / job.ActualWorkPerSecond):0} 秒" : "当前未施工";
-            yield return $"正在建造{name} · {EconomyPanels.PlotSizeName(plot.Size)}地块 · 进度 {job.Progress:P0} · {remaining}" +
+            yield return $"正在建造{name} · {EconomyPanels.PlotSizeName(plot.Size)}地块 · 进度 {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job)}" +
                 (job.State == ConstructionState.Working ? "" : $" · {EconomyPanels.ServiceState(job.State)}");
         }
     }

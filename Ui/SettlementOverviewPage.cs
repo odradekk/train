@@ -115,13 +115,8 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         return "";
     }
 
-    private static string DescribeJob(ConstructionJobView job)
-    {
-        var remaining = job.ActualWorkPerSecond > 0
-            ? $" · 预计还需 {Math.Ceiling(Math.Max(0, job.FrozenTotalWork - job.ProgressWork) / job.ActualWorkPerSecond):0} 秒"
-            : " · 当前未施工";
-        return $"{EconomyPanels.ServiceKind(job.Kind)} · {job.Progress:P0}{remaining}";
-    }
+    private static string DescribeJob(ConstructionJobView job) =>
+        $"{EconomyPanels.ServiceKind(job.Kind)} · {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job)}";
 
     private static string Join(IEnumerable<string> lines, string empty)
     {
