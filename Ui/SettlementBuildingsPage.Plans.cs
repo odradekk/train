@@ -68,14 +68,17 @@ internal sealed partial class SettlementBuildingsPage
                 ProductionState.ProcessMissing => "恢复缺失的流程内容，或选择其他流程。",
                 _ => ""
             };
-            var limits = facility.Limits.Where(limit => limit is WorkLimit.Power or WorkLimit.Labor).ToArray();
-            if (limits.Contains(WorkLimit.Power)) remedy += "\n电力不足，请补充燃料或增加发电能力。";
-            if (limits.Contains(WorkLimit.Labor)) remedy += "\n劳动力不足，可提高优先级或停用其他建筑。";
+            if (facility.Limits.Contains(WorkLimit.Power)) remedy += "\n电力不足，请补充燃料或增加发电能力。";
+            if (facility.Limits.Contains(WorkLimit.Labor)) remedy += "\n劳动力不足，可提高优先级或停用其他建筑。";
             row.Blockers.Text = Describe(facility.Blockers) + (remedy.Length == 0 ? "" : "\n" + remedy);
             row.Blockers.Visible = row.Blockers.Text.Trim().Length > 0;
             row.Current.Text = facility.Process is null ? "当前计划：未选择流程" : $"当前流程：{ProcessName(facility.Process)}";
+            if (facility.Batch is { CurrentSpecificationDiffers: true } && facility.Process is { } currentReference && Process(currentReference) is { } current)
+                row.Current.Text += $"\n当前每批工作量 {current.WorkRequired:0.###}";
             row.Batch.Text = facility.Batch is { } batch
-                ? $"本批流程：{ProcessName(batch.Process)} · 进度 {batch.Progress:P0}\n本批按开始时的投入与产出完成，下一批使用当前流程。" : "没有进行中的批次。";
+                ? $"本批流程：{ProcessName(batch.Process)} · 进度 {batch.Progress:P0}\n本批工作量 {batch.FrozenWorkRequired:0.###}\n" +
+                    (batch.CurrentSpecificationDiffers ? "本批规格与当前流程不同，完成后下一批使用当前流程。" : "本批按开始时的投入与产出完成，下一批使用当前流程。")
+                : "没有进行中的批次。";
             row.FrozenOutputs.Visible = facility.Batch is { FrozenOutputs.IsEmpty: false };
             row.FrozenGoods.Text = "本批产出：" + Goods(facility.Batch?.FrozenOutputs ?? []);
             row.Buffer.Text = facility.OutputBuffer.IsEmpty ? "" : "等待入库：" + Goods(facility.OutputBuffer);

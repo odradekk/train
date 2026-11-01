@@ -16,14 +16,14 @@ public partial class SettlementInspectorPreview : Node
         GetTree().Root.ContentScaleFactor = 1;
         GetTree().Root.Size = new(1920, 1080);
         var hud = new CanvasLayer { Name = "SettlementPreviewHud", Layer = 10 }; AddChild(hud);
-        var box = new VBoxContainer { Position = new(16, 780) }; hud.AddChild(box);
+        var box = new VBoxContainer { Position = new(16, 600) }; hud.AddChild(box);
         box.AddChild(new Label
         {
             Text = "聚居地检查器固定情景\n生产 App 与界面，Core / Content 为有限契约替身。\n从顶部“节点”列表打开聚居地；每次交易后可重置情景。",
             MouseFilter = Control.MouseFilterEnum.Ignore
         });
         _status = new Label { Name = "PreviewStatus" }; box.AddChild(_status);
-        foreach (var (name, text) in new[] { ("Normal", "正常交易"), ("NoTrain", "无车在站"), ("Blocked", "资金与载量不足"), ("LongName", "长名称"), ("Multiple", "多列车与最大"), ("Owned", "自有聚居地") })
+        foreach (var (name, text) in new[] { ("Normal", "正常交易"), ("NoTrain", "无车在站"), ("Blocked", "资金与载量不足"), ("LongName", "长名称"), ("Multiple", "多列车与最大"), ("Owned", "自有聚居地"), ("OwnedNoTrain", "自有库存无车"), ("OwnedDemolition", "自有建筑拆除") })
         {
             var button = new Button { Name = name, Text = text }; box.AddChild(button); _choices.Add(button);
             button.Pressed += async () => await Switch(name);
@@ -40,12 +40,14 @@ public partial class SettlementInspectorPreview : Node
             var noTrain = scenario == "NoTrain";
             var blocked = scenario == "Blocked";
             var multiple = scenario == "Multiple";
-            var owned = scenario == "Owned";
-            var before = EconomyFixture.Create(trainAtNode: !noTrain, blocked: blocked,
+            var owned = scenario.StartsWith("Owned", StringComparison.Ordinal);
+            ICoreReadView before = EconomyFixture.Create(trainAtNode: !noTrain, blocked: blocked,
                 wallet: blocked ? 250 : multiple ? 1000 : 1234567,
                 vehicle: multiple ? EconomyFixture.VehicleState.Formed : EconomyFixture.VehicleState.ForSale,
                 tradeQuotes: multiple ? MultipleTrainQuotes() : null, leaseCount: multiple ? 0 : 1);
             if (owned) before = OwnedSettlementInspectorUiTests.View();
+            if (scenario == "OwnedNoTrain") before = EconomyFixture.Create(relation: SettlementRelation.PlayerOwned, trainAtNode: false, leaseCount: 0);
+            if (scenario == "OwnedDemolition") before = OwnedSettlementDemolitionUiTests.Preview();
             var after = EconomyFixture.Create(2, foodQuantity: 14, wallet: 1233867);
             var setup = new HostSimulationTests.HostSetup(before, owned ? OwnedSettlementInspectorUiTests.Content() :
                 EconomyFixture.Content(mapPresentation: true, foodName: scenario == "LongName" ? string.Concat(Enumerable.Repeat("长名称货物", 12)) : "主食"));
@@ -75,6 +77,8 @@ public partial class SettlementInspectorPreview : Node
                 "Blocked" => "资金与载量不足 · 确认应禁用",
                 "Multiple" => "选择列车、切换动作、输入2件或点最大；本情景只查看报价。",
                 "Owned" => "自有聚居地 · 查看概况、库存和建筑；生产设置与拆除由引擎测试验证。",
+                "OwnedNoTrain" => "自有库存 · 没有列车在站，展开货物后说明原因。",
+                "OwnedDemolition" => "自有建筑 · 展开食品建筑，打开拆除确认；此情景只查看，不提交。",
                 _ => "正常交易 · 默认买入10件，实际成交700"
             };
         }

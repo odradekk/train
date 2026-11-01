@@ -11,6 +11,7 @@ public class OwnedSettlementDemolitionUiTests(Node testScene) : TestClass(testSc
 {
     private readonly UiTestInput _input = new(testScene);
     private static readonly JobRequest.Dismantle Request = new(new(new(3), CapabilityKind.Construction), new InstanceId.Building(new(1)), 0);
+    internal static ICoreReadView Preview() => new DemolitionView();
 
     [Test]
     public async Task Demolition_requires_confirmation_and_cancel_preserves_building_then_reports_command_outcome_in_place()

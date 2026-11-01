@@ -131,7 +131,7 @@
     "Tests/Engine/SceneUiTests.cs": 6527,
     "Tests/Engine/UiTests.cs": 7086,
     "Tests/Engine/VehicleServiceIntegrationTests.cs": 6217,
-    "Tests/Engine/VehicleServiceUiTests.cs": 20224,
+    "Tests/Engine/VehicleServiceUiTests.cs": 20210,
     "Tests/Engine/WorldCameraTests.cs": 7503,
     "Tests/Engine/WorldScenePreview.cs": 5341,
     "Tests/Engine/WorldSceneTargetTests.cs": 5317,

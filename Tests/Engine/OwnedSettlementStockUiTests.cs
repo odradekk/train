@@ -22,7 +22,7 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
             Require(text.Contains("补货目标") && text.Contains("50") && text.Contains("已用") && text.Contains("预留"),
                 "库存页应显示仓储用量和补货目标。");
             var row = stock.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First();
-            var values = row.FindChildren("Amount", "Label", true, false).Cast<Label>().Select(label => label.Text).ToArray();
+            var values = row.FindChildren("*", "Label", true, false).Cast<Label>().Select(label => label.Text).ToArray();
             Require(values.Contains("0") && values.Contains("50"), "零库存但有补货目标的主食必须保留，并使用本地库存数量而非市场库存42。");
             await _input.Activate(row);
             var action = Find<OptionButton>(stock, "Action");

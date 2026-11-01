@@ -56,12 +56,15 @@ public class OwnedSettlementInspectorUiTests(Node testScene) : TestClass(testSce
             var tabs = Find<TabContainer>(panel, "Pages");
             Require(tabs.GetTabTitle(tabs.CurrentTab) == "建筑" && Find<VBoxContainer>(Find<VBoxContainer>(panel, "Building_1"), "Details").Visible,
                 "点击停工事项应打开并展开对应建筑。");
-            await _input.ChooseTab(tabs, 0);
+            await _input.ClickTab(tabs, 0);
             var shortage = attention.FindChildren("LowStock*", "Button", true, false).Cast<Button>().First();
             Require(shortage.Text.Contains("主食") && shortage.Text.Contains("50"), "补货事项应显示货物和目标。");
             await _input.Activate(shortage);
+            await _input.Frames(2);
             Require(tabs.GetTabTitle(tabs.CurrentTab) == "库存" && Find<VBoxContainer>(panel, "Trade").Visible &&
                 Find<Label>(panel, "TrainCargo").Text.Contains("主食"), "点击缺货事项应展开这项货物的装卸。");
+            Require(Find<VBoxContainer>(panel, "Trade").GetParent().GetChild<Button>(0).HasFocus(),
+                "从需要处理进入库存后，键盘焦点应跟随对应货物行。");
             Require(setup.Session.SubmitCount == 0, "导航不应提交命令。");
         });
         setup.Session.AssertComplete();

@@ -13,6 +13,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
     Func<PanelTarget, CoreCommand, SubmissionResult> submit)
 {
     private const int AmountWidth = 52;
+    private const int RestockTargetWidth = 80;
     private const int MinimumRowHeight = 48;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
@@ -81,6 +82,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
     internal void Refresh()
     {
         _secondHeading.Text = Owned ? "补货目标" : "可买"; _thirdHeading.Visible = !Owned;
+        _secondHeading.CustomMinimumSize = new(Owned ? RestockTargetWidth : AmountWidth, 0);
         _storage.Visible = Owned;
         _storage.Text = Owned && Local is { } stock
             ? $"仓储 已用 {stock.Used}/{stock.Capacity} · 预留 {stock.Reserved} · 可用 {stock.Available}" : "";
@@ -130,6 +132,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
             row.Good.Name.Text = SettlementOverviewPage.GoodName(good, _content);
             row.Stock.Text = Owned ? (Local?.Stacks.FirstOrDefault(stack => stack.Good == good)?.Quantity ?? 0).ToString() : item?.Stock.ToString() ?? "—";
             row.Buy.Text = Owned ? (item?.RestockTarget ?? 0).ToString() : item?.SellableQuantity.ToString() ?? "—";
+            row.Buy.CustomMinimumSize = _secondHeading.CustomMinimumSize;
             row.Sell.Text = item?.ReceivableQuantity.ToString() ?? "—";
             row.Sell.Visible = !Owned;
         }
@@ -153,6 +156,14 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
         _editor.Reparent(_items[good].Container, false); _editor.Show();
         if (changed) Changed();
         Refresh();
+        var select = _items[good].Select;
+        Callable.From(() =>
+        {
+            if (!GodotObject.IsInstanceValid(select)) return;
+            for (var parent = select.GetParent(); parent is not null; parent = parent.GetParent())
+                if (parent is ScrollContainer scroll) scroll.EnsureControlVisible(select);
+            select.GrabFocus();
+        }).CallDeferred();
     }
 
     private void Changed()

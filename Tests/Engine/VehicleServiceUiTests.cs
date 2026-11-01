@@ -837,26 +837,24 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Plots_page_lists_size_and_occupant_without_submitting()
+    public async Task Buildings_page_lists_buildings_empty_plots_and_sites_without_submitting()
     {
         var view = new ServiceView(owned: true, emptyPlot: true, constructionPlot: true, buildingLock: InstanceLock.UnderRepair);
         var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
         await Run(setup, async (ui, economy) =>
         {
             var tabs = Find<TabContainer>(economy, "Pages");
-            var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "地块与建筑");
-            await _input.ChooseTab(tabs, index);
-            var text = Find<Label>(economy, "Plots").Text.Replace("\r\n", "\n");
-            const string expected =
-                "地块 1 · 模板编号 1 · 小\n占用：施工建筑 · 建筑 20 · 修理中\n" +
-                "地块 2 · 模板编号 2 · 小\n占用：普通建筑 · 建筑 21 · 未锁定\n" +
-                "地块 3 · 模板编号 3 · 中\n占用：空地\n" +
-                "地块 4 · 模板编号 4 · 大\n占用：工地 · 任务 4 · 制造 · 资源受阻\n工作 20/100 · 20.0%";
-            Require(text == expected, "地块页没有逐行对应尺寸和占用。\n" + text);
-            Require(Find<VBoxContainer>(economy, "地块与建筑").GetNode<ScrollContainer>("Page")
-                .GetNode<VBoxContainer>("Body").GetChildCount() == 1,
-                "只读地块页出现了操作控件。");
-            Require(setup.Session.SubmitCount == 0, "打开地块页提交了命令。");
+            var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "建筑");
+            await _input.ClickTab(tabs, index);
+            var buildings = economy.FindChildren("SelectBuilding_*", "Button", true, false).Cast<Button>().ToArray();
+            Require(buildings.Length == 2 && buildings.Any(item => item.Text.Contains("施工建筑")) &&
+                buildings.Any(item => item.Text.Contains("普通建筑")) && buildings.All(item => item.Text.Contains("小地块")),
+                "建筑页应使用显示名列出各建筑及地块尺寸。");
+            var text = Find<Label>(economy, "OtherPlots").Text;
+            Require(text.Contains("中 1 块") && text.Contains("20%") && text.Contains("资源受阻") &&
+                !text.Contains("任务 4") && buildings.All(item => !item.Text.Contains("建筑 2")),
+                "建筑页应汇总空地和工地，不展示内部编号。");
+            Require(setup.Session.SubmitCount == 0, "浏览建筑页不应提交命令。");
             HideCaptureChrome(ui);
             await UiCapture.Capture(TestScene, "plots");
         });
