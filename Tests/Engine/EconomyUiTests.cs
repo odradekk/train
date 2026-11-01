@@ -495,7 +495,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 await _input.Frames(2);
                 var visible = window.GetVisibleRect().Size;
                 Require(visible == new Vector2(1920, 1080), $"默认窗口不是 1920×1080：{visible}。");
-                await Page(economy, 1);
+                await Market(economy);
                 RequireInWindow(Find<Button>(economy, "ConfirmTrade"));
                 await Page(economy, 2);
                 RequireInWindow(Find<Button>(economy, "ConfirmVehicle"));

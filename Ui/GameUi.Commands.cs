@@ -10,24 +10,30 @@ public partial class GameUi
         => Submit(target, command, null);
 
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
+        => (SubmitResult(target, command, candidate, true) as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
+
+    private SubmissionResult SubmitInline(PanelTarget? target, CoreCommand command)
+        => SubmitResult(target, command, null, false);
+
+    private SubmissionResult SubmitResult(PanelTarget? target, CoreCommand command, IContentCandidate? candidate, bool reportError)
     {
         var status = _host?.GetStatus();
         if (status is null || _host!.Content is not { } content || target is null ||
             !target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)) || _host.IsBusy)
         {
-            ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
-            return null;
+            if (reportError) ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
+            return new SubmissionResult.NotAccepted(new("object_missing", "Target", null, []));
         }
         SubmissionResult result;
         try { result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate); }
         catch (NotImplementedException)
         {
             _logger.Warning("ui", "command_not_implemented", command.GetType().Name);
-            ShowError("该操作尚未实现。");
-            return null;
+            if (reportError) ShowError("该操作尚未实现。");
+            return new SubmissionResult.NotAccepted(new("command_not_implemented", "Command", null, []));
         }
-        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) ShowError(problem);
-        return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
+        if (CommandDiagnostics.Report(_logger, result, content) is { } problem && reportError) ShowError(problem);
+        return result;
     }
 
     private void SetSpeed(SimulationSpeed? speed)

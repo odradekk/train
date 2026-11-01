@@ -59,8 +59,30 @@ public partial class EconomyUiTests
             Require(dialog.Visible && dialog.DialogText.Contains("无法存取") && dialog.DialogText.Contains("租期继续") &&
                 dialog.DialogText.Contains("交易") && dialog.DialogText.Contains("防御"), "宣战确认应说明交易、租约和战斗的具体后果。");
             Require(dialog.GetOkButton().Disabled && dialog.DialogText.Contains("玩家车辆"), "在场车辆必须离站后才能宣战，并说明原因。");
+            await UiCapture.Capture(TestScene, "settlement-war-confirmation");
             await _input.Activate(dialog.GetCancelButton(), dialog);
             Require(!dialog.Visible && setup.Session.SubmitCount == 0, "取消宣战不得提交命令。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Confirming_war_submits_once_and_opens_the_existing_hostile_pages()
+    {
+        var before = EconomyFixture.Create(trainAtNode: false);
+        var after = EconomyFixture.Create(2, trainAtNode: false, relation: SettlementRelation.Hostile);
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        setup.Session.QueueSubmit(new CoreCommand.DeclareWar(new(1)), CommandSource.UserInterface,
+            Completed(1, before, after, new CommandDecision.Accepted([], [])), after);
+        await Run(setup, async (ui, panel) =>
+        {
+            await _input.Activate(Find<Button>(panel, "DeclareWar"));
+            var dialog = Find<ConfirmationDialog>(panel, "DeclareWarConfirmation");
+            await _input.Activate(dialog.GetOkButton(), dialog);
+            await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
+            var current = Find<PanelContainer>(ui, "Settlement");
+            Require(Find<TabContainer>(current, "Pages").GetTabCount() == 8 && setup.Session.SubmitCount == 1,
+                "宣战后应使用既有敌对页面，而且只提交一次。");
         });
         setup.Session.AssertComplete();
     }

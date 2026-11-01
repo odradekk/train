@@ -34,11 +34,13 @@ public partial class EconomyUiTests
             Require(confirm.Text.Contains("10") && confirm.Text.Contains("731") && confirm.GetParent().GetParent() == row.GetParent(),
                 "数量、金额和交易控件应显示在所点货物行下。");
             Require(Find<Label>(panel, "Quote").Text.Contains("1233836"), "交易后资金应按核心报价实时预览。");
+            await UiCapture.Capture(TestScene, "settlement-inline-buy");
             await _input.ClickAcrossRevision(confirm, () => { });
             await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
             var text = Find<Label>(panel, "TradeResult").Text;
             Require(text.Contains("700") && !text.Contains("731") && text.Contains("10"), "成交结果应使用实际数量与实际成交额。");
             Require(!ui.ErrorText.Contains("700") && setup.Session.SubmitCount == 1, "成功应在原行反馈且只提交一次。");
+            await UiCapture.Capture(TestScene, "settlement-trade-result");
         });
         setup.Session.AssertComplete();
     }
@@ -65,9 +67,11 @@ public partial class EconomyUiTests
             await _input.ChooseTab(Find<TabContainer>(panel, "Pages"), 1);
             await _input.Activate(panel.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First());
             Require(Find<Button>(panel, "ConfirmTrade").Disabled, "资金不足时不能确认。");
+            await UiCapture.Capture(TestScene, "settlement-insufficient-money");
             await _input.Activate(Find<Button>(panel, "Maximum"));
             Require(Find<LineEdit>(panel, "Quantity").Text == "3", "最大数量应由核心报价从40收窄至20再至3。");
             Require(Find<Label>(panel, "Quote").Text.Contains("50"), "最大数量成交后的资金应来自最终核心报价。");
+            await UiCapture.Capture(TestScene, "settlement-maximum");
             await _input.Activate(Find<Button>(panel, "ConfirmTrade"));
         });
         setup.Session.AssertComplete();
@@ -83,6 +87,7 @@ public partial class EconomyUiTests
             await _input.Activate(panel.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First());
             Require(Find<Label>(panel, "Quote").Text.Contains("没有列车在站"), "无车时应在展开处说明到站后才能交易。");
             Require(Find<Button>(panel, "ConfirmTrade").Disabled && setup.Session.SubmitCount == 0, "没有在站列车时不得交易。");
+            await UiCapture.Capture(TestScene, "settlement-no-train");
         });
         setup.Session.AssertComplete();
     }

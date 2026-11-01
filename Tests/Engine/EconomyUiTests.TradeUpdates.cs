@@ -52,4 +52,29 @@ public partial class EconomyUiTests
         });
         setup.Session.AssertComplete();
     }
+
+    [Test]
+    public async Task Releasing_outside_the_trade_button_updates_the_deferred_quote_without_submitting()
+    {
+        var before = EconomyFixture.Create();
+        var after = EconomyFixture.Create(2, tradeTotal: 1100);
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
+        await Run(setup, async (ui, panel) =>
+        {
+            await Market(panel);
+            var button = Find<Button>(panel, "ConfirmTrade");
+            var point = button.GetGlobalRect().GetCenter();
+            await _input.MouseButton(point, MouseButton.Left, true);
+            var host = ui.GetParent<Train.App.App>().Host!;
+            Require(host.Step(1).Problem is null, "测试应能发布新核心修订。");
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, after, host.Content!);
+            Require(Find<Label>(panel, "Quote").Text.Contains("731"), "按住按钮时应保留已看到的报价。");
+            await _input.MouseButton(button.GetGlobalRect().End + new Vector2(10, 10), MouseButton.Left, false);
+            await _input.Frames(2);
+            Require(Find<Label>(panel, "Quote").Text.Contains("1100") && setup.Session.SubmitCount == 0,
+                "取消点击后应更新延后的报价，并且不能提交交易。");
+        });
+        setup.Session.AssertComplete();
+    }
 }

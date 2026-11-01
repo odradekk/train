@@ -22,10 +22,11 @@ internal partial class EconomyPanels : Control
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, GoodsIconCache icons,
-        Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget)
+        Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget,
+        Func<PanelTarget?, CoreCommand, SubmissionResult> submitInline)
     {
         var goods = new GoodsRows(icons);
-        _settlementWindow = new(this, host, submit, submitTarget, goods, Refresh, () => _trainInventory.InvalidateRevision());
+        _settlementWindow = new(this, host, submit, submitTarget, goods, Refresh, () => _trainInventory.InvalidateRevision(), submitInline);
         _trainInventory = new(this, host, goods, Refresh);
         _reports = new(this, host);
         _settlementWindow.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
