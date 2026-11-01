@@ -14,6 +14,7 @@ internal sealed partial class SceneDisplay
     private readonly Dictionary<(SceneObjectId Object, int Index), LinkedListNode<(SceneObjectId Object, int Index)>> _candidatePendingNodes = [];
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _candidateVisuals = [];
     private ScenePackingPreparation? _candidatePacking;
+    private SceneResources.GeometryPreparation? _candidateGeometry;
     private Task? _candidatePackingTail;
     private bool _candidatePackingCursorInitialized;
     private LinkedListNode<(SceneObjectId Object, int Index)>? _candidatePackingCursor;
@@ -112,14 +113,20 @@ internal sealed partial class SceneDisplay
             {
                 var key = pending.Value;
                 var source = _candidateSources[key];
-                if (!slice.Start(estimate: VisualCost(source))) return;
-                var resourceStarted = Timestamp();
-                var visual = _resources.TryPrepare(source, _candidatePacking.Job);
+                PreparedVisual? visual;
+                if (source is SceneVisual.Geometry geometry)
+                    visual = _resources.TryPrepare(geometry, _candidatePacking.Job, slice, ref _candidateGeometry);
+                else
+                {
+                    if (!slice.Start(estimate: VisualCost(source))) return;
+                    var resourceStarted = Timestamp();
+                    visual = _resources.Prepare(source);
+                    RecordVisualCost(source, resourceStarted);
+                }
                 if (visual is null) return;
                 _candidateVisuals.Add(key, visual);
                 _candidatePending.Remove(pending);
                 _candidatePendingNodes.Remove(key);
-                RecordVisualCost(source, resourceStarted);
             }
             if (!_candidatePacking.Release(slice)) return;
             if (!slice.Start()) return;
@@ -176,6 +183,8 @@ internal sealed partial class SceneDisplay
 
     private void CancelCandidatePacking()
     {
+        _candidateGeometry?.Dispose();
+        _candidateGeometry = null;
         _candidatePacking?.Dispose();
         _candidatePacking = null;
         _candidatePackingCursorInitialized = false;

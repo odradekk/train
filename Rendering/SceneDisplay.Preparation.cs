@@ -68,20 +68,30 @@ internal sealed partial class SceneDisplay
                     var i = preparation.Visual;
                     var candidateVisual = reusedVisuals[i] is null
                         ? CandidateVisual(update.Frame, (source.Id, i), source.Visuals[i]) : null;
-                    if (!slice.Start(estimate: reusedVisuals[i] is null && candidateVisual is null
-                        ? VisualCost(source.Visuals[i]) : default)) return null;
+                    if ((reusedVisuals[i] is not null || candidateVisual is not null ||
+                        source.Visuals[i] is not SceneVisual.Geometry) &&
+                        !slice.Start(estimate: reusedVisuals[i] is null && candidateVisual is null
+                            ? VisualCost(source.Visuals[i]) : default)) return null;
                     if (reusedVisuals[i] is { } reused) visuals[i] = reused;
                     else
                     {
                         preparation.NeedsResources = true;
                         var visual = candidateVisual;
-                        if (visual is not null) _candidateVisuals.Remove((source.Id, i));
+                        if (visual is not null)
+                        {
+                            preparation.Geometry?.Dispose();
+                            preparation.Geometry = null;
+                            _candidateVisuals.Remove((source.Id, i));
+                        }
+                        else if (source.Visuals[i] is SceneVisual.Geometry geometry)
+                            visual = _resources.TryPrepare(geometry, spaceChanged ? null : preparation.Packing.Job,
+                                slice, ref preparation.Geometry);
                         else if (spaceChanged) visual = _resources.Prepare(source.Visuals[i]);
                         else
                         {
                             var resourceStarted = Timestamp();
-                            visual = _resources.TryPrepare(source.Visuals[i], preparation.Packing.Job);
-                            if (visual is not null) RecordVisualCost(source.Visuals[i], resourceStarted);
+                            visual = _resources.Prepare(source.Visuals[i]);
+                            RecordVisualCost(source.Visuals[i], resourceStarted);
                         }
                         if (visual is null) return null;
                         _pendingVisuals.Add(visual);
@@ -180,6 +190,7 @@ internal sealed partial class SceneDisplay
         internal bool FogChecked, FogChanged, LinesChecked, LinesChanged;
         internal int FogComparison, LineComparison;
         internal ScenePackingPreparation Packing { get; } = new(resources, costs);
+        internal SceneResources.GeometryPreparation? Geometry;
         internal Dictionary<SceneObjectId, PreparedVisual?[]> ReusedVisuals { get; } = [];
     }
 
@@ -332,7 +343,7 @@ internal sealed partial class SceneDisplay
         internal long Timestamp() => owner.Timestamp();
         internal bool Unlimited => unlimited;
 
-        internal bool Start(TimeSpan estimate = default)
+        internal bool Start(TimeSpan estimate = default, bool requireFresh = false)
         {
             if (unlimited) { _budgetAdvanced = true; return true; }
             var elapsed = Stopwatch.GetElapsedTime(started, owner.Timestamp());
@@ -340,17 +351,16 @@ internal sealed partial class SceneDisplay
             var remaining = TimeSpan.FromTicks(Math.Min((allowance - elapsed).Ticks,
                 (PreparationBudget - _preparationTime - elapsed).Ticks));
             // 本帧预算尚未耗尽时，第一步总能开始，避免大项成本超过4ms后永久饿死。
-            if (_preparationTime >= PreparationBudget ||
+            if (_preparationTime >= PreparationBudget || requireFresh && _budgetAdvanced ||
                 _budgetAdvanced && (remaining <= TimeSpan.Zero || estimate > remaining)) return false;
             _budgetAdvanced = true;
             return true;
         }
     }
-    private TimeSpan _geometryCost, _modelCost, _wheelsetCost, _missingCost, _finalizationCost;
+    private TimeSpan _modelCost, _wheelsetCost, _missingCost, _finalizationCost;
 
     private TimeSpan VisualCost(SceneVisual visual) => visual switch
     {
-        SceneVisual.Geometry => _geometryCost,
         SceneVisual.Model => _modelCost,
         SceneVisual.Wheelset => _wheelsetCost,
         SceneVisual.Missing => _missingCost,
@@ -362,7 +372,6 @@ internal sealed partial class SceneDisplay
         var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
         switch (visual)
         {
-            case SceneVisual.Geometry: _geometryCost = elapsed; break;
             case SceneVisual.Model: _modelCost = elapsed; break;
             case SceneVisual.Wheelset: _wheelsetCost = elapsed; break;
             case SceneVisual.Missing: _missingCost = elapsed; break;

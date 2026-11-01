@@ -211,6 +211,7 @@ internal sealed partial class SceneDisplay : IDisposable
     {
         _cache.RequireMainThread();
         var cancelled = _preparation?.Frame;
+        _preparation?.Geometry?.Dispose();
         _preparation?.Packing.Dispose();
         _preparation?.ShiftRoots?.Dispose();
         _preparation?.ValidationChildren?.Dispose();

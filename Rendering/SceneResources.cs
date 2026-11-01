@@ -77,30 +77,20 @@ internal sealed partial class SceneResources : IDisposable
         return HasGeometry(mesh) ? AcquireGeometry(mesh, null) : null;
     }
 
-    internal PreparedVisual? TryPrepare(SceneVisual visual, SceneMeshPacking? packing)
-    {
-        _cache.RequireMainThread();
-        PackedSceneMesh? data = null;
-        if (visual is SceneVisual.Geometry geometry && !HasGeometry(geometry.Mesh) && packing is not null &&
-            !packing.TryTake(geometry.Mesh, out data)) return null;
-        return Prepare(visual, data);
-    }
-
     internal PreparedVisual Prepare(SceneVisual visual, PackedSceneMesh? data = null)
     {
         _cache.RequireMainThread();
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (visual is SceneVisual.Geometry geometry)
+        {
+            using var preparation = new GeometryPreparation(this, geometry, data);
+            return preparation.Advance(null, null)!;
+        }
         var result = new PreparedVisual(_cache, visual);
         try
         {
             switch (visual)
             {
-                case SceneVisual.Geometry geometry:
-                    var mesh = result.Own(AcquireGeometry(geometry.Mesh, data));
-                    var material = GeometryMaterial(result, geometry.Mesh.Material);
-                    SetSurface(material, geometry.Surface);
-                    result.Node.AddChild(new MeshInstance3D { Mesh = mesh.Value, MaterialOverride = material });
-                    break;
                 case SceneVisual.Model model:
                     var asset = result.Own(_cache.AcquireModel(Asset(model.Asset))).Value;
                     if (asset.Surfaces.Length != model.Materials.Length)
