@@ -11,6 +11,7 @@ param(
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
     [switch] $NodeReadyHold,
+    [switch] $StreamingDiagnostics,
     [string] $Root = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 )
 
@@ -127,7 +128,7 @@ try {
             $stage = $measurementInput.stage = 'scenarios'
             & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
                 -OutputDirectory (Join-Path $measurementInput.directory 'scenarios') -Scenario ($Scenario -split ',' | ForEach-Object { $_.Trim() }) -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds -NodeReadyHold:$NodeReadyHold `
-                -ReferencePath (Join-Path $measurementInput.directory 'reference/scene-reference-1/scene-reference.json') `
+                -ReferencePath (Join-Path $measurementInput.directory 'reference/scene-reference-1/scene-reference.json') -StreamingDiagnostics:$StreamingDiagnostics `
                 *> (Join-Path $measurementInput.directory 'scenarios-process.log')
             if ($LASTEXITCODE -ne 0) { throw "场景列表测量失败，退出码 $LASTEXITCODE。" }
             $measurementInput.succeeded = $true

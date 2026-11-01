@@ -200,6 +200,7 @@ internal sealed partial class MeasurementRun
         {
             FlushSceneProbeEvents();
             FlushSceneProbeCosts();
+            WriteOpeningStreamingTrace(directory);
             WriteSceneResourceTimings();
             _app.Saves!.Changed -= OnSceneSaveChanged;
             _app.WorldScenes!.FramePresented -= OnScenePresented;
@@ -311,7 +312,10 @@ internal sealed partial class MeasurementRun
         }, observationSeconds == 60 ? 180 : 120);
         var end = Seconds();
         if (_app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } readyFrame)
+        {
             RecordReadyGeometry(readyFrame, _sceneLastDraw);
+        }
+        RecordOpeningNearParts(end);
         _sceneOperation = null;
         // Validate the immutable Ready snapshot after the observation, without charging far-content evaluation to UI latency.
         var validationStarted = Seconds();
@@ -487,6 +491,7 @@ internal sealed partial class MeasurementRun
             while (_sceneRecent.TryPeek(out var old) && old.At < now - 6) _sceneRecent.Dequeue();
             var loggingStarted = Seconds();
             _sceneTrace.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
+            RecordOpeningDraw(now, frame, interaction);
             if (_sceneOperation is not null && _sceneLoggedProbeState != _probeState)
             {
                 _sceneProbeEvents.Add(new { kind = "probe-state", operation = _sceneOperation,
@@ -616,17 +621,6 @@ internal sealed partial class MeasurementRun
         _sceneOperationTrace.WriteLine(JsonSerializer.Serialize(new { kind = "save-state", at = Seconds(),
             busy = _app.Saves!.IsBusy, pending_writes = _app.Saves.PendingWrites
                 .Select(write => new { write.Kind, write.Path }).ToArray() }, SceneJson));
-    }
-
-    private void OnScenePresented(ISceneFrame frame)
-    {
-        ObserveSceneResources();
-        if (IsRouteMeasurement && _routeSampling) { RecordRoutePresented(frame); return; }
-        _scenePresentedStamp = frame.Update.Frame;
-        var followPose = _subject is not null && frame.FindPose(_subject) is Lookup<ScenePose>.Found pose
-            ? pose.Value.ToString() : null;
-        _scenePresented = new { at = Seconds(), stamp = frame.Update.Frame.ToString(), readiness = frame.Readiness.ToString(),
-            origin = frame.Origin, simulation_seconds = frame.SimulationSeconds, follow_pose = followPose };
     }
 
     private void RecordReadyGeometry(ISceneFrame frame, double at)

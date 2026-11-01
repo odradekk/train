@@ -57,12 +57,24 @@ internal sealed partial class MeasurementRun
         var number = ++_streamingDisplayNumber;
         display.Observe = value =>
         {
-            if (_routeSampling)
+            if (_routeSampling || OpeningDiagnostics && _sceneTrace is not null)
             {
                 var at = Seconds();
                 _streamingHost.Add(new(number, at, value));
             }
         };
+    }
+
+    private void OnScenePresented(ISceneFrame frame)
+    {
+        ObserveSceneResources();
+        if (OpeningDiagnostics) ObserveStreamingDisplay();
+        if (IsRouteMeasurement && _routeSampling) { RecordRoutePresented(frame); return; }
+        _scenePresentedStamp = frame.Update.Frame;
+        var followPose = _subject is not null && frame.FindPose(_subject) is Lookup<ScenePose>.Found pose
+            ? pose.Value.ToString() : null;
+        _scenePresented = new { at = Seconds(), stamp = frame.Update.Frame.ToString(), readiness = frame.Readiness.ToString(),
+            origin = frame.Origin, simulation_seconds = frame.SimulationSeconds, follow_pose = followPose };
     }
 
     private void RecordStreamingDraw(RouteFrame route, TrainView train, ICoreReadView core)

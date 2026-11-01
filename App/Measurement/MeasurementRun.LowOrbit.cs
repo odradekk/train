@@ -16,9 +16,10 @@ internal sealed partial class MeasurementRun
     internal static void ValidateCameraOptions(string scenario, string camera, bool explicitCamera, bool diagnostics)
     {
         var route = scenario.StartsWith("scene-route-", StringComparison.Ordinal);
+        var opening = (scenario is "scene-node" or "scene-edge") && camera == "default";
         var orbit = camera is "default-low-orbit" or "farthest-low-orbit";
         var freeOrbit = orbit && scenario is ("scene-node" or "scene-edge");
-        if (diagnostics && !route || explicitCamera && !diagnostics && !freeOrbit ||
+        if (diagnostics && !route && !opening || explicitCamera && !diagnostics && !freeOrbit ||
             orbit && !route && !freeOrbit ||
             camera is not ("default" or "farthest" or "default-low-orbit" or "farthest-low-orbit"))
             throw new ArgumentException("镜头参数只用于路线诊断或节点/线路自由环绕；支持 default、farthest、default-low-orbit、farthest-low-orbit。");
