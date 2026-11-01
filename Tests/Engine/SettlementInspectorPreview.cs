@@ -23,7 +23,7 @@ public partial class SettlementInspectorPreview : Node
             MouseFilter = Control.MouseFilterEnum.Ignore
         });
         _status = new Label { Name = "PreviewStatus" }; box.AddChild(_status);
-        foreach (var (name, text) in new[] { ("Normal", "正常交易"), ("NoTrain", "无车在站"), ("Blocked", "资金与载量不足"), ("LongName", "长名称") })
+        foreach (var (name, text) in new[] { ("Normal", "正常交易"), ("NoTrain", "无车在站"), ("Blocked", "资金与载量不足"), ("LongName", "长名称"), ("Multiple", "多列车与最大") })
         {
             var button = new Button { Name = name, Text = text }; box.AddChild(button); _choices.Add(button);
             button.Pressed += async () => await Switch(name);
@@ -39,7 +39,11 @@ public partial class SettlementInspectorPreview : Node
             if (_app is not null) { _app.QueueFree(); await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame); }
             var noTrain = scenario == "NoTrain";
             var blocked = scenario == "Blocked";
-            var before = EconomyFixture.Create(trainAtNode: !noTrain, blocked: blocked, wallet: blocked ? 250 : 1234567);
+            var multiple = scenario == "Multiple";
+            var before = EconomyFixture.Create(trainAtNode: !noTrain, blocked: blocked,
+                wallet: blocked ? 250 : multiple ? 1000 : 1234567,
+                vehicle: multiple ? EconomyFixture.VehicleState.Formed : EconomyFixture.VehicleState.ForSale,
+                tradeQuotes: multiple ? MultipleTrainQuotes() : null, leaseCount: multiple ? 0 : 1);
             var after = EconomyFixture.Create(2, foodQuantity: 14, wallet: 1233867);
             var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content(mapPresentation: true,
                 foodName: scenario == "LongName" ? string.Concat(Enumerable.Repeat("长名称货物", 12)) : "主食"));
@@ -49,7 +53,7 @@ public partial class SettlementInspectorPreview : Node
                 setup.Session.QueueSubmit(new CoreCommand.DeclareWar(new(1)), CommandSource.UserInterface,
                     new SubmissionResult.Completed(new(1, before.Position, hostile.Position, new CommandDecision.Accepted([], [])), [], null), hostile);
             }
-            else if (!blocked)
+            else if (!blocked && !multiple)
                 setup.Session.QueueSubmit(new CoreCommand.BuyGoods(new(7), new(1), new(10), EconomyFixture.Food, 10, new(731)),
                     CommandSource.UserInterface,
                     new SubmissionResult.Completed(new(1, before.Position, after.Position, new CommandDecision.Accepted([], [])),
@@ -63,9 +67,32 @@ public partial class SettlementInspectorPreview : Node
             while (_app.Host.IsBusy) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             if (_app.Host.GetStatus() is null) throw new InvalidOperationException("固定情景启动失败。");
             _app.GetNode<Control>("MainMenu").Hide();
-            _status.Text = scenario switch { "NoTrain" => "无车在站 · 可打开宣战确认", "Blocked" => "资金与载量不足 · 确认应禁用", _ => "正常交易 · 默认买入10件，实际成交700" };
+            _status.Text = scenario switch
+            {
+                "NoTrain" => "无车在站 · 可打开宣战确认",
+                "Blocked" => "资金与载量不足 · 确认应禁用",
+                "Multiple" => "选择列车、切换动作、输入2件或点最大；本情景只查看报价。",
+                _ => "正常交易 · 默认买入10件，实际成交700"
+            };
         }
         catch (Exception error) { GD.PrintErr(error); GetTree().Quit(1); }
         finally { foreach (var button in _choices) button.Disabled = false; }
+    }
+
+    private static IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>> MultipleTrainQuotes()
+    {
+        var quotes = new Dictionary<TradeQuoteRequest, CoreResult<TradeQuote>>();
+        foreach (var train in new ulong[] { 7, 8 })
+        foreach (var action in new[] { TradeAction.Buy, TradeAction.Sell })
+        foreach (var quantity in new long[] { 1, 2, 3, 4, 10, 20, 40 })
+        {
+            var request = new TradeQuoteRequest(new(train), new(1), new(10), action, EconomyFixture.Food, quantity);
+            var maximum = action == TradeAction.Buy && quantity >= 20;
+            var executable = maximum ? quantity == 40 ? 20 : 3 : quantity;
+            var total = quantity switch { 10 => action == TradeAction.Buy ? 731 : 431, 20 => 1500, 40 => 3000, 3 => 200, _ => train == 7 ? 50 : 54 };
+            quotes.Add(request, new CoreResult<TradeQuote>.Success(new(request, new(1), executable, new(total),
+                maximum ? [new(quantity == 40 ? "insufficient_capacity" : "insufficient_money", "quantity", null, [])] : [], [])));
+        }
+        return quotes;
     }
 }
