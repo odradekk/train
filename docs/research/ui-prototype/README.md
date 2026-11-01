@@ -143,5 +143,6 @@
 - 2026-10-31-menus-saves-and-settings：主菜单、存档、设置和报告问题
 - 2026-10-31-developer-dock：开发工具底栏
 - 2026-10-31-full-screen-authoring-mode：创作模式
+- 2026-11-01-design-shortcut-k：导航栏「设计」的快捷键由 D 改为 K，原型已同步
 
 `shots/` 里是 15 张关键截图；其余界面用左下角「原型」菜单或 `index.html#场景名` 打开。`check.sh` 逐个加载场景并报告脚本错误，`check.sh _selftest _selftest3 _selftest4` 实际执行各轮的按钮逻辑。

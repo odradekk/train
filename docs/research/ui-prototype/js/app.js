@@ -71,7 +71,7 @@ function renderTopbar() {
 
 const RAIL = [
   ['trains', 'train', '车队', 'T'], ['lines', 'route', '线路', 'L'], ['settlements', 'city', '聚居地', 'J'],
-  ['reports', 'report', '报告', 'R'], ['designs', 'blueprint', '设计', 'D'], ['combat', 'sword', '战斗', 'B'],
+  ['reports', 'report', '报告', 'R'], ['designs', 'blueprint', '设计', 'K'], ['combat', 'sword', '战斗', 'B'],
 ];
 function renderRail() {
   const warnTrains = Object.values(W.trains).filter(t => !t.plan || t.status === 'blocked').length;

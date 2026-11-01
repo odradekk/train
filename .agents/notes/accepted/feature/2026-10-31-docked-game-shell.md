@@ -1,6 +1,7 @@
 # 游戏界面改为停靠式外壳
 
 Status: accepted
+Superseded in part by: 2026-11-01-design-shortcut-k — 游戏画面快捷键里的「D 设计」
 
 ## Problem
 
