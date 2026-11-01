@@ -3,9 +3,12 @@ using Godot;
 using Train.App;
 using Train.Core.Contracts;
 
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
+
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal partial class SettlementServicesPage
 {
     private readonly Dictionary<JobId, Button> _servicePauseButtons = [];
     internal void Observe(HostBinding binding, ICoreReadView view, ImmutableArray<EventEnvelope> events)
@@ -81,7 +84,7 @@ internal partial class EconomyPanels
         _serviceCompletion = null;
         _serviceResult.Text = accepted is null ? "暂停／恢复未受理或被拒绝，请查看错误。" : "拆解暂停状态已更新。";
         ResetQuote(ref _serviceQuote, _serviceDescription, "任务状态已变化，请重新获取报价。");
-        if (ReadCurrent()) { _settlementRevision = null; Refresh(_binding, _view, _content); }
+        if (ReadCurrent()) _refreshSettlement();
     }
 
     private static string JobTarget(ConstructionTarget target) => target switch

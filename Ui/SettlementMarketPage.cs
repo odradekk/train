@@ -1,11 +1,33 @@
 using System.Globalization;
 using Godot;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
+using static Train.Ui.GoodsRows;
 
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal sealed class SettlementMarketPage
 {
+    private PanelTarget _settlementTarget = null!;
+    private readonly Func<bool> _canAct;
+    private bool CanAct => _canAct();
+    private ICoreReadView _view = null!;
+    private IContentView _content = null!;
+    private SettlementView _settlement = null!;
+    private InventoryView? Local;
+    private SettlementId _settlementId => _settlement.Id;
+    private readonly GoodsRows _goods;
+    private readonly Action<Action> _quote;
+    private readonly Action<PanelTarget, CoreCommand, Action> _submit;
+
+    internal SettlementMarketPage(Func<bool> canAct, GoodsRows goods, Action<Action> quote, Action<PanelTarget, CoreCommand, Action> submit)
+    { _canAct = canAct; _goods = goods; _quote = quote; _submit = submit; }
+
+    internal void Bind(ICoreReadView view, IContentView content, SettlementView settlement, InventoryView? local, PanelTarget target)
+    { _view = view; _content = content; _settlement = settlement; Local = local; _settlementTarget = target; }
+
     private OptionButton _tradeTrainChoice = null!;
     private readonly List<TrainId?> _tradeTrains = [];
     private TrainId? _tradeTrain;
@@ -24,7 +46,7 @@ internal partial class EconomyPanels
     private TradeQuote? _tradeQuote;
     private sealed record MarketRow(VBoxContainer Control, GoodsRow Good, Button Choose, Label Amounts, Label Blockers);
 
-    private void BuildTrade(VBoxContainer body)
+    internal void BuildTrade(VBoxContainer body)
     {
         _tradeTrain = null; _tradeGood = null; _tradeQuote = null; _selectedRow = null;
         _tradeTrains.Clear(); _marketItems.Clear();
@@ -45,13 +67,13 @@ internal partial class EconomyPanels
         _quantity = IntegerInput(body, "Quantity", "货物数量（正整数）", "1");
         _tradeAction.ItemSelected += _ => ClearTradeQuote(); _quantity.TextChanged += _ => ClearTradeQuote();
         var actions = Footer(body);
-        _tradeQuoteButton = UiStyle.Button("QuoteTrade", "获取报价", () => Quote(RequestTradeQuote));
+        _tradeQuoteButton = UiStyle.Button("QuoteTrade", "获取报价", () => _quote(RequestTradeQuote));
         _tradeConfirm = UiStyle.Button("ConfirmTrade", "确认交易", ConfirmTrade, true);
         actions.AddChild(_tradeQuoteButton); actions.AddChild(_tradeConfirm);
         _tradeDescription = Text(body, "Quote", "请选择货物和列车，再获取报价。报价不锁定。");
     }
 
-    private void RefreshTrade()
+    internal void RefreshTrade()
     {
         var trains = _view.World.Trains.Where(item => _view.FindTrain(item.Id) is Lookup<TrainView>.Found
             { Value.Position: TrainPosition.Node node } && node.Id == _settlement!.Node).Select(item => item.Id).ToArray();
@@ -60,7 +82,7 @@ internal partial class EconomyPanels
         RenderMarket();
     }
 
-    private void RenderMarket()
+    internal void RenderMarket()
     {
         var market = _settlement!.Market;
         _marketProblems.Text = Problems(market.Rule.Problems, _content); _marketProblems.Visible = !market.Rule.Problems.IsEmpty;
@@ -80,13 +102,13 @@ internal partial class EconomyPanels
             if (!_marketItems.TryGetValue(good, out var row))
             {
                 var box = new VBoxContainer(); _marketRows.AddChild(box);
-                var display = CreateGoodRow(box, good);
+                var display = _goods.CreateGoodRow(box, good);
                 var choose = UiStyle.Button("SelectGood", "选择", () =>
                 {
                     if (_tradeGood != good)
                     {
-                        _tradeGood = good; Clear(_selectedGood); _selectedRow = CreateGoodRow(_selectedGood, good, 48);
-                        UpdateGoodRow(_selectedRow, good, null, selected: true); ClearTradeQuote();
+                        _tradeGood = good; Clear(_selectedGood); _selectedRow = _goods.CreateGoodRow(_selectedGood, good, 48);
+                        _goods.UpdateGoodRow(_selectedRow, good, null, _content, selected: true); ClearTradeQuote();
                     }
                     RenderMarket();
                 });
@@ -94,7 +116,7 @@ internal partial class EconomyPanels
                 row = new(box, display, choose, Text(box, "MarketAmounts", ""), Text(box, "Blockers", ""));
                 row.Blockers.AddThemeColorOverride("font_color", UiStyle.Error); _marketItems.Add(good, row);
             }
-            UpdateGoodRow(row.Good, good, item?.Stock, item is { Blockers.IsEmpty: false }, _tradeGood == good);
+            _goods.UpdateGoodRow(row.Good, good, item?.Stock, _content, item is { Blockers.IsEmpty: false }, _tradeGood == good);
             row.Choose.Text = _tradeGood == good ? "已选择" : "选择"; row.Choose.Disabled = !CanAct;
             row.Amounts.Visible = item is not null;
             if (item is not null) row.Amounts.Text = $"库存 {item.Stock} · 补货目标 {item.RestockTarget} · 留货 {item.ReservedForUse} · 可售 {item.SellableQuantity} · 可收 {item.ReceivableQuantity}";
@@ -102,7 +124,7 @@ internal partial class EconomyPanels
         }
     }
 
-    private void ClearTradeQuote()
+    internal void ClearTradeQuote()
     { ResetQuote(ref _tradeQuote, _tradeDescription); UpdateTradeActions(); }
 
     private void RequestTradeQuote()
@@ -112,7 +134,7 @@ internal partial class EconomyPanels
             !long.TryParse(_quantity.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var quantity) || quantity <= 0)
         { ResetQuote(ref _tradeQuote, _tradeDescription, "请选择列车、本地库存和货物，并输入正整数数量。"); return; }
         var request = new TradeQuoteRequest(train, _settlementId, inventory.Id, (TradeAction)_tradeAction.GetSelectedId(), good, quantity);
-        _tradeQuote = ReadQuote(_view.QuoteTrade(request), _tradeDescription);
+        _tradeQuote = ReadQuote(_view.QuoteTrade(request), _tradeDescription, _content);
     }
 
     private void ConfirmTrade()
@@ -127,10 +149,10 @@ internal partial class EconomyPanels
             TradeAction.Unload => new CoreCommand.UnloadGoods(request.Train, request.Settlement, request.LocalInventory, request.Good, request.Quantity),
             _ => throw new InvalidOperationException("未知货物操作。")
         };
-        Submit(new(_settlementTarget!.Binding, _settlementTarget.Generation, new WorldObjectId.Inventory(request.LocalInventory)), command, RequestTradeQuote);
+        _submit(new(_settlementTarget!.Binding, _settlementTarget.Generation, new WorldObjectId.Inventory(request.LocalInventory)), command, RequestTradeQuote);
     }
 
-    private void UpdateTradeActions()
+    internal void UpdateTradeActions()
     {
         var trainPresent = _tradeTrain is { } train && _view.FindTrain(train) is Lookup<TrainView>.Found
             { Value.Position: TrainPosition.Node node } && node.Id == _settlement!.Node;
@@ -144,11 +166,11 @@ internal partial class EconomyPanels
             var free = displayed.Request.Action is TradeAction.Load or TradeAction.Unload;
             var reason = displayed.CurrentlyExecutableQuantity < displayed.Request.Quantity ? "可执行数量不足，不能确认全部输入数量。" :
                 !free && displayed.Total is null ? "报价未提供总额，不能确认买卖。" : null;
-            ShowQuote(_tradeDescription, displayed.Revision,
+            ShowQuote(_view, _content, _tradeDescription, displayed.Revision,
                 $"当前可执行数量：{displayed.CurrentlyExecutableQuantity}\n总额：{(free && displayed.Total is null ? "免费装卸（无价格条件）" : Amount(displayed.Total))}",
                 displayed.Blockers, displayed.ShortageWarnings, reason);
         }
     }
 
-    private static string Amount(Money? money) => money?.Value.ToString(CultureInfo.InvariantCulture) ?? "不可报价";
+    internal void Close() { _tradeTrains.Clear(); _marketItems.Clear(); _tradeQuote = null; }
 }

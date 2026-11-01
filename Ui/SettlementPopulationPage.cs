@@ -1,14 +1,23 @@
 using Godot;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
 
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal sealed class SettlementPopulationPage
 {
-    private Label _population = null!;
-    private void BuildPopulation(VBoxContainer body) => _population = Text(body, "Population", "");
+    private IContentView _content = null!;
+    private SettlementView _settlement = null!;
 
-    private void RefreshPopulation()
+    internal void Bind(IContentView content, SettlementView settlement)
+    { _content = content; _settlement = settlement; }
+
+    private Label _population = null!;
+    internal void BuildPopulation(VBoxContainer body) => _population = Text(body, "Population", "");
+
+    internal void RefreshPopulation()
     {
         var population = _settlement!.Population;
         var current = population.CurrentRule;
@@ -55,7 +64,4 @@ internal partial class EconomyPanels
     }
 
     private static string Ratio(double? value) => value is { } ratio ? $"{ratio:P1}" : "未结算（暂无消费统计）";
-    private static string PopulationReportText(PopulationSettlementReport report) =>
-        $"第 {report.Position.CompletedSteps} 步 · 执行修订 {report.ExecutionRevision.Value}\n人口 {report.Before} → {report.After}（{report.Change:+0;-0;0}） · 基本满足率 {report.BasicSatisfaction:P1} · 改善满足率 {report.ImprovementSatisfaction:P1}\n原因：" +
-        (report.Reason switch { PopulationSettlementReason.Growth => "增长", PopulationSettlementReason.ShortageLoss => "短缺流失", PopulationSettlementReason.Stable => "稳定", PopulationSettlementReason.MinimumReached => "达到最低人口", _ => report.Reason.ToString() });
 }

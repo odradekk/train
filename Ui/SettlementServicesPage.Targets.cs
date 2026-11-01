@@ -2,9 +2,12 @@ using Godot;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
+
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal partial class SettlementServicesPage
 {
     private OptionButton _serviceTargetKind = null!, _serviceDraft = null!;
     private readonly List<DraftId?> _serviceDrafts = [];
@@ -161,23 +164,14 @@ internal partial class EconomyPanels
         RefreshAfterService();
     }
 
-    internal void OpenVehicleServices(InstanceId instance)
+    internal void SelectVehicle(InstanceId.Vehicle vehicle)
     {
-        if (instance is not InstanceId.Vehicle vehicle || !ReadCurrent() ||
-            _view.FindInstance(instance) is not Lookup<InstanceView>.Found { Value.Location: WorldLocation.Node node } ||
-            _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is not NodeOccupant.Settlement settlement) return;
-        if (_settlementPanel is not null && GodotObject.IsInstanceValid(_settlementPanel) && _settlementId == settlement.Id
-            && _settlementTarget is { } target && _host.PanelGenerationCurrent(target.Binding, target.Generation))
-        { Show(); _settlementPanel.Show(); UiStyle.BringToFront(_settlementPanel); }
-        else OpenSettlement(new(_binding, _content.Generation, new WorldObjectId.Settlement(settlement.Id)), settlement.Id);
+        InstanceId instance = vehicle;
         _serviceSelectedTarget = new(vehicle); _serviceOperation.Select(2);
         if (_content.LocalDrafts.Any(saved => saved.Target == new DraftTarget.Instance(instance)))
         {
             _serviceTargetKind.Select(1);
             _serviceSelectedDraft = _content.LocalDrafts.First(saved => saved.Target == new DraftTarget.Instance(instance)).Id;
         }
-        var tabs = _settlementBody.GetNode<TabContainer>("Pages");
-        tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "建造与工地");
-        ServiceChanged();
     }
 }

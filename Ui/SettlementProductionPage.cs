@@ -3,11 +3,28 @@ using System.Globalization;
 using Godot;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.GoodsRows;
 
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal sealed class SettlementProductionPage
 {
+    private PanelTarget _settlementTarget = null!;
+    private readonly Func<bool> _canAct;
+    private bool CanAct => _canAct();
+    private ICoreReadView _view = null!;
+    private IContentView _content = null!;
+    private SettlementView _settlement = null!;
+    private readonly GoodsRows _goods;
+    private readonly Action<PanelTarget?, CoreCommand, Action> _submitPlan;
+
+    internal SettlementProductionPage(Func<bool> canAct, GoodsRows goods, Action<PanelTarget?, CoreCommand, Action> submitPlan)
+    { _canAct = canAct; _goods = goods; _submitPlan = submitPlan; }
+
+    internal void Bind(ICoreReadView view, IContentView content, SettlementView settlement, PanelTarget target)
+    { _view = view; _content = content; _settlement = settlement; _settlementTarget = target; }
+
     private VBoxContainer _production = null!;
     private Label _power = null!;
     private Label _labor = null!;
@@ -28,14 +45,14 @@ internal partial class EconomyPanels
         internal string? EditedPriority;
     }
 
-    private void BuildProduction(VBoxContainer body)
+    internal void BuildProduction(VBoxContainer body)
     {
         _production = body; _facilityRows.Clear();
         _power = Text(body, "Power", ""); _labor = Text(body, "Labor", "");
         _noFacilities = Text(body, "Empty", "没有生产设施。");
     }
 
-    private void RefreshProduction()
+    internal void RefreshProduction()
     {
         var settlement = _settlement!;
         var power = settlement.Power;
@@ -207,12 +224,10 @@ internal partial class EconomyPanels
         if (facility is null || process is null || enabled && row.Apply.Disabled || !enabled && row.Stop.Disabled) return;
         if (!int.TryParse(row.EditedPriority ?? row.Priority.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var priority))
         { row.PlanMessage.Text = "优先级须为整数。"; return; }
-        var accepted = _submit(_settlementTarget, new CoreCommand.SetProductionPlan(key, process, enabled, priority));
-        if (accepted is not null && ReadCurrent())
+        _submitPlan(_settlementTarget, new CoreCommand.SetProductionPlan(key, process, enabled, priority), () =>
         {
             row.ProcessEdited = false; row.EditedProcess = null; row.EditedPriority = null;
-            _settlementRevision = null; Refresh(_binding, _view, _content);
-        }
+        });
     }
 
     private void RefreshProductionGoods(ProductionGoodsRows rows, ImmutableArray<GoodsQuantity> goods)
@@ -222,8 +237,8 @@ internal partial class EconomyPanels
         foreach (var good in goods)
         {
             if (!rows.Goods.TryGetValue(good.Good, out var row))
-                rows.Goods.Add(good.Good, row = CreateGoodRow(rows.Control, good.Good));
-            UpdateGoodRow(row, good.Good, good.Quantity);
+                rows.Goods.Add(good.Good, row = _goods.CreateGoodRow(rows.Control, good.Good));
+            _goods.UpdateGoodRow(row, good.Good, good.Quantity, _content);
         }
         rows.Control.Visible = !goods.IsEmpty;
     }
@@ -238,4 +253,5 @@ internal partial class EconomyPanels
     }
 
     private static string ShortRevision(SemanticRevision revision) => revision.Value[..Math.Min(8, revision.Value.Length)];
+    internal void Close() { _facilityRows.Clear(); }
 }

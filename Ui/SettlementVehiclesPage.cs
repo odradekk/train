@@ -1,10 +1,32 @@
 using Godot;
+using Train.App;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
 
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal sealed class SettlementVehiclesPage
 {
+    private PanelTarget _settlementTarget = null!;
+    private readonly Func<bool> _canAct;
+    private bool CanAct => _canAct();
+    private ICoreReadView _view = null!;
+    private IContentView _content = null!;
+    private SettlementView _settlement = null!;
+    private HostBinding _binding;
+    private SettlementId _settlementId => _settlement.Id;
+    private readonly Action<Action> _quote;
+    private readonly Action<PanelTarget, CoreCommand, Action> _submit;
+    private readonly Action<PanelTarget, NodeId, ICoreReadView, IContentView> FormationRequested;
+
+    internal SettlementVehiclesPage(Func<bool> canAct, Action<Action> quote, Action<PanelTarget, CoreCommand, Action> submit, Action<PanelTarget, NodeId, ICoreReadView, IContentView> formationRequested)
+    { _canAct = canAct; _quote = quote; _submit = submit; FormationRequested = formationRequested; }
+
+    internal void Bind(HostBinding binding, ICoreReadView view, IContentView content, SettlementView settlement, PanelTarget target)
+    { _binding = binding; _view = view; _content = content; _settlement = settlement; _settlementTarget = target; }
+
     private VBoxContainer _vehicleRows = null!;
     private Label _soldOut = null!;
     private readonly Dictionary<SizeClass, Label> _capacityItems = [];
@@ -23,13 +45,13 @@ internal partial class EconomyPanels
         internal VehicleTradeAction Action;
     }
 
-    private void BuildVehicles(VBoxContainer body)
+    internal void BuildVehicles(VBoxContainer body)
     {
         _vehicle = null; _vehicleQuote = null; _vehicleAvailable = false; _vehicleItems.Clear(); _capacityItems.Clear();
         _vehicleRows = List(body, "Vehicles", 270); _soldOut = Text(_vehicleRows, "SoldOut", "现车已售罄。");
         _vehicleDetails = Text(body, "VehicleDetails", "请选择实际车辆。");
         var actions = Footer(body);
-        _vehicleQuoteButton = UiStyle.Button("QuoteVehicle", "获取报价", () => Quote(RequestVehicleQuote));
+        _vehicleQuoteButton = UiStyle.Button("QuoteVehicle", "获取报价", () => _quote(RequestVehicleQuote));
         _vehicleConfirm = UiStyle.Button("ConfirmVehicle", "确认买卖", ConfirmVehicle, true);
         _formPurchased = UiStyle.Button("FormPurchased", "编组…", () =>
         {
@@ -39,7 +61,7 @@ internal partial class EconomyPanels
         _vehicleDescription = Text(body, "VehicleQuote", "报价不锁定。成交保留原车辆、位置和损伤，不自动编组。");
     }
 
-    private void RefreshVehicles()
+    internal void RefreshVehicles()
     {
         _soldOut.Visible = _settlement!.VehiclesForSale.IsEmpty;
         var capacities = _settlement.VehiclePurchaseCapacities;
@@ -81,9 +103,6 @@ internal partial class EconomyPanels
         ShowVehicleDetails();
     }
 
-    internal static string SizeName(SizeClass size) => size switch
-    { SizeClass.Small => "小型", SizeClass.Medium => "中型", SizeClass.Large => "大型", SizeClass.ExtraLarge => "超大型", SizeClass.Titan => "泰坦", _ => size.ToString() };
-
     private void ShowVehicleDetails()
     {
         _vehicleAvailable = false;
@@ -115,7 +134,7 @@ internal partial class EconomyPanels
         _vehicleQuote = null;
         if (_vehicle is not { } id || !_vehicleAvailable) return;
         var request = new VehicleTradeQuoteRequest(_settlementId, id, _vehicleAction);
-        _vehicleQuote = ReadQuote(_view.QuoteVehicle(request), _vehicleDescription);
+        _vehicleQuote = ReadQuote(_view.QuoteVehicle(request), _vehicleDescription, _content);
     }
 
     private void ConfirmVehicle()
@@ -124,15 +143,16 @@ internal partial class EconomyPanels
         CoreCommand command = quote.Request.Action == VehicleTradeAction.Buy
             ? new CoreCommand.BuyVehicle(quote.Request.Settlement, quote.Request.Vehicle, total)
             : new CoreCommand.SellVehicle(quote.Request.Settlement, quote.Request.Vehicle, total);
-        Submit(_settlementTarget!, command, RequestVehicleQuote);
+        _submit(_settlementTarget!, command, RequestVehicleQuote);
     }
 
-    private void UpdateVehicleActions()
+    internal void UpdateVehicleActions()
     {
         _vehicleQuoteButton.Disabled = !CanAct || !_vehicleAvailable;
         _vehicleConfirm.Disabled = !CanAct || !_vehicleAvailable || _vehicleQuote is not { Total: not null, Blockers.IsEmpty: true };
         _formPurchased.Disabled = !CanAct;
-        if (_vehicleQuote is { } quote) ShowQuote(_vehicleDescription, quote.Revision, $"整车总额：{Amount(quote.Total)}", quote.Blockers,
+        if (_vehicleQuote is { } quote) ShowQuote(_view, _content, _vehicleDescription, quote.Revision, $"整车总额：{Amount(quote.Total)}", quote.Blockers,
             reason: quote.Total is null ? "报价未提供总额，不能确认买卖。" : null);
     }
+    internal void Close() { _vehicleItems.Clear(); _capacityItems.Clear(); _vehicleQuote = null; }
 }

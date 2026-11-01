@@ -1,56 +1,14 @@
+using System.Collections.Immutable;
 using Godot;
 using Train.App;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanelControls;
 
 namespace Train.Ui;
 
 internal partial class EconomyPanels
 {
-    private PanelContainer? _reportsPanel;
-    private HostBinding _reportsBinding;
-    private ContentGeneration _reportsGeneration;
-    private CoreRevision? _reportsRevision;
-    private VBoxContainer _reportsBody = null!;
-    private Label _reportsState = null!;
-    private Label _reportsText = null!;
-
-    internal void OpenReports()
-    {
-        if (!ReadCurrent()) return;
-        RemoveWindow(_reportsPanel);
-        _reportsBinding = _binding; _reportsGeneration = _content.Generation; _reportsRevision = null;
-        _reportsPanel = UiStyle.Panel(this, "EconomyReports", "经营报告", new(420, 70), 720,
-            () => _reportsPanel!.Hide(), out _reportsBody);
-        _reportsState = Text(_reportsBody, "State", "");
-        _reportsText = Text(List(_reportsBody, "Reports", 570), "ReportsText", "");
-        RefreshReports();
-    }
-
-    private void RefreshReports()
-    {
-        if (_reportsPanel?.Visible != true) return;
-        if (_binding != _reportsBinding || !_host.PanelGenerationCurrent(_reportsBinding, _reportsGeneration))
-        { Invalidate(_reportsBody, _reportsState); return; }
-        if (_reportsRevision == _view.Revision) return;
-        _reportsRevision = _view.Revision;
-        var lines = new List<string> { $"资金：{_view.Economy.Wallet.Value}", $"未归属服务支出：{_view.Economy.UnassignedServicePayments.Value}", "最近运行报告：" };
-        foreach (var report in _view.Economy.RecentRunReports) lines.Add(ReportText(report, _content));
-        if (_view.Economy.RecentRunReports.IsEmpty) lines.Add("暂无已结束的运行报告。");
-        lines.Add("玩家自有聚居地最近人口结算：");
-        var settlements = _view.World.Nodes.Select(node => node.Occupant).OfType<NodeOccupant.Settlement>()
-            .Where(item => item.Relation == SettlementRelation.PlayerOwned);
-        var any = false;
-        foreach (var item in settlements)
-        {
-            if (_view.FindSettlement(item.Id) is not Lookup<SettlementView>.Found found) continue;
-            any = true;
-            lines.Add($"聚居地 {item.Id.Value}\n" + (found.Value.Population.LastSettlement is { } last ? PopulationReportText(last) : "尚未结算"));
-        }
-        if (!any) lines.Add("没有玩家自有聚居地。");
-        _reportsText.Text = string.Join("\n\n", lines);
-    }
-
     internal static string RunText(RunAccumulatorView run, IContentView content)
     {
         var loadedCapacity = run.LoadedCapacityRatio is { } ratio
@@ -71,5 +29,7 @@ internal partial class EconomyPanels
 
     internal static string ReportText(RunReport report, IContentView content) =>
         $"列车 {report.Train.Value} · 第 {report.EndedAt.CompletedSteps} 步结束 · " +
-        (report.Reason switch { RunEndReason.PlanCompleted => "计划完成", RunEndReason.LoopCompleted => "一圈完成", RunEndReason.PlanReplaced => "计划已替换", RunEndReason.TrainDisbanded => "列车已解散", RunEndReason.AllVehiclesDestroyed => "全部车辆损毁", _ => report.Reason.ToString() }) + "\n" + RunText(report.Totals, content);
+        (report.Reason switch { RunEndReason.PlanCompleted => "计划完成", RunEndReason.LoopCompleted => "一圈完成", RunEndReason.PlanReplaced => "计划已替换", RunEndReason.TrainDisbanded => "列车已解散", RunEndReason.AllVehiclesDestroyed => "全部车辆损毁", _ => report.Reason.ToString() }) + "\n" + RunText(report.Totals, content);    internal static string PopulationReportText(PopulationSettlementReport report) =>
+        $"第 {report.Position.CompletedSteps} 步 · 执行修订 {report.ExecutionRevision.Value}\n人口 {report.Before} → {report.After}（{report.Change:+0;-0;0}） · 基本满足率 {report.BasicSatisfaction:P1} · 改善满足率 {report.ImprovementSatisfaction:P1}\n原因：" +
+        (report.Reason switch { PopulationSettlementReason.Growth => "增长", PopulationSettlementReason.ShortageLoss => "短缺流失", PopulationSettlementReason.Stable => "稳定", PopulationSettlementReason.MinimumReached => "达到最低人口", _ => report.Reason.ToString() });
 }

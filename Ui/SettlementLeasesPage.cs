@@ -1,12 +1,32 @@
 using System.Globalization;
 using Godot;
 using Train.App;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
 
 namespace Train.Ui;
 
-internal partial class EconomyPanels
+internal sealed class SettlementLeasesPage
 {
+    private PanelTarget _settlementTarget = null!;
+    private readonly Func<bool> _canAct;
+    private bool CanAct => _canAct();
+    private ICoreReadView _view = null!;
+    private IContentView _content = null!;
+    private SettlementView _settlement = null!;
+    private IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> _locals = null!;
+    private SettlementId _settlementId => _settlement.Id;
+    private readonly Action<Action> _quote;
+    private readonly Action<PanelTarget, CoreCommand, Action> _submit;
+
+    internal SettlementLeasesPage(Func<bool> canAct, Action<Action> quote, Action<PanelTarget, CoreCommand, Action> submit)
+    { _canAct = canAct; _quote = quote; _submit = submit; }
+
+    internal void Bind(ICoreReadView view, IContentView content, SettlementView settlement, IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> locals, PanelTarget target)
+    { _view = view; _content = content; _settlement = settlement; _locals = locals; _settlementTarget = target; }
+
     private VBoxContainer _leaseRows = null!;
     private Label _storage = null!;
     private Label _leasesEmpty = null!;
@@ -25,7 +45,7 @@ internal partial class EconomyPanels
     private Button _leaseConfirm = null!;
     private LeaseQuote? _leaseQuote;
 
-    private void BuildLeases(VBoxContainer body)
+    internal void BuildLeases(VBoxContainer body)
     {
         _leaseId = null; _leaseQuote = null; _leaseRule = null; _leaseMultiple = 1; _leaseIds.Clear(); _leaseItems.Clear();
         _leaseRows = List(body, "Leases", 240); _storage = Text(_leaseRows, "Storage", "");
@@ -40,14 +60,14 @@ internal partial class EconomyPanels
         _leaseMultipleChoice.ItemSelected += index => { _leaseMultiple = (int)index + 1; RefreshLeaseDuration(); ClearLeaseQuote(); };
         _leaseCapacity.TextChanged += _ => ClearLeaseQuote();
         var actions = Footer(body);
-        _leaseQuoteButton = UiStyle.Button("QuoteLease", "获取报价", () => Quote(RequestLeaseQuote));
+        _leaseQuoteButton = UiStyle.Button("QuoteLease", "获取报价", () => _quote(RequestLeaseQuote));
         _leaseConfirm = UiStyle.Button("ConfirmLease", "确认租用／续租", ConfirmLease, true);
         actions.AddChild(_leaseQuoteButton); actions.AddChild(_leaseConfirm);
         _leaseTermProblems = Text(body, "LeaseTermProblems", "");
         _leaseDescription = Text(body, "LeaseQuote", "报价不锁定。续租沿用原容量，重新检查可租空间。");
     }
 
-    private void RefreshLeases()
+    internal void RefreshLeases()
     {
         var status = _settlement!.Market.Rule;
         _leaseRule = _content.Core.MarketRules.SingleOrDefault(rule => rule.Id == status.Rule);
@@ -142,16 +162,16 @@ internal partial class EconomyPanels
             { ResetQuote(ref _leaseQuote, _leaseDescription, "新租容量须为正整数。"); return; }
             request = new LeaseRequest.Rent(_settlementId, capacity, duration);
         }
-        _leaseQuote = ReadQuote(_view.QuoteLease(request), _leaseDescription);
+        _leaseQuote = ReadQuote(_view.QuoteLease(request), _leaseDescription, _content);
     }
 
     private void ConfirmLease()
     {
         if (_leaseConfirm.Disabled || _leaseQuote is not { Total: { } total } quote) return;
-        Submit(_settlementTarget!, new CoreCommand.AcquireLease(quote.Request, total), RequestLeaseQuote);
+        _submit(_settlementTarget!, new CoreCommand.AcquireLease(quote.Request, total), RequestLeaseQuote);
     }
 
-    private void UpdateLeaseActions()
+    internal void UpdateLeaseActions()
     {
         var present = _leaseId is null || _leaseItems.ContainsKey(_leaseId.Value);
         var available = CanAct && _leaseRule is not null;
@@ -159,8 +179,9 @@ internal partial class EconomyPanels
         _leaseQuoteButton.Disabled = !available || !present || !LeaseTermAvailable;
         _leaseCapacity.Editable = available && _leaseId is null;
         _leaseConfirm.Disabled = !available || !present || !LeaseTermAvailable || _leaseQuote is not { Total: not null, Blockers.IsEmpty: true };
-        if (_leaseQuote is { } quote) ShowQuote(_leaseDescription, quote.Revision,
+        if (_leaseQuote is { } quote) ShowQuote(_view, _content, _leaseDescription, quote.Revision,
             $"当前可租容量：{quote.CurrentlyRentableCapacity}\n总额：{Amount(quote.Total)}", quote.Blockers,
             reason: quote.Total is null ? "报价未提供总额，不能确认租用。" : null);
     }
+    internal void Close() { _leaseIds.Clear(); _leaseItems.Clear(); _leaseQuote = null; }
 }
