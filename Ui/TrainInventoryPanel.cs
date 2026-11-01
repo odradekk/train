@@ -22,7 +22,6 @@ internal sealed class TrainInventoryPanel
     internal TrainInventoryPanel(HostCoordinator host, GoodsRows goods) { _host = host; _goods = goods; }
     internal void Open(PanelContainer panel, VBoxContainer body, PanelTarget target)
     {
-        RemoveWindow(_panel);
         _target = target; _revision = null; _panel = panel;
         _state = Text(body, "State", "");
         _stock = List(body, "Stacks", 420); _rows = GoodsRows.BuildStock(_stock);

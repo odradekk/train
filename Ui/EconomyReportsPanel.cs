@@ -22,7 +22,6 @@ internal sealed class EconomyReportsPanel
 
     internal void Open(PanelContainer panel, VBoxContainer body, HostBinding binding, ContentGeneration generation)
     {
-        RemoveWindow(_reportsPanel);
         _reportsBinding = binding; _reportsGeneration = generation; _reportsRevision = null;
         _reportsPanel = panel; _reportsBody = body;
         _reportsState = Text(_reportsBody, "State", "");
