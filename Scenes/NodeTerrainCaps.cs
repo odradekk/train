@@ -66,7 +66,7 @@ internal sealed class NodeTerrainCaps
                 prepared.Terrain, new(origin.X + point.X, origin.Y + point.Y, origin.Z + point.Z));
         }
         var column = new GridColumn((int)Math.Floor(point.X), (int)Math.Floor(point.Z));
-        var bed = prepared.Beds.GetValueOrDefault(column);
+        var bed = prepared.Beds.At(column);
         return TerrainSurface.NodeHeight(prepared.Snapshot, node, prepared.Global.Layout, point, bed, prepared.Terrain);
     }
 
@@ -93,6 +93,7 @@ internal sealed class NodeTerrainCaps
     private TerrainHeightCap.Builder BeginChunk(GridColumn from)
     {
         var bounds = prepared.Global.Layout.Bounds;
+        var beds = prepared.Beds.ForChunk(from);
         return TerrainHeightCap.Begin(new(new(from.X, from.Z),
             new(from.X + VoxelGrid.ChunkSize, from.Z + VoxelGrid.ChunkSize)), column =>
         {
@@ -100,7 +101,7 @@ internal sealed class NodeTerrainCaps
                 column.Z < bounds.Minimum.Y || column.Z >= bounds.Maximum.Y ||
                 prepared.BoundarySurfaces.ContainsKey(column)) return null;
             var height = TerrainSurface.NodeHeight(prepared.Snapshot, node, prepared.Global.Layout,
-                new(column.X + .5, 0, column.Z + .5), prepared.Beds.GetValueOrDefault(column), prepared.Terrain);
+                new(column.X + .5, 0, column.Z + .5), beds.GetValueOrDefault(column), prepared.Terrain);
             return Math.Floor(height) + 1;
         });
     }

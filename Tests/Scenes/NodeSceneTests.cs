@@ -956,10 +956,10 @@ public sealed class NodeSceneTests
     }
 
     private static int ColumnHeight(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
-        Dictionary<GridColumn, NodeScene.RailBed> bed, GridColumn column)
+        NodeBedIndex bed, GridColumn column)
     {
         var raw = TerrainSurface.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
-        if (bed.TryGetValue(column, out var rail))
+        if (bed.At(column) is { } rail)
         {
             var blend = Math.Clamp((rail.Distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
             raw = RailwayTerrain.BedHeight(rail.Height, rail.Distance) * (1 - blend) + raw * blend;

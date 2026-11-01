@@ -195,7 +195,7 @@ public sealed class NodeLifecycleTests
             {
                 if (old?.Inputs == data.ChunkInputs(from)) return old;
                 if (Math.Abs(from.X - bedChunk.X) <= VoxelGrid.ChunkSize * 2 &&
-                    Math.Abs(from.Z - bedChunk.Z) <= VoxelGrid.ChunkSize * 2 && data.Beds.Keys.Any(column =>
+                    Math.Abs(from.Z - bedChunk.Z) <= VoxelGrid.ChunkSize * 2 && data.Beds.ForChunk(from).Keys.Any(column =>
                         column.X >= from.X && column.X < from.X + VoxelGrid.ChunkSize &&
                         column.Z >= from.Z && column.Z < from.Z + VoxelGrid.ChunkSize))
                     return data.BuildChunk(from, old, token);

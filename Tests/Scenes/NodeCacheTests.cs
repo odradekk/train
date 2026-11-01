@@ -85,6 +85,8 @@ public sealed class NodeCacheTests
         var current = cache.Open(new(1));
         var built = new NodeScene.Built(Layout(), [], []);
         cache.Publish(new(1), current, built);
+        cache.Publish(new(1), old, new(Layout(), ImmutableDictionary<string, NodeScene.Part>.Empty.Add("late", Part()), []));
+        Assert.AreSame(built.Parts, cache.Read(new(1))!.Parts, "A late result from the old owner cannot replace the reopened node.");
         cache.Close(new(1), old);
         Assert.AreSame(built.Parts, cache.Read(new(1))!.Parts);
         Assert.AreEqual(0, cache.IdleBytes);

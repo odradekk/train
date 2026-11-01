@@ -1,3 +1,4 @@
+using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 
@@ -57,11 +58,11 @@ public sealed class NodeSceneChunkInputsTests
         layout = layout with { SceneModel = layout.SceneModel with { Scene = SceneFixtures.Projection(
             [SceneFixtures.Cell(new(-64, 0, -64)), SceneFixtures.Cell(new(64, 0, 64))]) } };
         var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
-        return NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)) with { Beds = [] };
+        return NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)) with { Beds = new([]) };
     }
 
     private static NodeScene.Preparation WithBed(NodeScene.Preparation prepared, GridColumn column)
     {
-        return prepared with { Beds = new() { [column] = new(0, 7) } };
+        return prepared with { Beds = new([(_ => new(new(column.X + .25, 7, column.Z + .25), Vector3.UnitZ, Vector3.Zero), 0d)]) };
     }
 }
