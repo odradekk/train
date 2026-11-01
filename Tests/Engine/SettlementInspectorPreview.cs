@@ -23,7 +23,7 @@ public partial class SettlementInspectorPreview : Node
             MouseFilter = Control.MouseFilterEnum.Ignore
         });
         _status = new Label { Name = "PreviewStatus" }; box.AddChild(_status);
-        foreach (var (name, text) in new[] { ("Normal", "正常交易"), ("NoTrain", "无车在站"), ("Blocked", "资金与载量不足") })
+        foreach (var (name, text) in new[] { ("Normal", "正常交易"), ("NoTrain", "无车在站"), ("Blocked", "资金与载量不足"), ("LongName", "长名称") })
         {
             var button = new Button { Name = name, Text = text }; box.AddChild(button); _choices.Add(button);
             button.Pressed += async () => await Switch(name);
@@ -41,7 +41,8 @@ public partial class SettlementInspectorPreview : Node
             var blocked = scenario == "Blocked";
             var before = EconomyFixture.Create(trainAtNode: !noTrain, blocked: blocked, wallet: blocked ? 250 : 1234567);
             var after = EconomyFixture.Create(2, foodQuantity: 14, wallet: 1233867);
-            var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content(mapPresentation: true));
+            var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content(mapPresentation: true,
+                foodName: scenario == "LongName" ? string.Concat(Enumerable.Repeat("长名称货物", 12)) : "主食"));
             if (noTrain)
             {
                 var hostile = EconomyFixture.Create(2, trainAtNode: false, relation: SettlementRelation.Hostile);

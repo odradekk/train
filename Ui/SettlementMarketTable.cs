@@ -13,6 +13,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
     Func<PanelTarget, CoreCommand, SubmissionResult> submit)
 {
     private const int AmountWidth = 52;
+    private const int MinimumRowHeight = 48;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
     private SettlementView _settlement = null!;
@@ -104,10 +105,11 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
             {
                 var container = new VBoxContainer(); _rows.AddChild(container);
                 var select = UiStyle.Button("SelectGood", "", () => Select(good)); container.AddChild(select);
-                select.CustomMinimumSize = new(0, 48);
+                select.CustomMinimumSize = new(0, MinimumRowHeight);
                 select.TooltipText = $"展开{SettlementOverviewPage.GoodName(good, _content)}的交易";
                 var cells = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore }; select.AddChild(cells);
                 cells.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect); cells.OffsetLeft = 8; cells.OffsetRight = -8;
+                cells.MinimumSizeChanged += () => select.CustomMinimumSize = new(0, Math.Max(MinimumRowHeight, cells.GetCombinedMinimumSize().Y));
                 var display = goods.CreateGoodRow(cells, good); display.Control.MouseFilter = Control.MouseFilterEnum.Ignore;
                 display.Control.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
                 row = new(container, select, display, AmountCell(cells, ""), AmountCell(cells, ""), AmountCell(cells, ""));

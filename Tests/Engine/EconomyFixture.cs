@@ -145,7 +145,7 @@ internal static class EconomyFixture
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
-        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false)
+        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食")
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -186,7 +186,7 @@ internal static class EconomyFixture
             },
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
             {
-                [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new("主食", "有限经济情景"), icon, null, false), null, false)),
+                [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new(foodName, "有限经济情景"), icon, null, false), null, false)),
                 [new GoodId.Voxel(new("fixture:ore"))] = new ContentLookup<GoodPresentation>.Missing([]),
                 [Equipment] = new ContentLookup<GoodPresentation>.Missing([])
             },
