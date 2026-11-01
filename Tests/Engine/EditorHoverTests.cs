@@ -23,6 +23,11 @@ public partial class EditorUiTests
             var session = fixture.Factory.Session!;
             var console = fixture.App.FindChildren("*", "", true, false).OfType<GameConsole>().Single();
             var failures = console.LogEvents.Count(log => log.EventId == "editor_operation_failed");
+            await input.Choose(DirectAction(panel), 0);
+            await input.Choose(DirectTool(panel), 2);
+            await DirectHit(fixture, new(1, -1, 2));
+            var point = fixture.Controller.VisibleArea.GetCenter();
+            await input.Click(point);
             session.PreviewCall = _ => new SceneResult<IEditPreview>.Success(new FixedEditPreview(session.Capture().Stamp)
             {
                 CanApply = false, CoveredCells = 3, AffectedCells = 0,
@@ -34,10 +39,12 @@ public partial class EditorUiTests
                     new(new(3, 0, 2), null, new("outside_envelope", SceneStage.Edit, null, null, null, null, "third outside"))
                 ]
             });
-            await input.Choose(DirectAction(panel), 1);
-            await DirectHit(fixture, new(1, 0, 2));
-            var point = fixture.Controller.VisibleArea.GetCenter();
-            await DirectHover(point);
+            await DirectHit(fixture, new(3, -1, 2));
+            await DirectHover(point + new Vector2(8, 0));
+            Require(session.PreviewCalls.Last() is EditOperation.Cells
+                { Footprint: EditFootprint.Box { Bounds: var conflicts }, Action: CellEdit.Add }
+                && conflicts == new GridBounds(new(1, 0, 2), new(3, 0, 2)),
+                "三格冲突情景必须查询添加长方体，命中面外移后的范围恰好覆盖三格。");
             Require(Displayed(panel, "超出外形范围") && Displayed(panel, "(1, 0, 2)")
                 && (Displayed(panel, "3 格") || Displayed(panel, "3格")),
                 "同类冲突必须汇总受阻格数、原因和首个坐标。");
@@ -46,10 +53,19 @@ public partial class EditorUiTests
             Require(!fixture.Editor.HasError && console.LogEvents.Count(log => log.EventId == "editor_operation_failed") == failures,
                 "冲突悬停只显示局部说明，不能污染操作错误状态和日志。");
 
+            session.PreviewCall = null;
+            await input.Choose(DirectTool(panel), 0);
+            await input.Choose(DirectTool(panel), 2);
+            await DirectHit(fixture, new(0, 0, 0));
+            await input.Click(point);
             session.PreviewCall = _ => new SceneResult<IEditPreview>.Failure(
                 [new("region_limit", SceneStage.Edit, null, null, null, null, "fixture region limit")]);
-            await DirectHit(fixture, new(4, 0, 2));
-            await DirectHover(point + new Vector2(8, 0));
+            await DirectHit(fixture, new(5000, 0, 0));
+            await DirectHover(point + new Vector2(16, 0));
+            Require(session.PreviewCalls.Last() is EditOperation.Cells
+                { Footprint: EditFootprint.Box { Bounds: var oversized }, Action: CellEdit.Add }
+                && oversized == new GridBounds(new(0, 1, 0), new(5000, 1, 0)),
+                "超限情景必须查询首角到第二角的 5,001 格添加长方体。");
             Require(Displayed(panel, "选区超过上限，请缩小范围。"), "被契约拒绝的悬停也必须说明原因。");
             Require(!fixture.Editor.HasError && console.LogEvents.Count(log => log.EventId == "editor_operation_failed") == failures
                 && session.ApplyCalls.Count == 0,

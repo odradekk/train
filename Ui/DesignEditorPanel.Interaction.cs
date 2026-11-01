@@ -114,8 +114,8 @@ internal partial class DesignEditorPanel
         if (_hoverQuery is { } previous && SameHoverState(previous.State, state)
             && previous.Operation.Action == action && SameFootprint(previous.Operation.Footprint, footprint))
         { ShowBoxHint(); return; }
-        _hoverQuery = (operation, state);
         var result = _service.Preview(operation);
+        _hoverQuery = result is null ? null : (operation, state);
         var preview = (result as SceneResult<IEditPreview>.Success)?.Value;
         if (preview is { } current && current.Basis != _service.State?.Snapshot.Stamp)
         { ClearHover(); return; }

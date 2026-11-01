@@ -76,8 +76,11 @@ public partial class EditorUiTests
                 await DirectHit(fixture, first);
                 session.ApplyCalls.Clear();
                 var point = fixture.Controller.VisibleArea.GetCenter();
+                await DirectHover(point);
+                var queries = session.PreviewCalls.Count;
                 await input.Click(point);
                 Require(session.ApplyCalls.Count == 0, "长方体首击只能选定首角。");
+                Require(session.PreviewCalls.Count == queries, "首角与当前悬停足迹相同，不能仅为提示变化重复查询。");
                 Require(Displayed(panel, "再点一下确定对角，Esc 取消。"), "首角与悬停范围相同也必须显示下一步提示。");
                 await DirectHit(fixture, second);
                 await DirectHover(point + new Vector2(8, 0));
