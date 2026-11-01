@@ -27,7 +27,7 @@ internal sealed record HostStatus(HostBinding Binding, ICoreReadView View,
     internal double SimulationSeconds => View.Position.CompletedSteps / (double)SimulationTime.StepsPerSecond;
 }
 
-internal sealed class HostCoordinator : IDisposable
+internal sealed partial class HostCoordinator : IDisposable
 {
     private readonly ICoreFactory _core;
     private readonly IContentFactory _contentFactory;
@@ -66,6 +66,7 @@ internal sealed class HostCoordinator : IDisposable
     internal event Action<HostBinding, ICoreReadView, IContentView, ImmutableArray<EventEnvelope>>? BoundaryCompleted;
     internal event Action<HostOperationResult>? OperationEnded;
     internal CoreSessionOptions? SessionOptions { get; }
+    internal HostBackgroundWork BackgroundWork { get; } = new();
     internal RuntimeIdentity? Runtime { get { EnsureOwner(); return _active?.Runtime; } }
     internal double SimulationFrameSeconds { get; private set; }
     internal ReplayRecording? ReplayRecording { get { EnsureOwner(); return _active?.ReplayRecording; } }
@@ -390,37 +391,6 @@ internal sealed class HostCoordinator : IDisposable
             CommandSource.UserInterface, options: options);
     }
 
-    private PreparedOperation PrepareReplay(string path, RuntimeIdentity runtime, Func<string, RecordingPackage> read)
-    {
-        ICoreReplay? replay = null;
-        try
-        {
-            var package = read(path);
-            var input = SelectReplayInput(package);
-            var decoded = _contentFactory.DecodeReplay(package.ContentPayload);
-            if (decoded is ContentResult<IContentReplayCapture>.Failure invalid)
-                return new(new ContentResult<IContentCandidate>.Failure(invalid.Diagnostics), null, null);
-            if (decoded is ContentResult<IContentReplayCapture>.Faulted failed)
-                return new(new ContentResult<IContentCandidate>.Faulted(failed.Code, failed.Message, failed.StackTrace), null, null);
-            var history = ((ContentResult<IContentReplayCapture>.Success)decoded).Value.History;
-            var result = _core.PrepareReplay(input, runtime, history.Select(view => view.Core).ToImmutableArray());
-            if (result is CoreResult<ICoreReplay>.Failure rejected)
-                return new(null, new CoreResult<ICoreSessionCandidate>.Failure(rejected.Problems), null);
-            if (result is CoreResult<ICoreReplay>.Faulted fault)
-                return new(null, new CoreResult<ICoreSessionCandidate>.Faulted(fault.Fault, fault.Diagnostic), null);
-            replay = ((CoreResult<ICoreReplay>.Success)result).Value;
-            var view = replay.Read();
-            _ = ReplayContent(history, view.InputIdentity);
-            return new(null, null, null) { Replay = replay, History = history,
-                Recording = new(Path.GetFullPath(path), view.Position, input.EndPosition, input.Commands, package.Header.Gaps) };
-        }
-        catch
-        {
-            replay?.Dispose();
-            throw;
-        }
-    }
-
     internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
         => BeginReload(source, null);
 
@@ -481,35 +451,16 @@ internal sealed class HostCoordinator : IDisposable
         return Begin(OperationKind.Edit, () => PrepareContentEdit(basis, edit, write), CommandSource.UserInterface);
     }
 
-    private PreparedOperation PrepareContentEdit(IContentView basis, ContentEdit edit,
-        Func<IContentCandidate, FileWriteResult>? write)
-    {
-        var result = _contentFactory.PrepareEdit(basis, edit);
-        if (result is not ContentResult<IContentCandidate>.Success prepared) return new(result, null, null);
-        try
-        {
-            var written = write?.Invoke(prepared.Value);
-            ContentResult<IContentCandidate>? failure = written is { Published: false }
-                ? new ContentResult<IContentCandidate>.Faulted(written.Code ?? "content_write_failed",
-                    written.Message ?? "内容文件未写入。", null)
-                : null;
-            if (write is null && !prepared.Value.RequiredWrites.IsEmpty)
-                failure = new ContentResult<IContentCandidate>.Faulted("content_write_required", "内容文件尚未写入。", null);
-            if (failure is null) return new(result, null, null);
-            prepared.Value.Dispose();
-            return new(failure, null, null);
-        }
-        catch { prepared.Value.Dispose(); throw; }
-    }
-
     private (long Operation, CoreProblem? Problem) Begin(OperationKind kind, Func<PreparedOperation> prepare,
         CommandSource source, SaveIdentity? save = null, bool unsaved = true, CoreSessionOptions? options = null)
     {
         EnsureOwner();
         if (IsEditing && kind != OperationKind.Edit) return (0, Problem("editing_active"));
         if (IsBusy) return (0, Problem("busy"));
+        var cancellation = new CancellationTokenSource();
         var operation = new PendingOperation(checked(++_nextOperation), kind, _active?.Binding,
-            _content, Task.Run(prepare), source) { Save = save, Unsaved = unsaved, Options = options };
+            _content, BackgroundWork.Enqueue(prepare, cancellation.Token), source, cancellation)
+            { Save = save, Unsaved = unsaved, Options = options };
         _pending = operation;
         _active?.Driver.SetOperationLocked(true);
         return (operation.Id, null);
@@ -522,9 +473,10 @@ internal sealed class HostCoordinator : IDisposable
         if (_insideBoundary || _pending is not { } operation || operation.Id != operationId ||
             operation.Kind is OperationKind.Edit or OperationKind.Authoring) return false;
         _pending = null;
+        operation.Cancellation.Cancel();
         _active?.Driver.SetOperationLocked(_leaveLocked);
         _skipNextFrame = true;
-        if (operation.Prepared is { } prepared) Discard(prepared);
+        if (operation.Prepared is { } prepared) { Discard(prepared); operation.Cancellation.Dispose(); }
         else _abandoned.Add(operation);
         NotifyOperation(new(operation.Id, operation.Kind, HostOperationStatus.Cancelled, [], [], null));
         return true;
@@ -613,49 +565,6 @@ internal sealed class HostCoordinator : IDisposable
             prepared.CoreCandidate!.MissingReferences.Length > 0))
         { current.Prepared = prepared; return; }
         Commit(current, prepared);
-    }
-
-    private PreparedOperation PrepareNew(GenerationProfileId profile, ulong seed,
-        string generatorVersion, CoreSessionOptions options)
-    {
-        var content = _contentFactory.PrepareLoad(new(_installation, new ContentLoadPurpose.Initial()), _files, _assets);
-        if (content is not ContentResult<IContentCandidate>.Success loaded) return new(content, null, null);
-        ICoreSessionCandidate? candidate = null;
-        try
-        {
-            var world = _contentFactory.CreateWorldInput(loaded.Value.View, profile, seed, generatorVersion);
-            if (world is ContentResult<WorldGenerationInput>.Failure rejected)
-            { loaded.Value.Dispose(); return new(new ContentResult<IContentCandidate>.Failure(rejected.Diagnostics), null, null); }
-            if (world is ContentResult<WorldGenerationInput>.Faulted faulted)
-            { loaded.Value.Dispose(); return new(new ContentResult<IContentCandidate>.Faulted(faulted.Code, faulted.Message, faulted.StackTrace), null, null); }
-            var core = _core.PrepareNew(((ContentResult<WorldGenerationInput>.Success)world).Value, loaded.Value.View.Core, options);
-            candidate = (core as CoreResult<ICoreSessionCandidate>.Success)?.Value;
-            var paired = candidate is not null && candidate.References.Templates.Length > 0
-                ? _contentFactory.WithSettlementCopies(loaded.Value.View, candidate.References.Templates) : loaded.Value.View;
-            return new(content, core, paired);
-        }
-        catch { candidate?.Dispose(); loaded.Value.Dispose(); throw; }
-    }
-
-    internal PreparedOperation PrepareRestore(string corePayload, string contentPayload, CoreSessionOptions options)
-    {
-        var state = _core.DecodeState(corePayload);
-        if (state is CoreResult<ICoreCapture>.Failure rejected)
-            return new(null, new CoreResult<ICoreSessionCandidate>.Failure(rejected.Problems), null);
-        if (state is CoreResult<ICoreCapture>.Faulted failed)
-            return new(null, new CoreResult<ICoreSessionCandidate>.Faulted(failed.Fault, failed.Diagnostic), null);
-        var saved = ((CoreResult<ICoreCapture>.Success)state).Value;
-        var embedded = _contentFactory.DecodeCapture(contentPayload);
-        if (embedded is ContentResult<IContentCapture>.Failure invalid)
-            return new(new ContentResult<IContentCandidate>.Failure(invalid.Diagnostics), null, null);
-        if (embedded is ContentResult<IContentCapture>.Faulted faulted)
-            return new(new ContentResult<IContentCandidate>.Faulted(faulted.Code, faulted.Message, faulted.StackTrace), null, null);
-        var content = _contentFactory.PrepareLoad(new(_installation,
-            new ContentLoadPurpose.Restore(((ContentResult<IContentCapture>.Success)embedded).Value, saved.References)), _files, _assets);
-        if (content is not ContentResult<IContentCandidate>.Success loaded) return new(content, null, null);
-        try { return new(content, _core.PrepareRestore(saved, loaded.Value.View.Core, options), loaded.Value.View)
-            { Saved = new(saved.Revision, ((ContentResult<IContentCapture>.Success)embedded).Value.Revision, "") }; }
-        catch { loaded.Value.Dispose(); throw; }
     }
 
     private void Commit(PendingOperation operation, PreparedOperation prepared)
@@ -894,6 +803,7 @@ internal sealed class HostCoordinator : IDisposable
     {
         if (!ReferenceEquals(_pending, operation)) return;
         _pending = null;
+        operation.Cancellation.Dispose();
         _active?.Driver.SetOperationLocked(_leaveLocked);
         _skipNextFrame = true;
         var diagnostics = (prepared?.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics ??
@@ -931,12 +841,16 @@ internal sealed class HostCoordinator : IDisposable
     private void TakeAndDiscard(PendingOperation operation)
     {
         try { Discard(operation.Work.GetAwaiter().GetResult()); }
+        catch (OperationCanceledException) when (operation.Cancellation.IsCancellationRequested) { }
         catch (Exception exception) { LogHostFailure("host_abandoned_preparation_failed", exception); }
+        finally { operation.Cancellation.Dispose(); }
     }
     private async Task CleanAfterClose(PendingOperation operation)
     {
         try { Discard(await operation.Work.ConfigureAwait(false)); }
+        catch (OperationCanceledException) when (operation.Cancellation.IsCancellationRequested) { }
         catch (Exception exception) { LogHostFailure("host_abandoned_preparation_failed", exception); }
+        finally { operation.Cancellation.Dispose(); }
     }
 
     public void Dispose()
@@ -945,13 +859,15 @@ internal sealed class HostCoordinator : IDisposable
         EnsureOwner();
         if (_pending is { } pending)
         {
-            if (pending.Prepared is { } prepared) Discard(prepared);
+            if (pending.Prepared is { } prepared) { Discard(prepared); pending.Cancellation.Dispose(); }
             else _abandoned.Add(pending);
         }
         _pending = null;
         _disposed = true;
-        foreach (var operation in _abandoned) _ = CleanAfterClose(operation);
+        foreach (var operation in _abandoned)
+        { operation.Cancellation.Cancel(); _ = CleanAfterClose(operation); }
         _abandoned.Clear();
+        BackgroundWork.Dispose();
         _active?.Dispose();
         _active = null; _content = null;
     }
@@ -987,7 +903,7 @@ internal sealed class HostCoordinator : IDisposable
         public void Dispose() { if (Replay is not null) Replay.Dispose(); else Core.Dispose(); }
     }
     private sealed class PendingOperation(long id, OperationKind kind, HostBinding? basisBinding,
-        IContentView? basisContent, Task<PreparedOperation> work, CommandSource source)
+        IContentView? basisContent, Task<PreparedOperation> work, CommandSource source, CancellationTokenSource cancellation)
     {
         internal long Id { get; } = id;
         internal OperationKind Kind { get; } = kind;
@@ -996,6 +912,7 @@ internal sealed class HostCoordinator : IDisposable
         internal HostBinding? BasisBinding { get; } = basisBinding;
         internal IContentView? BasisContent { get; } = basisContent;
         internal Task<PreparedOperation> Work { get; } = work;
+        internal CancellationTokenSource Cancellation { get; } = cancellation;
         internal CommandSource Source { get; } = source;
         internal PreparedOperation? Prepared { get; set; }
         internal SaveIdentity? Save { get; init; }
