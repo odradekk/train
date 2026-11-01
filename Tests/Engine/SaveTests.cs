@@ -141,8 +141,7 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
             var fleet = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             await _input.ClickItem(fleet, 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "EditPlan"));
-            var plan = Find<TrainPlanPanel>(ui, "TrainPlanPanel");
-            await _input.Activate(plan.GetNode<CheckBox>("Plan/Layout/Content/Body/Loop"));
+            var plan = Find<TrainPlanWorkspace>(ui, "TrainPlanWorkspace");
             var apply = Find<Button>(plan, "Apply");
             var descriptions = ui.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
             Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 1 &&

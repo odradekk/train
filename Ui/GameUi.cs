@@ -37,7 +37,7 @@ public partial class GameUi : CanvasLayer
     private NodeMinimap _minimap = null!;
     private WorldPanels? _panels;
     private TrainFormationPanel? _formation;
-    private TrainPlanPanel? _plan;
+    private TrainPlanWorkspace? _plan;
     private EconomyPanels? _economy;
     private CombatPanel? _combat;
     private readonly BattleReportLog _reports = new();

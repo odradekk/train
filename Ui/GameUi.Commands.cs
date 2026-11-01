@@ -10,12 +10,18 @@ public partial class GameUi
         => Submit(target, command, null);
 
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
+        => Submit(target, command, candidate, ShowError);
+
+    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command,
+        IContentCandidate? candidate, Action<string> reportError)
     {
         var status = _host?.GetStatus();
         if (status is null || _host!.Content is not { } content || target is null ||
             !target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)) || _host.IsBusy)
         {
-            ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
+            const string message = "当前操作不可提交：对象已失效或宿主正在操作。";
+            _logger.Warning("ui", "ui_operation_invalid", message);
+            reportError(message);
             return null;
         }
         SubmissionResult result;
@@ -23,10 +29,10 @@ public partial class GameUi
         catch (NotImplementedException)
         {
             _logger.Warning("ui", "command_not_implemented", command.GetType().Name);
-            ShowError("该操作尚未实现。");
+            reportError("该操作尚未实现。");
             return null;
         }
-        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) ShowError(problem);
+        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) reportError(problem);
         return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
     }
 
