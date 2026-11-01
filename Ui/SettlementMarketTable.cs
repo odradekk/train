@@ -5,7 +5,10 @@ using static Train.Ui.EconomyPanelControls;
 
 namespace Train.Ui;
 
-/// <summary>非敌对聚居地的货物表与行内交易。Decision note: 2026-10-31-object-centric-management-screens</summary>
+/// <summary>
+/// 非敌对聚居地的货物表与行内交易。
+/// Decision note: 2026-10-31-object-centric-management-screens
+/// </summary>
 internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows goods,
     Func<PanelTarget, CoreCommand, SubmissionResult> submit)
 {

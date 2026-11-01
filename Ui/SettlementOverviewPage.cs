@@ -6,7 +6,10 @@ using static Train.Ui.EconomyPanelControls;
 
 namespace Train.Ui;
 
-/// <summary>非敌对聚居地的经营摘要。Decision note: 2026-10-31-object-centric-management-screens</summary>
+/// <summary>
+/// 非敌对聚居地的经营摘要。
+/// Decision note: 2026-10-31-object-centric-management-screens
+/// </summary>
 internal sealed class SettlementOverviewPage(Action<string> openPage, Func<bool> canAct,
     Func<CoreCommand, SubmissionResult> submit)
 {
