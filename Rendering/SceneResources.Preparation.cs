@@ -69,11 +69,8 @@ internal sealed partial class SceneResources
                     if (slice is { } measured)
                     {
                         var elapsed = Stopwatch.GetElapsedTime(started, measured.Timestamp());
-                        if (estimate is null || elapsed > estimate)
-                        {
-                            if (cached) owner._cachedGeometryCost = elapsed;
-                            else owner._geometryCosts[_stage] = elapsed;
-                        }
+                        if (cached) owner._cachedGeometryCost = elapsed;
+                        else owner._geometryCosts[_stage] = elapsed;
                     }
                     _stage++;
                 }

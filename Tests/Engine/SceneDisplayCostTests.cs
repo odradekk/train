@@ -66,10 +66,69 @@ public partial class SceneDisplayTests
         display.Timestamp = () => 0;
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.CandidateProgress(later.Update.Frame) is (0, 2),
-            "自然首帧已测的昂贵阶段必须保留，剩余3ms时不得把它当廉价项开始。");
+            "自然首帧最近实测的阶段成本超过剩余3ms时，必须推迟开始。");
         await new UiTestInput(TestScene).Frames(1);
         await CompleteCandidate(display);
         Require(display.PreparedCandidate == later.Update.Frame, "已测大项必须仍可在新帧首项推进。");
+    }
+
+    [Test]
+    public async Task Normal_cold_geometry_recovers_throughput_after_an_expensive_sample()
+    {
+        await new UiTestInput(TestScene).Frames(1);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        using var resources = new SceneResources(cache, new FixedContentView());
+        var expensive = Peak(99);
+        long now = 0;
+        var charged = false;
+        display.Timestamp = () =>
+        {
+            if (!charged && GeometryIsCached(resources, expensive))
+            { now += Stopwatch.Frequency * 8 / 1000; charged = true; }
+            return now;
+        };
+        SceneResources.GeometryPreparation? pending = null;
+        using var sample = resources.TryPrepare(new(expensive, new(false, 0, 0, false)), null,
+            new(display, 0, null, true), ref pending);
+        Require(sample is not null && charged, "真实冷取得必须先产生8ms实测样本。");
+        var meshes = Enumerable.Range(1, 32).Select(index => Peak(index)).ToArray();
+        using var packing = new SceneMeshPacking(meshes, null, PackedSceneMesh.Create);
+        await packing.Completion.WaitAsync(TimeSpan.FromSeconds(30));
+        HashSet<SceneMesh> acquired = [];
+        now = 0;
+        display.Timestamp = () =>
+        {
+            foreach (var mesh in meshes)
+                if (!acquired.Contains(mesh) && GeometryIsCached(resources, mesh))
+                { acquired.Add(mesh); now += Stopwatch.Frequency / 20000; }
+            return now;
+        };
+        List<PreparedVisual> completed = [];
+        try
+        {
+            for (var frame = 0; frame < 8 && completed.Count < meshes.Length; frame++)
+            {
+                await new UiTestInput(TestScene).Frames(1);
+                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+                var slice = new SceneDisplay.PreparationSlice(display, now, TimeSpan.FromMilliseconds(4), false);
+                while (completed.Count < meshes.Length)
+                {
+                    var source = new SceneVisual.Geometry(meshes[completed.Count], new(false, 0, 0, false));
+                    if (resources.TryPrepare(source, packing, slice, ref pending) is not { } visual) break;
+                    completed.Add(visual);
+                }
+            }
+            Require(completed.Count == 32 && acquired.Count == 32 &&
+                completed.All(visual => visual.Node.GetChild<Godot.MeshInstance3D>(0).Mesh.GetSurfaceCount() == 1),
+                "8ms异常样本后，32份各0.05ms的正常冷几何须在8个进程帧内全部产出完整网格。");
+        }
+        finally
+        {
+            pending?.Dispose();
+            foreach (var visual in completed) visual.Dispose();
+        }
     }
 
     private static void SpendPreparationTime(SceneDisplay display, ISceneFrame baseline, int milliseconds)

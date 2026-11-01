@@ -169,8 +169,6 @@ public partial class SceneDisplayTests
         {
             var unlimited = new SceneDisplay.PreparationSlice(display, 0, null, true);
             using var cold = measureCold ? resources.TryPrepare(source, null, unlimited, ref pending)! : resources.Prepare(source);
-            using var cheaperCold = measureCold ? resources.TryPrepare(new(Peak(3), source.Surface),
-                null, unlimited, ref pending) : null;
             using var hit = resources.TryPrepare(source, null, unlimited, ref pending)!;
             Require(ReferenceEquals(cold.Node.GetChild<MeshInstance3D>(0).Mesh, hit.Node.GetChild<MeshInstance3D>(0).Mesh),
                 "廉价路径须确实复用同一份缓存网格。");
