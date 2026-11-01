@@ -77,6 +77,10 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             var first = rows.GetChild<Control>(0);
             var search = Find<LineEdit>(editor, "Search");
             search.GrabFocus();
+            foreach (var character in "不存在的地点") await _input.PressKey(Key.None, unicode: character);
+            Require(!Find<VBoxContainer>(editor, "SearchResults").GetChildren().OfType<Button>().Any(),
+                "搜索结果包含不匹配的地点。");
+            await _input.PressKey(Key.A, true);
             foreach (var character in "空节点") await _input.PressKey(Key.None, unicode: character);
             await _input.Activate(Find<Button>(Find<VBoxContainer>(editor, "SearchResults"), "Add2"));
             var waypoint = rows.GetChild<Control>(1);

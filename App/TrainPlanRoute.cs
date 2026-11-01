@@ -44,7 +44,7 @@ internal static class TrainPlanRoute
         }
     }
 
-    private static bool HasIntactTrack(EdgeMapItem edge)
+    internal static bool HasIntactTrack(EdgeMapItem edge)
     {
         for (var track = 1; track <= edge.Tracks; track++)
             if (!edge.Breaks.Any(item => item.Track == track)) return true;

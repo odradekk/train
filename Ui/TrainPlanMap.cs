@@ -84,7 +84,7 @@ internal partial class TrainPlanMap : Control
         {
             if (!nodes.TryGetValue(edge.Start, out var start) || !nodes.TryGetValue(edge.End, out var end)) continue;
             var from = MapToScreen(start.Position); var to = MapToScreen(end.Position);
-            var intact = Enumerable.Range(1, edge.Tracks).Any(track => !edge.Breaks.Any(broken => broken.Track == track));
+            var intact = TrainPlanRoute.HasIntactTrack(edge);
             if (intact) DrawLine(from, to, new Color("#252b29"), 2, true);
             else DrawDashedLine(from, to, new Color("#30352d88"), 1, 5, true);
             if (_route.Contains(edge.Id)) DrawLine(from, to, UiStyle.Warning, 4, true);

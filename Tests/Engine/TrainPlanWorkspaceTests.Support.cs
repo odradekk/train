@@ -1,8 +1,8 @@
-using System.Reflection;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
 using Train.Content.Contracts;
+using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Ui;
@@ -18,7 +18,7 @@ public partial class TrainPlanWorkspaceTests
     {
         var fixture = new Fixture(TestScene.GetTree());
         view ??= World();
-        var content = DispatchProxy.Create<IContentView, ContentFixture>();
+        var content = ContentFixture();
         var setup = new HostSimulationTests.HostSetup(view, content);
         try
         {
@@ -92,23 +92,38 @@ public partial class TrainPlanWorkspaceTests
 
     private static T Value<T>(Lookup<T> found) where T : notnull => ((Lookup<T>.Found)found).Value;
 
-    private class ContentFixture : DispatchProxy
+    private static FixedContentView ContentFixture()
     {
-        public ContentFixture() { }
-        private readonly IContentView inner = EconomyFixture.Content(mapPresentation: true);
-        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        var basis = EconomyFixture.Content(mapPresentation: true);
+        var lair = new LairTypeId("fixture:lair");
+        return new(basis.Core with {
+            Goods = [.. basis.Core.Goods, new(EconomyFixture.Food, new("food-v1"), new(1), 1, true, null)],
+            DesignGoods = [new(EconomyFixture.Equipment, new("equipment-v1"), new(1), 1, false, null)],
+            LairTypes = [new(lair, new("lair-v1"), 1, [], 1, 1, 1, 1, 1, 1, new(0))] }, basis.Generation)
         {
-            if (method!.Name == "get_Core") return inner.Core with {
-                Goods = [.. inner.Core.Goods, new(EconomyFixture.Food, new("food-v1"), new(1), 1, true, null)],
-                DesignGoods = [new(EconomyFixture.Equipment, new("equipment-v1"), new(1), 1, false, null)] };
-            if (method.Name == nameof(IContentView.FindSettlementLayout) && args![0] is SettlementId { Value: 4 })
-                return new ContentLookup<SettlementLayoutProjection>.NotFound();
-            if (method.Name == nameof(IContentView.FindDefinitionDisplay) &&
-                args![0] is CoreDefinitionReference.Terrain) return new ContentLookup<ContentDisplay>.NotFound();
-            if (method.Name == nameof(IContentView.FindGood) && Equals(args![0], EconomyFixture.Equipment))
-                return new ContentLookup<GoodPresentation>.Found(new(EconomyFixture.Equipment, new(new("装备", ""), null, null, false), null, false));
-            return method.Invoke(inner, args);
-        }
+            Voxels = basis.Voxels, LocalDrafts = basis.LocalDrafts, Blueprints = basis.Blueprints,
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>> {
+                [EconomyFixture.Food] = basis.FindGood(EconomyFixture.Food),
+                [new GoodId.Voxel(new("fixture:ore"))] = basis.FindGood(new GoodId.Voxel(new("fixture:ore"))),
+                [EconomyFixture.Equipment] = new ContentLookup<GoodPresentation>.Found(
+                    new(EconomyFixture.Equipment, new(new("装备", ""), null, null, false), null, false)) },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> {
+                [new(1)] = basis.FindSettlementLayout(new(1)), [new(2)] = basis.FindSettlementLayout(new(2)),
+                [new(4)] = new ContentLookup<SettlementLayoutProjection>.NotFound() },
+            DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> {
+                [new CoreDefinitionReference.SettlementType(new("fixture:town"))] =
+                    basis.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(new("fixture:town"))),
+                [new CoreDefinitionReference.Terrain(new("fixture:plain"))] =
+                    new ContentLookup<ContentDisplay>.Found(new(new("Oasis", ""), null, null, false)) },
+            Lairs = new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>> {
+                [lair] = new ContentLookup<LairAppearanceProjection>.Found(new(lair,
+                    new(new("fixture:lair-model"), new(new("fixture:lair-model"), null, null, true, null, null, [], [], [], [], []), new("Nest", "")),
+                    new(new("Nest", ""), null, null, false))) },
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>> {
+                [new("fixture-food-png")] = basis.FindAsset(new("fixture-food-png")) },
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> {
+                [new("fixture-vehicle")] = basis.FindDesign(new("fixture-vehicle")) }
+        };
     }
 
     private static FixedCoreReadView World(ulong revision = 1, bool expired = false, bool running = false)

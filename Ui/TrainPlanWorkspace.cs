@@ -174,13 +174,20 @@ internal partial class TrainPlanWorkspace : Control
     }
     private void Search()
     {
+        var query = _search.Text.Trim();
+        var matches = query.Length == 0 ? [] : _view.World.Nodes.Select(node => (node.Id, Name: PlaceName(node.Id)))
+            .Where(item => item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).Take(7).ToArray();
+        var results = matches.Take(6).ToArray();
+        var hint = query.Length == 0 ? null : matches.Length == 0 ? "没有匹配地点，请换个名称。"
+            : matches.Length > 6 ? "还有更多地点，请继续输入名称缩小范围。" : null;
+        if (_searchResults.GetChildCount() == results.Length + (hint is null ? 0 : 1) &&
+            results.Select((item, index) => _searchResults.GetChild(index) is Button button &&
+                button.Name == $"Add{item.Id.Value}" && button.Text == item.Name).All(same => same) &&
+            (hint is null || _searchResults.GetChild(results.Length) is Label label && label.Text == hint)) return;
         Clear(_searchResults);
-        var query = _search.Text.Trim(); if (query.Length == 0) return;
-        var results = _view.World.Nodes.Where(node => PlaceName(node.Id).Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
-        foreach (var node in results.Take(6))
-            _searchResults.AddChild(UiStyle.Button($"Add{node.Id.Value}", PlaceName(node.Id), () => AddPlace(node.Id, false)));
-        if (results.Length == 0) _searchResults.AddChild(Wrap("没有匹配地点，请换个名称。"));
-        else if (results.Length > 6) _searchResults.AddChild(Wrap("还有更多地点，请继续输入名称缩小范围。"));
+        foreach (var item in results)
+            _searchResults.AddChild(UiStyle.Button($"Add{item.Id.Value}", item.Name, () => AddPlace(item.Id, false)));
+        if (hint is not null) _searchResults.AddChild(Wrap(hint));
     }
     private void Changed() { _submissionError = null; Validate(); }
 
@@ -241,6 +248,7 @@ internal partial class TrainPlanWorkspace : Control
         if (depart && _submit(_target, new CoreCommand.StartTrain(_train), text => Error("计划已保存，发车未成功：" + text)) is null) return;
         Hide();
     }
+    // 截掉 CommandDiagnostics 附加的、带内部编号的对象说明，保留玩家可读的拒绝原因。
     private static string CleanError(string text) => string.Join("\n", text.Split('\n').Select(line => line.Split("对象：", StringSplitOptions.None)[0]));
 
     private string PlaceName(NodeId id)
@@ -251,13 +259,12 @@ internal partial class TrainPlanWorkspace : Control
             return _content.FindSettlementLayout(settlement.Id) is ContentLookup<SettlementLayoutProjection>.Found layout
                 ? layout.Value.Display.Name : "聚居地";
         var name = node.Occupant is NodeOccupant.Lair ? "生物聚落" : "空节点";
-        if (node.Occupant is NodeOccupant.Lair lair && !_content.Core.LairTypes.IsEmpty &&
+        if (node.Occupant is NodeOccupant.Lair lair &&
             _view.FindLair(lair.Id) is Lookup<LairView>.Found found &&
-            _content.FindLair(found.Value.Type) is ContentLookup<LairAppearanceProjection>.Found appearance &&
-            appearance.Value.Display.Text.Name.Any(character => character is >= '\u4e00' and <= '\u9fff'))
+            _content.FindLair(found.Value.Type) is ContentLookup<LairAppearanceProjection>.Found appearance)
             return name + " · " + appearance.Value.Display.Text.Name;
-        if (_content.FindDefinitionDisplay(new CoreDefinitionReference.Terrain(node.Terrain.TypeId)) is ContentLookup<ContentDisplay>.Found display &&
-            display.Value.Text.Name.Any(character => character is >= '\u4e00' and <= '\u9fff')) name += " · " + display.Value.Text.Name;
+        if (_content.FindDefinitionDisplay(new CoreDefinitionReference.Terrain(node.Terrain.TypeId)) is ContentLookup<ContentDisplay>.Found display)
+            name += " · " + display.Value.Text.Name;
         return name;
     }
 }

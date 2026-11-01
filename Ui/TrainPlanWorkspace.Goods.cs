@@ -21,17 +21,21 @@ internal partial class TrainPlanWorkspace
         (rule.Action switch { AutomaticGoodsAction.Buy buy => buy.MaximumUnitPrice,
             AutomaticGoodsAction.Sell sell => sell.MinimumUnitPrice, _ => null })?.Value.ToString(CultureInfo.InvariantCulture) ?? "");
 
-    private void RenderEditor()
+    private void RenderEditor(OptionButton? retainedKind = null)
     {
+        if (retainedKind is not null) _editor.RemoveChild(retainedKind);
         Clear(_editor); _ruleControls.Clear();
         if (_selected is not { } row) { _editor.AddChild(Wrap("在地图上添加地点，或选择左侧的一站。")); return; }
         _editor.AddChild(UiStyle.Label($"{PlaceName(row.Input.Node)}", true));
         if (row.Notice is { } notice) { var label = Wrap(notice); label.Name = "StopNotice"; _editor.AddChild(label); }
         _editor.AddChild(UiStyle.Label("类型"));
-        var kind = new OptionButton { Name = "Kind" }; kind.AddItem("停靠站"); kind.AddItem("途经点");
+        var kind = retainedKind ?? new OptionButton { Name = "Kind" };
+        if (retainedKind is null) { kind.AddItem("停靠站"); kind.AddItem("途经点"); }
         kind.Select(row.Input.Station ? 0 : 1); kind.SetItemDisabled(1, row.Input.GoodsRules is { Count: > 0 }); _editor.AddChild(kind);
         kind.TooltipText = row.Input.GoodsRules is { Count: > 0 } ? "请先删除交易规则，再改为途经点。" : "途经点只经过，不停车。";
-        kind.ItemSelected += value => { row.Input = row.Input with { Station = value == 0 }; RenderEditor(); Changed(); };
+        if (retainedKind is null)
+            kind.ItemSelected += value =>
+            { row.Input = row.Input with { Station = value == 0 }; RenderEditor(kind); kind.GrabFocus(); Changed(); };
         if (!row.Input.Station) return;
         _editor.AddChild(UiStyle.Label("停留时间（秒）"));
         var seconds = new LineEdit { Name = "DwellSeconds", Text = row.Input.DwellSeconds };
@@ -174,7 +178,9 @@ internal partial class TrainPlanWorkspace
     private string InventoryName(InventoryId id)
     {
         if (_view.FindInventory(id) is not Lookup<InventoryView>.Found inventory) return "库存已不存在";
-        return inventory.Value.Owner is InventoryOwner.Lease ? "租用仓库" : "聚居地库存";
+        if (inventory.Value.Owner is InventoryOwner.Lease owner && _view.FindLease(owner.Id) is Lookup<LeaseView>.Found lease)
+            return $"租用仓库（容量 {lease.Value.Capacity}，{(lease.Value.Expired ? "已到期" : UiInput.FormatTime(lease.Value.ExpiresAtStep) + " 到期")}）";
+        return "聚居地库存";
     }
     private string RuleSentence(GoodsRuleInput rule)
     {

@@ -17,12 +17,12 @@ public sealed class TrainPlanEvaluationTests
     public void ValidDraftReturnsTheCommandThatWasChecked()
     {
         var view = View([Node(2, new NodeOccupant.Settlement(new(3), SettlementRelation.NonHostile))]);
-        var result = TrainPlanInput.Evaluate(new(7), false, [new(new(2), true, "1.016667", 61)], view, new FixedContentView());
+        var result = TrainPlanInput.Evaluate(new(7), false, [new(new(2), false, "")], view, new FixedContentView());
         Assert.AreEqual(0, result.Problems.Count);
         Assert.IsNotNull(result.Command);
         Assert.AreEqual(new TrainId(7), result.Command.Train);
         Assert.IsFalse(result.Command.Plan.Loop);
-        Assert.AreEqual(61UL, ((PlanStop.Station)result.Command.Plan.Stops.Single()).DwellSteps);
+        Assert.AreEqual(new PlanStop.Waypoint(new(2)), result.Command.Plan.Stops.Single());
     }
 
     [TestMethod]

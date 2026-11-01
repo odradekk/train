@@ -142,7 +142,7 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
             await _input.ClickItem(fleet, 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "EditPlan"));
             var plan = Find<TrainPlanWorkspace>(ui, "TrainPlanWorkspace");
-            var apply = Find<Button>(plan, "SaveOnly");
+            var apply = Find<Button>(plan, "Apply");
             var descriptions = ui.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
             Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 1 &&
                 descriptions.All(label => !label.Text.Contains("已不存在", StringComparison.Ordinal)),
