@@ -178,6 +178,7 @@ internal partial class TrainPlanWorkspace
     }
     private string RuleSentence(GoodsRuleInput rule)
     {
+        if (rule.Good is null) return "尚未选择货物。";
         var good = GoodName(rule.Good); var quantity = rule.TargetQuantity;
         var store = rule.Inventory is { } inventory && _view.FindInventory(inventory) is Lookup<InventoryView>.Found { Value.Owner: InventoryOwner.Lease }
             ? "租用仓库" : "库存";
