@@ -4,11 +4,11 @@ using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
-using Train.Core.Contracts;
 using Train.Engine.Tests.Assets;
 using Train.Rendering;
 using Train.Scenes.Contracts;
 using static Train.Engine.Tests.Assertions;
+using static Train.Engine.Tests.SceneDisplayTestDriver;
 using NVector2 = System.Numerics.Vector2;
 using NVector3 = System.Numerics.Vector3;
 
@@ -25,8 +25,8 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
         var otherAsset = Png("material-key-other");
         using var resources = new SceneResources(cache, Content(asset, otherAsset));
         var source = Geometry(asset);
-        using var first = resources.Prepare(source);
-        using var equal = resources.Prepare(Geometry(asset));
+        using var first = PrepareVisual(resources, cache, source);
+        using var equal = PrepareVisual(resources, cache, Geometry(asset));
         Require(Material(first) == Material(equal), "参数相同的体素几何没有共享材质。");
         SceneVisual.Geometry[] different =
         [
@@ -45,16 +45,16 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
         {
             foreach (var changed in different)
             {
-                var visual = resources.Prepare(changed);
+                var visual = PrepareVisual(resources, cache, changed);
                 visuals.Add(visual);
                 Require(materials.All(material => material != Material(visual)), "材质键不同的对象不能共用材质。");
                 materials.Add(Material(visual));
-                using var twin = resources.Prepare(changed with { Surface = changed.Surface with { } });
+                using var twin = PrepareVisual(resources, cache, changed with { Surface = changed.Surface with { } });
                 Require(Material(twin) == Material(visual), "包括开启磨损的对象在内，相同参数必须共享材质。");
             }
             var builtIn = source with { Mesh = Triangle(new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper)) };
-            using var a = resources.Prepare(builtIn);
-            using var b = resources.Prepare(builtIn);
+            using var a = PrepareVisual(resources, cache, builtIn);
+            using var b = PrepareVisual(resources, cache, builtIn);
             Require(Material(a) != Material(b), "内建几何必须各自持有材质。");
             var missing = new SceneVisual.Missing(new ContentReference.Design(new("missing")), true);
             using var x = resources.Prepare(missing);
@@ -72,17 +72,17 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
         var asset = Png("sole-update");
         using var resources = new SceneResources(cache, Content(asset));
         var source = Geometry(asset);
-        using var first = resources.Prepare(source);
+        using var first = PrepareVisual(resources, cache, source);
         var original = Material(first);
         var changed = source with { Surface = source.Surface with { Damage = 0.75f } };
         Require(first.CanUpdate(changed), "表面状态更新不应重建视觉对象。");
         first.Update(changed);
         Require(Material(first) == original, "单个使用者更新时必须保留原材质实例。");
-        using var replacement = resources.Prepare(source);
+        using var replacement = PrepareVisual(resources, cache, source);
         Require(Material(replacement) != original, "原键必须能创建参数未变的共享材质。");
         Surface(Material(replacement), source.Surface);
         first.Dispose();
-        using var twin = resources.Prepare(Geometry(asset));
+        using var twin = PrepareVisual(resources, cache, Geometry(asset));
         Require(Material(twin) == Material(replacement), "释放旧私有材质不能删除同键的新缓存项。");
         replacement.Dispose();
         Require(GodotObject.IsInstanceValid(Material(twin)), "新缓存项仍有使用者时不能释放。");
@@ -101,8 +101,8 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
         var source = Geometry(asset);
         foreach (var paintOnly in new[] { false, true })
         {
-            using var first = resources.Prepare(source);
-            using var second = resources.Prepare(source);
+            using var first = PrepareVisual(resources, cache, source);
+            using var second = PrepareVisual(resources, cache, source);
             var shared = Material(second);
             Require(Material(first) == shared, "初始几何材质必须共享。");
             var changed = paintOnly
@@ -117,7 +117,7 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
             Paint(owned, paintOnly ? "#abcdef" : "#123456");
             Paint(shared, "#123456");
             first.Update(source);
-            using var third = resources.Prepare(source);
+            using var third = PrepareVisual(resources, cache, source);
             Require(Material(first) == owned && Material(third) == shared, "参数恢复原值后必须继续使用私有材质。");
             second.Dispose();
             third.Dispose();
@@ -144,8 +144,8 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
         foreach (var source in sources)
         foreach (var multiple in new[] { false, true })
         {
-            using var first = resources.Prepare(source);
-            using var second = multiple ? resources.Prepare(source) : null;
+            using var first = PrepareVisual(resources, cache, source);
+            using var second = multiple ? PrepareVisual(resources, cache, source) : null;
             var before = Materials(first);
             var shaders = before.Select(material => material.Shader).ToArray();
             var mesh = Instance(first).Mesh;
@@ -170,7 +170,7 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
             resources.ExemptConstructionFog(first, false);
             resources.ExemptConstructionFog(first, true);
             Require(Materials(first).SequenceEqual(owned), "反复切换雾豁免必须复用私有材质。");
-            using var replacement = resources.Prepare(source);
+            using var replacement = PrepareVisual(resources, cache, source);
             Require(Materials(replacement).Zip(owned).All(pair => pair.First != pair.Second), "原键不能再取得已经私有化的材质。");
             second?.Dispose();
             replacement.Dispose();
@@ -180,11 +180,11 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
             Require(owned.All(material => !GodotObject.IsInstanceValid(material)) && !GodotObject.IsInstanceValid(texture), "私有视觉对象必须释放材质和纹理。");
             if (!multiple)
             {
-                using var old = resources.Prepare(source);
+                using var old = PrepareVisual(resources, cache, source);
                 resources.ExemptConstructionFog(old, true);
-                using var current = resources.Prepare(source);
+                using var current = PrepareVisual(resources, cache, source);
                 old.Dispose();
-                using var twin = resources.Prepare(source);
+                using var twin = PrepareVisual(resources, cache, source);
                 Require(Materials(current).SequenceEqual(Materials(twin)), "释放单使用者的雾豁免材质不能删除同键的新缓存项。");
             }
         }
@@ -225,8 +225,8 @@ public partial class SceneMaterialSharingTests(Node testScene) : TestClass(testS
         foreach (var source in new SceneVisual[] { Geometry(asset), new SceneVisual.Wheelset(7, 1, 0.3, 0) })
         {
             using var resources = new SceneResources(cache, Content(asset));
-            using var first = resources.Prepare(source);
-            using var second = resources.Prepare(source);
+            using var first = PrepareVisual(resources, cache, source);
+            using var second = PrepareVisual(resources, cache, source);
             var materials = source is SceneVisual.Wheelset ? WheelMaterials(second) : Materials(second);
             var shader = materials[0].Shader;
             first.Dispose();

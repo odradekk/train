@@ -12,6 +12,7 @@ internal sealed class NodeTerrainCaps
     private readonly (string Key, ScenePanBounds Bounds)[] boundaries;
     private readonly ScenePanBounds[] layoutRegions;
     private readonly Dictionary<string, TerrainHeightCap.Builder> parts = [];
+    private readonly Dictionary<GridColumn, Dictionary<GridColumn, NodeScene.RailBed>> bedChunks = [];
     private readonly Func<string, TerrainHeightCap?>? completed;
 
     internal NodeTerrainCaps(NodeScene.Preparation prepared, Func<string, TerrainHeightCap?>? completed = null)
@@ -66,10 +67,16 @@ internal sealed class NodeTerrainCaps
                 prepared.Terrain, new(origin.X + point.X, origin.Y + point.Y, origin.Z + point.Z));
         }
         var column = new GridColumn((int)Math.Floor(point.X), (int)Math.Floor(point.Z));
-        var size = VoxelGrid.ChunkSize;
-        var chunk = new GridColumn((int)Math.Floor(point.X / size) * size, (int)Math.Floor(point.Z / size) * size);
-        var bed = prepared.BedChunks.GetValueOrDefault(chunk)?.GetValueOrDefault(column);
+        var from = new GridColumn((int)Math.Floor((double)column.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
+            (int)Math.Floor((double)column.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
+        var bed = Beds(from).GetValueOrDefault(column);
         return TerrainSurface.NodeHeight(prepared.Snapshot, node, prepared.Global.Layout, point, bed, prepared.Terrain);
+    }
+
+    private Dictionary<GridColumn, NodeScene.RailBed> Beds(GridColumn from)
+    {
+        if (!bedChunks.TryGetValue(from, out var bed)) bedChunks.Add(from, bed = prepared.Beds.ForChunk(from));
+        return bed;
     }
 
     internal IEnumerable<(string Key, TerrainHeightCap.Builder Work)> Parts(ScenePanBounds bounds)
@@ -95,7 +102,7 @@ internal sealed class NodeTerrainCaps
     private TerrainHeightCap.Builder BeginChunk(GridColumn from)
     {
         var bounds = prepared.Global.Layout.Bounds;
-        var beds = prepared.BedChunks.GetValueOrDefault(from);
+        var beds = Beds(from);
         return TerrainHeightCap.Begin(new(new(from.X, from.Z),
             new(from.X + VoxelGrid.ChunkSize, from.Z + VoxelGrid.ChunkSize)), column =>
         {
@@ -103,7 +110,7 @@ internal sealed class NodeTerrainCaps
                 column.Z < bounds.Minimum.Y || column.Z >= bounds.Maximum.Y ||
                 prepared.BoundarySurfaces.ContainsKey(column)) return null;
             var height = TerrainSurface.NodeHeight(prepared.Snapshot, node, prepared.Global.Layout,
-                new(column.X + .5, 0, column.Z + .5), beds?.GetValueOrDefault(column), prepared.Terrain);
+                new(column.X + .5, 0, column.Z + .5), beds.GetValueOrDefault(column), prepared.Terrain);
             return Math.Floor(height) + 1;
         });
     }

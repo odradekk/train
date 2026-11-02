@@ -24,6 +24,8 @@ internal sealed partial class SceneDisplay
         private bool _ownsRoot, _ownsMaterial, _activated;
         private bool _disposed;
         private readonly ShaderMaterial _material;
+        private bool _boxNodeReleased;
+        internal bool HasReleaseWork => _owned.Count > 0 || _ownsRoot || _ownsMaterial;
 
         internal FogGroup(ImmutableArray<SceneBounds> regions, ShaderMaterial material, FogGroup? source = null)
         {
@@ -106,6 +108,43 @@ internal sealed partial class SceneDisplay
             _owned = _all;
             _added = []; _removed = []; _all = [];
             _ownsRoot = _ownsMaterial = _activated = true;
+        }
+
+        internal void DetachRetired()
+        {
+            foreach (var box in _owned) box.Node.GetParent()?.RemoveChild(box.Node);
+        }
+
+        internal bool Release(PreparationSlice slice, RetirementCosts costs, bool singleStep)
+        {
+            if (_disposed) return true;
+            while (_owned.Count > 0)
+            {
+                var box = _owned[^1];
+                if (!_boxNodeReleased)
+                {
+                    if (!costs.Free(slice, box.Node)) return false;
+                    _boxNodeReleased = true;
+                    if (singleStep) return false;
+                }
+                if (!costs.Release(slice, box.Mesh)) return false;
+                _owned.RemoveAt(_owned.Count - 1);
+                _boxNodeReleased = false;
+                if (singleStep && HasReleaseWork) return false;
+            }
+            if (_ownsRoot)
+            {
+                if (!costs.Free(slice, Root)) return false;
+                _ownsRoot = false;
+                if (singleStep && HasReleaseWork) return false;
+            }
+            if (_ownsMaterial)
+            {
+                if (!costs.Release(slice, _material)) return false;
+                _ownsMaterial = false;
+            }
+            _disposed = true;
+            return true;
         }
 
         public void Dispose()

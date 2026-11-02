@@ -47,6 +47,19 @@ internal static class NodeFixtures
         } };
     }
 
+    internal static NodeScene.Preparation EmptyPreparation()
+    {
+        var layout = Layout;
+        layout = layout with { SceneModel = layout.SceneModel with { Scene = SceneFixtures.Projection(
+            [SceneFixtures.Cell(new(-64, 0, -64)), SceneFixtures.Cell(new(96, 0, 96))]) } };
+        var snapshot = EmptyNodeSnapshot(layout, []);
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeId));
+        // Tests add bed routes after preparing an empty node; real Prepare loads this appearance with its routes.
+        prepared.Appearances[prepared.BallastVoxel] =
+            ((ContentLookup<VoxelAppearanceProjection>.Found)snapshot.Content.FindVoxelAppearance(prepared.BallastVoxel)).Value;
+        return prepared with { Beds = new([]) };
+    }
+
     internal static NodeScene.Built Build(SceneWorldSnapshot snapshot, NodeLayout layout,
         NodeScene.Built? previous = null, CancellationToken token = default)
     {
