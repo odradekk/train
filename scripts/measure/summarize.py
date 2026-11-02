@@ -7,6 +7,7 @@ import json
 from math import ceil, isfinite
 from pathlib import Path, PureWindowsPath
 from statistics import median
+from memory_assessment import summarize_memory
 
 TIMING_METRICS = tuple(
     f"timing.{distribution}.{statistic}"
@@ -40,6 +41,15 @@ def report_metrics(report):
     items = assessment.get("items") if isinstance(assessment, dict) else None
     metrics["scene_preparation"] = next((item for item in items
         if isinstance(item, dict) and item.get("metric") == "scene_preparation_maximum"), {}) if isinstance(items, list) else {}
+    identity = report.get("identity")
+    budget = identity.get("scene_budget") if isinstance(identity, dict) else None
+    if isinstance(budget, dict):
+        budget = {key: budget[key] for key in ("initial_map", "editor_steady", "after_editor_map",
+                  "final_map", "editor_sequence", "soak") if key in budget}
+        soak = budget.get("soak")
+        if isinstance(soak, dict):
+            budget["soak"] = {key: soak[key] for key in ("seconds", "segments", "memory") if key in soak}
+    metrics["memory_identity"] = {"os": identity.get("os"), "scene_budget": budget} if isinstance(identity, dict) else {}
     return metrics
 
 
@@ -341,6 +351,9 @@ def summarize_directories(directories):
         if scenario == "scene-soak":
             scenarios[scenario]["hourly_memory"] = {
                 side: summarize_hourly_memory(runs) for side, runs in operation_runs.items()}
+            scenarios[scenario]["memory_assessment"] = {
+                side: summarize_memory(reports, operation_runs[side], scenarios[scenario]["hourly_memory"][side])
+                for side, reports in reports_by_side.items()}
     return {"inputs": {side: str(directory) for side, directory in sides.items()},
             "input_status": input_status, "scenarios": scenarios}
 

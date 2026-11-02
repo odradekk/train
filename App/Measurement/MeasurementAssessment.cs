@@ -17,7 +17,7 @@ internal static partial class MeasurementAssessment
     internal const string Source = "docs/design/00-product-and-core-loop.md#本阶段性能目标";
     private const int MinimumOpeningSamples = 30;
     private const double GrowthObservationSeconds = 7200;
-    // 设计 00 的秒、字节和倍速阈值只在这里维护；补齐范围按设计 01。
+    // 设计 00 的单轮阈值；长测离线及合并阈值也在 scripts/measure/memory_assessment.py，补齐范围按设计 01。
     private static readonly Dictionary<string, (double? Value, string Unit, string Rule)> Targets = new()
     {
         ["frame_p95"] = (0.0167, "seconds", "≤"),
@@ -33,10 +33,8 @@ internal static partial class MeasurementAssessment
         ["game_private"] = (4294967296, "bytes", "整个游戏稳态私有字节；≤"),
         ["game_working_set"] = (3221225472, "bytes", "整个游戏稳态工作集；≤"),
         ["game_render"] = (2147483648, "bytes", "整个游戏稳态渲染分配（video_bytes）；≤"),
-        ["retired_heap_delta"] = (104857600, "bytes", "返回地图后强制 GC 存活堆 − 首次进入前地图强制 GC 存活堆；≤"),
-        ["private_growth"] = (null, "bytes/hour", "两小时反复打开不得持续增长"),
-        ["working_set_growth"] = (null, "bytes/hour", "两小时反复打开不得持续增长"),
-        ["render_growth"] = (null, "bytes/hour", "两小时反复打开不得持续增长")
+        ["retired_heap_delta"] = (104857600, "bytes", "相同地图状态下强制 GC 存活堆增量；≤"),
+        ["private_growth"] = (209715200, "bytes/hour", "第 2 小时单轮斜率 ≤；跨轮中位数另按 100 MiB/h 判定")
     };
 
     internal static List<MeasurementAssessmentItem> Evaluate(string scenario, JsonElement identity,
@@ -54,7 +52,7 @@ internal static partial class MeasurementAssessment
             : scenario == "scene-memory" ? "场景 timing：初始 5 秒地图保持"
             : scenario == "scene-editor" ? "编辑器现有 timing 采样窗口"
             : "场景 timing：末尾 5 秒地图保持";
-        if (scenario == "scene-soak") AddSoak(items, identity, budget);
+        if (scenario == "scene-soak") AddSoak(items, identity, budget, evidence);
         else
         {
             if (route)
@@ -107,7 +105,8 @@ internal static partial class MeasurementAssessment
         return problem is null ? items : items.Select(item => item with { Status = "unknown", Reason = problem, Excess = null }).ToList();
     }
 
-    private static void AddSoak(List<MeasurementAssessmentItem> items, JsonElement identity, JsonElement budget)
+    private static void AddSoak(List<MeasurementAssessmentItem> items, JsonElement identity, JsonElement budget,
+        MeasurementEvidence? evidence)
     {
         var soak = At(budget, "soak");
         var views = Array(At(soak, "views")).ToArray();
@@ -131,16 +130,17 @@ internal static partial class MeasurementAssessment
             items.Add(Check("actual_speed", window,
                 Number(At(view, "steps_per_second")) / SimulationTime.StepsPerSecond, reason));
         }
-        AddGrowth(items, At(soak, "memory"), Number(At(soak, "seconds")));
+        AddGrowth(items, evidence, Number(At(soak, "seconds")));
     }
 
-    private static void AddGrowth(List<MeasurementAssessmentItem> items, JsonElement memory, double? seconds)
+    private static void AddGrowth(List<MeasurementAssessmentItem> items, MeasurementEvidence? evidence, double? seconds)
     {
-        foreach (var (metric, counter) in new[] { ("private_growth", "private_bytes_per_hour"),
-            ("working_set_growth", "working_set_bytes_per_hour"), ("render_growth", "godot_video_bytes_per_hour") })
-            items.Add(Check(metric, "反复打开的地图内存增长", Number(At(memory, counter)),
-                "两小时持续增长的判定规则未定义" + (seconds is null || seconds < GrowthObservationSeconds ? "；观测时长不足两小时" : ""))
-                with { ObservedSeconds = seconds });
+        var growth = evidence?.SecondHourPrivateGrowth();
+        var item = Check("private_growth", "首条 natural-map 起第 2 小时；包围边界的原始样本作 OLS，第 1 小时预热",
+            growth?.Slope, seconds is null or < GrowthObservationSeconds ? "观测时长不足两小时" :
+            growth?.Problem ?? (evidence is null ? "缺少自然地图内存记录" : null));
+        items.Add(item with { ObservedSeconds = growth?.Seconds, WindowStartSeconds = growth?.Start,
+            Excess = item.Status == "unknown" ? null : Math.Max(0, item.Measured!.Value - item.Threshold!.Value) });
     }
 
     private static void AddFrames(List<MeasurementAssessmentItem> items, string window, TimingDistribution? frames,
