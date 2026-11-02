@@ -16,6 +16,9 @@ public partial class GameShell : Control
         MouseFilter = MouseFilterEnum.Stop, MouseForcePassScrollEvents = false, Visible = false };
     private readonly PanelContainer _navigation = new() { Name = "Navigation", MouseFilter = MouseFilterEnum.Stop };
     private readonly Dictionary<Control, Action> _watchers = [];
+    private readonly ConfirmationDialog _switchConfirmation = new() { Name = "WorkspaceSwitchConfirmation",
+        Title = "放弃未保存的编辑？", DialogAutowrap = true, OkButtonText = "放弃编辑并切换", CancelButtonText = "取消" };
+    private Action? _pendingWorkspace;
     private float _topInset, _bottomInset;
 
     internal WorldObjectId? SelectedObject { get; private set; }
@@ -28,6 +31,7 @@ public partial class GameShell : Control
     internal Func<bool>? CloseOverlay { get; set; }
     internal Func<bool>? SceneVisible { get; set; }
     internal Action? OpenMenu { get; set; }
+    internal Func<string?>? UnsavedWorkspace { get; set; }
 
     internal float TopInset
     {
@@ -51,6 +55,14 @@ public partial class GameShell : Control
         AddChild(_inspectorHost);
         AddChild(_mask);
         _mask.AddChild(_workspaceHost);
+        AddChild(_switchConfirmation);
+        _switchConfirmation.Canceled += () => _pendingWorkspace = null;
+        _switchConfirmation.Confirmed += () =>
+        {
+            var open = _pendingWorkspace;
+            _pendingWorkspace = null;
+            open?.Invoke();
+        };
         Resized += Arrange;
         Arrange();
     }
@@ -80,8 +92,19 @@ public partial class GameShell : Control
         Mount(previous, content, _inspectorHost);
     }
 
+    internal void RequestWorkspace(Action open)
+    {
+        if (UnsavedWorkspace?.Invoke() is not { } workspace) { open(); return; }
+        _pendingWorkspace = open;
+        _switchConfirmation.DialogText = $"切换工作区会丢掉{workspace}里未保存的编辑。是否放弃编辑并切换？";
+        _switchConfirmation.PopupCentered();
+        _switchConfirmation.GetCancelButton().GrabFocus();
+    }
+
     internal void ShowWorkspace(Control? content)
     {
+        _pendingWorkspace = null;
+        _switchConfirmation.Hide();
         var previous = WorkspaceContent;
         WorkspaceContent = content;
         Mount(previous, content, _workspaceHost);
