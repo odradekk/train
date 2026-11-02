@@ -25,6 +25,20 @@ public sealed class HostCoreScenarioTests
         session.AssertComplete();
     }
     [TestMethod]
+    public void FormationReplacementMatchesTrainAndMemberOrderWithoutConsumingRejectedStep()
+    {
+        var view = new FixedCoreReadView(new(0, 0), HostCoreScenario.Input);
+        using var session = new ScriptedCoreSession(view);
+        SubmissionResult result = new SubmissionResult.NotAccepted(new("fixture", "", null, []));
+        session.QueueSubmit(new CoreCommand.ReplaceTrainFormation(new(3), [new(2), new(1)]),
+            CommandSource.UserInterface, result, view);
+        AssertUnconfigured(() => session.Submit(new CoreCommand.ReplaceTrainFormation(new(4), [new(2), new(1)]), CommandSource.UserInterface));
+        AssertUnconfigured(() => session.Submit(new CoreCommand.ReplaceTrainFormation(new(3), [new(1), new(2)]), CommandSource.UserInterface));
+        Assert.AreSame(result, session.Submit(new CoreCommand.ReplaceTrainFormation(new(3), [new(2), new(1)]), CommandSource.UserInterface));
+        session.AssertComplete();
+    }
+
+    [TestMethod]
     public void ScriptRejectsUnknownInputAndOrderWithoutConsumingExpectedSteps()
     {
         var initial = new FixedCoreReadView(new(0, 0), HostCoreScenario.Input);
@@ -38,12 +52,17 @@ public sealed class HostCoreScenarioTests
 
         AssertUnconfigured(() => session.Advance(2));
         AssertUnconfigured(() => session.Submit(new CoreCommand.DisbandTrain(new(2)), CommandSource.Console));
+        Assert.AreEqual(1, session.SubmitCount);
         AssertUnconfigured(() => session.Submit(command, CommandSource.UserInterface));
+        Assert.AreEqual(2, session.SubmitCount);
         AssertUnconfigured(session.AssertComplete);
         Assert.AreSame(submitted, session.Submit(command, CommandSource.Console));
+        Assert.AreEqual(3, session.SubmitCount);
         AssertUnconfigured(() => session.Advance(1));
         Assert.AreSame(advanced, session.Advance(2));
         session.AssertComplete();
+        AssertUnconfigured(() => session.Submit(command, CommandSource.Console));
+        Assert.AreEqual(4, session.SubmitCount);
         AssertUnconfigured(() => session.Advance(2));
         AssertUnconfigured(() => session.ReadRecording());
         AssertUnconfigured(() => session.CaptureRecordingStart());

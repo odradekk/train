@@ -36,7 +36,7 @@ public partial class GameUi : CanvasLayer
     private SceneStatusOverlay _status = null!;
     private NodeMinimap _minimap = null!;
     private WorldPanels? _panels;
-    private TrainFormationPanel? _formation;
+    private TrainFormationWorkspace? _formation;
     private TrainPlanWorkspace? _plan;
     private EconomyPanels? _economy;
     private CombatPanel? _combat;
@@ -62,7 +62,7 @@ public partial class GameUi : CanvasLayer
         if (_world.IsVisibleInTree())
         {
             var top = _bar.GetParent<Control>().GetGlobalRect().End.Y + 8;
-            area = new(new(area.Position.X, top), new(area.Size.X, Math.Max(0, area.End.Y - top)));
+            area = new(new(area.Position.X, top), new(area.Size.X, Math.Max(0, area.End.Y - top - _shell.BottomInset)));
             _shell.TopInset = top - 8;
         }
         if (PanelArea == area) return;

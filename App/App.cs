@@ -90,26 +90,26 @@ public partial class App : Node
             AddChild(ui);
             GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves, ui.GetNode<Control>("Root"));
             var console = new GameConsole();
-            Action<IReadOnlyList<string>>? simulationCommands = null;
-            Action<IReadOnlyList<string>>? trainCommands = null;
-            Action<IReadOnlyList<string>>? lightingCommands = null;
-            Action<IReadOnlyList<string>>? developmentCommands = null;
+            var commands = new ConsoleCommandDispatcher(_logger, buffer.Clear, RequestQuit);
             if (OS.IsDebugBuild())
             {
                 Development = new(Host, Saves);
                 var inspector = new DeveloperInspector();
                 AddChild(inspector);
                 inspector.Configure(Development, WorldScenes);
-                ui.OpenDeveloperTools = inspector.Open;
-                developmentCommands = inspector.Execute;
-                simulationCommands = new SimulationConsoleCommands(Host, _logger, Development).Execute;
-                trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
-                lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
-                    ui.SetInspectionLighting).Execute;
+                ConsoleCommandRegistration.RegisterDevelopment(commands, () => ReloadContent(CommandSource.Console),
+                    new SimulationConsoleCommands(Host, _logger, Development).Execute,
+                    new TrainConsoleCommands(Host, _logger).Execute,
+                    new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting, ui.SetInspectionLighting).Execute,
+                    args =>
+                    {
+                        if (inspector.Execute(args) is { } error)
+                            _logger.Warning(ConsoleCommandDispatcher.Category, "dev_usage", error);
+                    });
             }
-            console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, () => ReloadContent(CommandSource.Console), OS.IsDebugBuild(), simulationCommands,
-                train: trainCommands, lighting: lightingCommands, development: developmentCommands));
+            console.Initialize(buffer, commands, () => ui.CanOpenDeveloperDock);
+            console.HeightChanged += ui.SetDeveloperDockHeight;
+            ui.OpenDeveloperTools = console.Open;
             AddChild(console);
             _smoke = OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal);
             Host.SetFocused(GetWindow().HasFocus());

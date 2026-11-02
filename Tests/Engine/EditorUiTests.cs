@@ -284,10 +284,8 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             Require(session.ApplyCalls.Count == 1 && session.Capture() == before, "被拒绝的操作不得改变草稿或修订。");
             await FramesUntil(TestScene, () => Displayed(panel, "与其他部分的占格重叠。") && !Displayed(panel, "occupancy_conflict"));
             Require(!Displayed(panel, "The brush intersects"), "玩家提示不得显示原始诊断。");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            Require(ConsoleShows(fixture, "occupancy_conflict") && ConsoleShows(fixture, "The brush intersects"),
-                "错误码与原始诊断必须保留在控制台。");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+            Require(ConsoleLogs(fixture, "occupancy_conflict") && ConsoleLogs(fixture, "The brush intersects"),
+                "错误码与原始诊断必须保留在控制台日志。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
@@ -618,8 +616,8 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
     private static DesignEditorPanel EditorPanel(EditorPreview fixture) => Find<DesignEditorPanel>(fixture.App, "DesignEditor");
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));
-    private static bool ConsoleShows(EditorPreview fixture, string text) => fixture.App.FindChildren("*", "RichTextLabel", true, false)
-        .OfType<RichTextLabel>().Any(label => label.IsVisibleInTree() && label.GetParsedText().Contains(text, StringComparison.Ordinal));
+    private static bool ConsoleLogs(EditorPreview fixture, string text) => fixture.App.GetChildren().OfType<GameConsole>().Single().LogEvents
+        .Any(log => log.Message.Contains(text) || log.Attributes.Values.OfType<string>().Any(raw => raw.Contains(text)));
     private static int Count(string text, string value)
     {
         var count = 0;
@@ -726,10 +724,8 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "publish-rejected", "蓝图发布被拒绝" })
                 Require(!Displayed(fixture.App.GetNode<Control>("GameUi/Root"), text), $"故障或成功帧诊断的原始详情不能向玩家显示：{text}");
             await UiCapture.Capture(TestScene, "player-editor-failure-diagnostics");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
             foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "publish-rejected", "蓝图发布被拒绝" })
-                Require(ConsoleShows(fixture, text), $"成功帧诊断必须在控制台显示：{text}");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+                Require(ConsoleLogs(fixture, text), $"成功帧诊断必须写入控制台日志：{text}");
             session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(new FixedSceneFrame
             {
                 Update = frame.Update,
@@ -788,10 +784,8 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             Require(shown == 2 && !Displayed(panel, "first_failure") && !Displayed(panel, "second_failure")
                 && !Displayed(panel, "第一条场景失败") && !Displayed(panel, "第二条场景失败"),
                 "场景失败的每条问题都要显示玩家说明，不能只保留最后一条，也不能显示诊断码。");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            Require(ConsoleShows(fixture, "first_failure") && ConsoleShows(fixture, "second_failure"),
-                "两条场景失败的诊断码必须留在控制台。");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+            Require(ConsoleLogs(fixture, "first_failure") && ConsoleLogs(fixture, "second_failure"),
+                "两条场景失败的诊断码必须留在控制台日志。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
@@ -958,10 +952,9 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             await new UiTestInput(TestScene).Activate(button);
             await FramesUntil(TestScene, () => located is DesignElementPath.Cell locatedCell && locatedCell.CellIndex == 0
                 && fixture.Editor.State!.Selection.Contains(new EditElementId(1)));
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
             foreach (var text in new[] { "named-lock-package:missing-voxel", "missing-lock-package:missing-part", "named-lock-package", "missing-lock-package" })
-                Require(ConsoleShows(fixture, text), $"锁定行控制台缺少：{text}");
-            var logs = fixture.App.FindChildren("*", "", true, false).OfType<GameConsole>().Single().LogEvents;
+                Require(ConsoleLogs(fixture, text), $"锁定行控制台日志缺少：{text}");
+            var logs = fixture.App.GetChildren().OfType<GameConsole>().Single().LogEvents;
             foreach (var text in new[] { "禁止：Move、Paint", "禁止：Enter、Rotate" })
                 Require(logs.Any(log => log.EventId == "editor_design_locked" && log.Message.Contains(text, StringComparison.Ordinal)),
                     $"锁定行日志缺少：{text}");

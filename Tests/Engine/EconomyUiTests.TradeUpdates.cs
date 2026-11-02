@@ -70,7 +70,14 @@ public partial class EconomyUiTests
             Require(host.Step(1).Problem is null, "测试应能发布新核心修订。");
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, after, host.Content!);
             Require(Find<Label>(panel, "Quote").Text.Contains("731"), "按住按钮时应保留已看到的报价。");
-            await _input.MouseButton(button.GetGlobalRect().End + new Vector2(10, 10), MouseButton.Left, false);
+            var outside = button.GetGlobalRect().End + new Vector2(10, 10);
+            var transform = TestScene.GetViewport().GetScreenTransform();
+            var end = transform * outside;
+            // BaseButton 通过移动事件更新按住时的按钮内外状态。
+            using var motion = new InputEventMouseMotion { Position = end, GlobalPosition = end,
+                Relative = end - transform * point, ButtonMask = MouseButtonMask.Left };
+            Input.ParseInputEvent(motion); await _input.Frames();
+            await _input.MouseButton(outside, MouseButton.Left, false);
             await _input.Frames(2);
             Require(Find<Label>(panel, "Quote").Text.Contains("1100") && setup.Session.SubmitCount == 0,
                 "取消点击后应更新延后的报价，并且不能提交交易。");

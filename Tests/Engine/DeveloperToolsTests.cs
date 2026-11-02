@@ -83,7 +83,8 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             var console = app.GetChildren().OfType<GameConsole>().Single();
             console.SubmitLine("train start 1");
             var replayError = app.GetChildren().OfType<GameUi>().Single().ErrorText;
-            Require(replayError.Contains("正在重放，不能修改。") && !replayError.Contains("replay_read_only") &&
+            Require(console.LogEvents.Any(log => log.EventId == "train_command_failed" && log.Message.Contains("正在重放，不能修改。")) &&
+                !replayError.Contains("正在重放，不能修改。") && !replayError.Contains("replay_read_only") &&
                 setup.InitialSession.SubmitCount == 0,
                 "合并后的真实App列车命令未在重放中拒绝，或调用了已退役会话。");
             app.WorldScenes!.DebugLayers = SceneDebugLayer.Origin;
