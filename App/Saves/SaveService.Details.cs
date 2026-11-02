@@ -13,7 +13,6 @@ internal sealed partial class SaveService
     internal event Action? DetailsChanged;
     internal SaveDetails? Details { get; private set; }
     internal string? DetailsMessage { get; private set; }
-    internal bool IsReadingDetails => _details is not null;
 
     internal void Inspect(SaveEntry entry)
     {

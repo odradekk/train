@@ -47,13 +47,14 @@ public partial class SaveTests
     {
         internal ScriptedCoreSession? Session { get; private set; }
         internal ScriptedContentFactory? Content { get; private set; }
+        internal ScriptedCoreFactory Core { get; private set; } = null!;
         internal bool MissingOnRestore { get; set; }
 
         internal HostCoordinator Create(TrainLogger logger)
         {
             var capture = new FixedCoreCapture(new(new(0, 0), "engine save", "engine sha"),
                 HostCoreScenario.References, "engine core", HostCoreScenario.Input, new(0));
-            var core = new ScriptedCoreFactory
+            var core = Core = new ScriptedCoreFactory
             {
                 DecodeStateCall = payload => payload == "engine core"
                     ? new CoreResult<ICoreCapture>.Success(capture) : throw new InvalidOperationException("UNCONFIGURED: core payload"),

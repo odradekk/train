@@ -37,7 +37,7 @@ public sealed partial class SaveServiceTests
             run.Service.Inspect(entry);
         }
         finally { release.Set(); }
-        run.PumpUntil(() => !run.Service.IsReadingDetails);
+        run.PumpUntil(() => run.Service.Details is not null);
         Assert.AreEqual(54321L, run.Service.Details?.Funds);
         Assert.AreEqual(1, first.Core.DisposeCount);
         Assert.AreEqual(1, first.Content.Disposals);
@@ -54,7 +54,7 @@ public sealed partial class SaveServiceTests
         var before = run.Service.Status;
         File.WriteAllText(source, "broken file");
         run.Service.Inspect(entry);
-        run.PumpUntil(() => !run.Service.IsReadingDetails);
+        run.PumpUntil(() => run.Service.DetailsMessage?.StartsWith("无法读取详情", StringComparison.Ordinal) == true);
         Assert.IsNull(run.Service.Details);
         StringAssert.Contains(run.Service.DetailsMessage!, "无法读取详情");
         Assert.AreEqual(before, run.Service.Status);
@@ -75,6 +75,7 @@ public sealed partial class SaveServiceTests
         var candidates = run.ConfigureRestore(view: DetailView());
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
+        var backgroundSettled = false;
         var restore = run.Host.Core.PrepareRestoreCall;
         run.Host.Core.PrepareRestoreCall = (saved, content, options) =>
         {
@@ -93,14 +94,16 @@ public sealed partial class SaveServiceTests
                 "delete" => run.Service.Delete(entry),
                 _ => run.Service.Export(entry, Path.Combine(run.Root, "export.json"))
             });
-            Assert.IsFalse(run.Service.IsReadingDetails);
+            Assert.IsNull(run.Service.DetailsMessage);
             run.Service.ChooseLeave(LeaveChoice.Cancel);
         }
         finally
         {
             release.Set();
-            run.Host.Host.BackgroundWork.Enqueue(() => true).GetAwaiter().GetResult();
+            backgroundSettled = run.Host.Host.BackgroundWork.Enqueue(() => true)
+                .Wait(Train.Godot.Tests.Host.HostFixture.HangTimeout);
         }
+        Assert.IsTrue(backgroundSettled, "挂起保护超时：等待详情准备后台工作结束。");
         run.Drain();
         Assert.IsNull(run.Service.Details);
         Assert.AreEqual(0, candidates.Core.ActivationCount);
@@ -120,10 +123,10 @@ public sealed partial class SaveServiceTests
         var before = run.Service.Status;
         var entry = new SaveEntry(source, run.Store.ReadHeader(source), false);
         run.Service.Inspect(entry);
-        Assert.IsTrue(run.Service.IsReadingDetails);
+        Assert.IsNotNull(run.Service.DetailsMessage);
         Assert.IsFalse(run.Service.IsBusy);
         Assert.IsFalse(run.Host.Host.IsBusy);
-        run.PumpUntil(() => !run.Service.IsReadingDetails);
+        run.PumpUntil(() => run.Service.Details is not null);
         var details = run.Service.Details!;
         Assert.IsNotNull(details, run.Service.DetailsMessage);
         Assert.AreEqual(12345L, details.Funds);
@@ -147,7 +150,8 @@ public sealed partial class SaveServiceTests
         {
             World = new(40, new("fixture:railway"), 100, 100,
                 [Node(1, SettlementRelation.PlayerOwned), Node(2, SettlementRelation.NonHostile), Node(3, SettlementRelation.NonHostile)],
-                [], [Train(1), Train(2)], [], []),
+                [new(new(1), new(1), new(2), 10, new(new("fixture:terrain"), 0, []), 1, 1, [], [])],
+                [Train(1), Train(2)], [], []),
             Economy = new(new(funds), rule, rule, rule, new(0), [])
         };
     }

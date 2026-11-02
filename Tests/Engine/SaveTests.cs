@@ -213,8 +213,9 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
             var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             Require(panel.Visible, "存档入口未打开生产面板。");
             Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
-                label.GetWindow() == panel.GetWindow() && label.Text.Contains("基于全局体素世界的旧存档已不支持", StringComparison.Ordinal)),
-                "列表没有立即显示旧格式兼容性诊断。");
+                label.GetWindow() == panel.GetWindow() && label.Text.Contains("无法读取", StringComparison.Ordinal) &&
+                !label.Text.Contains("体素", StringComparison.Ordinal)),
+                "列表错误应给出检查提示，不能一律归为旧体素存档。");
             Press(panel, "保存");
             await _input.WaitUntil(() => !saves.HasPendingWork);
             var first = saves.Status!;
@@ -248,8 +249,7 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
                 "确认缺失内容前替换了活动会话。");
             await _input.WaitUntil(() => UiTestInput.SavePromptVisible(panel, "缺失内容"));
             var missingMessage = Find<Label>(panel, "PromptMessage").Text;
-            Require(missingMessage.Contains("世界生成配置", StringComparison.Ordinal) &&
-                missingMessage.Contains("占位", StringComparison.Ordinal) && missingMessage.Contains("失效", StringComparison.Ordinal) &&
+            Require(missingMessage == string.Join("\n", saves.Missing!.Details) &&
                 !missingMessage.Contains("fixture:", StringComparison.Ordinal), "缺失确认应说明缺失类别与后果，不显示内部标识。");
             UiTestInput.SavePromptButton(panel, "Confirm").EmitSignal(BaseButton.SignalName.Pressed);
             await _input.WaitUntil(() => !saves.HasPendingWork);

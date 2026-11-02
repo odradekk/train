@@ -71,8 +71,11 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             await Until(() => app.Host.GetStatus() is { IsReplay: true } && !tools.IsBusy);
             await Until(() => report.FindChildren("*", "Label", true, false).Cast<Label>()
                 .Any(label => label.Text.Contains("只读重放")));
-            await Until(() => saves.FindChildren("*", "Label", true, false).Cast<Label>()
-                .Any(label => label.Text.Contains("只读重放") && label.Text.Contains("不能存档")));
+            await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
+            Require(UiTestInput.SaveButton(saves, "保存").Disabled && !Find<LineEdit>(saves, "SaveName").Editable &&
+                saves.FindChildren("*", "Label", true, false).Cast<Label>()
+                    .Any(label => label.IsVisibleInTree() && label.Text.Contains("无法保存")),
+                "重放时存档面板应说明无法保存，并禁用保存和名称输入。");
             Require(setup.InitialSession.DisposeCount == 1 && app.Host.GetStatus()!.Binding != binding,
                 "重放候选激活后没有退役原会话。");
             Require(app.Saves.Save()?.Code == "replay_read_only" && app.Host.Step(1).Problem?.Code == "replay_read_only",

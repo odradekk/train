@@ -160,7 +160,7 @@ public partial class SavePanel : Control
         if (_service is null) return;
         var status = _service.Status;
         _current.Visible = status is not null;
-        _title.Text = status is null ? "读取存档" : "存档与读档";
+        _title.Text = _service.IsReplay ? "读取存档（只读重放，无法保存）" : status is null ? "读取存档" : "存档与读档";
         if (status is not null && _shownIdentity != status.Identity && !_name.HasFocus())
         { _name.Text = status.Identity.Name; _shownIdentity = status.Identity; }
         _currentState.Text = status is { Frozen: true } ? "当前对局无法保存" : status?.Unsaved == true ? "有未保存的进度" : "已保存";
@@ -175,7 +175,8 @@ public partial class SavePanel : Control
     private void SaveCurrent()
     {
         var name = _name.Text.Trim();
-        ShowFailure(name == _service!.Status?.Identity.Name ? _service.Save() : _service.SaveAs(name));
+        _service!.CancelDetails();
+        ShowFailure(name == _service.Status?.Identity.Name ? _service.Save() : _service.SaveAs(name));
     }
 
     private void LoadSelected() { if (_selected is { } selected) ShowFailure(_service!.Load(selected)); }
@@ -205,7 +206,7 @@ public partial class SavePanel : Control
         if (_list.GetSelectedItems().Length == 0 && _rows.Count > 0) _list.Select(0);
         _rebuilding = false;
         _listMessage.Text = _service?.ListMessage is not null
-            ? "部分存档无法读取，请检查文件和访问权限。基于全局体素世界的旧存档已不支持。"
+            ? "部分存档无法读取，请检查文件和访问权限。"
             : _rows.Count == 0 ? _entries.Count == 0 ? "还没有存档。" : "没有符合条件的存档。" : "";
         SelectRow();
         if (focus) _list.GrabFocus();
@@ -214,9 +215,12 @@ public partial class SavePanel : Control
     private void SelectRow()
     {
         var rows = _list.GetSelectedItems();
-        _selected = rows.Length > 0 ? _rows[rows[0]] : null;
-        if (_selected is null) _service?.CancelDetails();
-        else if (_service?.IsBusy == false) _service.Inspect(_selected);
+        var selected = rows.Length > 0 ? _rows[rows[0]] : null;
+        if (_selected?.Path != selected?.Path || _selected?.Header.SavedAt != selected?.Header.SavedAt)
+            _service?.CancelDetails();
+        _selected = selected;
+        if (selected is not null && _service is { IsBusy: false, Details: null, DetailsMessage: null })
+            _service.Inspect(selected);
         RenderDetails();
     }
 

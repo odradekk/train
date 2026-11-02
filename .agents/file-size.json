@@ -127,7 +127,7 @@
     "Tests/Engine/ProductionPopulationUiTests.cs": 6886,
     "Tests/Engine/RailwayWorkUiTests.cs": 6017,
     "Tests/Engine/RenderingResourceTests.cs": 10334,
-    "Tests/Engine/SaveTests.cs": 5310,
+    "Tests/Engine/SaveTests.cs": 5287,
     "Tests/Engine/SceneDisplayTests.cs": 25076,
     "Tests/Engine/SceneUiTests.cs": 6465,
     "Tests/Engine/UiTests.cs": 7086,

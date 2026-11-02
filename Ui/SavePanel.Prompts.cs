@@ -15,6 +15,7 @@ public partial class SavePanel
     private PromptKind _promptKind;
     private LeavePrompt? _shownLeave;
     private Control? _beforePrompt;
+    private bool _closeOverlayOnCancel;
 
     private enum PromptKind { None, Rename, Delete, Overwrite, Leave, Missing }
 
@@ -50,6 +51,7 @@ public partial class SavePanel
 
     private void ShowPrompt(PromptKind kind, string title, string message, string confirm, Action action)
     {
+        if (!_promptMask.Visible) _closeOverlayOnCancel = !Visible;
         if (!Visible) Open();
         if (!_promptMask.Visible) _beforePrompt = GetViewport().GuiGetFocusOwner();
         _promptKind = kind;
@@ -68,6 +70,7 @@ public partial class SavePanel
     private void ClosePrompt()
     {
         _promptMask.Hide(); _promptKind = PromptKind.None;
+        _closeOverlayOnCancel = false;
         _panel.FocusBehaviorRecursive = FocusBehaviorRecursiveEnum.Inherited;
         if (Visible && GodotObject.IsInstanceValid(_beforePrompt) && _beforePrompt!.IsVisibleInTree()) _beforePrompt.GrabFocus();
         _beforePrompt = null;
@@ -75,9 +78,11 @@ public partial class SavePanel
 
     private void CancelPrompt()
     {
+        var closeOverlay = _closeOverlayOnCancel;
         if (_promptKind == PromptKind.Leave) _service!.ChooseLeave(LeaveChoice.Cancel);
         else if (_promptKind == PromptKind.Missing) _service!.Cancel();
         ClosePrompt();
+        if (closeOverlay) Hide();
     }
 
     private void UpdatePrompts()

@@ -1,9 +1,13 @@
+using System.Collections.Immutable;
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
+using Train.Core.Contracts;
+using Train.Core.ContractSupport;
+using System.Text.RegularExpressions;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -28,6 +32,15 @@ public partial class SaveTests
             owned.Add(app.Saves!.Status!.Identity.Id);
             var activeSession = setup.Session!;
             var binding = app.Host!.GetStatus()!.Binding;
+            var original = UiWorldFixture.Save(HostCoreScenario.Input);
+            var detailView = new FixedCoreReadView(original.Position, original.InputIdentity)
+            {
+                World = original.World with { Nodes = original.World.Nodes.Select(node => node with
+                    { Occupant = new NodeOccupant.Settlement(new(node.Id.Value), SettlementRelation.PlayerOwned) }).ToImmutableArray() },
+                Economy = original.Economy with { Wallet = new(37) }
+            };
+            setup.Core.PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(
+                new ScriptedCoreCandidate(new ScriptedCoreSession(detailView), HostCoreScenario.References));
             var package = new PackageMetadata(new("fixture:save-pack"), "测试内容包", "1.2.3", [], []);
             setup.Content!.DecodeCaptureCall = payload => payload == "engine content"
                 ? new ContentResult<IContentCapture>.Success(new FixedContentCapture(payload, referencedPackages: [package]))
@@ -35,7 +48,7 @@ public partial class SaveTests
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
-            var name = "search-" + Guid.NewGuid().ToString("N");
+            const string name = "搜索验证存档";
             await _input.Enter(Find<LineEdit>(panel, "SaveName"), name);
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"));
             await _input.WaitUntil(() => !app.Saves.HasPendingWork && !app.Saves.Status!.Unsaved);
@@ -48,20 +61,22 @@ public partial class SaveTests
                 "搜索无匹配时没有显示空结果说明。");
             await UiCapture.Capture(TestScene, "saves-search-no-match");
             await _input.Enter(search, name);
+            RequireNoSaveIdentity(panel, app.Saves.Status!.Identity.Id);
             Require(list.ItemCount == 1 && list.GetItemText(0).StartsWith(name + " · ", StringComparison.Ordinal),
                 "搜索没有只保留匹配的手动存档。");
             await _input.ClickItem(list, 0);
             var map = Find<SaveMapPreview>(panel, "MapPreview");
-            await _input.WaitUntil(() => !app.Saves.IsReadingDetails && map.Visible && map.World is not null);
+            await _input.WaitUntil(() => app.Saves.Details is not null && map.Visible && map.World is not null);
             Require(map.IsVisibleInTree() && map.World is { WidthMeters: 1000, HeightMeters: 600 } world &&
                 world.Nodes.Length == 2 && world.Trains.Length == 1,
                 "详情没有显示固定存档的世界地图。");
             Require(panel.FindChildren("*", "Label", true, false).OfType<Label>().Any(label =>
-                label.IsVisibleInTree() && label.Text.Contains("资金　0", StringComparison.Ordinal) &&
-                label.Text.Contains("列车　1 列", StringComparison.Ordinal) &&
-                label.Text.Contains("自有聚居地　0 座", StringComparison.Ordinal) &&
-                label.Text.Contains("内容包　测试内容包 1.2.3", StringComparison.Ordinal)),
+                label.IsVisibleInTree() && Regex.IsMatch(label.Text, @"资金\s+37\b") &&
+                Regex.IsMatch(label.Text, @"列车\s+1\b") &&
+                Regex.IsMatch(label.Text, @"自有聚居地\s+2\b") &&
+                label.Text.Contains(package.Name + " " + package.Version, StringComparison.Ordinal)),
                 "详情没有用玩家文本显示资金、数量和内容包名称。");
+            RequireNoSaveIdentity(panel, app.Saves.Status!.Identity.Id);
             Require(app.Host.GetStatus()!.Binding == binding && activeSession.DisposeCount == 0,
                 "仅选择和预读详情替换了活动会话。");
             await UiCapture.Capture(TestScene, "saves-selected-details");
@@ -100,7 +115,7 @@ public partial class SaveTests
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
-            var name = "delete-" + Guid.NewGuid().ToString("N");
+            const string name = "删除验证存档";
             await _input.Enter(Find<LineEdit>(panel, "SaveName"), name);
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"));
             await _input.WaitUntil(() => !app.Saves.HasPendingWork && !app.Saves.Status!.Unsaved);
@@ -127,6 +142,7 @@ public partial class SaveTests
             await UiCapture.Capture(TestScene, "saves-main-menu-list");
             await _input.Activate(UiTestInput.SaveButton(panel, "删除"));
             await _input.WaitUntil(() => UiTestInput.SavePromptVisible(panel, "删除存档"));
+            RequireNoSaveIdentity(panel, identity.Id);
             Require(Find<Label>(panel, "PromptMessage").Text.Contains(name, StringComparison.Ordinal) &&
                 File.ReadAllBytes(automatic).SequenceEqual(automaticBytes), "删除确认前改写了选中文件或未指明目标。");
             await UiCapture.Capture(TestScene, "saves-delete-confirmation");
@@ -179,7 +195,7 @@ public partial class SaveTests
             await _input.ClickItem(list, row);
             await _input.Activate(UiTestInput.SaveButton(panel, "重命名"));
             await _input.WaitUntil(() => UiTestInput.SavePromptVisible(panel, "重命名存档"));
-            var name = "renamed-" + Guid.NewGuid().ToString("N");
+            const string name = "改名验证存档";
             var edit = Find<LineEdit>(panel, "PromptName");
             Require(edit.IsVisibleInTree() && edit.Text == identity.Name, "重命名没有预填选中存档名称。");
             await _input.Enter(edit, name);
@@ -198,5 +214,16 @@ public partial class SaveTests
                 "改名后的存档不能通过新名称搜索。");
         }
         finally { await Cleanup(fixture, app, owned); }
+    }
+
+    private static void RequireNoSaveIdentity(SavePanel panel, Guid identity)
+    {
+        var list = Find<ItemList>(panel, "Saves");
+        var text = Enumerable.Range(0, list.ItemCount).Select(list.GetItemText)
+            .Concat(panel.FindChildren("*", "Label", true, false).OfType<Label>()
+                .Where(label => label.IsVisibleInTree()).Select(label => label.Text));
+        Require(text.All(value => !value.Contains(identity.ToString(), StringComparison.OrdinalIgnoreCase) &&
+            !value.Contains(identity.ToString("N"), StringComparison.OrdinalIgnoreCase)),
+            "存档列表、详情或确认提示泄露了存档身份编号。");
     }
 }
