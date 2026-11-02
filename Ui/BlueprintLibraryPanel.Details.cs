@@ -106,11 +106,10 @@ internal partial class BlueprintLibraryPanel
     {
         if (draft.Target is DraftTarget.Instance { Id: var id })
         {
-            if (_service.Host.GetStatus()?.View is not { } view || view.FindInstance(id) is not Lookup<InstanceView>.Found instance)
+            if (_service.Host.GetStatus()?.View is not { } view || view.FindInstance(id) is not Lookup<InstanceView>.Found)
                 return "改装：原车辆或建筑已不存在。";
-            if (id is InstanceId.Vehicle vehicle && instance.Value.Details is InstanceDetails.Vehicle { Train: { } train } &&
-                view.FindTrain(train) is Lookup<TrainView>.Found found)
-                return $"改装：列车 {train.Value} 的第 {found.Value.Vehicles.IndexOf(vehicle.Id) + 1} 辆车。";
+            if (id is InstanceId.Vehicle vehicle && EconomyPanels.TrainVehicleName(view, vehicle.Id) is { } name)
+                return $"改装：{name}。";
             return id is InstanceId.Vehicle ? "改装：停放车辆。" : "改装：建筑。";
         }
         var user = draft.Target is DraftTarget.UserBlueprint;

@@ -75,7 +75,7 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         _trains.Text = "在站列车\n" + Join(trains.Select(train => $"列车 {train.Id.Value} · {WorldPanels.Activity(train.Activity)}"), "没有列车在站");
         _jobs.Text = "进行中的委托\n" + Join(settlement.CommissionJobs.Select(view.FindJob)
             .OfType<Lookup<JobView>.Found>().Select(item => item.Value).OfType<JobView.Construction>()
-            .Select(job => DescribeJob(job.Value)), "没有进行中的委托");
+            .Select(job => DescribeJob(job.Value, content)), "没有进行中的委托");
         _leases.Text = "租用仓库\n" + Join(locals.Where(item => item.Lease is not null).Select(item =>
             $"用量 {item.Inventory.Used}/{item.Lease!.Capacity} · {UiInput.FormatTime(item.Lease.ExpiresAtStep)}到期" +
             (item.Lease.Expired ? " · 已到期，只能取出" : "")), "尚未租用仓库");
@@ -115,8 +115,28 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         return "";
     }
 
-    private static string DescribeJob(ConstructionJobView job) =>
-        $"{EconomyPanels.ServiceKind(job.Kind)} · {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job)}";
+    private string DescribeJob(ConstructionJobView job, IContentView content)
+    {
+        string DesignName(DesignHash design) =>
+            content.FindDesign(design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
+                ? complete.Definition.Display.Name : "设计内容缺失";
+
+        string VehicleName(VehicleId id)
+        {
+            if (_view.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) return "车辆已不存在";
+            if (EconomyPanels.TrainVehicleName(_view, id) is { } name) return name;
+            return $"停放车辆（{DesignName(found.Value.Design)}）";
+        }
+
+        var name = job.Target switch
+        {
+            ConstructionTarget.NewVehicle target => DesignName(target.Design),
+            ConstructionTarget.Existing { Instance: InstanceId.Vehicle vehicle } => VehicleName(vehicle.Id),
+            _ => "施工对象不可用"
+        };
+        return $"正在{EconomyPanels.ServiceKind(job.Kind)}{name} · 进度 {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job)}" +
+            (job.State == ConstructionState.Working ? "" : $" · {EconomyPanels.ServiceState(job.State)}");
+    }
 
     private static string Join(IEnumerable<string> lines, string empty)
     {
