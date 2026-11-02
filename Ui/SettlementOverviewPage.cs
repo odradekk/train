@@ -124,9 +124,7 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         string VehicleName(VehicleId id)
         {
             if (_view.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) return "车辆已不存在";
-            if (found.Value.Details is InstanceDetails.Vehicle { Train: { } trainId } &&
-                _view.FindTrain(trainId) is Lookup<TrainView>.Found train)
-                return $"列车 {trainId.Value} 的第 {train.Value.Vehicles.IndexOf(id) + 1} 辆车";
+            if (EconomyPanels.TrainVehicleName(_view, id) is { } name) return name;
             return $"停放车辆（{DesignName(found.Value.Design)}）";
         }
 
