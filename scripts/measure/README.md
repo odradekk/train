@@ -116,7 +116,7 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 
 斜率单位 bytes/hour。未覆盖终点的段保留，标 `reason=partial_hour`、斜率 null；不足两个不同时间点或缺计数也为 null。`by_hour` 汇总同一小时跨轮中位数和范围，缺轮计未知，不补 0。
 
-`scene-soak.memory_assessment.<侧>` 从原始报告和旁车复判。`runs` 保留单轮结果；`retired_heap_delta` 要求每轮 ≤100 MiB，`private_growth_median` 要求第 2 小时斜率中位数 ≤100 MiB/h，`private_growth_maximum` 要求每轮 ≤200 MiB/h。有效轮不足 3 一律 `unknown`，多于 3 轮使用全部；至少 3 轮时，已知超限为失败，未知轮阻止通过。各项提供实测值、阈值、超出量及有效／未知轮数。
+`scene-soak.memory_assessment.<侧>` 从原始报告和旁车复判。`runs` 保留单轮结果；`retired_heap_delta` 要求每轮 ≤100 MiB，`private_growth_median` 要求第 2 小时斜率中位数 ≤100 MiB/h，`private_growth_maximum` 要求每轮 ≤200 MiB/h。有效轮不足 3 一律 `unknown`，多于 3 轮全部纳入。至少 3 轮时，最大值遇已知超限可判失败；有未知轮的中位数只有全部轮次中超过半数已知超限才判失败，否则 `unknown`。未知轮阻止通过。
 
 配套文件缺失、损坏或截断时整份未知，保留原因。GC 占比取有效报告 `identity.scene_budget.soak.samples[]`，按 `view`／`speed` 分组，Σ`pause_seconds`/Σ`seconds`；这是包含逐帧序列化、世界计数等测量分配的上界，不扣除测量影响。主动 GC 另记于 `scene-collections.jsonl`，不计入占比。
 

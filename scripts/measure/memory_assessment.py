@@ -73,8 +73,9 @@ def combine(items, threshold, rule, statistic=max, unit='bytes'):
     value = statistic(values) if values else None
     reason = 'unknown_runs' if unknown else 'insufficient_valid_runs' if len(values) < 3 else None
     result = check(value, threshold, rule, reason, unit)
-    # 已知超限足以否定通过；缺失证据仍保留在 reason 和计数中。
-    if number(value) and value > threshold and len(values) >= 3:
+    # 未知轮可能拉低中位数，须全部轮次中过半已知超限；最大值只需一轮超限。
+    if (number(value) and value > threshold and len(values) >= 3 and
+            (statistic is not median or sum(sample > threshold for sample in values) * 2 > len(items))):
         result['status'] = 'failed'
         result['excess'] = value - threshold
     result.update(valid_runs=len(values), unknown_runs=unknown)

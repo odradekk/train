@@ -89,7 +89,7 @@ class SoakMemoryTests(unittest.TestCase):
         self.add(growth=200)
         self.assertEqual('failed', self.result()['private_growth_median']['status'])
 
-    def test_known_excess_survives_unknown_runs(self):
+    def test_insufficient_valid_runs_are_unknown_even_with_known_excess(self):
         self.add(growth=201, delta=101)
         self.add(seconds=1)
         result = self.result()
@@ -181,6 +181,28 @@ class SoakMemoryTests(unittest.TestCase):
             self.assertEqual('failed', result[key]['status'])
             self.assertEqual(1, result[key]['unknown_runs'])
             self.assertEqual(excess, result[key]['excess'])
+
+    def test_unknown_median_needs_a_strict_majority_of_all_runs_above_limit(self):
+        for lower in (50, 100):
+            with self.subTest(lower=lower):
+                self.runs = []
+                for growth in (lower, 150, 160, 0): self.add(growth=growth)
+                report, records = self.runs[-1][:2]
+                self.runs[-1] = report, records, '{}'
+                item = self.result()['private_growth_median']
+                self.assertEqual('unknown', item['status'])
+                self.assertEqual(150 * MIB, item['measured'])
+                self.assertEqual((3, 1), (item['valid_runs'], item['unknown_runs']))
+                self.assertIsNone(item['excess'])
+
+    def test_unknown_median_does_not_hide_a_known_maximum_excess(self):
+        for growth in (50, 150, 201, 0): self.add(growth=growth)
+        report, records = self.runs[-1][:2]
+        self.runs[-1] = report, records, '{}'
+        result = self.result()
+        self.assertEqual('unknown', result['private_growth_median']['status'])
+        self.assertEqual('failed', result['private_growth_maximum']['status'])
+        self.assertEqual(MIB, result['private_growth_maximum']['excess'])
 
     def test_truncated_operations_never_publish_valid_prefix(self):
         for _ in range(3): self.add()
