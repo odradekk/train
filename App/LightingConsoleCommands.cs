@@ -7,6 +7,7 @@ namespace Train.App;
 internal sealed class LightingConsoleCommands(
     TrainLogger logger, Func<InspectionLighting?> current, Action<InspectionLighting> apply)
 {
+    internal const string Usage = "用法：lighting [daylight|overcast|night|restore]；请省略参数查询，或选择一种光照模式。";
     internal const string ModeEventId = "lighting_mode";
     internal const string UsageEventId = "lighting_usage";
     internal const string UnavailableEventId = "lighting_unavailable";
@@ -24,13 +25,13 @@ internal sealed class LightingConsoleCommands(
         if (arguments.Count > 1 || arguments.Count == 1 && requested is null)
         {
             logger.Warning(ConsoleCommandDispatcher.Category, UsageEventId,
-                "用法: lighting [daylight|overcast|night|restore]");
+                Usage);
             return;
         }
         var mode = current();
         if (mode is null)
         {
-            logger.Warning(ConsoleCommandDispatcher.Category, UnavailableEventId, "检查光照不可用：没有世界场景视图。");
+            logger.Warning(ConsoleCommandDispatcher.Category, UnavailableEventId, "检查光照不可用：没有世界场景视图，请先创建或读取存档后重试。");
             return;
         }
         if (requested is { } selected)

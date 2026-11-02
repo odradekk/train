@@ -81,9 +81,8 @@ public partial class EditorUiTests
             session.ApplyCall = _ => new SceneResult<EditState>.Failure([.. conflicts.Select(conflict => conflict.Problem)]);
             await new UiTestInput(TestScene).Click(fixture.Controller.VisibleArea.GetCenter());
             Require(fixture.Editor.HasError, "实际提交失败必须报告错误。");
-            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
             foreach (var text in new[] { "occupancy_conflict", "The brush intersects", "edit_locked", "locked-device", "missing-package", "禁止旋转" })
-                Require(ConsoleShows(fixture, text), $"提交失败控制台缺少：{text}");
+                Require(ConsoleLogs(fixture, text), $"提交失败控制台日志缺少：{text}");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }

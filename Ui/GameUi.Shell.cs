@@ -19,6 +19,13 @@ public partial class GameUi
     private WorldListKind? _listKind;
     private int _authoringMenuIndex = -1;
     internal Action? OpenDeveloperTools { get; set; }
+    internal bool CanOpenDeveloperDock => _world.IsVisibleInTree() && _authoringPanel?.IsVisibleInTree() != true;
+
+    internal void SetDeveloperDockHeight(float height)
+    {
+        _shell.BottomInset = height;
+        UpdatePanelArea();
+    }
 
     private void ConfigureShell()
     {

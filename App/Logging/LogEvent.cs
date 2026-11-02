@@ -363,19 +363,28 @@ public static class LogLevelText
         var clipped = string.IsNullOrEmpty(message)
             ? ""
             : message.Length <= MaxFormattedMessageLength ? message : message[..MaxFormattedMessageLength];
+        return FormatLine(ToDisplayName(level), category, eventId, clipped, timestamp, attributes);
+    }
+
+    private static string FormatLine(string level, string? category, string? eventId, string? message,
+        DateTimeOffset timestamp, IReadOnlyDictionary<string, object?>? attributes)
+    {
         var time = timestamp.ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
-        var head = $"[{ToDisplayName(level)}][{time}][{category}][{eventId}]";
+        var head = $"[{level}][{time}][{category}][{eventId}]";
         var tail = FormatAttributes(attributes);
-        if (clipped.Length == 0)
+        if (string.IsNullOrEmpty(message))
             return tail.Length == 0 ? head : $"{head} {tail}";
-        return tail.Length == 0 ? $"{head} {clipped}" : $"{head} {clipped} {tail}";
+        return tail.Length == 0 ? $"{head} {message}" : $"{head} {message} {tail}";
     }
 
     public static string FormatConsole(LogEvent logEvent)
     {
         ArgumentNullException.ThrowIfNull(logEvent);
-        var plain = FormatBounded(logEvent);
-        return Colorize(plain, logEvent.Level, logEvent.EventId == CommandEchoEventId);
+        var level = logEvent.Level switch
+        { LogLevel.Debug => "调试", LogLevel.Info => "信息", LogLevel.Warning => "警告", LogLevel.Error => "错误", _ => ToDisplayName(logEvent.Level) };
+        return string.Join("\n", logEvent.Message.Split('\n').Select(message => Colorize(
+            FormatLine(level, logEvent.Category, logEvent.EventId, message.TrimEnd('\r'), logEvent.Timestamp, logEvent.Attributes),
+            logEvent.Level, logEvent.EventId == CommandEchoEventId)));
     }
 
     private static string FormatAttributes(IReadOnlyDictionary<string, object?>? attributes)

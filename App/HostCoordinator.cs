@@ -13,7 +13,7 @@ internal sealed record ReplayRecording(string Path, SimulationPosition From, Sim
     ImmutableArray<RecordedCommand> Commands, ImmutableArray<RecordingGap> Gaps);
 internal enum OperationKind { NewGame, Restore, Reload, Replay, Edit, Authoring }
 internal enum HostOperationStatus { Committed, CommittedWithWarnings, Rejected, NotAccepted, Faulted, Cancelled, Discarded }
-internal sealed record HostOperationResult(long Operation, OperationKind Kind, HostOperationStatus Status,
+internal sealed record HostOperationResult(long Operation, OperationKind Kind, CommandSource Source, HostOperationStatus Status,
     ImmutableArray<CoreProblem> Problems, ImmutableArray<ContentDiagnostic> Diagnostics, string? FaultCode,
     CoreFault? Fault = null, string? Message = null)
 {
@@ -353,17 +353,15 @@ internal sealed partial class HostCoordinator : IDisposable
             var captured = CaptureCurrent();
             if (captured is CoreResult<ICoreCapture>.Failure rejected)
             {
-                var status = HostOperationStatus.Rejected;
-                LogContentResult(checked(++_nextOperation), null, status.ToString(), false, rejected.Problems);
-                NotifyOperation(new(_nextOperation, OperationKind.Reload, status, rejected.Problems, [], null));
+                LogContentResult(checked(++_nextOperation), null, "Rejected", false, rejected.Problems);
+                NotifyOperation(new(_nextOperation, OperationKind.Reload, source, HostOperationStatus.Rejected, rejected.Problems, [], null));
                 return (0, rejected.Problems[0]);
             }
             if (captured is CoreResult<ICoreCapture>.Faulted failed)
             {
-                var status = HostOperationStatus.Faulted;
-                LogContentResult(checked(++_nextOperation), null, status.ToString(), false,
+                LogContentResult(checked(++_nextOperation), null, "Faulted", false,
                     [new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, [])], failed.Diagnostic);
-                NotifyOperation(new(_nextOperation, OperationKind.Reload, status, [], [], failed.Fault.Code, failed.Fault));
+                NotifyOperation(new(_nextOperation, OperationKind.Reload, source, HostOperationStatus.Faulted, [], [], failed.Fault.Code, failed.Fault));
                 return (0, _active.Driver.Frozen ? Problem("frozen") :
                     new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, []));
             }
@@ -415,7 +413,7 @@ internal sealed partial class HostCoordinator : IDisposable
         _skipNextFrame = true;
         if (operation.Prepared is { } prepared) { Discard(prepared); operation.Cancellation.Dispose(); }
         else _abandoned.Add(operation);
-        NotifyOperation(new(operation.Id, operation.Kind, HostOperationStatus.Cancelled, [], [], null));
+        NotifyOperation(new(operation.Id, operation.Kind, operation.Source, HostOperationStatus.Cancelled, [], [], null));
         return true;
     }
 
@@ -750,7 +748,7 @@ internal sealed partial class HostCoordinator : IDisposable
             prepared?.ContentCandidate?.Report.Diagnostics ?? [];
         fault ??= (prepared?.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Fault;
         faultCode ??= (prepared?.Content as ContentResult<IContentCandidate>.Faulted)?.Code ?? fault?.Code;
-        NotifyOperation(new(operation.Id, operation.Kind, status, problems.IsDefault ? [] : problems,
+        NotifyOperation(new(operation.Id, operation.Kind, operation.Source, status, problems.IsDefault ? [] : problems,
             diagnostics, faultCode, fault, message ?? (prepared?.Content as ContentResult<IContentCandidate>.Faulted)?.Message));
     }
     private void NotifyOperation(HostOperationResult result)

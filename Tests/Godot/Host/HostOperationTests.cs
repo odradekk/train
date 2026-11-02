@@ -68,6 +68,7 @@ public sealed class HostOperationTests
         Assert.AreEqual(HostOperationStatus.Faulted, ended!.Status);
         Assert.AreEqual(OperationKind.Reload, ended.Kind);
         Assert.AreEqual(fault, ended.Fault);
+        Assert.AreEqual(CommandSource.Console, ended.Source);
         Assert.IsTrue(ended.Problems.IsEmpty);
         Assert.IsFalse(fixture.Host.IsBusy);
         fixture.AssertNoUnexpectedFailures();
@@ -108,6 +109,7 @@ public sealed class HostOperationTests
         Assert.AreEqual(OperationKind.Reload, ended!.Kind);
         Assert.AreEqual(HostOperationStatus.Rejected, ended.Status);
         Assert.AreEqual(problem, ended.Problems.Single());
+        Assert.AreEqual(CommandSource.Console, ended.Source);
         Assert.IsFalse(fixture.Host.IsBusy);
         fixture.AssertNoUnexpectedFailures();
     }
@@ -132,6 +134,25 @@ public sealed class HostOperationTests
     }
 
     [TestMethod]
+    [DataRow(CommandSource.Console)]
+    [DataRow(CommandSource.UserInterface)]
+    public void Reload_rejection_preserves_the_request_source(CommandSource source)
+    {
+        using var fixture = new HostFixture();
+        fixture.ReadyHost();
+        fixture.Load = _ => new ContentResult<IContentCandidate>.Failure([
+            new("fixture_missing", ContentDiagnosticSeverity.Error, "load", null, null, "profile", null, "生成配置缺失。")]);
+        HostOperationResult? ended = null;
+        fixture.Host.OperationEnded += result => ended = result;
+        fixture.Host.BeginReload(source);
+        fixture.PumpUntil(() => ended is not null);
+        Assert.AreEqual(HostOperationStatus.Rejected, ended!.Status);
+        Assert.AreEqual(source, ended.Source);
+        Assert.IsFalse(fixture.Host.IsBusy);
+        fixture.AssertNoUnexpectedFailures();
+    }
+
+    [TestMethod]
     public void Successful_restore_notifies_once_and_consumer_failure_does_not_stop_later_consumers()
     {
         using var fixture = new HostFixture();
@@ -144,6 +165,7 @@ public sealed class HostOperationTests
         Assert.AreEqual(1, results.Count);
         Assert.AreEqual(OperationKind.Restore, results[0].Kind);
         Assert.AreEqual(HostOperationStatus.Committed, results[0].Status);
+        Assert.AreEqual(CommandSource.UserInterface, results[0].Source);
         Assert.IsNotNull(fixture.Host.GetStatus());
         fixture.AssertNoUnexpectedFailures();
     }
