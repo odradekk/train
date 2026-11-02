@@ -21,6 +21,8 @@ internal partial class TrainPlanWorkspace : Control
     private IContentView _content = null!;
     private CoreRevision? _revision;
     private readonly List<Row> _rows = [];
+    private PlanRowInput[] _initialRows = [];
+    private bool _initialLoop;
     private Row? _selected;
     private VBoxContainer _stops = null!, _editor = null!, _searchResults = null!;
     private LineEdit _search = null!;
@@ -31,6 +33,22 @@ internal partial class TrainPlanWorkspace : Control
     private PlanEvaluation? _evaluation;
     private bool _available, _stopped, _bindingChoices;
     private string? _submissionError;
+
+    internal bool HasUnsavedChanges
+    {
+        get
+        {
+            if (_loop.ButtonPressed != _initialLoop || _rows.Count != _initialRows.Length) return true;
+            for (var index = 0; index < _rows.Count; index++)
+            {
+                var input = _rows[index].Input;
+                var initial = _initialRows[index];
+                if (input with { GoodsRules = initial.GoodsRules } != initial ||
+                    !(input.GoodsRules ?? []).SequenceEqual(initial.GoodsRules ?? [])) return true;
+            }
+            return false;
+        }
+    }
 
     private sealed class Row(PlanRowInput input, VBoxContainer box, Button select, Label summary, Label problems)
     {
@@ -128,7 +146,14 @@ internal partial class TrainPlanWorkspace : Control
         _search.Text = ""; Search();
         _map.SetWorld(view.World, PlaceName);
         Select(_rows.FirstOrDefault());
+        RememberInputs();
         Show(); Opened?.Invoke(); RefreshState(target.Binding, view, content);
+    }
+
+    private void RememberInputs()
+    {
+        _initialRows = _rows.Select(row => row.Input).ToArray();
+        _initialLoop = _loop.ButtonPressed;
     }
 
     private Row AddRow(PlanRowInput input)
@@ -245,6 +270,7 @@ internal partial class TrainPlanWorkspace : Control
         Validate(); if (_apply.Disabled || _evaluation?.Command is not { } command) return;
         void Error(string text) { _submissionError = CleanError(text); UpdateFooter(); }
         if (_submit(_target, command, Error) is null) return;
+        RememberInputs();
         if (depart && _submit(_target, new CoreCommand.StartTrain(_train), text => Error("计划已保存，发车未成功：" + text)) is null) return;
         Hide();
     }

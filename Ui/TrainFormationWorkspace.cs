@@ -23,6 +23,8 @@ internal partial class TrainFormationWorkspace : Control
     private IContentView _content = null!;
     private CoreRevision? _revision;
     private readonly List<VehicleId> _selection = [];
+    private ImmutableArray<VehicleId> _initialVehicles = [];
+    internal bool HasUnsavedChanges => !_selection.SequenceEqual(_initialVehicles);
     private readonly Dictionary<VehicleId, CheckBox> _checks = [];
     private readonly Dictionary<VehicleId, VBoxContainer> _rows = [];
     private VBoxContainer _available = null!, _ordered = null!;
@@ -91,6 +93,7 @@ internal partial class TrainFormationWorkspace : Control
     {
         _target = target; _node = node; _train = train; _view = view; _content = content; _revision = null;
         _selection.Clear(); _selection.AddRange(vehicles); _checks.Clear(); _rows.Clear();
+        _initialVehicles = vehicles;
         EconomyPanelControls.Clear(_available); EconomyPanelControls.Clear(_ordered);
         _submissionError = null;
         _form.Text = train is null ? "编组并编辑计划" : "保存编组"; _formOnly.Visible = train is null;

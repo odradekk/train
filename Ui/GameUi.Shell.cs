@@ -32,6 +32,12 @@ public partial class GameUi
         _shell.CloseOverlay = CloseOverlay;
         _shell.SceneVisible = () => _scenes?.View.Visible == true;
         _shell.OpenMenu = () => _gameMenu.ShowPopup();
+        _shell.UnsavedWorkspace = () => _shell.WorkspaceContent switch
+        {
+            TrainFormationWorkspace { HasUnsavedChanges: true } => "编组",
+            TrainPlanWorkspace { HasUnsavedChanges: true } => "运行计划",
+            _ => null
+        };
         _formation!.Opened += () => _shell.ShowWorkspace(_formation);
         _plan!.Opened += () => _shell.ShowWorkspace(_plan);
         _economy!.InspectorRequested += SelectObject;
@@ -44,8 +50,8 @@ public partial class GameUi
         _fleetNavigation = Navigation("Fleet", "▰", "车队", () => ToggleList(WorldListKind.Fleet));
         _edgeNavigation = Navigation("Edges", "╱", "线路", () => ToggleList(WorldListKind.Edges));
         Navigation("Nodes", "⌂", "聚居地", () => ToggleList(WorldListKind.Nodes));
-        Navigation("EconomyReports", "▤", "报告", _economy.OpenReports);
-        Navigation("BlueprintLibrary", "◇", "设计", _library.Open);
+        Navigation("EconomyReports", "▤", "报告", () => _shell.RequestWorkspace(_economy.OpenReports));
+        Navigation("BlueprintLibrary", "◇", "设计", () => _shell.RequestWorkspace(_library.Open));
         Navigation("Combats", "⚔", "战斗", () => ToggleList(WorldListKind.Combats));
 
         // ReturnToMap 保持直接位于 Bar/TopBar 下，场景测量通过这个现有入口返回。
