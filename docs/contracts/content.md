@@ -73,7 +73,7 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 
 当前计算支持车辆、建筑、组装体、包内功能复合体及场景模型，连同根最多四层。自有格按 x／y／z 排序，再按子对象锚点递归；路径保留原始输入下标，功能复合体整件占一个编号。复制设计任一层不能有功能性行为，功能复合体只含无功能货物体素且不嵌套；类型、重复锚点、展开后的占格、连通、包络及行为扫格统一校验。布局完整但不合法仍返回 `Complete` 和可算出的属性，`CanConstruct=false`；调色板序号越界或车辆长度超出 Int32 则返回 `Failed`。BOM 对嵌套设备按整件计算，返还单元关联实际部件和结构货物；`DesignInput.AssemblyGoods` 包含所需组装体投影。
 
-恢复／重载中的已保存设计缺定义时返回 `Partial`，保留原引用、编号和编辑锁；缺失体素仍有单格位置，缺失功能复合体占格未知。占位不提供能力、质量、价值、耐久上限或受伤权重，不贡献结构，`CorePlaceholder` 纳入 `Core.Designs`。直接求值缺定义或缺少车辆 `Size`、建筑 `PlotSize`／`Kind` 的新草稿也返回 `Partial`，但 `CorePlaceholder=null`；独立可算的指标和已知小计照常提供，只把依赖缺失项的值标为 `Unknown`。缺定义体素仍可确定占格，因此车辆长度可以已知；缺功能复合体则可能使占格和长度未知。无法形成规范设计身份时 `Scene.Design=null`，不以默认规格补造身份。公开 `EvaluateDesign` 对未传 `compositeIdentity` 的根功能复合体草稿抛 `NotImplementedException`，不能按哈希推断；包创作预览须传入目标定义身份。玩家蓝图保存、建造目标、实例目标及比较入口先拒绝根功能复合体，返回 `design_invalid`；这些路径不尝试推断定义身份。包内缺引用或不合法设计仍排除整包。已有实例的设计正文和哈希保留，当前功能定义的占格变化只令重算结果不合法，不拒绝恢复／重载；新建和改装重新校验。
+恢复／重载中的已保存设计缺定义时返回 `Partial`，保留原引用、编号和编辑锁；缺失体素仍有单格位置，缺失功能复合体占格未知。占位不提供能力、质量、价值、耐久上限或受伤权重，不贡献结构，`CorePlaceholder` 纳入 `Core.Designs`。直接求值缺定义或缺少车辆 `Size`、建筑 `PlotSize`／`Kind` 的新草稿也返回 `Partial`，但 `CorePlaceholder=null`；独立可算的指标和已知小计照常提供，只把依赖缺失项的值标为 `Unknown`。缺定义体素仍可确定占格，因此车辆长度可以已知；缺功能复合体则可能使占格和长度未知。无法形成规范设计身份时 `Scene.Design=null`，不以默认规格补造身份。公开 `EvaluateDesign` 对未传 `compositeIdentity` 的根功能复合体草稿抛 `ArgumentException`，这是调用前置条件，不能按哈希推断；包创作预览须传入目标定义身份。玩家蓝图保存、建造目标、实例目标及比较入口先拒绝根功能复合体，返回 `design_invalid`；这些路径不尝试推断定义身份。包内缺引用或不合法设计仍排除整包。已有实例的设计正文和哈希保留，当前功能定义的占格变化只令重算结果不合法，不拒绝恢复／重载；新建和改装重新校验。
 
 全部调色板项均校验引用、涂装、允许朝向及形状，包括未使用项；哈希只展开实际使用项。名称和说明逐层去掉首尾空白，形状省略在哈希中为 null，场景取当前定义首形状；省略朝向等同 `px_py`。同一设计的编号不因外部定义变化而改变。功能复合体进入 `Core.Goods`，语义修订覆盖占格、质量、价值、能力、耐久、返还规格、转动的轴／枢轴／角度范围及依赖（不含转速）并参与 `CoreInputId`；作为本局所需业务资料引入的组装体进入 `DesignGoods`，不改变该外部输入身份。`FindGood` 支持三类货物，库存清单中的功能复合体引用同样受缺失保护。
 
@@ -146,11 +146,13 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 
 打开时只固定 `mod.json` 与 `resources/` 的文件和目录，不读取包根下的 `.git`、模型源文件或其他资料；资源文件沿用加载器的大小上限。之后 `Read` 与 `PreparePackageWrite` 只使用固定字节，不再访问文件端口，也不要求依赖包已安装。`SourceVersion` 是宿主提供的不透明字符串，原样回显。Mod 元数据来自固定 `mod.json`；没有 manifest 的 core 使用只读的创作元数据（ID／名称为 `core`，版本为 `0.0.0`，作者和依赖为空），这个版本不表示游戏版本或来源身份。
 
-`QueryAuthoringReferences(source, content, edits)` 一次返回全部可引用类别：库存体素、库存蓝图、建筑、场景模型、生物、地貌、聚居地类型、生产流程与回收流程。每项 `AuthoringReferenceChoice` 带 `Kind`、强类型的完整 `Reference` 和 `Display`，供界面按字段筛选并显示名称与完整 ID。候选只来自本包、直接依赖和 core；本包尚未激活也可查询，不包含间接依赖或无关包。
+`QueryAuthoringReferences(source, content, edits)` 一次返回全部可引用类别：库存体素、库存蓝图、建筑、场景模型、生物、地貌、聚居地类型、生产流程与回收流程。每项 `AuthoringReferenceChoice` 带 `Kind`、强类型的完整 `Reference` 和 `Display`，供界面按字段筛选并显示名称与完整 ID。候选只来自本包、直接依赖和 core；本包尚未激活也可查询，不包含间接依赖或无关包。结果先按 `Kind` 排序，再按完整 ID 的 Ordinal 顺序排序。
+
+本包候选使用真实解析器，蓝图还须能由创作视图完整、合法求值。解析失败的同包文件跳过，不阻断其他候选；这些错误由相应定义自己的字段校验报告。
 
 两个创作查询都用 `source` 的固定字节叠加 `edits` 读取本包，用 `content` 读取依赖与 core；`source` 和 `content` 必须由同一内容实现产生。依赖未载入、不可用或版本不足时，整体返回 `Failure`，沿用 `dependency_missing`、`dependency_version`，不以空候选冒充成功。调用不写文件、不发布候选，也不改变输入视图。
 
-`ValidateAuthoringDefinition(source, content, edits, definition)` 只校验目标定义的正文、引用及模板跨字段关系。宿主须把当前捕获的表单作为 `WriteDefinition` 放入 `edits`，并用 `AuthoringDefinitionAddress` 指定目标。正文合法时 `Success` 返回空诊断或警告；预期错误返回 `Failure` 及字段诊断，内部故障返回 `Faulted`。解析器在首个正文错误处停止，不保证一次列出全部错误。此入口不解码 PNG／GLB，不执行整包级联或发布准入检查；字段校验通过不能替代写包前的候选加载。
+`ValidateAuthoringDefinition(source, content, edits, definition)` 只校验目标定义的正文、引用及模板跨字段关系。宿主须把当前捕获的表单作为 `WriteDefinition` 放入 `edits`，并用 `AuthoringDefinitionAddress` 指定目标。正文合法时 `Success` 返回空诊断，当前不产生警告；预期错误返回 `Failure` 及字段诊断，内部故障返回 `Faulted`。不支持的 `DefinitionKind` 抛 `ArgumentException`。解析器在首个正文错误处停止，不保证一次列出全部错误。此入口不解码 PNG／GLB，不执行整包级联或发布准入检查；字段校验通过不能替代写包前的候选加载。
 
 模板草稿包含显示文本，按 `display` 的 `name` 与 `description` 读写。库存项保存体素定义引用或蓝图引用及数量，草稿不判断该蓝图是功能复合体还是组装体。缺少 `display` 的模板草稿在 `/display` 返回 `invalid_field`。
 

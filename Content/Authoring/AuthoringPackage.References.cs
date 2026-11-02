@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Train.Content.Loading;
 using static Train.Content.Loading.DefinitionJson;
@@ -10,7 +9,7 @@ namespace Train.Content.Authoring;
 
 internal sealed partial class AuthoringPackage
 {
-    internal LoadPackage ParsingPackage() => new(_package.Root, "", _package.BuiltIn) { Metadata = Metadata };
+    internal LoadPackage ParsingPackage() => new(_package.Root, "", _package.BuiltIn) { Metadata = Metadata, ImplicitCoreDependency = _package.ImplicitCoreDependency };
     internal ImmutableDictionary<string, ImmutableArray<byte>> Files => _files;
 
     internal AuthoringPackage Overlay(ImmutableArray<C.PackageEdit> edits)
@@ -58,38 +57,21 @@ internal sealed partial class AuthoringPackage
             Fail(field, "必须为有限数值。");
     }
 
-    internal ImmutableArray<C.AuthoringReferenceChoice> References()
+    internal ImmutableArray<C.AuthoringReferenceChoice> References(ContentView basis)
     {
-        var result = ImmutableArray.CreateBuilder<C.AuthoringReferenceChoice>();
-        foreach (var (path, bytes) in _files.OrderBy(file => file.Key, StringComparer.Ordinal))
+        var result = basis.ForAuthoring(this).AuthoringReferences()
+            .Where(choice => choice.Kind is C.AuthoringReferenceKind.InventoryVoxel or C.AuthoringReferenceKind.Building
+                or C.AuthoringReferenceKind.SceneModel or C.AuthoringReferenceKind.Creature or C.AuthoringReferenceKind.InventoryBlueprint)
+            .Where(choice => InitialContentFactory.ReferenceId(choice.Reference).StartsWith(Package.Value + ":", StringComparison.Ordinal))
+            .ToImmutableArray().ToBuilder();
+        foreach (var (path, bytes) in _files)
         {
-            var parts = path.Split('/');
-            if (parts.Length != 3 || parts[0] != "resources") continue;
-            var wire = parts[1] switch { "voxels" => "voxel", "blueprints" => "blueprint", "terrain-types" => "terrain-type", "settlement-types" => "settlement-type", "processes" => "process", _ => null };
-            if (wire is null || !parts[2].EndsWith("." + wire + ".json", StringComparison.Ordinal)) continue;
-            using var document = Parse(bytes, path);
-            var root = document.RootElement;
-            var json = new DefinitionJson(root, ParsingPackage(), path, wire, wire == "terrain-type" ? 2 : wire == "process" ? 1 : 3);
-            var display = Required(root, "display", "");
-            var text = new C.DisplayText(Text(Required(display, "name", "/display"), "/display/name"), Text(Required(display, "description", "/display"), "/display/description"));
-            C.AuthoringReferenceKind? kind = wire switch
-            {
-                "voxel" => root.TryGetProperty("simulation", out _) ? C.AuthoringReferenceKind.InventoryVoxel : null,
-                "terrain-type" => C.AuthoringReferenceKind.TerrainType,
-                "settlement-type" => C.AuthoringReferenceKind.SettlementType,
-                "blueprint" => Text(Required(root, "category", ""), "/category") switch
-                {
-                    "building" => C.AuthoringReferenceKind.Building, "scene_model" => C.AuthoringReferenceKind.SceneModel,
-                    "creature" => C.AuthoringReferenceKind.Creature, "large_equipment" => C.AuthoringReferenceKind.InventoryBlueprint, _ => null
-                },
-                "process" => Text(Required(Required(root, "simulation", ""), "kind", "/simulation"), "/simulation/kind") switch
-                {
-                    "production" or "extraction" => C.AuthoringReferenceKind.ProductionProcess, "recovery" => C.AuthoringReferenceKind.RecoveryProcess,
-                    _ => throw new DefinitionFormatException("/simulation/kind", "未知流程种类。", "invalid_field")
-                },
-                _ => null
-            };
-            if (kind is { } found) result.Add(Choice(found, json.Id, text));
+            if (ContentView.DefinitionFile(path, "terrain-types", "terrain-type") && TerrainParser.Parse(bytes.ToArray(), ParsingPackage(), path) is { } terrain)
+                result.Add(Choice(C.AuthoringReferenceKind.TerrainType, terrain.Id.Value, terrain.Display));
+            else if (ContentView.DefinitionFile(path, "settlement-types", "settlement-type") && SettlementParser.Type(bytes.ToArray(), ParsingPackage(), path) is { } type)
+                result.Add(Choice(C.AuthoringReferenceKind.SettlementType, type.Core.Id.Value, type.Display));
+            else if (ContentView.DefinitionFile(path, "processes", "process") && ProcessParser.Parse(bytes.ToArray(), ParsingPackage(), path) is { } process)
+                result.Add(Choice(process.Reference is K.ProcessRef.Recovery ? C.AuthoringReferenceKind.RecoveryProcess : C.AuthoringReferenceKind.ProductionProcess, process.Id, process.Display));
         }
         return result.ToImmutable();
     }

@@ -105,9 +105,7 @@ internal sealed partial class WorldLoader
                 if (loaded is not null) resolvedTerrains[terrain.Id] = loaded;
             }
             foreach (var (package, type) in _types.Where(t => Active(t.Package)))
-                foreach (var terrain in type.Source.Core.PreferredTerrain)
-                    references.Need(package, type.Source.Path, new C.ContentReference.Core(new K.CoreDefinitionReference.SettlementType(type.Source.Core.Id)),
-                        terrain.Value, terrainIndex.ContainsKey(terrain), "/simulation/preferred_terrain");
+                ResolveType(package, type.Source, references, terrainIndex.ContainsKey);
             foreach (var (package, rule) in _rules.Where(r => Active(r.Package)))
                 ResolveRule(package, rule, references);
             foreach (var (package, process) in _processes.Where(p => Active(p.Package)))

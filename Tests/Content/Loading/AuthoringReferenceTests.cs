@@ -111,6 +111,104 @@ public sealed class AuthoringReferenceTests
             new C.ContentReference.Core(new Train.Core.Contracts.CoreDefinitionReference.Voxel(new("core:block")))).Display.Name);
     }
 
+    [TestMethod]
+    [DataRow(C.AuthoringReferenceKind.InventoryVoxel, "block", false)]
+    [DataRow(C.AuthoringReferenceKind.InventoryVoxel, "block", true)]
+    [DataRow(C.AuthoringReferenceKind.TerrainType, "plains", false)]
+    [DataRow(C.AuthoringReferenceKind.TerrainType, "plains", true)]
+    [DataRow(C.AuthoringReferenceKind.SettlementType, "farm", false)]
+    [DataRow(C.AuthoringReferenceKind.SettlementType, "farm", true)]
+    [DataRow(C.AuthoringReferenceKind.Building, "station", false)]
+    [DataRow(C.AuthoringReferenceKind.Building, "station", true)]
+    [DataRow(C.AuthoringReferenceKind.SceneModel, "scene", false)]
+    [DataRow(C.AuthoringReferenceKind.SceneModel, "scene", true)]
+    [DataRow(C.AuthoringReferenceKind.Creature, "creature", false)]
+    [DataRow(C.AuthoringReferenceKind.Creature, "creature", true)]
+    [DataRow(C.AuthoringReferenceKind.InventoryBlueprint, "device", false)]
+    [DataRow(C.AuthoringReferenceKind.InventoryBlueprint, "device", true)]
+    [DataRow(C.AuthoringReferenceKind.ProductionProcess, "test", false)]
+    [DataRow(C.AuthoringReferenceKind.ProductionProcess, "test", true)]
+    [DataRow(C.AuthoringReferenceKind.RecoveryProcess, "recover", false)]
+    [DataRow(C.AuthoringReferenceKind.RecoveryProcess, "recover", true)]
+    public void Every_reference_kind_is_available_from_the_source_or_a_direct_dependency(C.AuthoringReferenceKind kind, string id, bool fromDependency)
+    {
+        const string dependency = "11111111-1111-4111-8111-111111111111";
+        const string own = "44444444-4444-4444-8444-444444444444";
+        var fixture = WorldContentFixtures.InitializedTemplate();
+        var creature = DesignFixtures.Blueprint("creature");
+        creature["category"] = "creature";
+        creature["simulation"] = JsonNode.Parse("""{"behaviors":{"creature":{"hp":20,"speed":3,"retreat_threshold":0.25,"raid_duration":10}}}""");
+        creature["layout"]!["palette"]![0]!["voxel"] = "scenery";
+        WorldContentFixtures.AddBlueprint(fixture, creature);
+        ProcessLoadingTests.Add(fixture, ProcessLoadingTests.Process("recovery", "recover"));
+        var root = new C.ContentRoot("unactivated-source");
+        Copy("resources", ContentFixture.Mods, dependency + "/");
+        Copy("resources", root, "");
+        fixture.AddFile(ContentFixture.Mods, dependency + "/mod.json", Manifest(dependency));
+        fixture.AddFile(root, "mod.json", Manifest(own, dependency));
+        fixture.Installation = fixture.Installation with { EnabledMods = [new(dependency)] };
+        using var content = fixture.Load();
+        var factory = ContentFactory.Create();
+        var source = Success(factory.OpenAuthoringPackage(root, new(own), new("fixed"), fixture));
+        var choices = Success(factory.QueryAuthoringReferences(source, content.View, []));
+        var package = fromDependency ? dependency : own;
+        var choice = choices.Single(choice => choice.Kind == kind && ReferenceId(choice.Reference) == package + ":" + id);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(choice.Display.Name));
+
+        void Copy(string path, C.ContentRoot target, string prefix)
+        {
+            var entries = ((C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success)fixture.Enumerate(new(ContentFixture.BuiltIn, path))).Value;
+            foreach (var entry in entries)
+                if (entry.Kind == C.ContentEntryKind.Directory) Copy(path + "/" + entry.Name, target, prefix);
+                else
+                {
+                    var file = path + "/" + entry.Name;
+                    var bytes = ((C.ContentIoResult<ImmutableArray<byte>>.Success)fixture.Read(new(ContentFixture.BuiltIn, file), 1024 * 1024)).Value;
+                    fixture.AddFile(target, prefix + file, bytes.ToArray());
+                }
+        }
+    }
+
+    private static string ReferenceId(C.ContentReference reference) => reference switch
+    {
+        C.ContentReference.Blueprint blueprint => blueprint.Address.Id.Value,
+        C.ContentReference.Core { Definition: Train.Core.Contracts.CoreDefinitionReference.Voxel voxel } => voxel.Id.Value,
+        C.ContentReference.Core { Definition: Train.Core.Contracts.CoreDefinitionReference.Terrain terrain } => terrain.Id.Value,
+        C.ContentReference.Core { Definition: Train.Core.Contracts.CoreDefinitionReference.SettlementType type } => type.Id.Value,
+        C.ContentReference.Core { Definition: Train.Core.Contracts.CoreDefinitionReference.Creature creature } => creature.Id.Value,
+        C.ContentReference.Core { Definition: Train.Core.Contracts.CoreDefinitionReference.Process { Id: Train.Core.Contracts.ProcessRef.Production process } } => process.Definition.Value,
+        C.ContentReference.Core { Definition: Train.Core.Contracts.CoreDefinitionReference.Process { Id: Train.Core.Contracts.ProcessRef.Recovery process } } => process.Definition.Value,
+        _ => throw new AssertFailedException()
+    };
+
+    [TestMethod]
+    public void A_broken_sibling_is_skipped_and_diagnosed_only_in_its_own_form()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var content = fixture.Load();
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/blueprints/broken.blueprint.json", "{");
+        var factory = ContentFactory.Create();
+        var source = Open(factory, fixture);
+        var choices = Success(factory.QueryAuthoringReferences(source, content.View, []));
+        Assert.IsTrue(choices.Any(choice => choice.Kind == C.AuthoringReferenceKind.Building));
+        Success(factory.ValidateAuthoringDefinition(source, content.View, [], new(C.DefinitionKind.SettlementType, "farm")));
+        Assert.IsInstanceOfType<C.ContentResult<ImmutableArray<C.ContentDiagnostic>>.Failure>(
+            factory.ValidateAuthoringDefinition(source, content.View, [], new(C.DefinitionKind.Blueprint, "broken")));
+    }
+
+    [TestMethod]
+    public void An_incomplete_building_is_not_offered_as_a_usable_reference()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var content = fixture.Load();
+        WorldContentFixtures.Change(fixture, "resources/blueprints/station.blueprint.json",
+            json => json["layout"]!["palette"]![0]!["voxel"] = "absent");
+        var factory = ContentFactory.Create();
+        var source = Open(factory, fixture);
+        var choices = Success(factory.QueryAuthoringReferences(source, content.View, []));
+        Assert.IsFalse(choices.Any(choice => choice.Reference == new C.ContentReference.Blueprint(new(C.BlueprintLibrary.Packages, new("core:station")))));
+    }
+
     internal static C.IAuthoringPackage Open(C.IContentFactory factory, ContentFixture fixture) =>
         Success(factory.OpenAuthoringPackage(ContentFixture.BuiltIn, new("core"), new("fixed"), fixture));
 

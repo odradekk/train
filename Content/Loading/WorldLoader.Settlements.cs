@@ -7,6 +7,14 @@ namespace Train.Content.Loading;
 
 internal sealed partial class WorldLoader
 {
+    internal static void ResolveType(LoadPackage package, ParsedSettlementType type, References references,
+        Func<K.TerrainTypeId, bool> terrainPresent)
+    {
+        var subject = new C.ContentReference.Core(new K.CoreDefinitionReference.SettlementType(type.Core.Id));
+        foreach (var terrain in type.Core.PreferredTerrain)
+            references.Need(package, type.Path, subject, terrain.Value, terrainPresent(terrain), "/simulation/preferred_terrain");
+    }
+
     internal static LoadedSettlementTemplate? ResolveTemplate(LoadPackage package, ParsedSettlementTemplate source,
         References references, bool typePresent, Dictionary<string, ParsedProcess> processes)
     {

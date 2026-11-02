@@ -15,7 +15,7 @@ public sealed class DesignEvaluationFactoryTests
     {
         var view = new FixedContentView(HostContentScenario.CreateProjection(new("fixture")));
         var draft = new DesignDraft(new("设备", "测试设备"),
-            new DesignSpecification.FunctionalComposite([], null), new([], [], []));
+            namedRoot ? new DesignSpecification.FunctionalComposite([], null) : new DesignSpecification.Vehicle(SizeClass.Small), new([], [], []));
         CompositeDefinitionId? identity = namedRoot ? new("fixture:engine") : null;
         var result = new ContentResult<DesignEvaluation>.Faulted("fixture", "configured result", null);
         IContentFactory factory = new ScriptedContentFactory

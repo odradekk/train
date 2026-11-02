@@ -15,8 +15,8 @@ internal sealed partial class InitialContentFactory
         return EditResult(() =>
         {
             package = AuthoringSource(package, view, edits);
-            var allowed = package.Metadata.Dependencies.Select(dependency => dependency.Package).Append(new C.PackageId("core")).ToHashSet();
-            return new C.ContentResult<ImmutableArray<C.AuthoringReferenceChoice>>.Success(package.References()
+            var allowed = package.Metadata.Dependencies.Select(dependency => dependency.Package).ToHashSet();
+            return new C.ContentResult<ImmutableArray<C.AuthoringReferenceChoice>>.Success(package.References(view)
                 .Concat(view.AuthoringReferences().Where(choice => ReferenceId(choice.Reference).Split(':')[0] != package.Package.Value
                     && allowed.Contains(new(ReferenceId(choice.Reference).Split(':')[0]))))
                 .OrderBy(choice => choice.Kind).ThenBy(choice => ReferenceId(choice.Reference), StringComparer.Ordinal).ToImmutableArray());
@@ -44,16 +44,9 @@ internal sealed partial class InitialContentFactory
     private static AuthoringPackage AuthoringSource(AuthoringPackage package, ContentView view, ImmutableArray<C.PackageEdit> edits)
     {
         package = package.Overlay(edits);
-        for (var index = 0; index < package.Metadata.Dependencies.Length; index++)
-        {
-            var dependency = package.Metadata.Dependencies[index];
-            var loaded = view.Packages.FirstOrDefault(status => status.Metadata?.Id == dependency.Package && status.State == C.PackageState.Available);
-            if (loaded is null) throw new DefinitionFormatException($"/dependencies/{index}", "依赖包未载入：" + dependency.Package.Value, "dependency_missing");
-            if (PackageLoader.CompareVersions(loaded.Metadata!.Version, dependency.MinimumVersion) < 0)
-                throw new DefinitionFormatException($"/dependencies/{index}/min_version", "依赖包版本过低：" + dependency.Package.Value, "dependency_version");
-        }
-        if (package.Package.Value != "core" && !view.Packages.Any(status => status.Metadata?.Id.Value == "core" && status.State == C.PackageState.Available))
-            throw new DefinitionFormatException("/dependencies", "core 内容包未载入。", "dependency_missing");
+        var parser = package.ParsingPackage();
+        if (PackageLoader.FirstDependencyProblem(parser, view.Packages) is { } problem)
+            throw new DefinitionFormatException(problem.Field, problem.Message, problem.Code);
         return package;
     }
 

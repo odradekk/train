@@ -41,8 +41,7 @@ internal sealed partial class ContentView
         _blueprints = records.ToFrozenDictionary();
         foreach (var draft in drafts.OrderBy(draft => draft.Definition.Specification is C.DesignSpecification.FunctionalComposite ? 0 : 1))
         {
-            var evaluation = DesignEvaluator.Evaluate(this, draft.Definition, compositeIdentity:
-                draft.Definition.Specification is C.DesignSpecification.FunctionalComposite ? new K.CompositeDefinitionId(draft.Address.Id.Value) : null);
+            var evaluation = DesignEvaluator.Evaluate(this, draft);
             if (evaluation is not C.DesignEvaluation.Complete { IsValid: true } complete) continue;
             records[draft.Address] = new(draft.Address, complete.Definition, [], complete);
             _blueprints = records.ToFrozenDictionary();

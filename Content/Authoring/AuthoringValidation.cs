@@ -24,7 +24,7 @@ internal static class AuthoringValidation
         };
         if (parsed is null) return parser.Diagnostics.ToImmutableArray();
         if (parsed is ParsedVoxel) return [];
-        var choices = package.References().Concat(basis.AuthoringReferences().Where(choice =>
+        var choices = package.References(basis).Concat(basis.AuthoringReferences().Where(choice =>
             !InitialContentFactory.ReferenceId(choice.Reference).StartsWith(package.Package.Value + ":", StringComparison.Ordinal))).ToArray();
         var known = choices.Select(choice => InitialContentFactory.ReferenceId(choice.Reference)).ToHashSet(StringComparer.Ordinal);
         var view = basis.ForAuthoring(package);
@@ -32,8 +32,7 @@ internal static class AuthoringValidation
         switch (parsed)
         {
             case ParsedBlueprint blueprint:
-                var evaluation = DesignEvaluator.Evaluate(view, blueprint.Definition, compositeIdentity:
-                    blueprint.Definition.Specification is C.DesignSpecification.FunctionalComposite ? new K.CompositeDefinitionId(blueprint.Address.Id.Value) : null);
+                var evaluation = DesignEvaluator.Evaluate(view, blueprint);
                 var diagnostics = evaluation switch
                 {
                     C.DesignEvaluation.Complete complete => complete.Diagnostics,
@@ -45,9 +44,8 @@ internal static class AuthoringValidation
                     parser.Reject(diagnostic.Code, path, diagnostic.Field, diagnostic.Message, new C.ContentReference.Blueprint(blueprint.Address), diagnostic.Element);
                 break;
             case ParsedSettlementType type:
-                foreach (var terrain in type.Core.PreferredTerrain)
-                    references.Need(parser, path, new C.ContentReference.Core(new K.CoreDefinitionReference.SettlementType(type.Core.Id)), terrain.Value,
-                        choices.Any(choice => choice.Reference == new C.ContentReference.Core(new K.CoreDefinitionReference.Terrain(terrain))), "/simulation/preferred_terrain");
+                WorldLoader.ResolveType(parser, type, references, terrain =>
+                    choices.Any(choice => choice.Reference == new C.ContentReference.Core(new K.CoreDefinitionReference.Terrain(terrain))));
                 break;
             case ParsedLair lair: WorldLoader.ResolveLair(parser, lair, references); break;
             case ParsedSettlementTemplate template:

@@ -128,7 +128,7 @@ internal sealed partial class InitialContentFactory : C.IContentFactory
         {
             return new C.ContentResult<C.DesignEvaluation>.Success(DesignEvaluator.Evaluate(view, draft, compositeIdentity: compositeIdentity));
         }
-        catch (NotImplementedException) { throw; }
+        catch (ArgumentException) { throw; }
         catch (Exception exception)
         {
             return new C.ContentResult<C.DesignEvaluation>.Faulted("content_fault", exception.Message, exception.StackTrace);
