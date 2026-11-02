@@ -54,6 +54,11 @@ internal sealed partial class MeasurementRun
             !list.GetItemText(row).StartsWith(name + " · 自动 · ", StringComparison.Ordinal));
         list.Select(index);
         list.EmitSignal(ItemList.SignalName.ItemSelected, index);
+        // 详情和读档共用后台队列，先等详情候选释放，避免将它计入读档耗时。
+        await Wait(() => _app.Saves!.Details is not null ||
+            _app.Saves.DetailsMessage?.StartsWith("无法读取详情", StringComparison.Ordinal) == true);
+        var detailsReady = _app.Saves!.Details is not null;
+        var detailsFailure = _app.Saves.DetailsMessage;
         var button = SceneUiDescendants(panel).OfType<Button>().Single(item => item.Text == "读取");
         var previous = _app.Host!.GetStatus()?.Binding;
         _sceneLoadButton = Seconds();
@@ -78,7 +83,8 @@ internal sealed partial class MeasurementRun
             _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree() && !_app.WorldScenes!.View.Visible &&
             !panel.Visible && !_app.Saves!.IsBusy);
         _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "load-map", button = _sceneLoadButton,
-            completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw }, SceneJson));
+            completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw,
+            details_ready = detailsReady, details_failure = detailsFailure }, SceneJson));
         if (_app.Host!.GetStatus()!.IsReplay) throw new InvalidDataException("测量输入不能是重放。");
         return true;
     }
