@@ -11,6 +11,46 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementAssessmentTests
 {
     [TestMethod]
+    [TestCategory("integration")]
+    [DataRow(0, .003, "passed")]
+    [DataRow(0, .005, "failed")]
+    [DataRow(1, .003, "unknown")]
+    [DataRow(2, .005, "unknown")]
+    public void PreparationIsUnknownWhenAnyOpeningLacksItsOperableSignal(int missing, double seconds, string expected)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "train-operable-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "scene-resource-frames.jsonl"), JsonSerializer.Serialize(new
+            {
+                after_operable = true, excluded_space_change = false,
+                preparation_seconds = seconds, candidate_preparation_seconds = 0, preparation_gc_pause_seconds = 0
+            }));
+            File.WriteAllLines(Path.Combine(directory, "scene-operations.jsonl"), Enumerable.Range(0, missing + 1).Select(index =>
+                JsonSerializer.Serialize(new
+                {
+                    kind = "open", name = "edge-" + index, target = "Edge { Id = 15 }", sample_valid = true,
+                    first_operable = index == 0 ? (double?)10 : null,
+                    click_to_operable_seconds = index == 0 ? (double?).1 : null
+                })));
+            using var report = JsonDocument.Parse(MeasurementReport.Serialize("scene-edge",
+                new Dictionary<string, object?> { ["scene_budget"] = new { resource_work = new { frame_count = 1 } } },
+                Timing(), null, MeasurementEvidence.Read("scene-edge", directory)));
+            var item = Item(report, "scene_preparation_maximum");
+            Assert.AreEqual(expected, item.GetProperty("status").GetString());
+            if (missing > 0)
+            {
+                StringAssert.Contains(item.GetProperty("reason").GetString(), missing.ToString());
+                Assert.AreEqual(JsonValueKind.Null, item.GetProperty("excess").ValueKind);
+                Assert.AreEqual(JsonValueKind.Null, item.GetProperty("excluded_frames").ValueKind);
+            }
+            else Assert.AreEqual(seconds, item.GetProperty("measured").GetDouble());
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
     [DataRow("frame_p95", 0.0166, "passed")]
     [DataRow("frame_p95", 0.0167, "passed")]
     [DataRow("frame_p95", 0.0168, "failed")]

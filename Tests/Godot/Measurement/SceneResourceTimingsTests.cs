@@ -8,6 +8,40 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class SceneResourceTimingsTests
 {
     [TestMethod]
+    public void AnOpeningCountsTheIntervalImmediatelyAfterOperableIsConfirmed()
+    {
+        var timings = new SceneResourceTimings();
+        timings.Draw(1, 10, "map", null, false, null);
+        timings.Draw(2, 11, "edge", "edge", false, new(1));
+        timings.Measure(SceneDisplayWork.Prepare, TimeSpan.FromMilliseconds(68.7), TimeSpan.Zero);
+        var confirming = timings.Draw(3, 12, "edge", "edge", false, new(1))!;
+        Assert.IsFalse(confirming.AfterOperable);
+        Assert.AreEqual(.0687, confirming.PreparationTotalSeconds, 1e-12);
+
+        // OnSceneDraw 在这次资源记录之后确认 first_operable，下一次记录才读到它。
+        timings.Measure(SceneDisplayWork.Prepare, TimeSpan.FromMilliseconds(5), TimeSpan.Zero);
+        var first = timings.Draw(4, 13, "edge", "edge", false, new(1), afterOperable: true)!;
+        Assert.IsTrue(first.AfterOperable);
+        Assert.AreEqual(.005, first.PreparationTotalSeconds, 1e-12);
+        Assert.IsTrue(timings.Draw(5, 14, "edge", "edge", false, new(1), afterOperable: true)!.AfterOperable);
+        Assert.IsFalse(timings.Draw(6, 15, "other-edge", "other-edge", false, new(2))!.AfterOperable);
+        Assert.IsFalse(timings.Draw(7, 16, "other-edge", "other-edge", false, new(2))!.AfterOperable);
+        Assert.IsFalse(timings.Draw(8, 17, "map", null, false, null)!.AfterOperable);
+    }
+
+    [TestMethod]
+    public void AnOpeningStillExcludesOnlyTheFirstDrawOfANewSpaceAfterOperable()
+    {
+        var timings = new SceneResourceTimings();
+        timings.Draw(1, 10, "edge", "edge", false, new(1));
+        Assert.IsTrue(timings.Draw(2, 11, "edge", "edge", false, new(1), afterOperable: true)!.AfterOperable);
+        var changed = timings.Draw(3, 12, "edge", "edge", false, new(2), afterOperable: true)!;
+        Assert.IsFalse(changed.AfterOperable);
+        Assert.IsTrue(changed.ExcludedSpaceChange);
+        Assert.IsTrue(timings.Draw(4, 13, "edge", "edge", false, new(2), afterOperable: true)!.AfterOperable);
+    }
+
+    [TestMethod]
     public void SidecarRecordsEveryCallAndResetsItsCountsAtEachDraw()
     {
         var timings = new SceneResourceTimings();
