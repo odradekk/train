@@ -49,7 +49,6 @@ public partial class GameShell : Control
         AddChild(_navigation);
         AddChild(_listHost);
         AddChild(_inspectorHost);
-        _mask.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         AddChild(_mask);
         _mask.AddChild(_workspaceHost);
         Resized += Arrange;
@@ -143,12 +142,12 @@ public partial class GameShell : Control
         _listHost.Size = new(listWidth, height);
         _inspectorHost.Position = new(Size.X - inspectorWidth - 8, TopInset + 8);
         _inspectorHost.Size = new(inspectorWidth, Math.Max(0, height - 16));
-        _mask.OffsetTop = TopInset;
-        _mask.OffsetBottom = -BottomInset;
-        _workspaceHost.Position = new(24, 16);
-        _workspaceHost.Size = new(Math.Max(0, Size.X - 48), Math.Max(0, height - 32));
         SceneArea = new(new(navigationWidth + listWidth + 8, TopInset + 8),
             new(Math.Max(0, Size.X - navigationWidth - listWidth - inspectorWidth - 24), Math.Max(0, height - 16)));
+        _mask.Position = SceneArea.Position;
+        _mask.Size = SceneArea.Size;
+        _workspaceHost.Position = new(16, 16);
+        _workspaceHost.Size = new(Math.Max(0, SceneArea.Size.X - 32), Math.Max(0, SceneArea.Size.Y - 32));
         LayoutChanged?.Invoke();
     }
 
