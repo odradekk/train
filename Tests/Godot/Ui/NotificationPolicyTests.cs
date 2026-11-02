@@ -99,7 +99,8 @@ public sealed class NotificationPolicyTests
         Assert.AreEqual(NotificationLevel.Completion, owned!.Level);
         Assert.AreEqual(NotificationLevel.Warning, hostile!.Level);
         Assert.AreEqual(NotificationLevel.Severe, lost!.Level);
-        Assert.AreEqual(NotificationPolicy.RunDestroyedText, lost.Text);
+        StringAssert.Contains(lost.Text, "存档与读档");
+        StringAssert.Contains(lost.Text, "返回主菜单");
         Assert.IsNull(ended!.Subject);
         Assert.AreEqual(new WorldLocation.Node(new(1)), ended.Location);
         Assert.AreEqual(NotificationAction.None, policy.Decide(new CoreEvent.RunReported(Report(RunEndReason.AllVehiclesDestroyed))));
