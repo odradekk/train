@@ -36,6 +36,14 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
             app.Logger.Info("console", "selection_after", "选区之后的新输出。");
             await _input.Frames(2);
             Require(output.GetSelectedText() == selected, "新日志不能清空或改变现有选区。");
+            for (var index = 0; index <= 500; index++)
+                app.Logger.Info("console", "selection_rollover", $"环形缓冲换行 {index}。");
+            await _input.Frames(2);
+            Require(output.GetSelectedText() == selected, "旧日志移出环形缓冲后也必须保留现有选区。");
+            output.Deselect();
+            await _input.Frames(2);
+            Require(!output.GetParsedText().Contains("选中的控制台输出") && output.GetParsedText().Contains("环形缓冲换行 500。"),
+                "取消选区后必须同步缓冲裁剪并显示最新输出。");
         });
     }
 

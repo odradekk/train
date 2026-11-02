@@ -12,6 +12,9 @@ public sealed class ConsoleGuideTests
     [DataRow("LOGLEVEL W", 10, "warning", 9, 1)]
     [DataRow("help tr", 7, "train", 5, 2)]
     [DataRow("sim pa later", 6, "pause", 4, 2)]
+    [DataRow("train for", 9, "form", 6, 3)]
+    [DataRow("lighting ni", 11, "night", 9, 2)]
+    [DataRow("dev op", 6, "open", 4, 2)]
     public void Completion_replaces_only_the_token_at_the_caret(string input, int caret, string expected, int start, int length)
     {
         using var harness = DispatchHarness.CreateMemory();

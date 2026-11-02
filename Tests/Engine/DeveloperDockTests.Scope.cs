@@ -90,16 +90,18 @@ public partial class DeveloperDockTests
             OpenWorldCall = (binding, _) =>
             {
                 var id = new SceneSessionId(Guid.NewGuid());
+                var frame = new FixedSceneFrame
+                {
+                    Update = new(null, new(id, new(1), new(1), 1), default, [], [], new([], []), []),
+                    TerrainHeightResult = new Lookup<double>.Missing()
+                };
                 return new SceneResult<IWorldSceneSession>.Success(new FixedDisplaySession
                 {
                     Id = id, Binding = binding,
                     RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
                         .Add(target, new SceneResult<SceneRequestId>.Success(new(1))),
-                    PresentResults = [new SceneResult<ISceneFrame>.Success(new FixedSceneFrame
-                    {
-                        Update = new(null, new(id, new(1), new(1), 1), default, [], [], new([], []), []),
-                        TerrainHeightResult = new Lookup<double>.Missing()
-                    })]
+                    PresentResults = Enumerable.Repeat<SceneResult<ISceneFrame>>(
+                        new SceneResult<ISceneFrame>.Success(frame), 180).ToImmutableArray()
                 });
             }
         };
@@ -116,6 +118,8 @@ public partial class DeveloperDockTests
                 "前置条件必须已进入节点场景，而非仍停留在地图。");
             await _input.PressKey(Key.Quoteleft);
             var console = app.GetChildren().OfType<GameConsole>().Single();
+            Require(app.WorldScenes.View.Interactive && !app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree(),
+                "打开底栏后必须仍处于可交互的节点场景，不能因测试帧耗尽返回地图。");
             Require(console.IsOpen, "节点场景必须能打开底栏。");
         }
         finally { await fixture.Cleanup(); }
