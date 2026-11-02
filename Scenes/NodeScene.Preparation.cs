@@ -74,4 +74,17 @@ internal sealed partial class NodeScene
         }
     }
 
+    private static bool NeedsRefresh(SceneWorldSnapshot snapshot, NodeLayout layout) =>
+        EntryTracksDiffer(snapshot, layout) || NodeLayout.LairModel(snapshot, layout.Node) != layout.Lair?.Model;
+
+    private static bool EntryTracksDiffer(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        foreach (var entry in layout.Entries)
+        {
+            var tracks = snapshot.Core.World.Edges.FirstOrDefault(edge => edge.Id == entry.Edge)?.Tracks;
+            if (tracks is not null && tracks != layout.EntryTracks.GetValueOrDefault(entry.Edge)) return true;
+        }
+        return false;
+    }
+
 }

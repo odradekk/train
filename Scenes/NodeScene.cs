@@ -210,6 +210,7 @@ internal sealed partial class NodeScene : IAsyncDisposable
     private Built? built;
     private ImmutableDictionary<string, Part> cacheParts = ImmutableDictionary<string, Part>.Empty;
     private ImmutableDictionary<string, Part>? publishedParts;
+    private int publishedPreviousCount = -1;
     private Built? publishedBuilt;
     private ImmutableDictionary<string, Part>? presentedParts;
     private ScenePoint? staticOrigin;
@@ -396,12 +397,16 @@ internal sealed partial class NodeScene : IAsyncDisposable
             if (promote) DeferCandidateParts();
             ReconcileParts();
             PumpFar();
-        }
-        if (!ReferenceEquals(publishedBuilt, built) || !ReferenceEquals(publishedParts, cacheParts))
-        {
-            cache.Publish(Node, owner, built! with { Parts = cacheParts });
-            publishedBuilt = built;
-            publishedParts = cacheParts;
+            if (!ReferenceEquals(publishedBuilt, built) || !ReferenceEquals(publishedParts, cacheParts) ||
+                publishedPreviousCount != previousChunks.Count)
+            {
+                // Unchecked retained chunks stay reusable without becoming visible or taking a build slot.
+                var reusable = cacheParts.SetItems(previousChunks.Select(pair => KeyValuePair.Create(ChunkKey(pair.Key), pair.Value)));
+                cache.Publish(Node, owner, built! with { Parts = reusable });
+                publishedBuilt = built;
+                publishedParts = cacheParts;
+                publishedPreviousCount = previousChunks.Count;
+            }
         }
         ScheduleRefresh();
     }
@@ -500,19 +505,6 @@ internal sealed partial class NodeScene : IAsyncDisposable
     private Preparation BuildPreparation(SceneWorldSnapshot current, NodeLayout currentLayout, Cached? previous, CancellationToken token) =>
         nodeBuild is null ? Prepare(current, currentLayout, previous, token, Streaming) :
             new(current, nodeBuild(current, Node, previous, token), null, default, [], [], new([]), [], "", [], [], false);
-
-    private static bool NeedsRefresh(SceneWorldSnapshot snapshot, NodeLayout layout) =>
-        EntryTracksDiffer(snapshot, layout) || NodeLayout.LairModel(snapshot, layout.Node) != layout.Lair?.Model;
-
-    private static bool EntryTracksDiffer(SceneWorldSnapshot snapshot, NodeLayout layout)
-    {
-        foreach (var entry in layout.Entries)
-        {
-            var tracks = snapshot.Core.World.Edges.FirstOrDefault(edge => edge.Id == entry.Edge)?.Tracks;
-            if (tracks is not null && tracks != layout.EntryTracks.GetValueOrDefault(entry.Edge)) return true;
-        }
-        return false;
-    }
 
     private void Adopt(Preparation next, SceneStreamingAttemptId? attempt)
     {
