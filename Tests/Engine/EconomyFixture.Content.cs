@@ -13,14 +13,14 @@ internal static partial class EconomyFixture
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
         ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
-        string? equipmentName = null)
+        string? equipmentName = null, long? leaseDurationTicks = null)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
         var market = new MarketRuleProjection(new("fixture:economy"), new("fixture-market-v1"), 1, 1, 1,
             new(new(10000), new(10000), new(10000), new(0)), [], new(10000), new(10000), [],
-            60, 10, new(1), new(1), new(10000), (long)LeaseDuration, maxLeaseMultiple);
+            60, 10, new(1), new(1), new(10000), leaseDurationTicks ?? (long)LeaseDuration, maxLeaseMultiple);
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
             MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market],

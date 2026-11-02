@@ -14,7 +14,7 @@ internal sealed class SettlementPanel
     private readonly Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit;
     private readonly Action<HostBinding, ICoreReadView, IContentView> _refresh;
     private readonly SettlementVehiclesPage _vehicles;
-    private readonly SettlementLeasesPage _leases;
+    private readonly SettlementWarehousePage _warehouse;
     private readonly SettlementServicesPage _services;
     private readonly GoodsRows _goods;
     private readonly Func<PanelTarget?, CoreCommand, SubmissionResult> _submitInline;
@@ -50,7 +50,7 @@ internal sealed class SettlementPanel
         _parent = parent; _host = host; _submit = submit; _refresh = refresh;
         _goods = goods; _submitInline = submitInline;
         _vehicles = new(() => CanAct, Quote, Submit, (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content));
-        _leases = new(() => CanAct, Quote, Submit);
+        _warehouse = new(() => CanAct, goods, SubmitInline);
         _services = new(host, () => CanAct, ReadCurrent, submit, submitTarget, RefreshAfterSubmission);
         _services.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
         _services.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
@@ -99,7 +99,7 @@ internal sealed class SettlementPanel
             _buildings.Build(Page(tabs, "建筑"));
         }
         _vehicles.BuildVehicles(Page(tabs, "现车"));
-        if (!_owned) _leases.BuildLeases(Page(tabs, "仓库租用"));
+        if (!_owned) _warehouse.Build(Page(tabs, "仓库"));
         _services.BuildServices(Page(tabs, "建造与工地"));
         tabs.TabChanged += _ => _services.RefreshServices();
         _refresh(_binding, _view, _content);
@@ -126,7 +126,7 @@ internal sealed class SettlementPanel
     {
         _marketTable?.Bind(_view, _content, _settlement!, _locals, _target!);
         _vehicles.Bind(_binding, _view, _content, _settlement!, _target!);
-        _leases.Bind(_view, _content, _settlement!, _locals, _target!);
+        _warehouse.Bind(_view, _content, _settlement!, _locals, _target!);
         _services.Bind(_binding, _view, _content, _target, _settlementId, _settlement, _locals);
     }
 
@@ -147,7 +147,7 @@ internal sealed class SettlementPanel
         BindPages();
         _overview?.Refresh(_view, _content, _settlement, _locals);
         _marketTable?.Refresh(); _buildings?.Refresh(_view, _content, _settlement);
-        _vehicles.RefreshVehicles(); if (!_owned) _leases.RefreshLeases();
+        _vehicles.RefreshVehicles(); if (!_owned) _warehouse.Refresh();
     }
 
     private void AddInventory(InventoryId id, LeaseView? lease)
@@ -163,7 +163,7 @@ internal sealed class SettlementPanel
         if (!_neutral) _combat.Disabled = !CanAct;
         _overview?.UpdateActions();
         _marketTable?.UpdateActions(); _buildings?.UpdateActions();
-        _vehicles.UpdateVehicleActions(); if (!_owned) _leases.UpdateLeaseActions();
+        _vehicles.UpdateVehicleActions(); if (!_owned) _warehouse.UpdateActions();
         _state.Text = _view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : _host.IsBusy ? "当前操作尚未结束" : "";
     }
 
@@ -232,7 +232,7 @@ internal sealed class SettlementPanel
         RemoveWindow(_panel); _panel = null;
         _marketTable = null; _overview = null; _buildings = null;
         _target = null; _settlement = null; _locals.Clear();
-        _vehicles.Close(); _leases.Close();
+        _vehicles.Close(); _warehouse.Close();
         _view = null!; _content = null!;
         BindPages();
     }
