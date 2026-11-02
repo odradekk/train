@@ -76,7 +76,7 @@ public partial class GameUi
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
             _economy = new EconomyPanels { Name = "EconomyPanels" };
-            _economy.Initialize(_host, Submit, _icons, Submit);
+            _economy.Initialize(_host, Submit, _icons, Submit, SubmitInline);
             _world.AddChild(_economy);
             _founding = new SettlementFoundingPanel { Name = "SettlementFounding" };
             _founding.Initialize(_host, Submit);

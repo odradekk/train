@@ -124,7 +124,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             await CloseDetail(ui);
             await OpenDetail(ui, 4);
             var settlement = Find<PanelContainer>(ui, "Settlement");
-            Require(Find<TabContainer>(settlement, "Pages").GetTabCount() == 8 &&
+            Require(Find<TabContainer>(settlement, "Pages").GetTabCount() == 5 &&
                 !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(), "非自有聚居地提供了建城。");
             await CloseDetail(ui);
             await OpenDetail(ui, 3);

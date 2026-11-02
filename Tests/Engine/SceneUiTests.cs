@@ -166,7 +166,7 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
                 "没有ReturnedToMap事件的离开未重置场景和游戏界面。");
             panel.Hide();
             await _input.Activate(menu.GetNode<Button>("%NewGame"));
-            await _input.Activate(ui.GetNode<Button>("Root/NewGame/Layout/Content/Body/Create"));
+            await _input.Activate(Find<Button>(ui.GetNode<Control>("Root/NewGame"), "Create"));
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null && map.IsVisibleInTree());
             Require(app.Host!.GetStatus() is { IsPaused: true, PlayerPaused: true } && !menu.IsVisibleInTree() &&
                 !app.WorldScenes!.View.Visible && setup.Scenes.Count == 1,

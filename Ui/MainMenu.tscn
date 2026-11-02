@@ -22,64 +22,105 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.063, 0.082, 0.102, 1)
 
-[node name="Center" type="CenterContainer" parent="."]
-mouse_filter = 2
+[node name="Margin" type="MarginContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
 
-[node name="Buttons" type="VBoxContainer" parent="Center"]
-mouse_filter = 2
+[node name="Scroll" type="ScrollContainer" parent="Margin"]
+layout_mode = 2
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="Center" type="CenterContainer" parent="Margin/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Buttons" type="VBoxContainer" parent="Margin/Scroll/Center"]
+custom_minimum_size = Vector2(420, 0)
 layout_mode = 2
 theme_override_constants/separation = 14
 
-[node name="Title" type="Label" parent="Center/Buttons"]
+[node name="Title" type="Label" parent="Margin/Scroll/Center/Buttons"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 48
 text = "TRAIN"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="Center/Buttons"]
+[node name="Subtitle" type="Label" parent="Margin/Scroll/Center/Buttons"]
 layout_mode = 2
-text = "铁路与世界"
+text = "体素列车经营"
 horizontal_alignment = 1
 
-[node name="Spacer" type="Control" parent="Center/Buttons"]
-custom_minimum_size = Vector2(0, 30)
+[node name="Continue" type="Button" parent="Margin/Scroll/Center/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+disabled = true
+text = "继续游戏"
 
-[node name="NewGame" type="Button" parent="Center/Buttons"]
+[node name="RecentSave" type="Label" parent="Margin/Scroll/Center/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "暂无存档"
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="NewGame" type="Button" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(300, 44)
+custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
+disabled = true
 text = "新游戏"
 
-[node name="Example" type="Button" parent="Center/Buttons"]
+[node name="Saves" type="Button" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(300, 44)
+custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-text = "从示例开始"
+text = "读取存档"
 
-[node name="Settings" type="Button" parent="Center/Buttons"]
+[node name="Settings" type="Button" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(300, 44)
+custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "设置"
 
-[node name="QuitGame" type="Button" parent="Center/Buttons"]
+[node name="QuitGame" type="Button" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(300, 44)
+custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-text = "退出"
+text = "退出游戏"
 
-[node name="Saves" type="Button" parent="Center/Buttons"]
+[node name="LoadingStatus" type="Label" parent="Margin/Scroll/Center/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="LoadingProgress" type="ProgressBar" parent="Margin/Scroll/Center/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+indeterminate = true
+show_percentage = false
+
+[node name="Example" type="Button" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(240, 48)
+custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-text = "存档"
+text = "从示例存档开始"
+
+[node name="VersionPackages" type="Label" parent="Margin/Scroll/Center/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3

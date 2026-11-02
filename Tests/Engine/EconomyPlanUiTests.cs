@@ -65,6 +65,28 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             Require(batch is { CurrentSpecificationDiffers: true, FrozenWorkRequired: 100000 } &&
                 current.Population.CurrentRule.PublishedRevision != period.Period.ExecutionRevision,
                 "一次真实发布没有保留旧批次与人口执行参数。");
+            var saved = host.CaptureSave();
+            Require(saved.Failure is null && saved.Capture is not null, "冻结参数情景未能保存。");
+            var capture = saved.Capture!;
+            var payload = JsonNode.Parse(capture.Core.Encode())!;
+            var world = payload["world"]!;
+            foreach (var settlement in world["settlements"]!.AsArray())
+                settlement!["relation"] = (int)SettlementRelation.PlayerOwned;
+            foreach (var node in world["nodes"]!.AsArray())
+                if (node!["occupant"]?["$kind"]?.GetValue<string>() == "settlement")
+                    node["occupant"]!["relation"] = (int)SettlementRelation.PlayerOwned;
+            foreach (var instance in world["instances"]!.AsArray())
+                instance!["ownership"] = (int)SettlementRelation.PlayerOwned;
+            Require(host.BeginRestore(payload.ToJsonString(), capture.Content.Encode(), host.SessionOptions!, capture.Identity).Problem is null,
+                "自有聚居地情景恢复请求失败。");
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
+            status = host.GetStatus()!;
+            current = ((Lookup<SettlementView>.Found)status.View.FindSettlement(settlementId)).Value;
+            batch = current.Facilities.Single(item => item.Process == new ProcessRef.Production(new("core:test"))).Batch;
+            period = (PopulationExecution.InProgress)current.Population.Execution;
+            Require(current.Relation == SettlementRelation.PlayerOwned && batch is { CurrentSpecificationDiffers: true, FrozenWorkRequired: 100000 } &&
+                current.Population.CurrentRule.PublishedRevision != period.Period.ExecutionRevision,
+                "自有聚居地恢复没有保留真实发布后的冻结参数。");
             var ui = app.GetNode<GameUi>("GameUi");
             TestScene.GetTree().Root.ContentScaleFactor = 1;
             UiCapture.ConfigureWindowIfNeeded(TestScene.GetTree().Root);

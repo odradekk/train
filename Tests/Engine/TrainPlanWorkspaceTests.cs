@@ -86,7 +86,7 @@ public partial class TrainPlanWorkspaceTests(Node testScene) : TestClass(testSce
             await Click(Card(panel, 1), "Select");
             Require(Choice(panel, "Kind").Selected == 1, "排序后编辑对象错误。");
             await new UiTestInput(TestScene).Choose(Choice(panel, "Kind"), 0);
-            await EnterText(Field(panel, "Search"), "聚居地");
+            await EnterText(Field(panel, "Search"), "青川");
             var results = Find<VBoxContainer>(panel, "SearchResults");
             Require(results.FindChild("Add3", true, false) is null, "搜索结果包含不匹配的空节点。");
             await Click(results, "Add1");
