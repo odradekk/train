@@ -11,7 +11,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
+public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
@@ -128,9 +128,8 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             Require(Find<VBoxContainer>(economy, "ServiceJobs").GetChildCount() == 0,
                 "已不在CommissionJobs的任务仍保留在队列。");
             await _input.Activate(Find<Button>(economy, "FormServiceVehicle"));
-            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
-            var available = Find<ItemList>(formation, "AvailableVehicles");
-            Require(available.IsVisibleInTree() && available.ItemCount == 1 && available.GetItemText(0).Contains("车辆 9"),
+            var available = Find<VBoxContainer>(ui, "AvailableVehicles");
+            Require(available.GetChildCount() == 1 && Find<CheckBox>(available, "Vehicle9").IsVisibleInTree(),
                 "完工后的原车辆没有进入现有编组入口。");
         });
         setup.Session.AssertComplete();
@@ -956,7 +955,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false, bool facilityBlocked = false, PlotSize targetPlot = PlotSize.Small) : ICoreReadView
+    private sealed partial class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false, bool facilityBlocked = false, PlotSize targetPlot = PlotSize.Small) : ICoreReadView
     {
         private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned);
         private static readonly FacilityKey Facility = new(new(20), CapabilityKind.Construction);

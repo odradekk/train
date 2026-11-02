@@ -503,6 +503,7 @@ Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<JobQuo
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<LeaseQuote> QuoteLease(LeaseRequest request);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<TrainFormationPreview> PreviewTrainFormation(ImmutableArray<VehicleId> orderedVehicles, TrainId? train);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreRevision Revision { get; }
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|EconomyView Economy { get; }
@@ -616,6 +617,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.OccupySettlement|publ
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.PublishContent|public sealed record PublishContent(CoreContentProjection Content) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.RepairRail|public sealed record RepairRail(EdgeId Edge, BreakId Break, SettlementId MaterialSource) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.ReplaceRunPlan|public sealed record ReplaceRunPlan(TrainId Train, RunPlan Plan) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.ReplaceTrainFormation|public sealed record ReplaceTrainFormation(TrainId Train, ImmutableArray<VehicleId> OrderedVehicles) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.Retreat|public sealed record Retreat(TrainId Train) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SellGoods|public sealed record SellGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory, GoodId Good, long Quantity, Money MinimumReceipt) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SellVehicle|public sealed record SellVehicle(SettlementId Buyer, VehicleId Vehicle, Money MinimumReceipt) : CoreCommand;
@@ -928,6 +930,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.TradeQuoteRequest|public sealed r
 Train.Core.Contracts|type|Train.Core.Contracts.TradeQuote|public sealed record TradeQuote(TradeQuoteRequest Request, CoreRevision Revision, long CurrentlyExecutableQuantity, Money? Total, ImmutableArray<CoreProblem> Blockers, ImmutableArray<CoreProblem> ShortageWarnings);
 Train.Core.Contracts|type|Train.Core.Contracts.TrainActivity|public enum TrainActivity
 Train.Core.Contracts|type|Train.Core.Contracts.TrainEngagementRules|public sealed record TrainEngagementRules(TargetPriority Priority, TargetScope Scope, EncounterAction Encounter, double RetreatStructureRatio);
+Train.Core.Contracts|type|Train.Core.Contracts.TrainFormationPreview|public sealed record TrainFormationPreview(double LengthMeters, double MassTons, double TractionKilonewtons, long Capacity, ImmutableArray<CoreProblem> Blockers, CoreProblem? DepartureProblem);
 Train.Core.Contracts|type|Train.Core.Contracts.TrainId|public readonly record struct TrainId(ulong Value);
 Train.Core.Contracts|type|Train.Core.Contracts.TrainMapItem|public sealed record TrainMapItem(TrainId Id, TrainPosition Position, TrainActivity Activity);
 Train.Core.Contracts|type|Train.Core.Contracts.TrainOrderFacing|public enum TrainOrderFacing

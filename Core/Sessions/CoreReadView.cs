@@ -39,6 +39,16 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         var train = State.Trains.FirstOrDefault(t => t.Id == id);
         return Lookup(train is null ? null : TrainOperations.Read(State, Content, train));
     }
+    public CoreResult<TrainFormationPreview> PreviewTrainFormation(System.Collections.Immutable.ImmutableArray<VehicleId> orderedVehicles, TrainId? train)
+    {
+        TrainFormation.Validate(orderedVehicles, train);
+        try { return TrainFormation.Preview(State, Content, orderedVehicles, train); }
+        catch (Exception exception)
+        {
+            return new CoreResult<TrainFormationPreview>.Faulted(new("internal_error", Position, nameof(PreviewTrainFormation), "", null),
+                new(exception.Message, exception.StackTrace));
+        }
+    }
     public Lookup<InstanceView> FindInstance(InstanceId id)
     {
         ArgumentNullException.ThrowIfNull(id);

@@ -63,7 +63,9 @@ public partial class SaveTests
                 PrepareRestoreCall = (_, projection, _) =>
                 {
                     Require(projection.Identity == HostCoreScenario.Input, "恢复时收到错误内容投影。");
-                    Session = new(UiWorldFixture.Save(projection.Identity));
+                    var view = UiWorldFixture.Save(projection.Identity);
+                    view.FormationPreviews = TrainFormationTestScenario.Vehicle1;
+                    Session = new(view);
                     Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));
                     Session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), capture)], [], [capture.Checkpoint], [], [], capture.References);
                     Session.ConfirmRecordingStartCall = (point, _) => point.Value == 1 ? new([], [])

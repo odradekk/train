@@ -31,3 +31,7 @@
 `TrainPosition.Node(NodeId Id, EdgeId? EnteredFrom, int? EnteredTrack, EdgeId? NextEdge, int? NextTrack, NodeTravelPhase Phase, double DistanceMeters, int? PlatformNumber)` 是节点内唯一权威位置；`NodeTravelPhase` 为 `Approaching / Waiting / Docked / Departing`。删除 `NodeTransitView` 和 `TrainView.NodeTransit`，内部也不另存转场。`EnteredFrom`、`EnteredTrack` 为实际进入线路及铁轨，两者同时为空或同时非空；轨号须为正，允许超过线路当前铁轨数。`NextEdge` 为已决定的下一线路；`NextTrack` 在进入 `Departing` 时确定，不提前占用铁轨。非 `Departing` 阶段 `NextTrack` 为空；非空时须有 `NextEdge`，轨号在当前铁轨数内。出站无开放铁轨且没有仍存在的原选择时允许为空；原选择仍存在但关闭、又无替代时保留。体素消费实际进出线路及铁轨，不重算选轨。选择快照、失效重选与 L 点检查时序见[铁轨与通行](../design/06-railway.md#铁轨与通行)。`DistanceMeters` 为中心沿节点路径的米数，`PlatformNumber` 为可空预约站台号。`NodeView` 仅增加 `ApproachLengthMeters`、`PlatformLengthMeters`、`DepartureLengthMeters`，不公开限速、总长或停站点；三段尺度和阶段转换见[节点与站台](../design/06-railway.md#节点与站台)。
 
 `TrainPosition.Edge.DistanceMeters` 表示整列长度中心，`TrainView.OrderFacing` 表示车辆列表哪一端沿最近实际行驶方向在前。编组默认首端在前，线路上倒车及节点原路返回时切换标记；节点驶入其他线路时保持，等待中保留最近实际状态。两项均随存档恢复，场景不自行记一份持久朝向。标记不参与牵引、选路或战斗计算；中心间距、成员被毁后的收拢及整列在节点切换的规则见[铁路位置](../design/06-railway.md#位置)。
+
+`PreviewTrainFormation(orderedVehicles, train)` 在当前读视图预览有序编组。`train` 为空时预览新编组，非空时预览该列车的原地重编，允许其现有成员。未初始化数组、零车辆身份或零列车身份抛 `ArgumentException`；成员、归属和位置不满足编组条件时只返回首个领域问题。成功返回 `TrainFormationPreview`：`LengthMeters`、`MassTons`、`TractionKilonewtons`、`Capacity`、`Blockers`、`DepartureProblem`。计算沿用列车实际能力规则；新编组按空库存计算，重编包含原库存货物。
+
+容量不足和身份耗尽等提交阻塞放在 `Blockers`，仍可读取成功预览的指标。`DepartureProblem` 只返回首个出发问题，优先顺序为缺控制、缺牵引、库存内容缺失、超载，与实际出发相同；加速度恰等于下限允许出发。查询不修改世界、不占用身份，也不生成命令或录制。宿主用缺控制和缺牵引提示不可出发，超载显示警告；提交时仍由 Core 重新检查当前状态。

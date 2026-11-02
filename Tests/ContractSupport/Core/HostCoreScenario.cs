@@ -202,6 +202,8 @@ public sealed class ScriptedCoreSession(ICoreReadView initial) : ICoreSession
     {
         (CoreCommand.FormTrain left, CoreCommand.FormTrain right) =>
             left.OrderedVehicles.SequenceEqual(right.OrderedVehicles),
+        (CoreCommand.ReplaceTrainFormation left, CoreCommand.ReplaceTrainFormation right) =>
+            left.Train == right.Train && left.OrderedVehicles.SequenceEqual(right.OrderedVehicles),
         (CoreCommand.ReplaceRunPlan left, CoreCommand.ReplaceRunPlan right) =>
             left.Train == right.Train && left.Plan.Loop == right.Plan.Loop &&
             left.Plan.Stops.Length == right.Plan.Stops.Length &&

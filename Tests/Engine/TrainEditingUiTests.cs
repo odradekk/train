@@ -54,20 +54,15 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             var nodes = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
             await _input.ClickItem(nodes, 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
-            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
-            var available = Find<ItemList>(formation, "AvailableVehicles");
-            Require(available.ItemCount == 2, "有限车辆情景未在编组列表显示。");
-            await _input.ClickItem(available, 0);
-            await _input.ClickItem(available, 1, true);
-            Require(available.GetSelectedItems().SequenceEqual(new[] { 0, 1 }), "真实 Ctrl 点击未形成多选。");
-            await _input.Activate(Find<Button>(formation, "AddSelected"));
-            var ordered = Find<ItemList>(formation, "OrderedVehicles");
-            await _input.ClickItem(ordered, 1);
-            Require(ordered.GetSelectedItems().SequenceEqual(new[] { 1 }),
-                $"编组顺序列表未选中第二行：rect={ordered.GetGlobalRect()}，item={ordered.GetItemRect(1)}，selected={string.Join(',', ordered.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
-            await _input.Activate(Find<Button>(formation, "MoveUp"));
+            var formation = Find<TrainFormationWorkspace>(ui, "TrainFormationWorkspace");
+            var available = Find<VBoxContainer>(formation, "AvailableVehicles");
+            Require(available.GetChildCount() == 2, "有限车辆情景未在编组列表显示。");
+            await _input.Activate(Find<CheckBox>(available, "Vehicle1"));
+            await _input.Activate(Find<CheckBox>(available, "Vehicle2"));
+            var ordered = Find<VBoxContainer>(formation, "OrderedVehicles");
+            await _input.Activate(Find<Button>(Find<VBoxContainer>(ordered, "Vehicle2"), "MoveUp"));
             await UiCapture.Capture(TestScene, "formation");
-            await _input.Activate(Find<Button>(formation, "Form"));
+            await _input.Activate(Find<Button>(formation, "FormOnly"));
             Require(setup.Session.SubmitCount == 1 && !formation.Visible &&
                 ReferenceEquals(ui.View, formed), "编组接受后没有发布新列车视图并关闭表单。");
 
@@ -109,7 +104,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             if (!nodes.IsVisibleInTree()) await _input.Activate(Find<Button>(ui, "Nodes"));
             await _input.ClickItem(nodes, 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
-            Require(formation.IsVisibleInTree() && available.ItemCount == 0 &&
+            Require(formation.IsVisibleInTree() && available.GetChildCount() == 0 &&
                 Find<Button>(formation, "Form").Disabled && Find<Label>(formation, "Reason").Text.Length > 0 &&
                 setup.Session.SubmitCount == 3,
                 "已编组车辆仍被列为候选，或空候选表单没有说明原因并禁用提交。");
@@ -127,6 +122,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
         var edge = new EdgeMapItem(new(1), nodes[0].Id, nodes[1].Id, 600, nodes[0].Terrain, 1, 1, [], []);
         return new(basis.Position, basis.InputIdentity, basis.Fault, basis.Revision)
         {
+            FormationPreviews = TrainFormationTestScenario.Editing,
             Economy = basis.Economy,
             World = basis.World with { Edges = [edge] },
             Nodes = nodes.ToDictionary(node => node.Id, node =>

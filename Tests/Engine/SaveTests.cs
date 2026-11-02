@@ -128,13 +128,11 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
             var nodes = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
             await _input.ClickItem(nodes, 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
-            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
-            var available = Find<ItemList>(formation, "AvailableVehicles");
-            await _input.ClickItem(available, 0);
-            await _input.Activate(Find<Button>(formation, "AddSelected"));
+            var formation = Find<TrainFormationWorkspace>(ui, "TrainFormationWorkspace");
+            await _input.Activate(Find<CheckBox>(formation, "Vehicle1"));
             var form = Find<Button>(formation, "Form");
             Require(formation.IsVisibleInTree() && !form.Disabled &&
-                Find<ItemList>(formation, "OrderedVehicles").ItemCount == 1,
+                Find<VBoxContainer>(formation, "OrderedVehicles").GetChildCount() == 1,
                 "未建立可提交的编组草稿。");
             await _input.PressKey(Key.Escape);
             await _input.Activate(Find<Button>(ui, "Fleet"));

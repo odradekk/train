@@ -197,6 +197,21 @@ public sealed class FixedCoreReadView : ICoreReadView
     public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node)
         => foundingPreviews.TryGetValue(node, out var result) ? result : throw Unconfigured(nameof(PreviewSettlement));
 
+    private ImmutableArray<(TrainId? Train, ImmutableArray<VehicleId> OrderedVehicles,
+        CoreResult<TrainFormationPreview> Result)> formationPreviews = [];
+    public IEnumerable<(TrainId? Train, ImmutableArray<VehicleId> OrderedVehicles,
+        CoreResult<TrainFormationPreview> Result)> FormationPreviews
+    {
+        set => formationPreviews = value.ToImmutableArray();
+    }
+    public CoreResult<TrainFormationPreview> PreviewTrainFormation(ImmutableArray<VehicleId> orderedVehicles, TrainId? train)
+    {
+        foreach (var preview in formationPreviews)
+            if (preview.Train == train && preview.OrderedVehicles.SequenceEqual(orderedVehicles))
+                return preview.Result;
+        throw Unconfigured(nameof(PreviewTrainFormation));
+    }
+
     private static InvalidOperationException Unconfigured(string member)
         => new($"UNCONFIGURED: {member}");
 }
