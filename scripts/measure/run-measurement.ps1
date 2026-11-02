@@ -70,7 +70,7 @@ try {
             $templateSources += "$name=hit"
         } else {
             try { Invoke-WebRequest "$release/$name" -OutFile "$cached.partial" }
-            catch { throw "网络下载失败：$name。" }
+            catch { throw "网络下载失败：${name}：$_" }
             Move-Item -LiteralPath "$cached.partial" -Destination $cached -Force
             $templateSources += "$name=downloaded"
         }
