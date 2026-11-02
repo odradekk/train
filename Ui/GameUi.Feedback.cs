@@ -81,7 +81,9 @@ public partial class GameUi
                 message = result.Fault is { } fault ? CommandDiagnostics.Describe(fault) : $"{operation}发生故障，详情见日志。";
             else if (message.Length == 0) message = result.Status == HostOperationStatus.NotAccepted
                 ? $"{operation}当前无法执行，请稍后重试。" : $"{operation}准备失败，请检查内容或输入。";
-            ShowError(message);
+            if (result.Source == CommandSource.Console)
+                _logger.Warning("console", "console_operation_failed", message);
+            else ShowError(message);
             if (_newOperation == result.Operation) NewGameProblem(message);
         }
         if (_newOperation != result.Operation) return;

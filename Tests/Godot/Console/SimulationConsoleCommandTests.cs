@@ -64,6 +64,7 @@ public sealed class SimulationConsoleCommandTests
         var events = fixture.Logs;
         Assert.AreEqual(valid.Length, events.Count);
         Assert.IsTrue(events.All(log => log.EventId == SimulationConsoleCommands.SessionUnavailableEventId));
+        Assert.IsTrue(events.All(log => log.Message.Contains("请先创建或读取存档", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -154,6 +155,7 @@ public sealed class SimulationConsoleCommandTests
         commands.Execute(["resume"]);
         commands.Execute(["step", "3"]);
         Assert.AreEqual(SimulationConsoleCommands.RequiresPauseEventId, fixture.Logs[^1].EventId);
+        StringAssert.Contains(fixture.Logs[^1].Message, "sim pause");
         Assert.AreEqual(0, session.AdvanceCount);
     }
 
@@ -200,6 +202,7 @@ public sealed class SimulationConsoleCommandTests
         commands.Execute(["step", "4"]);
         Assert.AreEqual(SimulationConsoleCommands.FrozenEventId, fixture.Logs[^1].EventId);
         StringAssert.Contains(fixture.Logs[^1].Message, "实际推进 1 步");
+        StringAssert.Contains(fixture.Logs[^1].Message, "读取更早的存档");
         StringAssert.Contains(fixture.Logs[^1].Message, "fixture_fault/advance/inventory");
         commands.Execute(["checkpoint"]);
         Assert.AreEqual(SimulationConsoleCommands.CheckpointEventId, fixture.Logs[^1].EventId);
@@ -210,6 +213,7 @@ public sealed class SimulationConsoleCommandTests
         commands.Execute(["checkpoint"]);
         Assert.AreEqual(SimulationConsoleCommands.CheckpointFailedEventId, fixture.Logs[^1].EventId);
         StringAssert.Contains(fixture.Logs[^1].Message, "fixture_capture_failed/checkpoint");
+        StringAssert.Contains(fixture.Logs[^1].Message, "报告问题");
         Assert.AreEqual(LogLevel.Warning, fixture.Logs[^1].Level);
         Assert.AreEqual("fixture_capture_failed", fixture.Logs[^1].Attributes["problem_code"]);
         Assert.AreEqual("checkpoint", fixture.Logs[^1].Attributes["problem_field"]);
@@ -220,6 +224,7 @@ public sealed class SimulationConsoleCommandTests
         Assert.AreEqual(checkpointFailures + 1, fixture.Logs.Count(log => log.EventId == SimulationConsoleCommands.CheckpointFailedEventId));
         StringAssert.Contains(fixture.Logs[^1].Message, fault.Code);
         var checkpointFailure = fixture.Logs[^1];
+        StringAssert.Contains(checkpointFailure.Message, "报告问题");
         Assert.AreEqual(LogLevel.Warning, checkpointFailure.Level);
         Assert.AreEqual(fault.Code, checkpointFailure.Attributes["fault_code"]);
         Assert.AreEqual(fault.Operation, checkpointFailure.Attributes["operation"]);
@@ -312,6 +317,7 @@ public sealed class SimulationConsoleCommandTests
             {
                 commands.Execute(arguments);
                 Assert.AreEqual(SimulationConsoleCommands.BusyEventId, fixture.Logs[^1].EventId);
+                StringAssert.Contains(fixture.Logs[^1].Message, "请等待");
             }
             Assert.IsTrue(fixture.Host.GetStatus()!.OperationLocked);
             Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);

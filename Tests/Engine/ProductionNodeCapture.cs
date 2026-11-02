@@ -134,7 +134,7 @@ public partial class ProductionNodeCapture : Node
         layer.AddChild(_status);
         route.Pressed += () =>
         {
-            var commands = new Train.App.TrainConsoleCommands(_app.Host!, _app.Logger, error => GD.PrintErr(error));
+            var commands = new Train.App.TrainConsoleCommands(_app.Host!, _app.Logger);
             var id = ((ulong)_train.Value).ToString(System.Globalization.CultureInfo.InvariantCulture);
             commands.Execute(["plan", id, "once", "station:13:3", "waypoint:8", "station:5:3"]);
             commands.Execute(["start", id]);
