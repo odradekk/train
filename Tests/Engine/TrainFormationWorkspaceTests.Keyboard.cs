@@ -14,7 +14,9 @@ public partial class TrainFormationWorkspaceTests
         var view = LongWorld(1);
         view.FormationPreviews = new[] { Array.Empty<ulong>(), new ulong[] { 2 }, [2, 3], [2, 3, 1], [2, 1, 3], [1, 2, 3] }
             .Select(ids => ((TrainId?)null, ids.Select(id => new VehicleId(id)).ToImmutableArray(),
-                (CoreResult<TrainFormationPreview>)new CoreResult<TrainFormationPreview>.Success(new(12, 34, 56, 78, [], null))));
+                ids.Length == 0 ? (CoreResult<TrainFormationPreview>)new CoreResult<TrainFormationPreview>.Failure(
+                    [new("composition_empty", "OrderedVehicles", null, [])])
+                    : new CoreResult<TrainFormationPreview>.Success(new(12, 34, 56, 78, [], null))));
         await WithWorkspace([], async (panel, binding, current, content) =>
         {
             Open(panel, binding, current, content);
