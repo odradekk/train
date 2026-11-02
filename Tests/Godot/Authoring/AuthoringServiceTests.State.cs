@@ -120,6 +120,8 @@ public sealed partial class AuthoringServiceTests
         Assert.AreEqual(new AuthoringDefinitionAddress(DefinitionKind.Blueprint, "blueprint"), issue.Definition);
         Assert.IsFalse(File.Exists(fixture.Output));
         Assert.AreEqual(1, fixture.Service.Drafts().Length);
+        StringAssert.StartsWith(fixture.Service.Message!, "一个文件也没写，游戏里的内容保持原样，草稿还在。");
+        Assert.IsFalse(fixture.Service.Message!.Contains("内存内容未切换", StringComparison.Ordinal));
     }
 
     [TestMethod]

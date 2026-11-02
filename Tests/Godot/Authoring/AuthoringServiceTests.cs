@@ -92,7 +92,7 @@ public sealed partial class AuthoringServiceTests
         Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
         Assert.IsTrue(File.Exists(fixture.DraftPath(savedDraft.Id)));
         Assert.IsNull(fixture.Service.Package);
-        StringAssert.Contains(fixture.Service.Message!, "内存内容未切换");
+        StringAssert.Contains(fixture.Service.Message!, "内容没有切换");
         StringAssert.Contains(fixture.Service.Message!, "reload rejected");
         Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
     }
