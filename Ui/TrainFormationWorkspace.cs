@@ -86,6 +86,8 @@ internal partial class TrainFormationWorkspace : Control
         SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore };
     internal void Open(PanelTarget target, NodeId node, ICoreReadView view, IContentView content)
         => Open(target, node, null, [], view, content);
+    internal void Open(PanelTarget target, NodeId node, ImmutableArray<VehicleId> vehicles, ICoreReadView view, IContentView content)
+        => Open(target, node, null, vehicles, view, content);
     internal void Open(PanelTarget target, TrainView train, ICoreReadView view, IContentView content)
         => Open(target, train.Position is TrainPosition.Node at ? at.Id : default, train.Id, train.Vehicles, view, content);
     private void Open(PanelTarget target, NodeId node, TrainId? train, ImmutableArray<VehicleId> vehicles,

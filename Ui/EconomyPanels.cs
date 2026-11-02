@@ -13,7 +13,7 @@ internal partial class EconomyPanels : Control
     private EconomyReportsPanel _reports = null!;
 
     internal const string ReservedStockHint = "聚居地库存在补货目标以内的部分留给本地，自动装载和买入只取超出部分。";
-    internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
+    internal event Action<PanelTarget, NodeId, ImmutableArray<VehicleId>, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<InstanceId>? ServiceDesignRequested;
     internal event Action<SettlementId>? SettlementCombatRequested;
     internal event Action<WorldObjectId, Control>? InspectorRequested;
@@ -27,7 +27,7 @@ internal partial class EconomyPanels : Control
         var goods = new GoodsRows(icons);
         _settlementWindow = new(this, host, submit, submitTarget, goods, Refresh, submitInline);
         _reports = new(this, host);
-        _settlementWindow.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
+        _settlementWindow.FormationRequested += (target, node, vehicles, view, content) => FormationRequested?.Invoke(target, node, vehicles, view, content);
         _settlementWindow.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
         _settlementWindow.SettlementCombatRequested += settlement => SettlementCombatRequested?.Invoke(settlement);
         _settlementWindow.Opened += (target, panel) => InspectorRequested?.Invoke(target, panel);

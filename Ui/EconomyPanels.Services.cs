@@ -5,11 +5,40 @@ namespace Train.Ui;
 
 internal partial class EconomyPanels
 {
+    internal static bool IsConstructionFacility(ICoreReadView view, IContentView content, BuildingId building) =>
+        view.FindInstance(new InstanceId.Building(building)) is Lookup<InstanceView>.Found instance &&
+        content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found
+            { Value: DesignEvaluation.Complete { Core: { } input } } &&
+        input.Design.Parts.Any(part => part.Capabilities.Any(capability => capability is PartCapability.Construction));
+
     internal static string? TrainVehicleName(ICoreReadView view, VehicleId vehicle) =>
         view.FindInstance(new InstanceId.Vehicle(vehicle)) is Lookup<InstanceView>.Found
             { Value.Details: InstanceDetails.Vehicle { Train: { } trainId } } &&
         view.FindTrain(trainId) is Lookup<TrainView>.Found train
             ? $"列车 {trainId.Value} 的第 {train.Value.Vehicles.IndexOf(vehicle) + 1} 辆车" : null;
+
+    internal static string DescribeVehicleJob(ICoreReadView view, IContentView content, ConstructionJobView job)
+    {
+        string DesignName(DesignHash design) =>
+            content.FindDesign(design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
+                ? complete.Definition.Display.Name : "设计内容缺失";
+
+        string VehicleName(VehicleId id)
+        {
+            if (view.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) return "车辆已不存在";
+            if (TrainVehicleName(view, id) is { } name) return name;
+            return $"停放车辆（{DesignName(found.Value.Design)}）";
+        }
+
+        var name = job.Target switch
+        {
+            ConstructionTarget.NewVehicle target => DesignName(target.Design),
+            ConstructionTarget.Existing { Instance: InstanceId.Vehicle vehicle } => VehicleName(vehicle.Id),
+            _ => "施工对象不可用"
+        };
+        return $"正在{ServiceKind(job.Kind)}{name} · 进度 {job.Progress:P0} · {ServiceRemainingTime(job)}" +
+            (job.State == ConstructionState.Working ? "" : $" · {ServiceState(job.State)}");
+    }
 
     internal static string PlotSizeName(PlotSize size) => size switch
     {

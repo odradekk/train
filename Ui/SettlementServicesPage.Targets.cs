@@ -111,13 +111,9 @@ internal partial class SettlementServicesPage
         }
     }
 
-    private bool IsServiceBuilding(BuildingId id) =>
-        _view.FindInstance(new InstanceId.Building(id)) is Lookup<InstanceView>.Found instance &&
-        _content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete { Core: { } input } } &&
-        input.Design.Parts.Any(part => part.Capabilities.Any(capability => capability is PartCapability.Construction));
-
     private bool IsCurrentServiceBuilding(FacilityKey key) => _settlement!.Plots.Any(plot =>
-        plot.Occupant is PlotOccupant.Building building && building.Id == key.Building) && IsServiceBuilding(key.Building);
+        plot.Occupant is PlotOccupant.Building building && building.Id == key.Building) &&
+        IsConstructionFacility(_view, _content, key.Building);
 
     private bool IsLocalServiceTarget(WorkTarget target) => target.Instance switch
     {

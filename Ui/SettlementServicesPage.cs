@@ -176,7 +176,7 @@ internal partial class SettlementServicesPage
         var refreshTargets = _serviceDirty || !ReferenceEquals(_serviceShownContent, _content);
         _serviceShownView = _view; _serviceShownContent = _content; _serviceDirty = false;
         var facilities = _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>()
-            .Where(building => IsServiceBuilding(building.Id))
+            .Where(building => IsConstructionFacility(_view, _content, building.Id))
             .Select(building => new FacilityKey(building.Id, CapabilityKind.Construction)).ToArray();
         SyncServiceChoice(_serviceFacility, _serviceFacilities, facilities, _serviceSelectedFacility,
             ServiceFacilityTitle, "请选择执行建筑");

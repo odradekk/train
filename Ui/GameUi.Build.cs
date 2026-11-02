@@ -97,8 +97,8 @@ public partial class GameUi
             _world.AddChild(_railway);
             _panels.RailwayWorkRequested += (target, edge) => _shell.RequestWorkspace(() =>
                 { _railway.Open(target, edge); _shell.ShowWorkspace(_railway.Content); });
-            _economy.FormationRequested += (target, node, view, content) =>
-                _shell.RequestWorkspace(() => _formation.Open(target, node, view, content));
+            _economy.FormationRequested += (target, node, vehicles, view, content) =>
+                _shell.RequestWorkspace(() => _formation.Open(target, node, vehicles, view, content));
             _combat = new CombatPanel { Name = "CombatPanel" };
             _combat.Initialize(Submit, ReportUiError);
             _world.AddChild(_combat);
