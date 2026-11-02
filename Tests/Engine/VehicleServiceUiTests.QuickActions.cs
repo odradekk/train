@@ -38,7 +38,7 @@ public partial class VehicleServiceUiTests
     [Test]
     public async Task Owned_parked_vehicle_repair_uses_only_settlement_inventory()
     {
-        var view = new ServiceView(owned: true, completed: true);
+        var view = new ServiceView(owned: true, completed: true) { DamagedParkedVehicle = true };
         var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehiclePresentation: true));
         await Run(setup, async (_, panel) =>
         {
