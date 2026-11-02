@@ -24,6 +24,8 @@ runner `lan-linux-nightly`：Arch Linux，Intel Core Ultra 7 258V、8 逻辑处�
 
 ## 打开时间
 
+本节线路打开的三类时延及未知数量按旧中心采样规则统计，与 [#881](https://github.com/odradekk/train/issues/881) 修复后的线路打开数字不可直接比较。下文的离线剔除只排除已识别的受影响样本，未重测；历史数字和判定保留。
+
 | 存档 | Actions run | 场景与轮数 |
 |---|---|---|
 | crowded-station | [41035832048](https://github.com/odradekk/train/actions/runs/41035832048) | scene-node／scene-edge／scene-follow 各 30 个独立进程 |
@@ -69,6 +71,8 @@ long-consist 线路 23 的地图首开、重开、读档后首显各 30 条原�
 Ready 使用必要 64 m L0 的生成、接入、显示回执及非地形对象雾消退，不证明整个模板预取或远景已完成。long-consist 移动后参考过期的长测打开记录不与本表混算，详见[帧基线](2026-11-02-heavy-load-frame-time.md)。
 
 ## 每帧场景准备窗口
+
+本节表中 `scene-node`、`scene-edge`、`scene-follow` 的准备耗时和最大帧时序计数采用旧 `View.Interactive` 起点，与 [#881](https://github.com/odradekk/train/issues/881) 从 `open.first_operable` 起算、任一次打开缺失该信号即判未知的结果不可直接比较；原数字和判定保留。`scene-route-*` 的窗口定义未变。
 
 本次沿用 `29a612b3` 的 `SceneResourceTimings.cs:45`：`View.Interactive` 使下一绘制帧进入“可以操作后”窗口。它早于[设计 01](../../../docs/design/01-voxel-engine-and-scenes.md)普通打开的近处检查与拖动确认 `open.first_operable`，可能将此前的帧算入 4 ms 预算（[#862](https://github.com/odradekk/train/issues/862)、[#881](https://github.com/odradekk/train/issues/881)）。原始 assessment 不重判。
 

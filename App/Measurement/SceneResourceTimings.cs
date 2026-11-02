@@ -30,13 +30,15 @@ internal sealed class SceneResourceTimings
     }
 
     internal SceneResourceFrame? Draw(ulong frame, double at, string phase, string? operation, bool interactive,
-        SceneSpaceId? displayedSpace)
+        SceneSpaceId? displayedSpace, bool afterOperable = false)
     {
         if (_operation != operation)
         {
             _operation = operation;
             _operable = false;
         }
+        // 普通打开的信号在上次 OnSceneDraw 确认，本次区间已属于可操作后。
+        if (operation is not null && afterOperable) _operable = true;
         // 新空间正式首帧属于打开；只排除该 draw，不重开整个可操作窗口。
         var excludedSpace = _operable && displayedSpace is { } current && _displayedSpace is { } previous && current != previous;
         var sample = _lastDraw > 0 ? new SceneResourceFrame(frame, at, phase, at - _lastDraw,
