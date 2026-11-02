@@ -22,7 +22,13 @@ internal sealed class DeveloperToolsFixture
     internal List<ScriptedCoreSession> RestoredSessions { get; } = [];
     internal ScriptedCoreReplay? Replay { get; private set; }
     internal List<ScriptedCoreCandidate> Candidates { get; } = [];
-    internal FixedContentView Content { get; } = new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
+    internal FixedContentView Content { get; } = new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+    {
+        DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+        {
+            [new CoreDefinitionReference.Terrain(new("fixture:terrain"))] = new ContentLookup<ContentDisplay>.NotFound()
+        }
+    };
     internal FixedDisplayFactory Scenes { get; } = new()
     {
         OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(new PreviewScene(binding))
