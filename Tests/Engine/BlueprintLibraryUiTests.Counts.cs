@@ -62,6 +62,8 @@ public partial class BlueprintLibraryUiTests
         public Lookup<NodeView> FindNode(NodeId id) => basis.FindNode(id);
         public Lookup<EdgeView> FindEdge(EdgeId id) => basis.FindEdge(id);
         public Lookup<TrainView> FindTrain(TrainId id) => basis.FindTrain(id);
+        public CoreResult<TrainFormationPreview> PreviewTrainFormation(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles, TrainId? train) =>
+            basis.PreviewTrainFormation(vehicles, train);
         public Lookup<InventoryView> FindInventory(InventoryId id) => basis.FindInventory(id);
         public Lookup<LeaseView> FindLease(LeaseId id) => basis.FindLease(id);
         public Lookup<FacilityView> FindFacility(FacilityKey key) => basis.FindFacility(key);
