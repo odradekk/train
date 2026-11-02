@@ -86,6 +86,7 @@ public partial class SaveTests
                 "世界必须按配置与种子分组，组按最新保存时间排序，组内按保存时间排序，并显示玩家标题。");
             Require(!string.Join("\n", labels).Contains("fixture:", StringComparison.Ordinal), "列表泄露了生成配置 ID。");
             Require(new[] { 0, 3, 5, 7 }.All(row => !list.IsItemSelectable(row)), "世界标题不能成为可选存档。");
+            Require(list.GetItemCustomFgColor(0) != list.GetItemCustomFgColor(1), "世界标题与存档行必须用不同的前景色区分。");
             await _input.WaitUntil(() => app.Saves!.Details is not null);
             var selected = list.GetSelectedItems();
             var details = app.Saves!.Details;

@@ -208,6 +208,7 @@ public partial class SavePanel : Control
                 entry.Header.Name.Contains(search, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (entries.Length == 0) continue;
             var heading = _list.AddItem(title);
+            _list.SetItemCustomFgColor(heading, UiStyle.Info);
             _list.SetItemSelectable(heading, false);
             foreach (var entry in entries)
             {
