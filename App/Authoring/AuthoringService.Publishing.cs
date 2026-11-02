@@ -82,7 +82,8 @@ internal sealed partial class AuthoringService
             : written!.Success ? "文件已写入，但内容重载失败；游戏里的内容没有切换，内存内容未切换；草稿保留。"
             : "写入已停止，已完成项保留；游戏里的内容没有切换，内存内容未切换；草稿保留。";
         Report(outcome + (result.Succeeded ? "" : " " + result.Message + " "
-                + string.Join("；", result.Diagnostics.Select(item => item.Message).Concat(result.Problems.Select(problem => CommandDiagnostics.Describe(problem, host.Content)))))
+                + string.Join("；", result.Diagnostics.Select(item => $"{item.Code}: {item.Message} {item.Source?.Path} {item.Field}")
+                    .Concat(result.Problems.Select(problem => CommandDiagnostics.Describe(problem, host.Content)))))
             + (changedFiles ? "请重新载入源包后继续创作。" : ""));
     }
 
