@@ -1,5 +1,8 @@
 using Chickensoft.GoDotTest;
 using Godot;
+using Train.Content.Contracts;
+using Train.Content.ContractSupport;
+using Train.Core.ContractSupport;
 using Train.Ui;
 using Train.Core.Contracts;
 using static Train.Engine.Tests.Assertions;
@@ -61,11 +64,110 @@ public partial class EconomyUiTests
         await Run(setup, (_, panel) =>
         {
             Require(Find<Label>(panel, "Commissions").Text ==
-                "进行中的委托\n制造 · 51% · 预计还需 9 秒\n修理 · 20% · 当前未施工",
-                "委托应向上取整显示剩余秒数，零工作速率时保持未施工提示。");
+                "进行中的委托\n正在制造设计内容缺失 · 进度 51% · 预计还需 9 秒\n正在修理列车 7 的第 1 辆车 · 进度 20% · 当前未施工 · 已暂停",
+                "委托应写明对象、进度和向上取整的剩余秒数，暂停时说明当前未施工及状态。");
             return Task.CompletedTask;
         });
         setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Overview_commissions_name_vehicle_equipment_and_parked_refit_targets()
+    {
+        var vehicle = new ConstructionJobView(new(90), ConstructionKind.Construction, new(1),
+            new(new(1), CapabilityKind.Construction), new ConstructionTarget.NewVehicle(new("fixture-vehicle")),
+            ConstructionState.Working, 0, 100, 50, .5, 5, [], [], []);
+        var equipment = vehicle with { Id = new(91), Target = new ConstructionTarget.NewAssembly(new("fixture-equipment"), new("private-composition"), new(11)) };
+        var parked = vehicle with { Id = new(92), Kind = ConstructionKind.Refit,
+            Target = new ConstructionTarget.Existing(new InstanceId.Vehicle(new(9)), new("fixture-refit")) };
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned,
+            commissionJobs: [vehicle, equipment, parked]), CommissionContent());
+        await Run(setup, async (_, panel) =>
+        {
+            var text = Find<Label>(panel, "Commissions").Text;
+            Require(text.Contains("正在制造货车") && text.Contains("正在制造货运设备") &&
+                text.Contains("正在改装停放车辆（货车）") && !text.Contains("改装后货车"),
+                "制造应写设计名，停放车辆改装应写当前设计名以便辨认，而不是改装后的设计名。");
+            Require(new[] { "fixture", "private", "NewVehicle", "NewAssembly", "Existing", "任务 90", "车辆 9" }
+                .All(value => !text.Contains(value)), "委托摘要不能暴露内部身份或枚举。");
+            await UiCapture.Capture(TestScene, "settlement-commission-targets");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public void Overview_refit_identifies_the_second_vehicle_by_train_order()
+    {
+        var job = new ConstructionJobView(new(90), ConstructionKind.Refit, new(1),
+            new(new(1), CapabilityKind.Construction), new ConstructionTarget.Existing(new InstanceId.Vehicle(new(10)), new("fixture-vehicle")),
+            ConstructionState.Working, 0, 100, 50, .5, 5, [], [], []);
+        var basis = EconomyFixture.Create(commissionJobs: [job]);
+        var train = ((Lookup<TrainView>.Found)basis.FindTrain(new(7))).Value with { Vehicles = [new(12), new(10)] };
+        var view = new FixedCoreReadView(basis.Position, basis.InputIdentity, revision: basis.Revision)
+        {
+            World = basis.World,
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [new InstanceId.Vehicle(new(10))] = basis.FindInstance(new InstanceId.Vehicle(new(10))) },
+            Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },
+            Jobs = new Dictionary<JobId, Lookup<JobView>> { [job.Id] = new Lookup<JobView>.Found(new JobView.Construction(job)) }
+        };
+        var settlement = ((Lookup<SettlementView>.Found)basis.FindSettlement(new(1))).Value;
+        var body = new VBoxContainer();
+        try
+        {
+            var page = new SettlementOverviewPage(_ => { }, () => true, _ => throw new InvalidOperationException("只查看概况，不应提交命令。"), _ => { }, _ => { });
+            page.Build(body, false);
+            page.Refresh(view, EconomyFixture.Content(), settlement, []);
+            var text = Find<Label>(body, "Commissions").Text;
+            Require(text.Contains("正在改装列车 7 的第 2 辆车") && !text.Contains("车辆 10"),
+                "改装摘要应使用列车名和编组车序，不能把车辆身份当成车序。");
+        }
+        finally { body.Free(); }
+    }
+
+    [Test]
+    public async Task Overview_commissions_explain_missing_parked_design_and_vehicle_without_internal_identities()
+    {
+        var parked = new ConstructionJobView(new(90), ConstructionKind.Repair, new(1),
+            new(new(1), CapabilityKind.Construction), new ConstructionTarget.Existing(new InstanceId.Vehicle(new(9)), new("fixture-vehicle")),
+            ConstructionState.Working, 0, 100, 50, .5, 5, [], [], []);
+        var missing = parked with { Id = new(91), Target = new ConstructionTarget.Existing(new InstanceId.Vehicle(new(11)), new("fixture-vehicle")) };
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned,
+            commissionJobs: [parked, missing]), EconomyFixture.Content());
+        await Run(setup, (_, panel) =>
+        {
+            var text = Find<Label>(panel, "Commissions").Text;
+            Require(text.Contains("停放车辆（设计内容缺失）") && text.Contains("车辆已不存在") &&
+                !text.Contains("fixture-vehicle") && !text.Contains("车辆 11"),
+                "缺失设计或车辆时应说明缺失对象，不显示哈希或车辆编号。");
+            return Task.CompletedTask;
+        });
+        setup.Session.AssertComplete();
+    }
+
+    private static FixedContentView CommissionContent()
+    {
+        var basis = EconomyFixture.Content(mapPresentation: true);
+        ContentLookup<DesignEvaluation> Design(string hash, string name, DesignSpecification specification) =>
+            new ContentLookup<DesignEvaluation>.Found(new DesignEvaluation.Complete(new(hash), new("private-composition"),
+                new(new(name, ""), specification, new([], [], [])), null,
+                new(null, null, null, true, null, null, [], [], [], [], []), true, []));
+        return new(basis.Core, basis.Generation)
+        {
+            Voxels = basis.Voxels, LocalDrafts = basis.LocalDrafts, Blueprints = basis.Blueprints,
+            DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+                { [new CoreDefinitionReference.SettlementType(new("fixture:town"))] = basis.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(new("fixture:town"))) },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+                { [new(1)] = basis.FindSettlementLayout(new(1)), [new(2)] = basis.FindSettlementLayout(new(2)) },
+            Goods = new GoodId[] { EconomyFixture.Food, EconomyFixture.Equipment, new GoodId.Voxel(new("fixture:ore")) }
+                .ToDictionary(good => good, basis.FindGood),
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>> { [new("fixture-food-png")] = basis.FindAsset(new("fixture-food-png")) },
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            {
+                [new("fixture-vehicle")] = Design("fixture-vehicle", "货车", new DesignSpecification.Vehicle(SizeClass.Medium)),
+                [new("fixture-equipment")] = Design("fixture-equipment", "货运设备", new DesignSpecification.Assembly(null)),
+                [new("fixture-refit")] = Design("fixture-refit", "改装后货车", new DesignSpecification.Vehicle(SizeClass.Medium))
+            }
+        };
     }
 
     [Test]
