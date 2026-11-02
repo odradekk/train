@@ -12,6 +12,35 @@ namespace Train.Engine.Tests;
 public partial class SceneDisplayTests
 {
     [Test]
+    public async Task New_displays_make_progress_when_another_display_prepares_first_each_frame()
+    {
+        await new UiTestInput(TestScene).Frames(1);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var world = Attach(cache, new FixedContentView(), completeInitialFrame: true);
+        var shown = Frame(1, []);
+        await Commit(world, shown);
+        using var preview = Attach(cache, new FixedContentView());
+        var incoming = Frame(2, [Object(1, Peak(1))]);
+        SceneDisplay.PreparedFrame? prepared = null;
+        for (var frame = 0; frame < 12 && prepared is null; frame++)
+        {
+            await new UiTestInput(TestScene).Frames(1);
+            using (var active = world.Prepare(shown)) active?.Commit();
+            prepared = preview.Prepare(incoming);
+            await preview.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        using (prepared)
+        {
+            Require(prepared is not null,
+                "每帧先准备世界场景时，新显示的无样本阶段也必须在有限帧内推进，不能永久等首项。");
+            prepared!.Commit();
+        }
+        Require(ReferenceEquals(preview.DisplayedFrame, incoming) && preview.Objects.Count == 1,
+            "新显示须一次接入完整几何。");
+    }
+
+    [Test]
     public async Task Geometry_preparation_stops_inside_a_visual_and_publishes_only_after_resuming()
     {
         foreach (var candidate in new[] { false, true })

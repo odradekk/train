@@ -332,6 +332,8 @@ internal sealed partial class SceneDisplay
     }
 
     private static bool _budgetAdvanced;
+    private static SceneDisplay? _freshPreparation;
+    private static ulong _freshPreparationFrame;
 
     private static void ResetPreparationBudget()
     {
@@ -340,6 +342,7 @@ internal sealed partial class SceneDisplay
         _budgetFrame = processFrame;
         _preparationTime = TimeSpan.Zero;
         _budgetAdvanced = false;
+        if (_freshPreparationFrame < processFrame) _freshPreparation = null;
     }
 
     internal readonly struct PreparationSlice(SceneDisplay owner, long started, TimeSpan? budget, bool unlimited)
@@ -350,14 +353,28 @@ internal sealed partial class SceneDisplay
         internal bool Start(TimeSpan estimate = default, bool requireFresh = false)
         {
             if (unlimited) { _budgetAdvanced = true; return true; }
+            if (_freshPreparation is { } reserved && _freshPreparationFrame == _budgetFrame &&
+                !ReferenceEquals(reserved, owner)) return false;
             var elapsed = Stopwatch.GetElapsedTime(started, owner.Timestamp());
             var allowance = budget ?? PreparationBudget;
             var remaining = TimeSpan.FromTicks(Math.Min((allowance - elapsed).Ticks,
                 (PreparationBudget - _preparationTime - elapsed).Ticks));
             // 本帧预算尚未耗尽时，第一步总能开始，避免大项成本超过4ms后永久饿死。
-            if (_preparationTime >= PreparationBudget || requireFresh && _budgetAdvanced ||
+            if (requireFresh && _budgetAdvanced)
+            {
+                // 为后处理的显示预约下一帧首项，不在本帧已有工作后强行试跑未知成本。
+                if (_freshPreparation is null || _freshPreparationFrame <= _budgetFrame)
+                {
+                    _freshPreparation = owner;
+                    _freshPreparationFrame = _budgetFrame + 1;
+                }
+                return false;
+            }
+            if (_preparationTime >= PreparationBudget ||
                 _budgetAdvanced && (remaining <= TimeSpan.Zero || estimate > remaining)) return false;
             _budgetAdvanced = true;
+            if (ReferenceEquals(_freshPreparation, owner) && _freshPreparationFrame == _budgetFrame)
+                _freshPreparation = null;
             return true;
         }
     }
