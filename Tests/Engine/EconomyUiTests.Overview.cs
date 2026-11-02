@@ -57,37 +57,38 @@ public partial class EconomyUiTests
         var working = new ConstructionJobView(new(90), ConstructionKind.Construction, new(1),
             new(new(1), CapabilityKind.Construction), new ConstructionTarget.NewVehicle(new("fixture-vehicle")),
             ConstructionState.Working, 0, 100, 51, .51, 6, [], [], []);
-        var paused = working with { Id = new(91), Kind = ConstructionKind.Repair,
+        var blocked = working with { Id = new(91), Kind = ConstructionKind.Repair,
             Target = new ConstructionTarget.Existing(new InstanceId.Vehicle(new(10)), new("fixture-vehicle")),
-            State = ConstructionState.Paused, ProgressWork = 20, Progress = .2, ActualWorkPerSecond = 0 };
-        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(commissionJobs: [working, paused]), EconomyFixture.Content());
+            State = ConstructionState.ResourceBlocked, ProgressWork = 20, Progress = .2, ActualWorkPerSecond = 0 };
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(commissionJobs: [working, blocked]), EconomyFixture.Content());
         await Run(setup, (_, panel) =>
         {
             Require(Find<Label>(panel, "Commissions").Text ==
-                "进行中的委托\n正在制造设计内容缺失 · 进度 51% · 预计还需 9 秒\n正在修理列车 7 的第 1 辆车 · 进度 20% · 当前未施工 · 已暂停",
-                "委托应写明对象、进度和向上取整的剩余秒数，暂停时说明当前未施工及状态。");
+                "进行中的委托\n正在制造设计内容缺失 · 进度 51% · 预计还需 9 秒\n正在修理列车 7 的第 1 辆车 · 进度 20% · 当前未施工 · 资源受阻",
+                "委托应写明对象、进度和向上取整的剩余秒数，资源受阻时说明当前未施工及状态。");
             return Task.CompletedTask;
         });
         setup.Session.AssertComplete();
     }
 
     [Test]
-    public async Task Overview_commissions_name_vehicle_equipment_and_parked_refit_targets()
+    public async Task Overview_commissions_name_vehicle_and_refit_targets()
     {
         var vehicle = new ConstructionJobView(new(90), ConstructionKind.Construction, new(1),
             new(new(1), CapabilityKind.Construction), new ConstructionTarget.NewVehicle(new("fixture-vehicle")),
             ConstructionState.Working, 0, 100, 50, .5, 5, [], [], []);
-        var equipment = vehicle with { Id = new(91), Target = new ConstructionTarget.NewAssembly(new("fixture-equipment"), new("private-composition"), new(11)) };
+        var trainRefit = vehicle with { Id = new(91), Kind = ConstructionKind.Refit,
+            Target = new ConstructionTarget.Existing(new InstanceId.Vehicle(new(10)), new("fixture-refit")) };
         var parked = vehicle with { Id = new(92), Kind = ConstructionKind.Refit,
             Target = new ConstructionTarget.Existing(new InstanceId.Vehicle(new(9)), new("fixture-refit")) };
         var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned,
-            commissionJobs: [vehicle, equipment, parked]), CommissionContent());
+            commissionJobs: [vehicle, trainRefit, parked]), CommissionContent());
         await Run(setup, async (_, panel) =>
         {
             var text = Find<Label>(panel, "Commissions").Text;
-            Require(text.Contains("正在制造货车") && text.Contains("正在制造货运设备") &&
+            Require(text.Contains("正在制造货车") && text.Contains("正在改装列车 7 的第 1 辆车") &&
                 text.Contains("正在改装停放车辆（货车）") && !text.Contains("改装后货车"),
-                "制造应写设计名，停放车辆改装应写当前设计名以便辨认，而不是改装后的设计名。");
+                "制造应写设计名，列车内改装应写车辆位置，停放车辆改装应写当前设计名以便辨认，而不是改装后的设计名。");
             Require(new[] { "fixture", "private", "NewVehicle", "NewAssembly", "Existing", "任务 90", "车辆 9" }
                 .All(value => !text.Contains(value)), "委托摘要不能暴露内部身份或枚举。");
             await UiCapture.Capture(TestScene, "settlement-commission-targets");
@@ -147,9 +148,9 @@ public partial class EconomyUiTests
     private static FixedContentView CommissionContent()
     {
         var basis = EconomyFixture.Content(mapPresentation: true);
-        ContentLookup<DesignEvaluation> Design(string hash, string name, DesignSpecification specification) =>
+        ContentLookup<DesignEvaluation> Design(string hash, string name) =>
             new ContentLookup<DesignEvaluation>.Found(new DesignEvaluation.Complete(new(hash), new("private-composition"),
-                new(new(name, ""), specification, new([], [], [])), null,
+                new(new(name, ""), new DesignSpecification.Vehicle(SizeClass.Medium), new([], [], [])), null,
                 new(null, null, null, true, null, null, [], [], [], [], []), true, []));
         return new(basis.Core, basis.Generation)
         {
@@ -163,9 +164,8 @@ public partial class EconomyUiTests
             Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>> { [new("fixture-food-png")] = basis.FindAsset(new("fixture-food-png")) },
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             {
-                [new("fixture-vehicle")] = Design("fixture-vehicle", "货车", new DesignSpecification.Vehicle(SizeClass.Medium)),
-                [new("fixture-equipment")] = Design("fixture-equipment", "货运设备", new DesignSpecification.Assembly(null)),
-                [new("fixture-refit")] = Design("fixture-refit", "改装后货车", new DesignSpecification.Vehicle(SizeClass.Medium))
+                [new("fixture-vehicle")] = Design("fixture-vehicle", "货车"),
+                [new("fixture-refit")] = Design("fixture-refit", "改装后货车")
             }
         };
     }

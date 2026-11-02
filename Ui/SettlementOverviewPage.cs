@@ -121,22 +121,19 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
             content.FindDesign(design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
                 ? complete.Definition.Display.Name : "设计内容缺失";
 
-        string ExistingName(InstanceId id)
+        string VehicleName(VehicleId id)
         {
-            if (id is InstanceId.Building building) return SettlementBuildingsPage.BuildingName(_view, content, building.Id);
-            if (_view.FindInstance(id) is not Lookup<InstanceView>.Found found) return "车辆已不存在";
+            if (_view.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) return "车辆已不存在";
             if (found.Value.Details is InstanceDetails.Vehicle { Train: { } trainId } &&
                 _view.FindTrain(trainId) is Lookup<TrainView>.Found train)
-                return $"列车 {trainId.Value} 的第 {train.Value.Vehicles.IndexOf(((InstanceId.Vehicle)id).Id) + 1} 辆车";
+                return $"列车 {trainId.Value} 的第 {train.Value.Vehicles.IndexOf(id) + 1} 辆车";
             return $"停放车辆（{DesignName(found.Value.Design)}）";
         }
 
         var name = job.Target switch
         {
             ConstructionTarget.NewVehicle target => DesignName(target.Design),
-            ConstructionTarget.NewAssembly target => DesignName(target.Design),
-            ConstructionTarget.NewBuilding target => DesignName(target.Design),
-            ConstructionTarget.Existing target => ExistingName(target.Instance),
+            ConstructionTarget.Existing { Instance: InstanceId.Vehicle vehicle } => VehicleName(vehicle.Id),
             _ => "施工对象不可用"
         };
         return $"正在{EconomyPanels.ServiceKind(job.Kind)}{name} · 进度 {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job)}" +
