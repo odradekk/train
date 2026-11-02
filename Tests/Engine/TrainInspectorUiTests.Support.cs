@@ -66,7 +66,7 @@ public partial class TrainInspectorUiTests
         public CoreRevision Revision => _basis.Revision;
         public CoreInputId InputIdentity => _basis.InputIdentity;
         public CoreFault? Fault => null;
-        public EconomyView Economy => _basis.Economy;
+        public EconomyView Economy => _basis.Economy with { RecentRunReports = Train.RecentReports };
         public WorldSummary World => _basis.World with
         {
             Nodes = [_basis.World.Nodes[0], _basis.World.Nodes[0] with { Id = new(2), Position = new(750, 300),

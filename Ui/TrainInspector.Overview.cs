@@ -43,6 +43,7 @@ internal sealed partial class TrainInspector
         text.AppendLine(_train.CurrentRun is { } run ? EconomyPanels.RunText(run, _content) : "尚未开始或已结束，无当前运行累计。");
         text.AppendLine("\n上一次运行报告");
         var report = _train.RecentReports.OrderBy(value => value.EndedAt.CompletedSteps).ThenBy(value => value.EndedAt.Sequence).LastOrDefault();
+        _openReport.Visible = report is not null;
         if (report is null) text.AppendLine("暂无已结束的运行报告。");
         else
         {

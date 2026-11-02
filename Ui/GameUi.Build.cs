@@ -82,6 +82,9 @@ public partial class GameUi
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, Submit, _icons, Submit, SubmitInline);
             _world.AddChild(_economy);
+            _economy.PlanRequested += (target, train, view, content) =>
+                _shell.RequestWorkspace(() => _plan.Open(target, train, view, content));
+            _panels.TrainReportRequested += target => _shell.RequestWorkspace(() => _economy.OpenReports(target));
             _founding = new SettlementFoundingPanel { Name = "SettlementFounding" };
             _founding.Initialize(_host, Submit);
             _world.AddChild(_founding);

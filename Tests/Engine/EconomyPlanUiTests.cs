@@ -228,7 +228,12 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             Require(report.Reason == RunEndReason.PlanReplaced && report.Totals.TransportedUnits == 10,
                 "替换计划没有产生真实的运行报告。");
             await input.Activate(Find<Button>(ui, "EconomyReports"));
-            var reportText = Find<Label>(ui, "ReportsText").Text;
+            var reportRow = Find<VBoxContainer>(Find<PanelContainer>(ui, "EconomyReports"), $"Train{trainId.Value}");
+            var runDetails = Find<VBoxContainer>(reportRow, "RunDetails");
+            Require(!runDetails.IsVisibleInTree(), "运行报告在展开列车前已显示。");
+            await input.Activate(Find<Button>(reportRow, "Expand"));
+            Require(runDetails.IsVisibleInTree(), "展开列车后真实运行报告仍不可见。");
+            var reportText = Find<Label>(runDetails, "ReportsText").Text;
             Require(reportText.Contains("采购支出") && reportText.Contains("销售收入 " + report.Totals.SalesReceipts.Value) &&
                 reportText.Contains("运输数量 10"), "真实运行报告没有出现在经营报告面板。");
             Require(report.Totals.LoadedCapacityRatio is null &&

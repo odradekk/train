@@ -17,7 +17,7 @@ internal sealed partial class TrainInspector
     private readonly Action _combat, _disband;
     private readonly Action<InstanceId> _refit, _service;
     private readonly Label _title, _description, _departureReason, _result, _unavailable;
-    private readonly Button _edit, _start, _stop, _openCombat;
+    private readonly Button _edit, _start, _stop, _openCombat, _openReport;
     private readonly TabContainer _pages;
     private readonly VBoxContainer _planPage, _cargoPage, _vehiclesPage;
     private ICoreReadView _view = null!;
@@ -30,7 +30,7 @@ internal sealed partial class TrainInspector
     internal TrainInspector(Control parent, HostCoordinator host, PanelTarget target,
         Func<PanelTarget?, CoreCommand, SubmissionResult> submit,
         Action<TrainView> plan, Action<TrainView> formation, Action combat, Action disband,
-        Action<InstanceId> refit, Action<InstanceId> service)
+        Action<InstanceId> refit, Action<InstanceId> service, Action report)
     {
         _host = host; Target = target; _submit = submit; _plan = plan; _formation = formation;
         _combat = combat; _disband = disband; _refit = refit; _service = service;
@@ -51,6 +51,8 @@ internal sealed partial class TrainInspector
         _openCombat = UiStyle.Button("OpenCombat", "查看战斗", OpenCombat);
         overview.AddChild(_openCombat);
         _description = Text(overview, "Description", "");
+        _openReport = UiStyle.Button("OpenReport", "查看明细", () => { if (ReadCurrent()) report(); });
+        overview.AddChild(_openReport);
         _planPage = Page(_pages, "计划"); _cargoPage = Page(_pages, "货物"); _vehiclesPage = Page(_pages, "车辆");
         BuildReadOnlyPages();
         BuildVehicles();
@@ -92,6 +94,7 @@ internal sealed partial class TrainInspector
             EconomyPanelControls.Clear(_vehicleList); _vehicles.Clear(); _repairQuote = null;
             _edit.Disabled = _start.Disabled = _stop.Disabled = true;
             _openCombat.Disabled = true;
+            _openReport.Disabled = true;
             _result.Visible = _result.Text.Length > 0;
             return;
         }
@@ -111,6 +114,7 @@ internal sealed partial class TrainInspector
         _start.Disabled = _host.IsBusy || _train.Plan is null;
         _stop.Disabled = _host.IsBusy;
         _openCombat.Disabled = _host.IsBusy;
+        _openReport.Disabled = _host.IsBusy;
         _start.ThemeTypeVariation = _train.Plan is not null ? "PrimaryButton" : "";
         _departureReason.Text = _host.IsBusy ? "当前操作尚未结束。" : _train.Plan is null ? "没有运行计划" : "";
         _departureReason.Visible = _departureReason.Text.Length > 0;

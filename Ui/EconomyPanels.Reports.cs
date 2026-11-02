@@ -26,7 +26,7 @@ internal partial class EconomyPanels
     }
 
     internal static string ReportText(RunReport report, IContentView content) =>
-        $"列车 {report.Train.Value} · {UiInput.FormatTime(report.EndedAt.CompletedSteps)}结束 · " +
+        $"{UiInput.FormatTime(report.EndedAt.CompletedSteps)}结束 · " +
         EndReasonText(report.Reason) + "\n" + RunText(report.Totals, content);
 
     internal static string EndReasonText(RunEndReason reason) => reason switch
@@ -36,7 +36,4 @@ internal partial class EconomyPanels
         RunEndReason.AllVehiclesDestroyed => "全部车辆损毁", _ => "运行已结束"
     };
 
-    internal static string PopulationReportText(PopulationSettlementReport report) =>
-        $"第 {report.Position.CompletedSteps} 步 · 执行修订 {report.ExecutionRevision.Value}\n人口 {report.Before} → {report.After}（{report.Change:+0;-0;0}） · 基本满足率 {report.BasicSatisfaction:P1} · 改善满足率 {report.ImprovementSatisfaction:P1}\n原因：" +
-        (report.Reason switch { PopulationSettlementReason.Growth => "增长", PopulationSettlementReason.ShortageLoss => "短缺流失", PopulationSettlementReason.Stable => "稳定", PopulationSettlementReason.MinimumReached => "达到最低人口", _ => report.Reason.ToString() });
 }

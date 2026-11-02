@@ -10,7 +10,7 @@ namespace Train.Ui;
 internal partial class EconomyPanels : Control
 {
     private SettlementPanel _settlementWindow = null!;
-    private EconomyReportsPanel _reports = null!;
+    private EconomyReportsWorkspace _reports = null!;
 
     internal const string ReservedStockHint = "聚居地库存在补货目标以内的部分留给本地，自动装载和买入只取超出部分。";
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
@@ -18,6 +18,7 @@ internal partial class EconomyPanels : Control
     internal event Action<SettlementId>? SettlementCombatRequested;
     internal event Action<WorldObjectId, Control>? InspectorRequested;
     internal event Action<Control>? WorkspaceRequested;
+    internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, GoodsIconCache icons,
@@ -32,6 +33,7 @@ internal partial class EconomyPanels : Control
         _settlementWindow.SettlementCombatRequested += settlement => SettlementCombatRequested?.Invoke(settlement);
         _settlementWindow.Opened += (target, panel) => InspectorRequested?.Invoke(target, panel);
         _reports.Opened += panel => WorkspaceRequested?.Invoke(panel);
+        _reports.PlanRequested += (target, train, view, content) => PlanRequested?.Invoke(target, train, view, content);
     }
 
     public override void _Ready()
@@ -39,6 +41,7 @@ internal partial class EconomyPanels : Control
 
     internal void OpenSettlement(PanelTarget source, SettlementId id) => _settlementWindow.Open(source, id);
     internal void OpenReports() => _reports.Open();
+    internal void OpenReports(PanelTarget source) => _reports.Open(source);
 
     internal void Close()
     { _settlementWindow.Close(); _reports.Close(); }

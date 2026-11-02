@@ -29,6 +29,7 @@ public partial class ProductionPopulationUiTests
             var binding = app.Host!.GetStatus()!.Binding;
             var economy = Find<EconomyPanels>(app, "EconomyPanels");
             economy.OpenReports();
+            await _input.Activate(Find<Button>(Find<VBoxContainer>(Find<PanelContainer>(app, "EconomyReports"), "Train7"), "Expand"));
             ulong revision = 2;
             foreach (var (ratio, expected) in new (double? Ratio, string Expected)[]
             {
@@ -41,13 +42,14 @@ public partial class ProductionPopulationUiTests
                 var view = new FixedCoreReadView(original.Position, original.InputIdentity, revision: new(revision++))
                 {
                     World = original.World,
+                    Trains = original.World.Trains.ToDictionary(item => item.Id, item => original.FindTrain(item.Id)),
                     Economy = original.Economy with
                     {
                         RecentRunReports = [new(new(7), original.Position, RunEndReason.PlanReplaced, totals)]
                     }
                 };
                 economy.Refresh(binding, view, content);
-                var text = Find<Label>(app, "ReportsText").Text;
+                var text = ExpandedRunText();
                 Require(text.Contains("载运率 " + expected), "经营报告未区分未定义、空载和超载的载运率。");
                 Require(ratio is null || !text.Contains("未进入线路"), "有数值的载运率被显示为未定义。");
                 Require(text.Contains("服务费用：17 · 净现金流 -17"), "运行报告未展示核心返回的服务费用。");
@@ -63,24 +65,33 @@ public partial class ProductionPopulationUiTests
             economy.Refresh(binding, new FixedCoreReadView(original.Position, original.InputIdentity, revision: new(revision))
             {
                 World = original.World,
+                Trains = original.World.Trains.ToDictionary(item => item.Id, item => original.FindTrain(item.Id)),
                 Economy = original.Economy with
                 {
                     RecentRunReports = [new(new(7), original.Position, RunEndReason.PlanCompleted, incomplete)]
                 }
             }, content);
-            var reports = Find<Label>(app, "ReportsText").Text;
+            var reports = ExpandedRunText();
             Require(reports.Split("补货目标以内").Length == 2,
                 $"货物不足的装载规则应说明补货目标保留，卸载规则不应：{reports}");
             Require(!reports.Contains("insufficient_goods") && !reports.Contains("Inventory"),
                 "未完成规则泄漏了诊断代码或内部库存标识。");
             Require(setup.Session.SubmitCount == 0, "只读经营报告提交了命令。");
+
+            string ExpandedRunText()
+            {
+                var row = Find<VBoxContainer>(Find<PanelContainer>(app, "EconomyReports"), "Train7");
+                var details = Find<VBoxContainer>(row, "RunDetails");
+                Require(details.IsVisibleInTree(), "展开列车后运行报告仍不可见。");
+                return Find<Label>(details, "ReportsText").Text;
+            }
         }
         finally { await fixture.Cleanup(); }
         setup.Session.AssertComplete();
     }
 
     [Test]
-    public async Task Population_without_statistics_and_global_reports_preserve_unknown_and_ownership()
+    public async Task Population_without_statistics_preserves_unknown()
     {
         var original = EconomyFixture.Create();
         var content = EconomyFixture.Content();
@@ -111,16 +122,6 @@ public partial class ProductionPopulationUiTests
             Require(population.Text.Contains("暂无统计") && !population.Text.Contains("executing-v1") &&
                 !population.Text.Contains("满足率 0"), "没有消费统计时，不能虚构满足率或展示内部规则修订。");
 
-            economy.OpenReports();
-            economy.Refresh(binding, active, content);
-            var report = Find<Label>(app, "ReportsText").Text;
-            Require(report.Contains("未归属服务支出：23") && !report.Contains("未接入"),
-                "经营报告未展示核心返回的未归属服务支出。");
-            Require(report.Contains("101 → 103") && !report.Contains("901 → 907"),
-                "经营报告未展示自有聚居地结算，或混入NPC人口结算。");
-            economy.Refresh(new HostBinding(Guid.NewGuid()), active, content);
-            Require(Find<Label>(Find<PanelContainer>(app, "EconomyReports"), "State").Text.Contains("已失效"),
-                "全局经营报告仍接受旧对局绑定。");
             Require(setup.Session.SubmitCount == 0, "只读页面提交了命令。");
         }
         finally { await fixture.Cleanup(); }

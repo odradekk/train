@@ -9,6 +9,58 @@ namespace Train.Engine.Tests;
 public partial class TrainInspectorUiTests
 {
     [Test]
+    public async Task Opening_report_from_inspector_confirms_before_discarding_a_plan_draft()
+    {
+        var view = new InspectorView();
+        var totals = new RunAccumulatorView(new(0, 0), new(0), new(0), new(0), 0, 0, null, []);
+        view.Train = view.Train with { RecentReports = [new(view.Train.Id, view.Position, RunEndReason.PlanCompleted, totals)] };
+        await WithInspector(view, async (ui, inspector, setup) =>
+        {
+            var input = new UiTestInput(TestScene);
+            await input.Activate(Find<Button>(inspector, "EditPlan"));
+            var shell = (GameShell)ui.World;
+            var plan = (TrainPlanWorkspace)shell.WorkspaceContent!;
+            await input.Activate(Find<CheckBox>(plan, "Loop"));
+            Require(plan.HasUnsavedChanges, "切换报告前必须先有未保存的计划改动。");
+            await input.Activate(Find<Button>(inspector, "OpenReport"));
+            var confirmation = Find<ConfirmationDialog>(shell, "WorkspaceSwitchConfirmation");
+            Require(confirmation.Visible && ReferenceEquals(shell.WorkspaceContent, plan), "查看报告不能直接丢弃计划草稿。");
+            await input.Activate(confirmation.GetCancelButton(), confirmation);
+            Require(ReferenceEquals(shell.WorkspaceContent, plan) && plan.HasUnsavedChanges, "取消切换应保留计划草稿。");
+            await input.Activate(Find<Button>(inspector, "OpenReport"));
+            await input.Activate(confirmation.GetOkButton(), confirmation);
+            Require(shell.WorkspaceContent?.Name == "EconomyReports" &&
+                Find<VBoxContainer>(Find<VBoxContainer>(shell.WorkspaceContent!, "Train7"), "RunDetails").IsVisibleInTree(),
+                "确认放弃草稿后应展开目标列车的报告。");
+            Require(setup.Session.SubmitCount == 0, "切换报告不应保存或提交计划。");
+        });
+    }
+
+    [Test]
+    public async Task Overview_report_link_returns_to_the_train_page_and_expands_this_train()
+    {
+        var view = new InspectorView();
+        var totals = new RunAccumulatorView(new(0, 0), new(137), new(29), new(5), 103, 7, .5, []);
+        view.Train = view.Train with { RecentReports = [new(view.Train.Id, new(3600, 0), RunEndReason.PlanCompleted, totals)] };
+        await WithInspector(view, async (ui, inspector, setup) =>
+        {
+            var input = new UiTestInput(TestScene);
+            await input.Activate(Find<Button>(ui, "EconomyReports"));
+            var shell = (GameShell)ui.World;
+            await input.ChooseTab(Find<TabContainer>(shell.WorkspaceContent!, "ReportPages"), 1);
+            await input.Activate(Find<Button>(inspector, "OpenReport"));
+            var workspace = shell.WorkspaceContent!;
+            var row = Find<VBoxContainer>(workspace, "Train7");
+            Require(Find<TabContainer>(workspace, "ReportPages").CurrentTab == 0 &&
+                Find<VBoxContainer>(row, "RunDetails").IsVisibleInTree(), "查看明细应回到列车页并展开这列车。");
+            var text = Find<Label>(row, "ReportsText").Text;
+            Require(text.Contains("净现金流 103") && text.Contains("销售收入 137") &&
+                text.Contains("第1天 00:01") && !text.Contains("步"), "查看明细遗漏了这列车的运行报告。");
+            Require(setup.Session.SubmitCount == 0, "查看运行明细提交了命令。");
+        });
+    }
+
+    [Test]
     public async Task Overview_opens_the_combat_involving_this_train()
     {
         var view = new InspectorView();

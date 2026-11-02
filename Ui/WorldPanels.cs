@@ -22,6 +22,7 @@ public partial class WorldPanels : Control
     private PanelTarget? _disbandTarget;
 
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
+    internal event Action<PanelTarget>? TrainReportRequested;
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? TrainFormationRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<PanelTarget, NodeId>? FoundingRequested;
@@ -121,7 +122,8 @@ public partial class WorldPanels : Control
                 train => { if (Available(bound)) PlanRequested?.Invoke(bound, train, _view, _content); },
                 train => { if (Available(bound)) TrainFormationRequested?.Invoke(bound, train, _view, _content); },
                 () => TrainCombatRequested?.Invoke(trainTarget.Id), () => ConfirmDisband(bound),
-                id => RefitRequested?.Invoke(id), id => VehicleServiceRequested?.Invoke(id));
+                id => RefitRequested?.Invoke(id), id => VehicleServiceRequested?.Invoke(id),
+                () => { if (Available(bound)) TrainReportRequested?.Invoke(bound); });
             Refresh(_binding, _view, _content);
             InspectorOpened?.Invoke(target, _trainInspector.Panel);
             return;

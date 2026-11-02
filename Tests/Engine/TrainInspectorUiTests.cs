@@ -35,6 +35,7 @@ public partial class TrainInspectorUiTests(Node testScene) : TestClass(testScene
                 Find<Button>(panel, "EditPlan").ThemeTypeVariation == "PrimaryButton" &&
                 Find<Label>(panel, "DepartureReason").Text.Contains("没有运行计划"),
                 "无计划列车没有说明发车条件。");
+            Require(!Find<Button>(panel, "OpenReport").Visible, "没有上次运行报告时不应显示查看明细。");
             await input.Activate(Find<Button>(panel, "EditPlan"));
             Require(Find<TrainPlanWorkspace>(ui, "*").IsVisibleInTree(), "编辑计划没有打开已有工作区。");
             Require(setup.Session.SubmitCount == 0, "查看检查器或编辑计划意外提交了命令。");
