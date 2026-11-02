@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=13 format=3]
+[gd_resource type="Theme" load_steps=15 format=3]
 
 [ext_resource type="FontFile" path="res://Ui/Fonts/NotoSansSC-Regular.otf" id="1"]
 [ext_resource type="FontFile" path="res://Ui/Fonts/NotoSansSC-Bold.otf" id="2"]
@@ -151,6 +151,18 @@ corner_radius_bottom_left = 4
 color = Color(0.172549, 0.2, 0.231373, 1)
 thickness = 1
 
+[sub_resource type="Gradient" id="UncheckedBorder"]
+offsets = PackedFloat32Array(0.7, 0.71)
+colors = PackedColorArray(0.9019608, 0.9137255, 0.9254902, 0, 0.9019608, 0.9137255, 0.9254902, 1)
+
+[sub_resource type="GradientTexture2D" id="Unchecked"]
+gradient = SubResource("UncheckedBorder")
+width = 16
+height = 16
+fill = 2
+fill_from = Vector2(0.5, 0.5)
+fill_to = Vector2(1, 0.5)
+
 [resource]
 default_font = ExtResource("1")
 default_font_size = 14
@@ -167,6 +179,7 @@ CheckButton/fonts/font = ExtResource("1")
 CheckButton/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 CheckBox/fonts/font = ExtResource("1")
 CheckBox/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
+CheckBox/icons/unchecked = SubResource("Unchecked")
 LineEdit/fonts/font = ExtResource("1")
 LineEdit/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 ItemList/fonts/font = ExtResource("1")

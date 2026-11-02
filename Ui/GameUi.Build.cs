@@ -67,8 +67,8 @@ public partial class GameUi
             _panels = new WorldPanels { Name = "WorldPanels" };
             _panels.Initialize(_host, Submit, ReportUiError);
             _world.AddChild(_panels);
-            _formation = new TrainFormationPanel();
-            _formation.Initialize(_host, Submit, ReportUiError);
+            _formation = new TrainFormationWorkspace();
+            _formation.Initialize(_host, SubmitInline);
             _world.AddChild(_formation);
             _plan = new TrainPlanWorkspace();
             _plan.Initialize(_host, (target, command, reportError) => Submit(target, command, null, reportError));
@@ -103,11 +103,13 @@ public partial class GameUi
             _notices.Chosen += OpenNotice;
             _world.AddChild(_notices);
             _panels.TrainCombatRequested += train => { _combat.OpenTrain(train); SelectObject(new WorldObjectId.Train(train), _combat); };
-            _formation.TrainCreated += train =>
+            _formation.FormationSaved += (train, editPlan) =>
             {
                 if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
                 _panels.Refresh(status.Binding, status.View, content);
                 SelectObject(new WorldObjectId.Train(train));
+                if (editPlan && status.View.FindTrain(train) is Lookup<TrainView>.Found found)
+                    _plan.Open(new(status.Binding, content.Generation, new WorldObjectId.Train(train)), found.Value, status.View, content);
             };
         }
         _errorPanel = UiStyle.Panel(_root, "ErrorPanel", "操作未完成", new(1250, 65), 540,

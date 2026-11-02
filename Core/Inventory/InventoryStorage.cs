@@ -9,6 +9,9 @@ internal static class InventoryStorage
     internal static long Used(InventoryState inventory) => inventory.Goods.Sum(g => g.Quantity);
     internal static long Reserved(InventoryState inventory) => inventory.Reservations.Sum(r => r.Capacity);
 
+    internal static long VehicleCapacity(WorldState world, CoreContentProjection content, ImmutableArray<VehicleId> vehicles)
+        => vehicles.Sum(v => InstanceCapacity(world, content, new InstanceId.Vehicle(v)));
+
     private static long InstanceCapacity(WorldState world, CoreContentProjection content, InstanceId id)
     {
         var instance = world.Instances.Single(i => i.Id == id);
@@ -63,7 +66,7 @@ internal static class InventoryStorage
         if (inventory.Owner is InventoryOwner.Train owner)
         {
             var train = world.Trains.Single(t => t.Id == owner.Id);
-            capacity = train.Vehicles.Sum(v => InstanceCapacity(world, content, new InstanceId.Vehicle(v)));
+            capacity = VehicleCapacity(world, content, train.Vehicles);
             location = train.Position switch
             {
                 TrainPosition.Node n => new WorldLocation.Node(n.Id),

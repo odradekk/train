@@ -6,6 +6,7 @@ public abstract record CoreCommand
 {
     private CoreCommand() { }
     public sealed record FormTrain(ImmutableArray<VehicleId> OrderedVehicles) : CoreCommand;
+    public sealed record ReplaceTrainFormation(TrainId Train, ImmutableArray<VehicleId> OrderedVehicles) : CoreCommand;
     public sealed record DisbandTrain(TrainId Train) : CoreCommand;
     public sealed record ReplaceRunPlan(TrainId Train, RunPlan Plan) : CoreCommand;
     public sealed record StartTrain(TrainId Train) : CoreCommand;
