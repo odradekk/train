@@ -109,6 +109,23 @@ public partial class SettlementSceneOpeningTests(Node testScene) : TestClass(tes
     }
 
     [Test]
+    public async Task Regenerating_the_scene_while_waiting_shows_the_full_settlement_details()
+    {
+        await Run([Frame(1, SceneReadiness.Ready), Frame(2, SceneReadiness.Partial)], (app, ui, shell) =>
+        {
+            ui.GetNode<MacroMap>("Root/World/MacroMap").RaiseObjectClicked(Train);
+            app.WorldScenes!.Display!.Timestamp = () => 0;
+            app.WorldScenes.ProcessFrame(0, false);
+            OpenNode(ui); app.WorldScenes!.ProcessFrame(0, false); Waiting(shell);
+            Require(app.WorldScenes.Regenerate() is null && app.WorldScenes.View.Visible,
+                "等待期间应能重新生成当前场景并保留场景视图。");
+            ui._Process(0);
+            Details(shell);
+            return Task.CompletedTask;
+        });
+    }
+
+    [Test]
     public async Task A_scene_failure_replaces_the_waiting_message_with_settlement_details()
     {
         await Run([Frame(2, SceneReadiness.Partial), Failure()], (app, ui, shell) =>
@@ -178,7 +195,7 @@ public partial class SettlementSceneOpeningTests(Node testScene) : TestClass(tes
     {
         Require(shell.SelectedObject == Settlement && shell.InspectorContent is { } panel &&
             panel.IsVisibleInTree() && Find<Label>(panel, "Title").Text == "青川" &&
-            Find<TabContainer>(panel, "Pages").GetTabCount() == 5 &&
+            panel.FindChildren("Pages", "TabContainer", true, false).OfType<TabContainer>().SingleOrDefault()?.GetTabCount() == 5 &&
             !panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label => label.Text == "正在加载详情…"),
             "等待结束后应显示同一聚居地原有的五页检查器。");
     }
@@ -201,6 +218,7 @@ public partial class SettlementSceneOpeningTests(Node testScene) : TestClass(tes
             setup ??= new HostSimulationTests.HostSetup(EconomyFixture.Create(), EconomyFixture.Content(mapPresentation: true, equipmentName: "装备"));
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => setup.Create(logger);
+            var nodeRequests = new Queue<SceneRequestId>([new(2), new(1)]);
             app.CreateScenes = () => new FixedDisplayFactory
             {
                 OpenWorldCall = (binding, _) => rejectOpen
@@ -209,7 +227,7 @@ public partial class SettlementSceneOpeningTests(Node testScene) : TestClass(tes
                 {
                     Id = SceneId, Binding = binding,
                     RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
-                        .Add(NodeTarget, new SceneResult<SceneRequestId>.Success(new(2)))
+                        .Add(NodeTarget, new SceneResult<SceneRequestId>.Success(nodeRequests.Dequeue()))
                         .Add(TrainTarget, new SceneResult<SceneRequestId>.Success(new(1))),
                     PresentResults = frames,
                     ObserveResults = Enumerable.Repeat<SceneResult<SimulationPosition>>(

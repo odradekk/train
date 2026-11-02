@@ -137,11 +137,8 @@ public partial class GameUi
             !pending.Target.IsAvailable(status.Binding, status.View,
                 _host.PanelGenerationCurrent(pending.Target.Binding, pending.Target.Generation)))
         { _pendingSettlement = null; _shell.Inspect(null, null); return; }
-        if (_scenes?.View.Visible == true)
-        {
-            if (_scenes.CurrentRequest != pending.Request) { _pendingSettlement = null; return; }
-            if (!pending.ReadyDrawn) return;
-        }
+        if (_scenes?.View.Visible == true && _scenes.CurrentRequest == pending.Request &&
+            !pending.ReadyDrawn) return;
         _pendingSettlement = null;
         SelectObject(pending.Target.Object);
     }
