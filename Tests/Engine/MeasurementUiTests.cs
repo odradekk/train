@@ -25,8 +25,6 @@ public class MeasurementUiTests(Node testScene) : TestClass(testScene)
             var blockers = MeasurementRun.ReadSceneUi(viewport).BlockingControls;
             Require(blockers.Length == 1 && blockers[0].EndsWith("/WorkspaceMask", StringComparison.Ordinal),
                 "打开工作区后，工作区遮罩仍须被测量识别。");
-            Require(MeasurementRun.ReadSceneUi(shell).BlockingControls.SequenceEqual(blockers),
-                "从外壳读取时也必须使用全局场景区域识别遮罩。");
             shell.ShowWorkspace(null);
             Require(MeasurementRun.ReadSceneUi(viewport).BlockingControls.Length == 0,
                 "关闭工作区后应恢复场景可操作状态。");

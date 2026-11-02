@@ -9,13 +9,26 @@ internal sealed partial class MeasurementRun
 {
     internal static (string[] BlockingControls, bool Modal) ReadSceneUi(Node root)
     {
-        var shell = root as GameShell ?? SceneUiDescendants(root).OfType<GameShell>().FirstOrDefault();
+        var shell = FindShell(root);
         var sceneArea = shell is null ? root.GetViewport().GetVisibleRect() : shell.GetGlobalTransform() * shell.SceneArea;
         var mainWindow = root.GetWindow();
         List<string>? blocking = null;
         var modal = false;
         Visit(root);
         return (blocking?.ToArray() ?? [], modal);
+
+        static GameShell? FindShell(Node node)
+        {
+            var childCount = node.GetChildCount();
+            for (var i = 0; i < childCount; i++)
+            {
+                var child = node.GetChild(i);
+                if (child is Node3D) continue;
+                if (child is GameShell shell) return shell;
+                if (FindShell(child) is { } found) return found;
+            }
+            return null;
+        }
 
         void Visit(Node node)
         {
