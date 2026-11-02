@@ -39,7 +39,7 @@ public partial class TrainFormationWorkspaceTests(Node testScene) : TestClass(te
             Require(submitted.Single() is CoreCommand.FormTrain form && form.OrderedVehicles.SequenceEqual(new VehicleId[] { new(2), new(1) }) &&
                 saved == new TrainId(8) && editPlan && !panel.Visible,
                 "编组没有提交勾选顺序或请求编辑新列车计划。");
-        });
+        }, SettlementWorld(false));
     }
 
     private async Task WithWorkspace(List<CoreCommand> submitted,
@@ -80,7 +80,11 @@ public partial class TrainFormationWorkspaceTests(Node testScene) : TestClass(te
         Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
         { [new("vehicle-design")] = new ContentLookup<DesignEvaluation>.NotFound() },
         DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
-        { [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound() }
+        { [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound() },
+        SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+        { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(new(new(1), new("fixture:town"),
+            new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
+                new("地面", "")), [], new("青川", "编组工作区测试"))) }
     };
 
     private static FixedCoreReadView World()

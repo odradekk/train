@@ -29,7 +29,7 @@ internal partial class TrainFormationWorkspace : Control
     private Label _title = null!, _statistics = null!, _reason = null!, _destination = null!, _empty = null!;
     private Button _form = null!, _formOnly = null!;
     private TrainFormationPreview? _preview;
-    private string? _previewError, _submissionError;
+    private string? _previewReason, _submissionError;
     private bool _current;
 
     public override void _Ready() => SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -126,7 +126,7 @@ internal partial class TrainFormationWorkspace : Control
         foreach (var id in _checks.Keys.Where(id => !eligible.Any(i => i.Id == new InstanceId.Vehicle(id))).ToArray())
         {
             var check = _checks[id];
-            if (_selection.Contains(id)) { check.Text = "车辆已不可用"; check.Disabled = true; }
+            if (_selection.Contains(id)) { check.Text = $"{check.TooltipText}（已离开）"; check.Disabled = true; }
             else { _available.RemoveChild(check); check.QueueFree(); _checks.Remove(id); }
         }
         for (var index = 0; index < eligible.Count; index++)
@@ -147,6 +147,7 @@ internal partial class TrainFormationWorkspace : Control
                 ? complete.Definition.Display.Name : "车辆";
             check.Text = $"第{index + 1}辆 · {name} · {EconomyPanels.SizeName(((InstanceDetails.Vehicle)instance.Details).Size)}";
             check.TooltipText = check.Text; check.Disabled = false; check.SetPressedNoSignal(_selection.Contains(id));
+            _available.MoveChild(check, index);
         }
         _empty.Visible = eligible.Count == 0;
     }
@@ -168,8 +169,8 @@ internal partial class TrainFormationWorkspace : Control
                 controls.AddChild(UiStyle.Button("Remove", "移出", () =>
                 {
                     _selection.Remove(id); if (_checks.TryGetValue(id, out var check)) check.SetPressedNoSignal(false);
-                    Changed();
-                    if (check is not null) check.GrabFocus();
+                    Candidates(); Changed();
+                    if (_checks.TryGetValue(id, out var available)) available.GrabFocus();
                 }));
                 row.AddChild(new HSeparator());
             }
@@ -184,16 +185,21 @@ internal partial class TrainFormationWorkspace : Control
         var index = _selection.IndexOf(id); var next = index + offset;
         if (next < 0 || next >= _selection.Count) return;
         _selection.RemoveAt(index); _selection.Insert(next, id); Changed();
-        _rows[id].GetNode<Button>("Controls/Remove").GrabFocus();
+        var button = _rows[id].GetNode<Button>(offset < 0 ? "Controls/MoveUp" : "Controls/MoveDown");
+        if (button.Disabled) button = _rows[id].GetNode<Button>(offset < 0 ? "Controls/MoveDown" : "Controls/MoveUp");
+        button.GrabFocus();
     }
     private void Validate()
     {
-        _preview = null; _previewError = null;
+        _preview = null; _previewReason = null;
         switch (_view.PreviewTrainFormation(_selection.ToImmutableArray(), _train))
         {
-            case CoreResult<TrainFormationPreview>.Success success: _preview = success.Value; break;
-            case CoreResult<TrainFormationPreview>.Failure failure: _previewError = Problems(failure.Problems); break;
-            case CoreResult<TrainFormationPreview>.Faulted failed: _previewError = CommandDiagnostics.Describe(failed.Fault); break;
+            case CoreResult<TrainFormationPreview>.Success success:
+                _preview = success.Value;
+                _previewReason = Problems(success.Value.Blockers.Concat(success.Value.DepartureProblem is { } departure ? [departure] : []));
+                break;
+            case CoreResult<TrainFormationPreview>.Failure failure: _previewReason = Problems(failure.Problems); break;
+            case CoreResult<TrainFormationPreview>.Faulted failed: _previewReason = CommandDiagnostics.Describe(failed.Fault); break;
         }
         _statistics.Text = _preview is { } value
             ? $"总长 {value.LengthMeters:0.##} 米\n总质量 {value.MassTons:0.##} 吨\n牵引力 {value.TractionKilonewtons:0.##} 千牛\n载量 {value.Capacity} 件"
@@ -210,10 +216,12 @@ internal partial class TrainFormationWorkspace : Control
                 ? "所选车辆已不可用，请移出后重新选择。" : null;
         _form.Disabled = _formOnly.Disabled = unavailable is not null || _preview is null || !_preview.Blockers.IsEmpty ||
             _preview.DepartureProblem?.Code is "control_missing" or "traction_missing";
-        _reason.Text = unavailable ?? _submissionError ?? (_checks.Count == 0 ? "这里没有可编组的玩家车辆。"
-            : _selection.Count == 0 ? "请勾选左侧车辆。" : _previewError ??
-            (_preview is { } preview ? Problems(preview.Blockers.Concat(preview.DepartureProblem is { } departure ? [departure] : [])) : ""));
-        _reason.AddThemeColorOverride("font_color", _form.Disabled ? UiStyle.Error : UiStyle.Warning);
+        var reason = unavailable ?? _submissionError ?? (_checks.Count == 0 ? "请先把玩家车辆停放到这里。"
+            : _selection.Count == 0 ? "请勾选左侧车辆。" : _previewReason ?? "");
+        var hint = unavailable is null && _submissionError is null && _selection.Count == 0;
+        var color = hint ? UiStyle.Info : _form.Disabled ? UiStyle.Error : UiStyle.Warning;
+        if (_reason.Text != reason) _reason.Text = reason;
+        if (_reason.GetThemeColor("font_color") != color) _reason.AddThemeColorOverride("font_color", color);
     }
     private void Form(bool editPlan)
     {

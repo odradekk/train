@@ -83,7 +83,9 @@ public partial class TrainFormationWorkspaceTests
         {
             Open(panel, binding, view, content);
             await new UiTestInput(TestScene).Activate(Find<CheckBox>(panel, "Vehicle1"));
-            panel.GetParent<Control>().Hide(); panel.Refresh(binding, view, content);
+            panel.GetParent<Control>().Hide(); panel.Refresh(binding, LongWorld(2, moved: true), content);
+            Require(!Find<CheckBox>(panel, "Vehicle1").Disabled &&
+                Find<VBoxContainer>(panel, "OrderedVehicles").GetChildCount() == 1, "隐藏刷新处理了新修订并改变草稿。");
             panel.GetParent<Control>().Show(); panel.Refresh(binding, view, content);
             Require(Find<CheckBox>(panel, "Vehicle1").ButtonPressed, "隐藏刷新丢失了草稿。");
             var host = Find<GameUi>(TestScene.GetTree().Root, "GameUi").GetParent<Train.App.App>().Host!;
@@ -106,7 +108,7 @@ public partial class TrainFormationWorkspaceTests
     [Test]
     public async Task Adjusting_submits_original_train_and_does_not_request_plan_editing()
     {
-        var view = UiWorldFixture.Formation(0, true);
+        var view = SettlementWorld(true);
         view.FormationPreviews = [(new(7), [new(2), new(1)], new CoreResult<TrainFormationPreview>.Success(new(12, 34, 56, 78, [], null))),
             (new(7), [new(1), new(2)], new CoreResult<TrainFormationPreview>.Success(new(12, 34, 56, 78, [], null)))];
         var submitted = new List<CoreCommand>();
@@ -114,6 +116,9 @@ public partial class TrainFormationWorkspaceTests
         {
             var train = ((Lookup<TrainView>.Found)current.FindTrain(new(7))).Value;
             panel.Open(new(binding, content.Generation, new WorldObjectId.Train(train.Id)), train, current, content);
+            Require(panel.FindChildren("*", "Label", true, false).OfType<Label>()
+                .Any(label => label.Text == "调整编组 · 青川") &&
+                Find<Label>(panel, "Destination").Text == "移出的车辆会停在青川。", "调整编组未使用聚居地名称。");
             var input = new UiTestInput(TestScene);
             await input.Activate(Find<Button>(Find<VBoxContainer>(panel, "OrderedVehicles").GetChild(0), "MoveDown"));
             var saved = default(TrainId); var editPlan = true;
@@ -134,6 +139,8 @@ public partial class TrainFormationWorkspaceTests
         var setup = new HostSimulationTests.HostSetup(before, content);
         setup.Session.QueueSubmit(new CoreCommand.FormTrain([new(2), new(1)]), CommandSource.UserInterface,
             Completed(1, before, after, new CommandDecision.Accepted([new WorldObjectId.Train(new(7))], [])), after);
+        setup.Session.QueueSubmit(new CoreCommand.ReplaceRunPlan(new(7), new(false, [new PlanStop.Waypoint(new(1))])),
+            CommandSource.UserInterface, Completed(2, after, after, new CommandDecision.Accepted([], [])), after);
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn"); app.CreateHost = logger => setup.Create(logger);
@@ -148,7 +155,11 @@ public partial class TrainFormationWorkspaceTests
             await input.Activate(Find<CheckBox>(panel, "Vehicle2")); await input.Activate(Find<CheckBox>(panel, "Vehicle1"));
             await input.Activate(Find<Button>(panel, "Form"));
             Require(shell.WorkspaceContent is TrainPlanWorkspace plan && plan.IsVisibleInTree() &&
+                plan.FindChildren("*", "Label", true, false).OfType<Label>()
+                    .Any(label => label.Text == "运行计划 · 列车 7") &&
                 shell.SelectedObject == new WorldObjectId.Train(new(7)), "编组后未直接打开新列车的运行计划。");
+            await input.Activate(Find<Button>(shell.WorkspaceContent!, "SaveOnly"));
+            Require(setup.Session.SubmitCount == 2, "打开的运行计划没有向新列车7保存。");
             setup.Session.AssertComplete();
         }
         finally { await fixture.Cleanup(); }
@@ -163,7 +174,7 @@ public partial class TrainFormationWorkspaceTests
         {
             Open(panel, binding, current, content);
             Require(Find<VBoxContainer>(panel, "AvailableVehicles").GetChildCount() == 0 &&
-                Find<Button>(panel, "Form").Disabled && Find<Label>(panel, "Reason").Text.Contains("没有"), "空候选缺少禁用原因。");
+                Find<Button>(panel, "Form").Disabled && Find<Label>(panel, "Reason").Text.Contains("停放"), "空候选缺少禁用原因。");
             await UiCapture.Capture(TestScene, "formation-empty");
             await new UiTestInput(TestScene).Activate(Find<Button>(panel, "Cancel"));
             Require(!panel.Visible && submitted.Count == 0, "取消提交了编组或没有关闭工作区。");
@@ -173,7 +184,7 @@ public partial class TrainFormationWorkspaceTests
     [Test]
     public async Task Adjusting_preloads_members_and_keeps_statistics_when_capacity_blocks_save()
     {
-        var view = UiWorldFixture.Formation(0, true);
+        var view = SettlementWorld(true);
         view.FormationPreviews = [(new(7), [new(2), new(1)], new CoreResult<TrainFormationPreview>.Success(new(12, 34, 56, 78, [], null))),
             (new(7), [new(2)], new CoreResult<TrainFormationPreview>.Success(new(10, 34, 20, 1,
                 [new("insufficient_capacity", "Train.Inventory.Capacity", new WorldObjectId.Train(new(7)), [])], null)))];
@@ -184,7 +195,7 @@ public partial class TrainFormationWorkspaceTests
             var ordered = Find<VBoxContainer>(panel, "OrderedVehicles");
             Require(ordered.GetChildCount() == 2 && Find<CheckBox>(panel, "Vehicle1").ButtonPressed &&
                 Find<Button>(panel, "Form").Text == "保存编组" && !Find<Button>(panel, "FormOnly").Visible &&
-                Find<Label>(panel, "Destination").Text.Contains("移出的车辆会停在"), "调整模式未预载车辆或缺少去向说明。");
+                Find<Label>(panel, "Destination").Text == "移出的车辆会停在青川。", "调整模式未预载车辆或缺少去向说明。");
             await new UiTestInput(TestScene).Activate(Find<Button>(ordered.GetChild(1), "Remove"));
             Require(Find<Button>(panel, "Form").Disabled && Find<Label>(panel, "Statistics").Text.Contains("1 件") &&
                 Find<Label>(panel, "Reason").Text.Contains("容量不足"), "容量不足未禁用保存或清掉了统计。");
