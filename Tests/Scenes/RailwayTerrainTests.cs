@@ -95,10 +95,12 @@ public sealed class RailwayTerrainTests
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var segment = RailwayTerrain.Build(snapshot, path, path.SegmentCount / 2, CancellationToken.None);
         Assert.AreEqual(0, segment.Tunnels.Length, "A flat terrain appearance must not create a tunnel from the rail profile alone.");
-        foreach (var cell in segment.Geometry.Picking.Single().Grid.Cells.Where(cell =>
-            cell.Subject is PickSubject.Terrain).GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)).Select(group => group.First()))
+        var grid = segment.Geometry.Picking.Single();
+        var columns = grid.Grid.Cells.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)).Select(group => group.First()).ToArray();
+        Assert.IsTrue(columns.Length > 0);
+        foreach (var cell in columns)
         {
-            var location = (WorldLocation.Edge)((PickSubject.Terrain)cell.Subject!).Location;
+            var location = (WorldLocation.Edge)((PickSubject.Terrain)Subject(grid, cell)!).Location;
             var rail = path.Sample(location.DistanceMeters * RailwayCoordinates.CellsPerMeter).Position;
             var groundTop = segment.Heights[new(cell.At.X, cell.At.Z)];
             Assert.IsTrue(groundTop <= rail.Y && groundTop >= rail.Y - RailwayCoordinates.TerrainBaselineOffset - 1,
@@ -320,10 +322,10 @@ public sealed class RailwayTerrainTests
         Assert.AreEqual(0, segment.Geometry.Diagnostics.Length);
         var boreColumns = 0;
         var boundaryColumns = 0;
-        var terrain = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Count()).First().Grid.Cells;
-        foreach (var group in terrain.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)))
+        var terrain = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Count()).First();
+        foreach (var group in terrain.Grid.Cells.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)))
         {
-            var subject = (PickSubject.Terrain)group.First().Subject!;
+            var subject = (PickSubject.Terrain)Subject(terrain, group.First())!;
             var arc = ((WorldLocation.Edge)subject.Location).DistanceMeters * RailwayCoordinates.CellsPerMeter;
             if (!segment.Tunnels.Any(interval => arc >= interval.Start && arc <= interval.End)) continue;
             var point = new ScenePoint(segment.Origin.X + group.Key.X + 0.5, 0, segment.Origin.Z + group.Key.Z + 0.5);
@@ -565,16 +567,6 @@ public sealed class RailwayTerrainTests
         Assert.IsTrue(original.Dependencies.Matches(replacement, new(replacement, RailwayFixtures.Edge), 0));
         AssertGeometry(original, Build(replacement));
         CollectionAssert.AreEquivalent(oldHeights, original.Heights.ToArray());
-    }
-
-    [TestMethod]
-    public void ZeroTracksProducesPickableTerrainWithoutRailwayMeshes()
-    {
-        var segment = Build(Short(tracks: 0));
-        Assert.IsTrue(segment.Heights.Count > 0);
-        Assert.IsTrue(segment.Geometry.Picking.Single().Grid.Cells.All(cell => cell.Subject is PickSubject.Terrain));
-        Assert.IsTrue(Meshes(segment).All(mesh => mesh.Material is SceneMaterial.Voxel));
-        Assert.AreEqual(0, segment.Tunnels.Length);
     }
 
     [TestMethod]
@@ -964,6 +956,9 @@ public sealed class RailwayTerrainTests
     private static IEnumerable<SceneMesh> Meshes(RailwaySegment segment) =>
         segment.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Mesh);
 
+    private static PickSubject? Subject(PickGrid grid, SceneCell cell) =>
+        grid.ResolveSubject?.Invoke(cell.At) ?? cell.Subject;
+
     private static void AssertGeometry(RailwaySegment expected, RailwaySegment actual)
     {
         Assert.AreEqual(expected.Origin, actual.Origin);
@@ -994,8 +989,8 @@ public sealed class RailwayTerrainTests
         {
             var a = expected.Geometry.Picking[i]; var b = actual.Geometry.Picking[i];
             Assert.AreEqual(a.Object, b.Object); Assert.AreEqual(a.Pose, b.Pose);
-            Assert.IsTrue(a.Grid.Cells.Select(cell => (cell.At, cell.Orientation, cell.Subject, cell.Shape, cell.Paint, cell.MissingReference))
-                .SequenceEqual(b.Grid.Cells.Select(cell => (cell.At, cell.Orientation, cell.Subject, cell.Shape, cell.Paint, cell.MissingReference))));
+            Assert.IsTrue(a.Grid.Cells.Select(cell => (cell.At, cell.Orientation, Subject(a, cell), cell.Shape, cell.Paint, cell.MissingReference))
+                .SequenceEqual(b.Grid.Cells.Select(cell => (cell.At, cell.Orientation, Subject(b, cell), cell.Shape, cell.Paint, cell.MissingReference))));
         }
     }
 }

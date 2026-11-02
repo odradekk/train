@@ -210,7 +210,9 @@ internal sealed partial class SceneDisplay : IDisposable
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
+        if (_freshPreparation == (this, false)) _freshPreparation = null;
         var cancelled = _preparation?.Frame;
+        _preparation?.Geometry?.Dispose();
         _preparation?.Packing.Dispose();
         _preparation?.ShiftRoots?.Dispose();
         _preparation?.ValidationChildren?.Dispose();
@@ -232,6 +234,7 @@ internal sealed partial class SceneDisplay : IDisposable
         _cache.RequireMainThread();
         var previous = DisplayedFrame;
         var update = prepared.Frame.Update;
+        var deferRetirement = ChangesSpace(update.Frame);
         var next = prepared.Objects;
         var upserts = update.Upserts.Select(item => item.Id).ToHashSet();
         var changed = update.Base is null ? _objects.Keys.Concat(next.Keys).ToHashSet() :
@@ -333,15 +336,7 @@ internal sealed partial class SceneDisplay : IDisposable
         _posedObjects.Clear();
         Root.Visible = true;
         _effects.Apply(previous, prepared.Frame, _effectObjects);
-        foreach (var id in changed)
-        {
-            if (!old.TryGetValue(id, out var item)) continue;
-            var surviving = next.GetValueOrDefault(item.Source.Id);
-            foreach (var visual in item.Visuals)
-                if (surviving is null || !surviving.Visuals.Contains(visual)) visual.Dispose();
-            if (surviving is null) item.Root.Free();
-        }
-        if (!ReferenceEquals(oldFog, _fog)) oldFog?.Dispose();
+        ReleasePrevious(old, next, changed, oldFog, deferRetirement);
         Observe?.Invoke(new(prepared.Candidate, update.Frame, null, SceneDisplayStage.FrameCommitted));
     }
 
@@ -359,6 +354,8 @@ internal sealed partial class SceneDisplay : IDisposable
         _disposed = true;
         CancelPreparation();
         CancelCandidate();
+        _retirement?.Dispose();
+        _retirement = null;
         _effects.Dispose();
         foreach (var item in _objects.Values) item.Root.GetParent()?.RemoveChild(item.Root);
         foreach (var item in _objects.Values)
