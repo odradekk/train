@@ -4,6 +4,7 @@ using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
 using Train.App.Logging;
+using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
@@ -186,7 +187,13 @@ public class SceneStatusUiTests(Node testScene) : TestClass(testScene)
 
         internal HostCoordinator Create(TrainLogger logger)
         {
-            var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
+            var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+            {
+                DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+                {
+                    [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound()
+                }
+            };
             return WorldSceneFixture.CreateHost(new ScriptedCoreSession(CoreView()), content, logger);
         }
 

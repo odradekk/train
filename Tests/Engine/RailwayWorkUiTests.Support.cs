@@ -17,6 +17,12 @@ namespace Train.Engine.Tests;
 
 public partial class RailwayWorkUiTests
 {
+    private static int EdgeRow(GameUi ui, EdgeId edge)
+    {
+        var rows = WorldListDrawer.Rows(WorldListKind.Edges, ui.View!, ui.GetParent<Train.App.App>().Host!.Content!, "", 0);
+        return Enumerable.Range(0, rows.Count).Single(index => rows[index].Object == new WorldObjectId.Edge(edge));
+    }
+
     private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, Task> body,
         IScenesFactory? scenes = null)
     {
@@ -41,7 +47,7 @@ public partial class RailwayWorkUiTests
     {
         if (Find<GameShell>(ui, "World").ListContent?.Name != "EdgesList")
             await _input.Activate(Find<Button>(ui, "Edges"));
-        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
+        await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
         await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
         return Find<PanelContainer>(ui, "RailwayWork");
     }

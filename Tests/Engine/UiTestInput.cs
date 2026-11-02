@@ -203,6 +203,15 @@ internal sealed class UiTestInput(Node scene)
         await Click(list.GlobalPosition + list.GetItemRect(index).GetCenter(), control, window);
     }
 
+    internal async Task ClickItem(Tree tree, int index)
+    {
+        var item = TreeItems(tree)[index];
+        tree.ScrollToItem(item);
+        await Frames(2);
+        await WaitUntil(() => tree.IsVisibleInTree() && tree.GetItemAreaRect(item).Size.Y > 0);
+        await Click(tree.GlobalPosition + tree.GetItemAreaRect(item).GetCenter());
+    }
+
     internal async Task DoubleClickItem(ItemList list, int index)
     {
         await ClickItem(list, index);

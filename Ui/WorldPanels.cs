@@ -15,7 +15,7 @@ public partial class WorldPanels : Control
     private HostBinding _binding;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
-    private readonly Dictionary<WorldListKind, WorldListPanel> _lists = [];
+    private readonly Dictionary<WorldListKind, WorldListDrawer> _lists = [];
     private DetailPanelControls? _detail;
     private ConfirmationDialog _disband = null!;
     private PanelTarget? _disbandTarget;
@@ -54,7 +54,7 @@ public partial class WorldPanels : Control
             _lists.Clear();
         }
         _binding = binding; _view = view; _content = content;
-        foreach (var entry in _lists.Values) entry.Refresh(view, content, NameOf);
+        foreach (var entry in _lists.Values) entry.Refresh(view, content);
         if (_detail is { } detail)
         {
             var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
@@ -72,22 +72,22 @@ public partial class WorldPanels : Control
     {
         if (_view is null) return;
         if (_lists.TryGetValue(kind, out var existing))
-        { existing.Panel.Show(); ListOpened?.Invoke(existing.Panel); return; }
+        { existing.Panel.Show(); ListOpened?.Invoke(existing.Panel); existing.Refresh(_view, _content); return; }
         PanelContainer panel = null!;
         var title = kind switch { WorldListKind.Nodes => "聚居地", WorldListKind.Edges => "线路",
             WorldListKind.Combats => "战斗", _ => "车队" };
         panel = UiStyle.Panel(this, kind + "List", title, new(24, 68), 360, () => panel.Hide(), out var body);
         var binding = _binding;
         var generation = _content.Generation;
-        var list = new WorldListPanel(panel, body, kind, id =>
+        var list = new WorldListDrawer(panel, body, kind, id =>
         {
             var status = _host.GetStatus();
             if (status is null || !_host.PanelGenerationCurrent(binding, generation)) return;
             SelectionRequested?.Invoke(id);
         }, () => Refresh(_binding, _view, _content));
         _lists.Add(kind, list);
-        Refresh(_binding, _view, _content);
         ListOpened?.Invoke(panel);
+        Refresh(_binding, _view, _content);
     }
 
     internal void Invalidate()
@@ -168,22 +168,30 @@ public partial class WorldPanels : Control
     {
         WorldObjectId.Node node => NodeName(node.Id, view, content),
         WorldObjectId.Edge edge when view.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
-            $"线路 {edge.Id.Value} · {NodeName(found.Value.Map.Start, view, content)}—{NodeName(found.Value.Map.End, view, content)}",
+            $"{NodeName(found.Value.Map.Start, view, content)}—{NodeName(found.Value.Map.End, view, content)}",
         WorldObjectId.Train train => $"列车 {train.Id.Value} · {Activity(view.World.Trains.First(item => item.Id == train.Id).Activity)}",
         WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle } => $"车辆 {vehicle.Id.Value}",
         WorldObjectId.Instance { Id: InstanceId.Building building } => $"建筑 {building.Id.Value}",
         WorldObjectId.Combat combat when view.World.Combats.FirstOrDefault(item => item.Id == combat.Id) is { } item =>
-            $"战斗 · {BattleReportLog.Place(item.Location)}",
+            $"战斗 · {LocationText(item.Location, view, content)}",
         _ => id.ToString()
     };
 
     internal static string NodeName(NodeId id, ICoreReadView view, IContentView content)
     {
         var node = view.World.Nodes.FirstOrDefault(item => item.Id == id);
-        if (node?.Occupant is NodeOccupant.Settlement settlement &&
-            content.FindSettlementLayout(settlement.Id) is ContentLookup<SettlementLayoutProjection>.Found layout)
-            return $"{layout.Value.Display.Name} · {id.Value}";
-        return $"节点 {id.Value}";
+        if (node is null) return "地点已不存在";
+        if (node.Occupant is NodeOccupant.Settlement settlement)
+            return content.FindSettlementLayout(settlement.Id) is ContentLookup<SettlementLayoutProjection>.Found layout
+                ? layout.Value.Display.Name : "聚居地";
+        var name = node.Occupant is NodeOccupant.Lair ? "生物聚落" : "空节点";
+        if (node.Occupant is NodeOccupant.Lair lair &&
+            view.FindLair(lair.Id) is Lookup<LairView>.Found found &&
+            content.FindLair(found.Value.Type) is ContentLookup<LairAppearanceProjection>.Found appearance)
+            return name + " · " + appearance.Value.Display.Text.Name;
+        if (content.FindDefinitionDisplay(new CoreDefinitionReference.Terrain(node.Terrain.TypeId)) is ContentLookup<ContentDisplay>.Found display)
+            name += " · " + display.Value.Text.Name;
+        return name;
     }
 
     internal static string GoodName(GoodId good, IContentView content) => content.FindGood(good) is ContentLookup<GoodPresentation>.Found found
@@ -192,7 +200,8 @@ public partial class WorldPanels : Control
             GoodId.Assembly assembly => assembly.Composition.Value, _ => "未知货物" };
     internal static string LocationText(WorldLocation location, ICoreReadView view, IContentView content) => location switch
     { WorldLocation.Node node => NodeName(node.Id, view, content),
-        WorldLocation.Edge edge => $"线路 {edge.Id.Value} · {edge.DistanceMeters:0.##} m", _ => "未知地点" };
+        WorldLocation.Edge edge when view.World.Edges.FirstOrDefault(item => item.Id == edge.Id) is { } map =>
+            $"{NodeName(map.Start, view, content)}—{NodeName(map.End, view, content)} · {edge.DistanceMeters:0.##} 米", _ => "未知地点" };
     internal static string Relation(SettlementRelation relation) => relation switch
     { SettlementRelation.PlayerOwned => "自有", SettlementRelation.NonHostile => "非敌对", _ => "敌对" };
     internal static string Activity(TrainActivity activity) => activity switch

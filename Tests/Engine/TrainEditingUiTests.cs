@@ -51,8 +51,8 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            var nodes = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
-            await _input.ClickItem(nodes, 0);
+            var nodes = NodeObjects(ui);
+            await _input.ClickItem(nodes, FirstSelectableItem(nodes));
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
             var formation = Find<TrainFormationWorkspace>(ui, "TrainFormationWorkspace");
             var available = Find<VBoxContainer>(formation, "AvailableVehicles");
@@ -102,7 +102,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
                 "再次应用没有提交保留的计划或更新列车视图。");
             await UiCapture.Capture(TestScene, "train-details");
             if (!nodes.IsVisibleInTree()) await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(nodes, 0);
+            await _input.ClickItem(nodes, FirstSelectableItem(nodes));
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
             Require(formation.IsVisibleInTree() && available.GetChildCount() == 0 &&
                 Find<Button>(formation, "Form").Disabled && Find<Label>(formation, "Reason").Text.Length > 0 &&
