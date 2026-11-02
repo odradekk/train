@@ -16,7 +16,7 @@ internal static partial class RailwayTerrain
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
             var outside = new Dictionary<GridColumn, double?>();
             var properties = new Dictionary<VoxelDefinitionId, CellProperties>();
-            Func<VoxelDefinitionId, CellProperties> property = Property;
+            Func<VoxelDefinitionId, CellProperties> property = id => Property(id, properties);
             var waterCount = columns.Values.Count(value => value.Water);
             var vertices = ImmutableArray.CreateBuilder<SceneVertex>(waterCount * 4);
             var indices = ImmutableArray.CreateBuilder<int>(waterCount * 6);
@@ -63,20 +63,21 @@ internal static partial class RailwayTerrain
             vertices.MoveToImmutable(), indices.MoveToImmutable()), new(false, 0, 0, false)));
             objects.Insert(0, new(terrainId, null, new(Vector3.Zero, Quaternion.Identity), null, visuals.ToImmutable(), [], []));
             picking.Add(new(terrainId, new(Vector3.Zero, Quaternion.Identity), grid,
-                TerrainSubjects(path.Edge.Id, columns.ToImmutableDictionary(item => item.Key, item => item.Value.Arc))));
+                TerrainSubjects(path.Edge.Id, columns.ToDictionary(item => item.Key, item => item.Value.Arc))));
             return new(index, origin, new(objects.ToImmutable(), picking.ToImmutable(), diagnostics.ToImmutable()), heights.ToImmutable(),
             RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
             readsStartTerrain, readsEndTerrain), tunnels);
-
-            CellProperties Property(VoxelDefinitionId id)
-            {
-                if (!properties.TryGetValue(id, out var value))
-                    properties.Add(id, value = PrepareVoxel(id, Appearance, null));
-                return value;
-            }
         }
 
-        private static Func<GridPosition, PickSubject> TerrainSubjects(EdgeId edge, ImmutableDictionary<GridColumn, double> arcs) =>
+        private CellProperties Property(VoxelDefinitionId id, Dictionary<VoxelDefinitionId, CellProperties> properties,
+            PickSubject? subject = null)
+        {
+            if (!properties.TryGetValue(id, out var value))
+                properties.Add(id, value = PrepareVoxel(id, Appearance, subject));
+            return value;
+        }
+
+        private static Func<GridPosition, PickSubject> TerrainSubjects(EdgeId edge, Dictionary<GridColumn, double> arcs) =>
             at => new PickSubject.Terrain(new WorldLocation.Edge(edge, arcs[new(at.X, at.Z)] / RailwayCoordinates.CellsPerMeter));
     }
 }

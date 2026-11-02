@@ -364,6 +364,7 @@ internal static partial class RailwayTerrain
             var owned = new Dictionary<GridColumn, TerrainColumn>();
             var subject = new PickSubject.Terrain(new WorldLocation.Node(node));
             var properties = new Dictionary<VoxelDefinitionId, CellProperties>();
+            Func<VoxelDefinitionId, CellProperties> property = id => Property(id, properties, subject);
             for (var z = (int)Math.Floor(endpoint.Z - radius); z <= endpoint.Z + radius; z++)
             for (var x = (int)Math.Floor(endpoint.X - radius); x <= endpoint.X + radius; x++)
             {
@@ -388,18 +389,11 @@ internal static partial class RailwayTerrain
                 var distance = surface.TrackDistance(value.Offset);
                 var hasBed = path.Edge.Tracks > 0 && !value.Water && !value.Tunnel;
                 var lowest = LowestNeighbor(owned, outside, key, key.X, key.Z);
-                var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, distance, hasBed, null, Property, lowest);
+                var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, distance, hasBed, null, property, lowest);
                 FillColumn(cells, key, value.Height, layers.Terrain, layers.Ballast, distance, hasBed, lowestNeighbor: lowest);
             }
             return new(RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
                 readsStartTerrain, readsEndTerrain), VoxelGrid.FromBuilder(cells), heights.ToImmutable(), shift, diagnostics.ToImmutable());
-
-            CellProperties Property(VoxelDefinitionId id)
-            {
-                if (!properties.TryGetValue(id, out var value))
-                    properties.Add(id, value = PrepareVoxel(id, Appearance, subject));
-                return value;
-            }
         }
 
         private void PlaceModels(Dictionary<GridColumn, TerrainColumn> columns)
@@ -424,7 +418,6 @@ internal static partial class RailwayTerrain
                 var value = columns[decoration.Column];
                 AddModel(decoration.Design, new(new(decoration.Column.X, (float)(value.Height + 1 - origin.Y), decoration.Column.Z), Quaternion.Identity), decoration.Column, columns);
             }
-
         }
 
         private long ColumnKey(GridColumn column) => RailwayTerrain.ColumnKey(column.X + origin.X, column.Z + origin.Z);
