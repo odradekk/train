@@ -20,8 +20,9 @@ internal sealed partial class SceneDisplay
     private void FinishRetirement(long started)
     {
         // 正式与候选均有机会准备后，退役才能使用共享预算的余量。
+        // 晋升后的剩余候选只供正式批次取用，不再单独准备。
         if (_formalPreparationFrame == _budgetFrame &&
-            (!IsPreparingCandidate || _candidatePreparationFrame == _budgetFrame))
+            (!IsPreparingCandidate || _candidatePromoted || _candidatePreparationFrame == _budgetFrame))
             AdvanceRetirement(started, null, singleStep: false);
     }
 
