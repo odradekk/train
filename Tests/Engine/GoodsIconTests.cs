@@ -13,7 +13,7 @@ using NVector3 = System.Numerics.Vector3;
 
 namespace Train.Engine.Tests;
 
-public class GoodsIconTests(Node testScene) : TestClass(testScene)
+public partial class GoodsIconTests(Node testScene) : TestClass(testScene)
 {
     private static readonly DesignHash Design = new("icon-design");
     private static readonly GoodId First = new GoodId.Composite(new("icon:first"));
@@ -418,8 +418,6 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
         }
         finally { cache.Free(); layer.Free(); root.ContentScaleFactor = scale; }
     }
-
-    private static Texture2D? Texture(GoodIcon icon) => icon.GetChildren().OfType<TextureRect>().Single().Texture;
 
     private static FixedDisplayFactory Factory(List<Preview> previews) => new()
     {
