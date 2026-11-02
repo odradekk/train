@@ -55,8 +55,9 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             var binding = app.Host.GetStatus()!.Binding;
             var ui = app.GetNode<GameUi>("GameUi");
             await new UiTestInput(TestScene).ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "设置");
-            var settings = ui.GetNode<SettingsPanel>("Root/SettingsPanel");
-            settings.GetNode<Button>("Settings/Layout/Content/Body/ReportIssue").EmitSignal(BaseButton.SignalName.Pressed);
+            var settings = ui.GetNode<SettingsOverlay>("Root/SettingsOverlay");
+            await new UiTestInput(TestScene).Activate(Find<Button>(settings, "About"));
+            await new UiTestInput(TestScene).Activate(Find<Button>(settings, "ReportIssue"));
             var report = settings.GetNode<IssueReportPanel>("IssueReportPanel");
             Require(report.Visible, "没有打开报告问题窗口。");
             Require(tools.OpenReplay(setup.ReplayPath) is null && app.Saves!.Leaving is { Waiting: false },
