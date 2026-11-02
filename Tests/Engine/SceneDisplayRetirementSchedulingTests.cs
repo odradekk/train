@@ -12,6 +12,48 @@ namespace Train.Engine.Tests;
 public partial class SceneDisplayTests
 {
     [Test]
+    public async Task Candidate_and_formal_preparation_precede_retirement_in_either_call_order()
+    {
+        foreach (var candidateFirst in new[] { true, false })
+        {
+            await new UiTestInput(TestScene).Frames(1);
+            using var dispatcher = new GodotMainThreadDispatcher();
+            using var cache = new AssetResourceCache(dispatcher);
+            using var display = Attach(cache, new FixedContentView(), completeInitialFrame: true);
+            var wheel = Object(1, Peak(1)) with { Visuals = [new SceneVisual.Wheelset(2, 1, .5, 0)] };
+            await Commit(display, Frame(1, [wheel]));
+            var retired = display.Objects[wheel.Id].Visuals[0];
+            var shown = Frame(2, [], space: 2);
+            var candidate = Frame(3, [wheel with { Id = new(2) }], space: 3);
+            long now = 0;
+            var formalPrepared = false;
+            List<bool> releaseAfterPreparation = [];
+            for (var index = 0; index < 16; index++)
+                retired.Own(new AssetLease<object>(new(), () =>
+                {
+                    releaseAfterPreparation.Add(formalPrepared &&
+                        display.CandidateProgress(candidate.Update.Frame)?.Prepared == 1);
+                    now += Stopwatch.Frequency * 3 / 1000;
+                }));
+            await Commit(display, shown);
+            display.ReceiveCandidate(candidate.Update);
+            display.Timestamp = () => now;
+            display.Observe = item =>
+            {
+                if (item.Stage == SceneDisplayStage.FramePrepared) formalPrepared = true;
+            };
+            await new UiTestInput(TestScene).Frames(1);
+            if (candidateFirst) display.PrepareCandidate(TimeSpan.FromMilliseconds(2));
+            using (var prepared = display.Prepare(shown)) prepared?.Commit();
+            if (!candidateFirst) display.PrepareCandidate(TimeSpan.FromMilliseconds(2));
+            Require(formalPrepared && display.PreparedCandidate == candidate.Update.Frame,
+                "下一空间候选和正式准备必须都能推进，不能等待旧资源全部释放。");
+            Require(releaseAfterPreparation.Count > 0 && releaseAfterPreparation.All(value => value),
+                "两种调用顺序都须先让正式与候选准备使用预算，再用余额释放旧资源。");
+        }
+    }
+
+    [Test]
     public async Task Formal_first_frames_ignore_exhausted_budget_and_clear_previous_retirement()
     {
         foreach (var change in new[] { "initial", "space", "session" })

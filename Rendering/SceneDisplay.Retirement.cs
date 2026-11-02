@@ -10,10 +10,20 @@ internal sealed partial class SceneDisplay
     private Retirement? _retirement;
     private ulong _retirementFrame;
     private ulong _retirementProgressFrame;
+    private ulong _formalPreparationFrame, _candidatePreparationFrame;
     private readonly RetirementCosts _retirementCosts = new();
 
-    private bool ChangesSpace(SceneFrameStamp frame) => DisplayedFrame is { } displayed &&
-        (displayed.Update.Frame.Session != frame.Session || displayed.Update.Frame.Space != frame.Space);
+    private bool ChangesSpace(SceneFrameStamp frame) => DisplayedFrame is { } displayed
+        ? displayed.Update.Frame.Session != frame.Session || displayed.Update.Frame.Space != frame.Space
+        : _completeInitialFrame;
+
+    private void FinishRetirement(long started)
+    {
+        // 正式与候选均有机会准备后，退役才能使用共享预算的余量。
+        if (_formalPreparationFrame == _budgetFrame &&
+            (!IsPreparingCandidate || _candidatePreparationFrame == _budgetFrame))
+            AdvanceRetirement(started, null, singleStep: false);
+    }
 
     private void AdvanceRetirement(long started, TimeSpan? budget, bool singleStep)
     {
@@ -62,6 +72,7 @@ internal sealed partial class SceneDisplay
         }
         if (retirement is not { IsEmpty: false }) return;
         // 下一正式首帧先清掉这批旧债，始终只保留一批已摘下的资源。
+        Debug.Assert(_retirement is null);
         _retirement = retirement;
         _retirementFrame = Engine.GetProcessFrames();
         _retirementProgressFrame = _retirementFrame;

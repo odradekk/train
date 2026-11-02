@@ -80,13 +80,12 @@ internal sealed partial class SceneDisplay
     {
         _cache.RequireMainThread();
         ResetPreparationBudget();
+        _candidatePreparationFrame = _budgetFrame;
         var started = Timestamp();
         var pauseStarted = GC.GetTotalPauseDuration();
         try
         {
-            AdvanceRetirement(started, budget, singleStep: true);
             if (_candidateUpdate is not { } update) return;
-            if (_retirement is not null && ChangesSpace(update.Frame)) return;
             var slice = new PreparationSlice(this, started, budget, false);
             if (_candidatePacking is null)
             {
@@ -136,7 +135,7 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
-            AdvanceRetirement(started, budget, singleStep: false);
+            FinishRetirement(started);
             var pause = GC.GetTotalPauseDuration() - pauseStarted;
             var ended = Timestamp();
             var elapsed = Stopwatch.GetElapsedTime(started, ended);

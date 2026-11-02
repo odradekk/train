@@ -11,6 +11,7 @@ internal sealed partial class SceneDisplay
     {
         _cache.RequireMainThread();
         ResetPreparationBudget();
+        _formalPreparationFrame = _budgetFrame;
         var started = Timestamp();
         var pauseStarted = GC.GetTotalPauseDuration();
         try
@@ -37,9 +38,7 @@ internal sealed partial class SceneDisplay
                 _budgetAdvanced = true;
                 CancelPreparation();
             }
-            var spaceChanged = DisplayedFrame is { } displayed
-                ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
-                : _completeInitialFrame;
+            var spaceChanged = ChangesSpace(frame.Update.Frame);
             if (spaceChanged)
             {
                 _retirement?.Dispose();
@@ -172,7 +171,7 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
-            AdvanceRetirement(started, budget, singleStep: false);
+            FinishRetirement(started);
             var pause = GC.GetTotalPauseDuration() - pauseStarted;
             var ended = Timestamp();
             var elapsed = Stopwatch.GetElapsedTime(started, ended);
