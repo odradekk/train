@@ -13,7 +13,7 @@ namespace Train.Engine.Tests;
 public partial class DeveloperDockTests
 {
     [Test]
-    public async Task Train_input_errors_and_business_rejections_stay_in_the_console()
+    public async Task Console_input_errors_and_train_business_rejections_stay_in_the_console()
     {
         var view = EconomyFixture.Create();
         var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(mapPresentation: true));
@@ -27,10 +27,13 @@ public partial class DeveloperDockTests
             var count = toasts.GetChildCount();
             console.SubmitLine("train");
             console.SubmitLine("train start 7");
+            console.SubmitLine("dev invalid");
             await _input.Frames(2);
             Require(console.LogEvents.Any(item => item.EventId == "train_usage") &&
                 console.LogEvents.Any(item => item.EventId == "train_command_failed" && item.Message.Contains("没有运行计划")),
                 "语法失败和业务拒绝都必须在控制台留下中文原因。");
+            Require(console.LogEvents.Any(item => item.EventId == "dev_usage" && item.Message.Contains("用法：dev [open|close]")),
+                "开发工具的非法参数也必须在控制台说明正确用法。");
             Require(!ui.GetNode<Control>("Root/ErrorPanel").Visible && toasts.GetChildCount() == count,
                 "普通列车命令失败不能弹错误面板或生成提示条。");
             setup.Session.AssertComplete();
