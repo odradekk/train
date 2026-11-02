@@ -9,6 +9,7 @@ public partial class SettingsOverlay
     private void BuildNotifications(VBoxContainer body)
     {
         var table = new GridContainer { Name = "NotificationTable", Columns = 4 };
+        var rows = new List<(NotificationCategory Category, CheckBox[] Choices)>();
         var hint = UiStyle.Label("选择每类通知出现时游戏怎么做。通知本身总会显示，实际等级随事件而定。");
         hint.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.AddChild(hint);
@@ -37,6 +38,8 @@ public partial class SettingsOverlay
             {
                 table.AddChild(UiStyle.Label(NotificationPolicy.Label(category)));
                 var group = new ButtonGroup();
+                var choices = new CheckBox[Enum.GetValues<NotificationAction>().Length];
+                rows.Add((category, choices));
                 foreach (var action in Enum.GetValues<NotificationAction>())
                 {
                     var label = action switch { NotificationAction.None => "只显示", NotificationAction.SlowToOne => "降到 1× 速度", _ => "暂停" };
@@ -45,16 +48,17 @@ public partial class SettingsOverlay
                         CustomMinimumSize = new(24, 24), SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
                         AccessibilityName = NotificationPolicy.Label(category) + "：" + label,
                         TooltipText = NotificationPolicy.Label(category) + "：" + label };
-                    choice.Toggled += selected => { if (selected) { _actions[(int)category] = action; Save(); } };
+                    choice.Toggled += selected => { if (selected && _actions[(int)category] != action) { _actions[(int)category] = action; Save(); } };
                     table.AddChild(choice);
+                    choices[(int)action] = choice;
                 }
             }
         }
         body.AddChild(UiStyle.Button("ResetNotifications", "恢复默认", () =>
         {
             _actions = Defaults();
-            foreach (var category in Enum.GetValues<NotificationCategory>())
-                table.GetNode<CheckBox>($"Notify_{NotificationPolicy.Key(category)}_{_actions[(int)category]}").SetPressedNoSignal(true);
+            foreach (var (category, choices) in rows)
+                choices[(int)_actions[(int)category]].ButtonPressed = true;
             Save();
         }));
     }

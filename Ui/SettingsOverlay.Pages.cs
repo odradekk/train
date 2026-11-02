@@ -1,5 +1,4 @@
 using Godot;
-using Train.Content.Contracts;
 
 namespace Train.Ui;
 
@@ -69,8 +68,7 @@ public partial class SettingsOverlay
     private void RefreshPackages()
     {
         _packages.Text = _host?.Content is { } content
-            ? string.Join("、", content.Packages.Where(package => package.State == PackageState.Available)
-                .Select(package => $"{package.Metadata!.Name} {package.Metadata.Version}"))
+            ? MainMenu.FormatAvailablePackages(content)
             : _host?.IsBusy == true ? "正在加载内容包…" : "没有可用内容包";
     }
 
@@ -90,8 +88,14 @@ public partial class SettingsOverlay
         })
         {
             if (action == "reload_content" && !OS.IsDebugBuild()) continue;
-            var keys = InputMap.ActionGetEvents(action).OfType<InputEventKey>()
-                .Select(key => OS.GetKeycodeString(key.GetKeycodeWithModifiers()));
+            using var events = (Godot.Collections.Array)InputMap.ActionGetEvents(action);
+            var keys = new List<string>();
+            for (var index = 0; index < events.Count; index++)
+            {
+                using var value = events[index];
+                using var input = value.As<InputEvent>();
+                if (input is InputEventKey key) keys.Add(OS.GetKeycodeString(key.GetKeycodeWithModifiers()));
+            }
             KeyRow(action, label, string.Join(" / ", keys));
         }
         KeyRow("close", "关闭当前界面／返回", "Esc");

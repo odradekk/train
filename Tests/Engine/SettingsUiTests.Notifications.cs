@@ -64,7 +64,17 @@ public partial class SettingsUiTests
                     Find<CheckBox>(overlay, $"Notify_{NotificationPolicy.Key(category)}_{expected}").ButtonPressed &&
                     saved.GetValue("notifications", NotificationPolicy.Key(category)).AsInt32() == (int)expected,
                     $"默认只有遇敌降到 1×，其余只显示；恢复默认后还需保存：{category}。");
+                var selected = Enum.GetValues<NotificationAction>().Where(action =>
+                    Find<CheckBox>(overlay, $"Notify_{NotificationPolicy.Key(category)}_{action}").ButtonPressed).ToArray();
+                Require(selected.Length == 1,
+                    $"恢复默认后每行必须恰好选中一个响应：{category}，实际选中={string.Join(", ", selected)}。");
             }
+            await input.Click(Find<CheckBox>(overlay, "Notify_encounter_Pause").GetGlobalRect().GetCenter());
+            Require(saved.Load("user://settings.cfg") == Error.Ok &&
+                app.Notifications.Action(NotificationCategory.Encounter) == NotificationAction.Pause &&
+                saved.GetValue("notifications", "encounter").AsInt32() == (int)NotificationAction.Pause,
+                $"恢复默认后真实输入选择遇敌暂停必须立即更新策略并写入设置文件：策略={app.Notifications.Action(NotificationCategory.Encounter)}，" +
+                $"设置文件={saved.GetValue("notifications", "encounter").AsInt32()}。");
         });
     }
 }
