@@ -55,6 +55,19 @@ internal static class PopulationOperations
         return new(state, elapsed, Finite(settlement.Population * current!.LaborRatio), consumption, events);
     }
 
+    internal static ImmutableArray<GoodsRateView> ExpectedConsumption(WorldState world,
+        CoreContentProjection content, SettlementState settlement, PopulationRuleProjection? rule)
+    {
+        if (rule is null) return [];
+        var consumption = new PopulationConsumption(rule, settlement.Population,
+            world.Inventories.Single(i => i.Id == settlement.Inventory).Goods, settlement.PopulationState.ConsumptionRemaining);
+        // Resolve returns a temporary world; this query uses only its grants and keeps the live world unchanged.
+        var resolution = SettlementResources.Resolve(world, content, settlement.Id, 0,
+            consumption.BasicRequests, [], consumption.PrepareImprovement, []);
+        consumption.Complete(resolution.ImprovementGrantedUnits);
+        return consumption.Rates();
+    }
+
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Complete(WorldState world,
         SettlementId id, PopulationStep step, ImmutableArray<long> improvementGranted, SimulationPosition position)
     {
@@ -156,6 +169,7 @@ internal sealed class PopulationConsumption
 {
     private readonly PopulationRuleProjection _rule;
     private readonly Dictionary<GoodId, double> _remaining;
+    private readonly Dictionary<GoodId, double> _consumed = [];
     private readonly ConsumptionGoodProjection[] _basic;
     private readonly ConsumptionGoodProjection[] _improvement;
     internal double[] Required { get; }
@@ -201,6 +215,9 @@ internal sealed class PopulationConsumption
     internal ImmutableArray<PopulationConsumptionRemainder> Remaining() => _remaining.Where(r => r.Value > 0)
         .OrderBy(r => r.Key, WorldReferences.GoodComparer).Select(r => new PopulationConsumptionRemainder(r.Key, r.Value)).ToImmutableArray();
 
+    internal ImmutableArray<GoodsRateView> Rates() => _consumed.OrderBy(r => r.Key, WorldReferences.GoodComparer)
+        .Select(r => new GoodsRateView(r.Key, r.Value / (SimulationTime.StepSeconds * _rule.ConsumptionIntervalTicks))).ToImmutableArray();
+
     private GoodsQuantity Request(GoodId good, double units)
     {
         var quantity = Math.Ceiling(Math.Max(0, units - _remaining.GetValueOrDefault(good)));
@@ -216,6 +233,7 @@ internal sealed class PopulationConsumption
     {
         var available = _remaining.GetValueOrDefault(good.Good) + granted;
         var consumed = Math.Min(available, UnitsNeeded(good, category, Satisfied));
+        _consumed[good.Good] = _consumed.GetValueOrDefault(good.Good) + consumed;
         Apply(good, consumed, Satisfied);
         _remaining[good.Good] = Math.Max(0, available - consumed);
     }

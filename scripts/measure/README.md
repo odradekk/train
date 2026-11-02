@@ -86,6 +86,8 @@ Read-ExecutionState
 
 `scene-soak` 的绝对内存取所有已记录稳态中位数的最大值，含打开的 `steady`、`natural-map.memory` 和初始／最终／编辑器稳态，不取峰值。节点增量仍缺配对。`retired_heap_delta` 只取内嵌 `soak.memory.reset_heaps` 中 `phase=reset` 的 `live_bytes`，各段减第 1 段，最大增量 ≤100 MiB；`final` 状态不同，不参与。须覆盖全部分段且时长≥7200 秒。`private_growth` 用下述第 2 小时 OLS，单轮 ≤200 MiB/h，`observed_seconds` 和 `window_start_seconds` 记录实际窗口。工作集／渲染斜率仅保留观测值；`scene-memory` 不生成增长判定。
 
+open 记录的 `node_voxel_cells` 保存节点点击前统计的格数（非负整数）：逐实例累计模板模型、建筑、车辆（含停放车辆）和生物的完整内容模型，不含程序地形、轨道和道床。节点私有字节增量沿用上文的地图配对要求：`scene-memory` 有配对，其余节点场景缺基线时仍为 `unknown`。每次有效节点打开的私有字节增量预算为 1 GiB × max(1, 节点格数 ÷ 标准世界基准格数)。`node_private_delta` 条目选取“增量−预算”最大的一次打开：`measured` 为该次增量，`threshold` 为其预算，`excess` 为 max(0, 增量−预算)；`node_voxel_cells` 是这次打开的格数，`reference_node_voxel_cells` 是标准世界基准格数。任一有效节点打开缺少有效格数或内存配对时，条目为 `unknown`。缓冲区加纹理增量 ≤512 MiB、整个游戏私有字节 ≤4 GiB，两项不按规模放宽。计数方法与基准身份见[节点体素基准](baselines/2026-11-02-node-voxel-budget.md)。
+
 ## 离线汇总
 
 ```powershell
@@ -124,30 +126,7 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 
 ## 规模输入
 
-`scene-scale.py` 生成四档输入，再单独核对两档近景。生成和核对均要求源码干净。输出使用 `TestResults/` 或仓库外的新目录、空目录。
-
-```powershell
-python scripts/measure/scene-scale.py generate --output TestResults/scene-scale-inputs
-python scripts/measure/scene-scale.py verify --input TestResults/scene-scale-inputs --output TestResults/scene-scale-verification
-```
-
-`generate` 构建 CLI 和 `Tools/SceneScale/`，生成 1／10／30／100× 普通存档。倍率是远处建筑占用格数的目标，清单记录实际倍率。生成只运行 bounds（读取边界）、make（CLI 制作存档）、stats（计数），不运行 ready／local 近景核对。`examples/starting-trade/recipe.json` 的命令按顺序在模拟步 0 执行，模拟步 1 保存。仓库 builtin 只读，各档修改输出目录中的副本。存档包含布局和设计副本，探针用仓库 builtin 恢复核对；生成产物不提交。
-
-焦点为节点世界原点 `(0,0,0)`。远处建筑以 core-city-hub／bastion-fortress 组合镜像放置，两侧完整地块均须避开已有地块和焦点周围 192 格圆。100× 的追加位置也须通过这一筛选。10／30／100× 扩大地面的平坦范围（flatten），高度保持为 1 格。N／C／F 分别是圆外建筑的占用格数、包含它们的世界 32³ 区块数、六邻接暴露面数。模型地面另列，程序地形的占用 N／C／F 不可从公开投影取得。`navigation_center` 只记录真实导航范围中心。
-
-生成清单 `scale-manifest.json` 和核对清单 `scale-verification.json` 按 `input_identity` 绑定 `recipe_sha256`、`content_tree`、`save_sha256`。`content_tree.files` 记录相对 POSIX 路径及文件字节 SHA256；树哈希对排序后的“路径 + NUL + 小写文件 SHA256 + LF”UTF-8 字节再取 SHA256。跨平台优先比较配方和内容树；P2-R/F2 四档存档字节也与本机一致。verify 检查四档标识和源码身份，记录 `generation_manifest_sha256`，仅对 1／10× 运行 ready／local 近景核对。规模路径的 [P2-R/F2 分段耗时记录及使用限制](../../docs/ci.md#linux-夜间运行)已记录。
-
-近景核对覆盖五个相机位置：原点和 X／Z 各 ±64 格。各位置的 `firstGeometry.fully_inside` 对象集合须非空。跨档比较以节点原点为圆心、半径 192 格的圆内完整对象的非轨道三角形数、哈希及全部高度列，只排除 `RailSteel`／`Sleeper` 网格；失配即停止。`railCenterline` 将公开整条轨道的 XYZ 调试折线逐格采样，裁剪到 192 格圆，按 0.001 格量化、规范端点顺序、去重，独立于网格的 128 格分段。折线不含停车轨，须用首站地块侧向边界证明停车轨在圆外，否则记为 `unknown`。
-
-每个位置先满足帧 Ready、192 格圆不与雾区相交、每列均返回精确高度，再等待对象集合、三角形数和几何哈希连续 30 秒不变。每位置最多等待 300 秒，超时输出 `outcome=unknown` 并停止。1／10× 均隔十秒复核，期间变化即停止。这只证明观察窗口内稳定，后台地形没有公开完成状态。
-
-`stability_samples` 的 `firstGeometry`／`secondGeometry` 记录对象标识、位姿、范围、材质、三角形及非轨道摘要，按 `fully_inside` 和 `crossing_boundary` 汇总。组哈希使用世界坐标和材质，不含会话标识。同档稳定等待和复核检查完整网格；三角形相交检查使用半径 192.001 格的保守圆。原点不传相机参数，其余位置使用 192 格投影半径。
-
-跨界对象不参与跨档判定；`raw_mesh_comparison` 列出完整网格差异，`local_content_match` 表示近景通过。`crossing_geometry_observations` 按位姿和范围保留快照计数、哈希、首次观测及此前最后缺席时刻。首次观测仅为发布时间上界，受相机半径影响；无相交三角形的对象不入清单，缺席不证明未发布。游戏补齐仍以 `far_ready` 实测。
-
-失败时保留 JSON、日志和分项结果。`stage` 记录具体阶段，命令失败的 `RuntimeError` 消息写入 `failure`，`failed_observation` 指向已有失败观测 JSON。
-
-Linux 规模输入的生成档位、运行范围和产物布局见 [CI](../../docs/ci.md#linux-夜间运行)。开发机用待验收提交运行 `verify`，只打开 1／10×，两档均作十秒复核。
+规模输入的生成、近景核对和结果说明见[规模输入](scale-inputs.md)。
 
 ## 测试与手动验证
 
@@ -157,12 +136,10 @@ pwsh -NoProfile -File scripts/measure/tests/test-run-outcome.ps1
 python -m unittest discover -s scripts/measure/tests -p "test_*.py" -v
 ```
 
-`Tests/SceneScale/` 已接入[统一测试入口](../../docs/run-tests.md)和 CI。上列 Python 和 PowerShell 脚本测试尚未接入 CI。预检使用固定时间序列验证 30 秒覆盖、门槛边界、连续超限和缺失样本；汇总和运行判定测试使用临时目录里的真实 JSON 文件。运行判定覆盖包装器返回 0 而游戏异常退出、已完成报告之后的异常退出、游戏状态缺失和报告结束标记缺失，以及 Windows 的退出和清理检查。`test_game_process.py` 用受控子进程检查退出记录器的零退出、非零退出及信号终止；信号用例在 Windows 上跳过，Linux 上运行。编排通过真实游戏入口验证，不使用假游戏替身；记录器的子进程测试不证明 gamescope 的行为。
+`Tests/SceneScale/` 已接入[统一测试入口](../../docs/run-tests.md)和 CI；上列脚本测试尚未接入。预检用固定时间序列覆盖 30 秒、门槛边界、连续超限和缺样本；汇总与运行判定读取临时目录中的真实 JSON。运行判定覆盖包装器返回 0 时游戏异常退出（含报告完成后）、游戏状态或报告结束标记缺失，以及 Windows 退出和清理。`test_game_process.py` 以受控子进程覆盖零退出、非零退出及信号终止；信号用例仅在 Linux 运行。编排用真实游戏验证；记录器测试不证明 gamescope 行为。
 
-Linux 测量需要 `gamescope` 和 `python3`。输出文件见[测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。
+Linux 测量需要 `gamescope` 和 `python3`。`run-measurement.ps1` 将 `.tpz` 和 `SHA512-SUMS.txt` 缓存在 workflow 指定的版本目录；版本变化时换目录。模板阶段两文件齐全时不联网，仍核对模板 SHA512；缺哪个下载哪个，完成后将 `.partial` 改名入缓存。哈希不符时删除两文件；校验文件没有唯一模板条目时只删校验文件，下次补下载。网络失败单独报错。输出见[测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。
 
-不启动游戏的拒绝路径检查：沿用上面的单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。每次采样均有效且 CPU 均值大于零时，预期有 8 次预检（4 次主序列、4 次补跑）、全部 `measurement_started=false`，并返回 1。查看 `comparison.json` 确认每个计划项只有两次尝试。
+拒绝路径：沿用单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。采样均有效且 CPU 均值大于零时，预期 8 次预检（主序列、补跑各 4 次），全部 `measurement_started=false`，返回 1。`comparison.json` 每项应只有两次尝试。
 
-完整冒烟在安静窗口里以同一导出作为 A 和 B，各跑两轮 `scene-follow-8x -DurationSeconds 2`，再汇总；检查顺序、报告、退出状态、负载日志和每侧有效轮数。每次测量都应成功启动并结束。
-
-汇总中两侧帧耗时 p50 都应为 `valid_runs: 2`、`unknown_runs: 0`；检查每轮的 `external-load.jsonl` 是否有有效计数。Linux 采样路径通过 runner 的 `measure` workflow 运行短场景验证，同样检查负载日志。这些冒烟验证编排和采样，不代表性能收益。
+完整冒烟在安静窗口以同一导出作为 A、B，各跑两轮 `scene-follow-8x -DurationSeconds 2` 后汇总。检查顺序、报告、正常启动和退出；两侧帧耗时 p50 均应为 `valid_runs: 2`、`unknown_runs: 0`，每轮 `external-load.jsonl` 有有效计数。Linux 采样用 runner 的短 `measure` job 验证，同样检查负载日志。冒烟只验证编排和采样。
