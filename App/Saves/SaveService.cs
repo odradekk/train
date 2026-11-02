@@ -7,9 +7,7 @@ using Train.Core.Contracts;
 namespace Train.App.Saves;
 
 internal sealed record SaveEntry(string Path, SaveHeader Header, bool Automatic);
-internal sealed record LeavePrompt(bool CanSave, bool Waiting);
 internal sealed record MissingPrompt(ImmutableArray<string> Details);
-internal enum LeaveChoice { Save, Discard, Cancel }
 
 internal sealed partial class SaveService : IDisposable
 {
@@ -25,9 +23,6 @@ internal sealed partial class SaveService : IDisposable
     private PendingRead? _read;
     private PendingImport? _import;
     private long? _restore;
-    private Action? _leave;
-    private bool _leaveSaving;
-    private bool _leaveClosesSession;
     private long? _shownMissing;
     private HostBinding? _autoBinding;
     private HostBinding? _autoPending;
@@ -46,12 +41,19 @@ internal sealed partial class SaveService : IDisposable
     internal event Action? Changed;
     internal SaveStatus? Status => _host.GetSaveStatus();
     internal bool IsReplay => _host.GetStatus() is { IsReplay: true };
+    internal void SetOverlayOpen(bool open) => _host.SetOverlayPaused(open);
     internal ImmutableArray<(string Kind, string Path)> PendingWrites =>
         _writes.Select(write => (write.Kind.ToString(), write.Path)).ToImmutableArray();
-    internal string? LastMessage { get; private set; }
+    private string? _lastMessage;
+    internal string? LastMessage
+    {
+        get => _lastMessage;
+        private set { _lastMessage = value; PlayerMessage = value; }
+    }
+    internal string? PlayerMessage { get; private set; }
     internal string? ListMessage { get; private set; }
     internal LeavePrompt? Leaving { get; private set; }
-    internal bool HasPendingWork => _writes.Count != 0 || _read is not null || _import is not null || _restore is not null;
+    internal bool HasPendingWork => _writes.Count != 0 || _read is not null || _import is not null || _restore is not null || _fileOperation is not null;
     internal bool IsBusy => HasPendingWork || _leave is not null || _host.IsBusy;
     internal TimeSpan? AutoSaveInterval { get; private set; } = TimeSpan.FromMinutes(DefaultAutoSaveMinutes);
     internal MissingPrompt? Missing
@@ -60,7 +62,7 @@ internal sealed partial class SaveService : IDisposable
         {
             if (_import?.Prepared is { } imported) return MissingFor(imported.Prepared);
             return _restore is not null && _host.MissingConfirmation is { } missing
-                ? new(MissingDetails(missing.Content, missing.Core)) : null;
+                ? new(SaveContentWarnings.Describe(missing.Content, missing.Core, missing.Packages)) : null;
         }
     }
 
@@ -85,8 +87,7 @@ internal sealed partial class SaveService : IDisposable
         foreach (var directory in directories)
         {
             if (!Guid.TryParse(Path.GetFileName(directory), out var id)) continue;
-            foreach (var path in new[] { _store.PathFor(id), _store.AutoPathFor(id, 0),
-                _store.AutoPathFor(id, 1), _store.AutoPathFor(id, 2) })
+            foreach (var path in _store.PathsFor(id))
             {
                 if (!File.Exists(path)) continue;
                 try
@@ -109,10 +110,14 @@ internal sealed partial class SaveService : IDisposable
         return StartWrite(WriteKind.SaveAs, new(Guid.NewGuid(), name.Trim()));
     }
 
-    internal SaveFailure? Load(SaveEntry entry) => RequestLeave(() => StartRead(entry));
+    internal SaveFailure? Load(SaveEntry entry)
+    {
+        CancelDetails();
+        return RequestLeave(() => StartRead(entry), LeaveAction.Load);
+    }
 
     internal SaveFailure? StartExample(SaveDocument document) => RequestLeave(() =>
-        StartRestore(document, new(Guid.NewGuid(), document.Header.Name), unsaved: true));
+        StartRestore(document, new(Guid.NewGuid(), document.Header.Name), unsaved: true), LeaveAction.Load);
 
     internal SaveFailure? Export(string path, bool overwriteConfirmed = false)
     {
@@ -127,75 +132,10 @@ internal sealed partial class SaveService : IDisposable
         return _restore is { } operation && _host.ConfirmMissing(operation);
     }
 
-    internal SaveFailure? ReturnToMenu() => RequestLeave(_host.LeaveSession, closesSession: true);
-
-    internal SaveFailure? RequestLeave(Action continuation) => RequestLeave(continuation, closesSession: false);
-    private SaveFailure? RequestLeave(Action continuation, bool closesSession)
-    {
-        SaveFailure? failure = null;
-        var closeFailure = _editor.RequestClose(() => failure = LeaveAfterEditor(continuation, closesSession));
-        return closeFailure is not null ? Fail(closeFailure.Code, closeFailure.Message) : failure;
-    }
-
-    private SaveFailure? LeaveAfterEditor(Action continuation, bool closesSession)
-    {
-        if (_leave is not null || _read is not null || _import is { Published: null } || _restore is not null)
-            return Fail("busy", "正在处理其他操作，请先完成或取消。");
-        if (_host.LockLeaving() is not null) return Fail("busy", "正在处理其他操作，请先完成或取消。");
-        _leave = continuation;
-        _leaveClosesSession = closesSession;
-        _autoPending = null;
-        ContinueLeaving();
-        return null;
-    }
-
-    internal void ChooseLeave(LeaveChoice choice)
-    {
-        if (_leave is null || Leaving is not { } prompt) return;
-        if (choice == LeaveChoice.Cancel)
-        {
-            foreach (var write in _writes.Where(write => write.Leaving)) write.Cancellation.Cancel();
-            AbortLeaving();
-            return;
-        }
-        if (prompt.Waiting) return;
-        if (choice == LeaveChoice.Discard) { FinishLeaving(); return; }
-        if (!prompt.CanSave) return;
-        _leaveSaving = true;
-        Leaving = new(true, true);
-        if (StartWrite(WriteKind.Manual, leaving: true) is not null) AbortLeaving();
-    }
-
-    private void ContinueLeaving()
-    {
-        if (_leave is null || _leaveSaving) return;
-        LeavePrompt prompt;
-        if (_writes.Count != 0 || _import?.Published is not null) prompt = new(false, true);
-        else if (Status is { Unsaved: true } status) prompt = new(!status.Frozen, false);
-        else { FinishLeaving(); return; }
-        if (Leaving != prompt) { Leaving = prompt; Changed?.Invoke(); }
-    }
-
-    private void FinishLeaving()
-    {
-        var continuation = _leave!;
-        var closesSession = _leaveClosesSession;
-        _leave = null; Leaving = null; _leaveSaving = false;
-        if (closesSession) continuation();
-        _host.UnlockLeaving();
-        if (!closesSession) continuation();
-        Changed?.Invoke();
-    }
-
-    private void AbortLeaving()
-    {
-        _leave = null; Leaving = null; _leaveSaving = false;
-        _host.UnlockLeaving();
-        Changed?.Invoke();
-    }
-
     internal void Cancel()
     {
+        CancelDetails();
+        _fileOperation?.Cancellation.Cancel();
         if (_restore is { } operation) { _host.Cancel(operation); return; }
         if (_read is { } read)
         {
@@ -225,6 +165,8 @@ internal sealed partial class SaveService : IDisposable
     internal void Process()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        PumpFileOperation();
+        PumpDetails();
         foreach (var write in _writes.Where(write => write.Work.IsCompleted).ToArray())
         {
             _writes.Remove(write);
@@ -240,6 +182,8 @@ internal sealed partial class SaveService : IDisposable
             }
             else LastMessage = result.Message ?? "保存失败。";
             if (result.CleanupMessage is { } cleanup) LastMessage += $"\n{cleanup}";
+            if (!result.Published) PlayerMessage = result.Code == "cancelled" ? "保存已取消。" : "保存失败，请检查目标文件是否可写。";
+            else if (result.CleanupMessage is not null) PlayerMessage = "保存完成，但临时文件未能清理，请检查文件访问权限。";
             if (write.Leaving && _leaveSaving)
             {
                 _leaveSaving = false;
@@ -275,7 +219,7 @@ internal sealed partial class SaveService : IDisposable
     {
         if (_host.SessionOptions is not { } options)
         { Fail("session-options-unavailable", "宿主尚未配置会话环境。"); return; }
-        var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, options, identity, unsaved);
+        var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, options, identity, unsaved, document.Header.World);
         if (begun.Problem is { } problem) Fail(problem.Code, "无法开始读档。");
         else
         {
@@ -297,6 +241,8 @@ internal sealed partial class SaveService : IDisposable
                 var result = published.GetAwaiter().GetResult();
                 LastMessage = result.Message ?? (result.Published ? "导入完成，已建立新存档。" : "导入失败。");
                 if (result.CleanupMessage is { } cleanup) LastMessage += $"\n{cleanup}";
+                if (!result.Published) PlayerMessage = "导入失败，请检查存档文件和访问权限。";
+                else if (result.CleanupMessage is not null) PlayerMessage = "导入完成，但临时文件未能清理，请检查文件访问权限。";
             }
             catch (Exception error) { ReportFileFailure(error); }
             import.Cancellation.Dispose();
@@ -312,14 +258,6 @@ internal sealed partial class SaveService : IDisposable
         import.Prepared = prepared;
         if (MissingFor(prepared.Prepared) is null) PublishImport(prepared);
         else Changed?.Invoke();
-    }
-
-    private void OnOperationEnded(HostOperationResult result)
-    {
-        if (_restore != result.Operation || result.Kind != OperationKind.Restore) return;
-        _restore = null;
-        LastMessage = result.Succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
-        Changed?.Invoke();
     }
 
     private void ScheduleAutomatic()
@@ -352,7 +290,23 @@ internal sealed partial class SaveService : IDisposable
     }
 
     private SaveFailure Fail(string code, string message)
-    { LastMessage = message; Changed?.Invoke(); return new(code, message); }
+    {
+        LastMessage = message;
+        var failure = new SaveFailure(code, message);
+        PlayerMessage = DescribeFailure(failure);
+        Changed?.Invoke();
+        return failure;
+    }
+    internal static string DescribeFailure(SaveFailure failure) => failure.Code switch
+    {
+        "invalid-name" => "存档名称不能为空。",
+        "busy" => "正在处理其他操作，请先完成或取消。",
+        "frozen" => "当前对局无法保存，请读取另一份存档。",
+        "invalid-save" => "存档损坏，无法读取。",
+        "overwrite-confirmation" => "目标文件已存在，请确认覆盖。",
+        "replay_read_only" => "重放中不能保存当前对局。",
+        _ => "操作未完成，请检查存档文件、访问权限和所需内容包。"
+    };
     private void ReportFileFailure(Exception error) => Fail(error is SaveFormatException format ? format.Code : "file-failed", error.Message);
     private static SaveFailure? PreparationFailure(HostCoordinator.PreparedOperation prepared) => prepared switch
     {
@@ -365,12 +319,9 @@ internal sealed partial class SaveService : IDisposable
     };
     private static MissingPrompt? MissingFor(HostCoordinator.PreparedOperation prepared)
     {
-        var details = MissingDetails(prepared.ContentCandidate!.Report, prepared.CoreCandidate!.MissingReferences);
+        var details = SaveContentWarnings.Describe(prepared.ContentCandidate!.Report, prepared.CoreCandidate!.MissingReferences, prepared.SavedPackages);
         return details.Length == 0 ? null : new(details);
     }
-    private static ImmutableArray<string> MissingDetails(ContentPreparationReport content, ImmutableArray<MissingCoreReference> core)
-        => content.RuntimeMissing.Select(missing => $"{missing.Reference}（包 {missing.Package?.Value ?? "未知"}；{missing.Field}）")
-            .Concat(core.Select(missing => $"{missing.Reference}（{missing.FieldPath}）")).ToImmutableArray();
     private static async Task Observe(Task work, CancellationTokenSource cancellation)
     { try { await work.ConfigureAwait(false); } catch { /* 异常退出的后台结果已失去接入资格。 */ } finally { cancellation.Dispose(); } }
     private static async Task DiscardImport(Task<ImportPreparation> work, CancellationTokenSource cancellation)
@@ -384,6 +335,7 @@ internal sealed partial class SaveService : IDisposable
         Cancel();
         foreach (var write in _writes) _ = FinishWrite(write.Work, write.Cancellation);
         _writes.Clear();
+        if (_fileOperation is { } file) _ = FinishWrite(file.Work, file.Cancellation);
         if (_import?.Published is { } imported) _ = FinishWrite(imported, _import.Cancellation);
     }
 

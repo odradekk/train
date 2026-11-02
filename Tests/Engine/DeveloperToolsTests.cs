@@ -61,7 +61,7 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             Require(report.Visible, "没有打开报告问题窗口。");
             Require(tools.OpenReplay(setup.ReplayPath) is null && app.Saves!.Leaving is { Waiting: false },
                 "打开复现包绕过了未保存对局的离开保护。");
-            var saves = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            var saves = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             await Until(() => saves.Visible);
             Require(!output.Contains("another exclusive child"),
                 "报告问题窗口开着时弹出离开确认，触发了 Godot 的独占子窗口错误。");
@@ -71,8 +71,11 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             await Until(() => app.Host.GetStatus() is { IsReplay: true } && !tools.IsBusy);
             await Until(() => report.FindChildren("*", "Label", true, false).Cast<Label>()
                 .Any(label => label.Text.Contains("只读重放")));
-            await Until(() => saves.FindChildren("*", "Label", true, false).Cast<Label>()
-                .Any(label => label.Text.Contains("只读重放") && label.Text.Contains("不能存档")));
+            await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
+            Require(UiTestInput.SaveButton(saves, "保存").Disabled && !Find<LineEdit>(saves, "SaveName").Editable &&
+                saves.FindChildren("*", "Label", true, false).Cast<Label>()
+                    .Any(label => label.IsVisibleInTree() && label.Text.Contains("无法保存")),
+                "重放时存档面板应说明无法保存，并禁用保存和名称输入。");
             Require(setup.InitialSession.DisposeCount == 1 && app.Host.GetStatus()!.Binding != binding,
                 "重放候选激活后没有退役原会话。");
             Require(app.Saves.Save()?.Code == "replay_read_only" && app.Host.Step(1).Problem?.Code == "replay_read_only",

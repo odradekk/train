@@ -66,7 +66,6 @@ public partial class App : Node
             Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), AuthoringPaths.ModsDirectory(userData),
                 OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null);
             Saves = new SaveService(Host, new FileSaveStore(userData), Editor);
-            GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
             WorldScenes = new(Host, createScenes, _logger);
             Editor.Changed += () =>
             {
@@ -89,6 +88,7 @@ public partial class App : Node
             var ui = new GameUi { Name = "GameUi" };
             ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons, Editor, Authoring, TemplateScenes, Notifications, Saves);
             AddChild(ui);
+            GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves, ui.GetNode<Control>("Root"));
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
             Action<IReadOnlyList<string>>? trainCommands = null;
@@ -140,7 +140,7 @@ public partial class App : Node
     public void RequestQuit()
     {
         if (Saves is null) FinishQuit();
-        else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(FinishQuit));
+        else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(FinishQuit, LeaveAction.Quit));
     }
 
     internal SaveFailure? StartExample(string path = ExampleSavePath)

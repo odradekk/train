@@ -8,6 +8,31 @@ namespace Train.Godot.Tests.Host;
 public sealed class SimulationFrameDriverTests
 {
     [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(true, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(false, false, true)]
+    public void Overlay_pause_stops_advancement_and_closing_preserves_other_pause_sources(bool player, bool focus, bool editing)
+    {
+        var driver = new SimulationFrameDriver(() => 0);
+        driver.SetPlayerPaused(player);
+        driver.SetFocusPaused(focus);
+        driver.SetEditingPaused(editing);
+        driver.SetSpeed(SimulationSpeed.Four);
+        driver.SetOverlayPaused(true);
+        Assert.IsTrue(driver.IsPaused);
+        Assert.AreEqual(0UL, driver.AdvanceFrame(10, () => throw new AssertFailedException("覆盖层打开时不能推进。")));
+        driver.SetOverlayPaused(false);
+        Assert.AreEqual(player || focus || editing, driver.IsPaused);
+        Assert.AreEqual(player, driver.PlayerPaused);
+        Assert.AreEqual(focus, driver.FocusPaused);
+        Assert.AreEqual(editing, driver.EditingPaused);
+        Assert.AreEqual(SimulationSpeed.Four, driver.Speed);
+        Assert.AreEqual(player || focus || editing ? 0UL : 4UL,
+            driver.AdvanceFrame(1d / 60, () => (1u, false)));
+    }
+
+    [TestMethod]
     public void WorkTimeMeasuresOnlyFrameAdvancementAndClearsWhenPaused()
     {
         var seconds = 10d;
