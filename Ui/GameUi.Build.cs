@@ -120,7 +120,7 @@ public partial class GameUi
         _error.CustomMinimumSize = new(500, 0);
         _error.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         errorBody.AddChild(_error);
-        _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
+        _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor, _icons); _root.AddChild(_library);
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
         // 设置在加入场景树时立即应用画质，所以编辑器的场景视图要先创建。
         _settings = new SettingsOverlay { Name = "SettingsOverlay" };
