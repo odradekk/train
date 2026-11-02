@@ -133,7 +133,8 @@ public partial class OwnedSettlementInspectorUiTests(Node testScene) : TestClass
     internal static FixedCoreReadView View(ulong revision = 1, bool defenseDestroyed = false, bool includeSite = true,
         DesignHash? siteDesign = null, bool includeVehicleJob = false, ProductionState stoppedState = ProductionState.WaitingForInputs)
     {
-        var basis = EconomyFixture.Create(revision, relation: SettlementRelation.PlayerOwned, leaseCount: 0);
+        var basis = EconomyFixture.Create(revision, relation: SettlementRelation.PlayerOwned, leaseCount: 0,
+            foodExpectedNetChangePerSecond: 2.5 / 86400, equipmentExpectedNetChangePerSecond: -1.5 / 86400);
         var settlement = ((Lookup<SettlementView>.Found)basis.FindSettlement(new(1))).Value;
         var process = new ProcessRef.Production(new("fixture:press"));
         var sites = new JobView.Construction(new(new(90), ConstructionKind.Construction, settlement.Id,
