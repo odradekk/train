@@ -1113,7 +1113,4 @@ public sealed partial class CombatFrameTests
     private static CombatHit Hit(InstanceView instance) => new(
         new AttackSource.Weapon(new(instance.Id, instance.Design, RailwayFixtures.Location), new(9)),
         new HitTarget.Structure(new(instance.Id, instance.Design, RailwayFixtures.Location)), 4);
-
-
-
 }

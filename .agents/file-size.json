@@ -142,7 +142,7 @@
     "Tests/Godot/Logging/StructuredLoggingTests.cs": 7017,
     "Tests/Godot/Recording/RecordingServiceTests.cs": 6928,
     "Tests/Godot/Saves/SaveServiceTests.cs": 7639,
-    "Tests/Scenes/CombatFrameTests.cs": 18003,
+    "Tests/Scenes/CombatFrameTests.cs": 18002,
     "Tests/Scenes/EditingGeometryTests.cs": 6740,
     "Tests/Scenes/EditingReviewRegressionTests.cs": 6855,
     "Tests/Scenes/EditingSelectionTests.cs": 7565,

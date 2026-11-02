@@ -45,13 +45,3 @@ internal static class TrainFormationTestScenario
     private static CoreResult<TrainFormationPreview> Pair =>
         new CoreResult<TrainFormationPreview>.Success(new(10, 20, 40, 60, [], null));
 }
-
-public partial class VehicleServiceUiTests
-{
-    private sealed partial class ServiceView
-    {
-        public CoreResult<TrainFormationPreview> PreviewTrainFormation(ImmutableArray<VehicleId> orderedVehicles, TrainId? train)
-            => completed ? TrainFormationTestScenario.CompletedVehicle9(orderedVehicles, train)
-                : throw new InvalidOperationException("UNCONFIGURED: PreviewTrainFormation");
-    }
-}
