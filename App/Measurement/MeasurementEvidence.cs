@@ -15,7 +15,7 @@ internal sealed record SteadyMemory(double? Private, double? Working, double? Bu
 }
 
 internal sealed record MeasuredOpening(string Type, bool Node, bool Valid, double? Click, double? End,
-    double? Latency, double? Ready, SteadyMemory Steady);
+    double? Latency, double? Ready, SteadyMemory Steady, long? NodeVoxelCells = null);
 
 /// <summary>只在计时结束后流式读取报告所需的旁车；各文件的缺失和截断分别保留为未知原因。</summary>
 internal sealed class MeasurementEvidence
@@ -84,11 +84,13 @@ internal sealed class MeasurementEvidence
             }
             if (At(record, "kind").ToString() != "open") return;
             var name = At(record, "name").ToString();
+            var cells = At(record, "node_voxel_cells");
+            long? nodeCells = cells.ValueKind == JsonValueKind.Number && cells.TryGetInt64(out var count) && count >= 0 ? count : null;
             result.Openings.Add(new(name, At(record, "target").ToString().StartsWith("Node", StringComparison.Ordinal),
                 name.Length > 0 && At(record, "sample_valid").ValueKind == JsonValueKind.True,
                 Number(At(record, "click")), Number(At(record, "observation_ended")),
                 Number(At(record, "click_to_operable_seconds")), Number(At(record, "operable_to_ready_seconds")),
-                SteadyMemory.Read(At(record, "steady"))));
+                SteadyMemory.Read(At(record, "steady")), nodeCells));
         });
         if (scenario != "scene-memory") return result;
 

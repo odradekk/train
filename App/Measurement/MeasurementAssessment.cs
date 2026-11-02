@@ -7,7 +7,8 @@ namespace Train.App.Measurement;
 internal sealed record MeasurementAssessmentItem(string Metric, string Window, string Unit, string Rule,
     double? Threshold, double? Measured, string Status, string? Reason, double? ObservedSeconds = null,
     double? WindowStartSeconds = null, int? ExcludedFrames = null, double? Excess = null,
-    double? RawMaximum = null, double? GcPauseMaximum = null);
+    double? RawMaximum = null, double? GcPauseMaximum = null,
+    long? NodeVoxelCells = null, long? ReferenceNodeVoxelCells = null);
 
 /// <summary>报告逐项对照已确认目标；不代表目标配置或完整负载验收。
 /// Decision note: 2026-10-26-performance-measurement-system
@@ -28,7 +29,7 @@ internal static partial class MeasurementAssessment
         ["opening_p95"] = (0.5, "seconds", $"同类至少 {MinimumOpeningSamples} 次有效打开；≤"),
         ["opening_maximum"] = (1, "seconds", "所有有效打开；≤"),
         ["far_ready"] = (5, "seconds", "首个可操作后，64 米完整显示范围；≤"),
-        ["node_private_delta"] = (1073741824, "bytes", "节点稳态私有字节 − 进入前地图稳态私有字节；≤"),
+        ["node_private_delta"] = (1073741824, "bytes", "节点稳态私有字节 − 进入前地图稳态私有字节；≤ 1 GiB × max(1, 节点体素格数 ÷ 标准世界节点体素格数)"),
         ["node_render_delta"] = (536870912, "bytes", "节点稳态缓冲区加纹理 − 进入前地图稳态缓冲区加纹理；≤"),
         ["game_private"] = (4294967296, "bytes", "整个游戏稳态私有字节；≤"),
         ["game_working_set"] = (3221225472, "bytes", "整个游戏稳态工作集；≤"),
