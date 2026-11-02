@@ -11,11 +11,19 @@ param(
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
     [switch] $NodeReadyHold,
+    [ValidateRange(1, 9223372036854775807)][long] $TrainId,
+    [ValidateRange(1, 9223372036854775807)][long] $NodeId,
+    [ValidateRange(1, 9223372036854775807)][long] $EdgeId,
+    [ValidateSet('standard-world', 'crowded-station', 'busy-combat', 'long-consist')][string] $SoakProfile = 'standard-world',
     [string] $Root = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$targetParameters = @{ SoakProfile = $SoakProfile }
+foreach ($target in @('TrainId', 'NodeId', 'EdgeId')) {
+    if ($PSBoundParameters.ContainsKey($target)) { $targetParameters[$target] = $PSBoundParameters[$target] }
+}
 $release = 'https://github.com/godotengine/godot/releases/download/4.7.2-stable'
 $archiveName = 'Godot_v4.7.2-stable_mono_export_templates.tpz'
 $work = $null
@@ -120,12 +128,12 @@ try {
         New-Item -ItemType Directory -Force -Path $measurementInput.directory | Out-Null
         try {
             $stage = $measurementInput.stage = 'reference'
-            & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
+            & (Join-Path $PSScriptRoot 'measure.ps1') @targetParameters -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
                 -OutputDirectory (Join-Path $measurementInput.directory 'reference') -Scenario scene-reference -Repeat 1 -Machine test -NodeReadyHold:$NodeReadyHold `
                 *> (Join-Path $measurementInput.directory 'reference-process.log')
             if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
             $stage = $measurementInput.stage = 'scenarios'
-            & (Join-Path $PSScriptRoot 'measure.ps1') -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
+            & (Join-Path $PSScriptRoot 'measure.ps1') @targetParameters -RepositoryPath $Root -ExecutablePath $executable -InputPath $measurementInput.path `
                 -OutputDirectory (Join-Path $measurementInput.directory 'scenarios') -Scenario ($Scenario -split ',' | ForEach-Object { $_.Trim() }) -Repeat $Repeat -Machine test -DurationSeconds $DurationSeconds -NodeReadyHold:$NodeReadyHold `
                 -ReferencePath (Join-Path $measurementInput.directory 'reference/scene-reference-1/scene-reference.json') `
                 *> (Join-Path $measurementInput.directory 'scenarios-process.log')
