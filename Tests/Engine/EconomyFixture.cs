@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using Train.Content.Contracts;
-using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 
@@ -25,8 +23,12 @@ internal static partial class EconomyFixture
         IReadOnlyList<ConstructionJobView>? commissionJobs = null,
         double foodExpectedNetChangePerSecond = 0, double equipmentExpectedNetChangePerSecond = 0,
         TrainActivity trainActivity = TrainActivity.Stopped, RunPlan? trainPlan = null, bool emptyTrainInventory = false,
-        ulong completedSteps = 0, ulong? leaseExpiresAt = null, InventoryView? leaseInventory = null)
+        ulong completedSteps = 0, ulong? leaseExpiresAt = null, InventoryView? leaseInventory = null,
+        ImmutableArray<VehicleId> extraForSale = default, ImmutableArray<VehicleId> extraOwned = default,
+        bool routeToSecondSettlement = false, RunPlan? purchasedPlan = null, bool purchasedRunning = false, long vehicleTotal = 917)
     {
+        if (extraForSale.IsDefault) extraForSale = [];
+        if (extraOwned.IsDefault) extraOwned = [];
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
         var terrain = new TerrainView(new("fixture:plain"), 0, []);
@@ -40,7 +42,10 @@ internal static partial class EconomyFixture
             [new(10)], new(12), 0, 20, 10, 100, 0, 30,
             trainPlan, null, 0, new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2),
             [], null, [], TrainOrderFacing.FirstEndLeading, null);
-        var purchasedTrain = train with { Id = new(8), Vehicles = [new(9)], Inventory = new(13) };
+        var purchasedTrain = train with { Id = new(8), Vehicles = [new(9), .. extraOwned], Inventory = new(13),
+            Plan = purchasedPlan, Activity = purchasedRunning ? TrainActivity.Running : TrainActivity.Stopped };
+        var secondNode = node with { Id = new(2), Position = new(650, 300), Occupant = new NodeOccupant.Settlement(new(2), SettlementRelation.NonHostile) };
+        var route = new EdgeMapItem(new(1), new(1), new(2), 400, terrain, 1, 1, [], []);
         var existingVehicleId = new InstanceId.Vehicle(new(10));
         var existingVehicle = new InstanceView(existingVehicleId, new("fixture-vehicle"), new("fixture-composition"), location,
             SettlementRelation.PlayerOwned, new InstanceDetails.Vehicle(SizeClass.Medium, train.Id),
@@ -63,6 +68,10 @@ internal static partial class EconomyFixture
                 new(100, 5, 2, 20, 0, 75, 50),
                 [new(Food, 42, 50, 2, 40, 20, foodExpectedNetChangePerSecond, []),
                  new(Equipment, 3, 5, 0, 3, 2, equipmentExpectedNetChangePerSecond, [])]));
+        settlement = settlement with {
+            ParkedVehicles = [.. settlement.ParkedVehicles, .. extraForSale, .. (vehicle == VehicleState.Formed ? [] : extraOwned)],
+            VehiclesForSale = [.. settlement.VehiclesForSale, .. extraForSale]
+        };
         if (commissionJobs is not null) settlement = settlement with { CommissionJobs = [.. commissionJobs.Select(job => job.Id)] };
         InventoryView Inventory(ulong id, InventoryOwner owner)
         {
@@ -89,9 +98,10 @@ internal static partial class EconomyFixture
         }
         var vehicles = new Dictionary<VehicleTradeQuoteRequest, CoreResult<VehicleTradeQuote>>();
         foreach (var action in new[] { VehicleTradeAction.Buy, VehicleTradeAction.Sell })
+        foreach (var id in extraForSale.Concat(extraOwned).Prepend(new(9)))
         {
-            var request = new VehicleTradeQuoteRequest(new(1), new(9), action);
-            vehicles.Add(request, new CoreResult<VehicleTradeQuote>.Success(new(request, new(revision), new(917), blockers)));
+            var request = new VehicleTradeQuoteRequest(new(1), id, action);
+            vehicles.Add(request, new CoreResult<VehicleTradeQuote>.Success(new(request, new(revision), new(vehicleTotal), blockers)));
         }
         var leases = new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>();
         LeaseRequest[] leaseRequests = [new LeaseRequest.Rent(new(1), 3, LeaseDuration),
@@ -99,31 +109,39 @@ internal static partial class EconomyFixture
             new LeaseRequest.Renew(new(1), LeaseDuration * 3)];
         foreach (var request in leaseRequests)
             leases.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(revision), new(419), 3, blockers)));
+        var instances = new Dictionary<InstanceId, Lookup<InstanceView>> {
+            [instanceId] = new Lookup<InstanceView>.Found(instance),
+            [existingVehicleId] = new Lookup<InstanceView>.Found(existingVehicle),
+            [new InstanceId.Vehicle(new(11))] = new Lookup<InstanceView>.Missing()
+        };
+        foreach (var id in extraForSale.Concat(extraOwned))
+            instances[new InstanceId.Vehicle(id)] = new Lookup<InstanceView>.Found(instance with {
+                Id = new InstanceId.Vehicle(id),
+                Ownership = extraOwned.Contains(id) ? SettlementRelation.PlayerOwned : SettlementRelation.NonHostile,
+                Details = new InstanceDetails.Vehicle(SizeClass.Medium,
+                    vehicle == VehicleState.Formed && extraOwned.Contains(id) ? purchasedTrain.Id : null)
+            });
         return new(new(completedSteps, revision), HostCoreScenario.Input, revision: new(revision))
         {
-            World = new(1, new("fixture:railway"), 1000, 600,
-                trainAtNode ? [node] : [node, node with { Id = new(2), Position = new(750, 300), Occupant = new NodeOccupant.Empty() }],
-                trainAtNode ? [] : [edge], vehicle == VehicleState.Formed
+            World = new(1, new("fixture:railway"), 1000, 600, routeToSecondSettlement ? [node, secondNode] : trainAtNode ? [node] : [node, node with { Id = new(2), Position = new(750, 300), Occupant = new NodeOccupant.Empty() }],
+                routeToSecondSettlement ? [route] : trainAtNode ? [] : [edge], vehicle == VehicleState.Formed
                 ? [new(train.Id, train.Position, train.Activity), new(purchasedTrain.Id, purchasedTrain.Position, purchasedTrain.Activity)]
                 : [new(train.Id, train.Position, train.Activity)], [], []),
             Economy = new(new(wallet), rule, rule, rule, new(0), []),
-            Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [edge.Id] = new Lookup<EdgeView>.Found(new(edge, [], null)) },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
-                [new(1)] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)), [new(2)] = new Lookup<NodeView>.Missing()
+                [new(1)] = new Lookup<NodeView>.Found(new(node, routeToSecondSettlement ? [route.Id] : [], 80, 0, 80)),
+                [new(2)] = routeToSecondSettlement ? new Lookup<NodeView>.Found(new(secondNode, [route.Id], 80, 0, 80)) : new Lookup<NodeView>.Missing()
             },
+            Edges = routeToSecondSettlement ? new Dictionary<EdgeId, Lookup<EdgeView>> { [route.Id] = new Lookup<EdgeView>.Found(new(route, [new(1, null, [])], null)) } : new Dictionary<EdgeId, Lookup<EdgeView>> { [edge.Id] = new Lookup<EdgeView>.Found(new(edge, [], null)) },
             Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
             {
                 [location] = new Lookup<LocationView>.Found(new(location, vehicle == VehicleState.Formed ? [train.Id, purchasedTrain.Id] : [train.Id],
-                    [instanceId, existingVehicleId], [], [], occupant)),
-                [new WorldLocation.Node(new(2))] = new Lookup<LocationView>.Missing()
+                    [instanceId, existingVehicleId, .. extraForSale.Select(id => (InstanceId)new InstanceId.Vehicle(id)),
+                        .. extraOwned.Select(id => (InstanceId)new InstanceId.Vehicle(id))], [], [], occupant)),
+                [new WorldLocation.Node(new(2))] = routeToSecondSettlement ? new Lookup<LocationView>.Found(new(new WorldLocation.Node(new(2)), [], [], [], [], secondNode.Occupant)) : new Lookup<LocationView>.Missing()
             },
-            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
-            {
-                [instanceId] = new Lookup<InstanceView>.Found(instance),
-                [existingVehicleId] = new Lookup<InstanceView>.Found(existingVehicle),
-                [new InstanceId.Vehicle(new(11))] = new Lookup<InstanceView>.Missing()
-            },
+            Instances = instances,
             Trains = new Dictionary<TrainId, Lookup<TrainView>>
             {
                 [train.Id] = new Lookup<TrainView>.Found(train),
@@ -133,7 +151,8 @@ internal static partial class EconomyFixture
             },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             {
-                [new(1)] = new Lookup<SettlementView>.Found(settlement), [new(2)] = new Lookup<SettlementView>.Missing()
+                [new(1)] = new Lookup<SettlementView>.Found(settlement), [new(2)] = routeToSecondSettlement
+                    ? new Lookup<SettlementView>.Found(settlement with { Id = new(2), Node = new(2), ParkedVehicles = [], VehiclesForSale = [], Leases = [] }) : new Lookup<SettlementView>.Missing()
             },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
             {
@@ -157,4 +176,5 @@ internal static partial class EconomyFixture
             TradeQuotes = tradeQuotes ?? trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
         };
     }
+
 }

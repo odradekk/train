@@ -24,11 +24,10 @@ public partial class EconomyUiTests
             await Page(economy, 2);
             Require(Find<Label>(economy, "SoldOut").Text.Contains("售罄") &&
                 Find<Label>(economy, "PurchaseCapacity").Text.Contains("收购名额：0"), "售罄或收购名额未展示。");
-            await _input.Activate(Find<Button>(economy, "SelectSellVehicle"));
-            await _input.Activate(Find<Button>(economy, "QuoteVehicle"));
-            Require(Find<Button>(economy, "ConfirmVehicle").Disabled &&
-                Find<Label>(economy, "VehicleQuote").Text.Contains("可用容量不足") &&
-                !Find<Label>(economy, "VehicleQuote").Text.Contains("insufficient_capacity"), "收购受阻时不得允许卖车。");
+            await _input.Activate(Find<CheckBox>(economy, "ParkedVehicle9"));
+            Require(Find<Button>(economy, "SellVehicles").Disabled &&
+                Find<Label>(economy, "SaleReason").Text.Contains("可用容量不足") &&
+                !Find<Label>(economy, "SaleReason").Text.Contains("insufficient_capacity"), "收购受阻时不得允许卖车。");
             await Market(economy);
             Require(Find<Button>(economy, "ConfirmTrade").Disabled &&
                 Find<Label>(economy, "Quote").Text.Contains("资金不足") &&
