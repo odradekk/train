@@ -30,7 +30,7 @@ public partial class GameUi : CanvasLayer
     private MainMenu _menu = null!;
     private Control _root = null!;
     private Control _world = null!;
-    private SettingsPanel _settings = null!;
+    private SettingsOverlay _settings = null!;
     private Label _clock = null!;
     private MacroMap _map = null!;
     private SceneStatusOverlay _status = null!;
@@ -201,6 +201,6 @@ public partial class GameUi : CanvasLayer
         if (_host is not null)
         { _host.BoundaryCompleted -= OnBoundary; _host.OperationEnded -= OnOperationEnded; }
         _menu.NewGameRequested -= OpenNewGame;
-        _menu.SettingsRequested -= _settings.Show;
+        _menu.SettingsRequested -= _settings.Open;
     }
 }

@@ -121,8 +121,8 @@ public partial class GameUi
         _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
         // 设置在加入场景树时立即应用画质，所以编辑器的场景视图要先创建。
-        _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality,
+        _settings = new SettingsOverlay { Name = "SettingsOverlay" };
+        _settings.Initialize(_host, _menu, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality,
             show => _status.Always = show);
         _root.AddChild(_settings);
         if (_authoring is not null)
@@ -141,7 +141,7 @@ public partial class GameUi
         _editor.Changed += OnEditorChanged;
         _menu.SetHostAvailable(_host is not null);
         _menu.NewGameRequested += OpenNewGame;
-        _menu.SettingsRequested += _settings.Show;
+        _menu.SettingsRequested += _settings.Open;
         ConfigureShell();
         if (_host is not null)
         {

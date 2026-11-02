@@ -7,11 +7,13 @@ using Train.App.Saves;
 
 namespace Train.Ui;
 
-public partial class SettingsPanel : Control
+// Decision note: 2026-10-31-menus-saves-and-settings
+public partial class SettingsOverlay : Control
 {
     private const string Path = "user://settings.cfg";
     private static readonly int[] AutoSaveMinutes = [0, 5, 10, 15, 30, 60, 120];
     private HostCoordinator? _host;
+    private Control _menu = null!;
     private NotificationPolicy _policy = null!;
     private RecordingService? _recording;
     private IssueReportPanel? _issueReport;
@@ -33,18 +35,19 @@ public partial class SettingsPanel : Control
     private WorldCamera? _camera;
     private NotificationAction[] _actions = Defaults();
 
-    internal void Initialize(HostCoordinator? host, TrainLogger logger, Action<string> showError,
+    internal void Initialize(HostCoordinator? host, Control menu, TrainLogger logger, Action<string> showError,
         NotificationPolicy policy, RecordingService? recording = null, WorldCamera? camera = null,
         SaveService? saves = null, Action<bool>? setHighQuality = null, Action<bool>? setAlwaysShowSceneStatus = null)
     {
-        _host = host; _logger = logger; _showError = showError; _policy = policy; _recording = recording; _camera = camera;
+        _host = host; _menu = menu; _logger = logger; _showError = showError; _policy = policy; _recording = recording; _camera = camera;
         _saves = saves; _setHighQuality = setHighQuality; _setAlwaysShowSceneStatus = setAlwaysShowSceneStatus;
     }
 
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        MouseFilter = MouseFilterEnum.Ignore;
+        MouseFilter = MouseFilterEnum.Stop;
+        MouseForcePassScrollEvents = false;
         _window = GetWindow();
         _fps = Engine.MaxFps;
         using (var config = new ConfigFile())
@@ -86,70 +89,20 @@ public partial class SettingsPanel : Control
             else if (result != Error.FileNotFound) Report("无法读取设置文件，使用当前工程默认设置。", result);
         }
         Apply();
-        UiStyle.Panel(this, "Settings", "设置", new(650, 200), 576, Hide, out var body, centered: true);
-        var modes = Options("WindowMode", ["窗口化", "无边框全屏", "独占全屏"]);
-        modes.Select(_mode);
-        AddRow(body, "窗口模式", modes);
-        modes.ItemSelected += index => { _mode = (int)index; Save(); };
-        var quality = Options("Quality", ["中", "高"]);
-        quality.Select(_highQuality ? 1 : 0);
-        AddRow(body, "画质", quality);
-        quality.ItemSelected += index => { _highQuality = index == 1; Save(); };
-        var scale = new SpinBox { Name = "UiScale", MinValue = 0.75, MaxValue = 2, Step = 0.25,
-            Value = _scale, Suffix = "×", CustomMinimumSize = new(280, 38) };
-        AddRow(body, "界面缩放", scale);
-        scale.ValueChanged += value => { _scale = (float)value; Save(); };
-        var fps = new SpinBox { Name = "FrameLimit", MinValue = 0, MaxValue = 1000, Step = 1,
-            Value = _fps, Suffix = "FPS", CustomMinimumSize = new(280, 38) };
-        AddRow(body, "渲染帧率上限", fps);
-        body.AddChild(UiStyle.Label("0 表示不限；实际帧率仍受垂直同步与硬件限制。"));
-        fps.ValueChanged += value => { _fps = (int)value; Save(); };
-        var focus = new CheckButton { Name = "FocusPause", Text = "失焦时自动暂停", ButtonPressed = _focusPause };
-        focus.Toggled += value => { _focusPause = value; Save(); };
-        body.AddChild(focus);
-        var shake = new CheckButton { Name = "CameraShake", Text = "镜头抖动", ButtonPressed = _cameraShake };
-        shake.Toggled += value => { _cameraShake = value; Save(); };
-        body.AddChild(shake);
-        var alwaysStatus = new CheckButton { Name = "AlwaysShowSceneStatus", Text = "一直显示血条和状态图标",
-            ButtonPressed = _alwaysShowSceneStatus };
-        alwaysStatus.Toggled += value => { _alwaysShowSceneStatus = value; Save(); };
-        body.AddChild(alwaysStatus);
-        if (_saves is not null)
-        {
-            var autoSave = Options("AutoSave", AutoSaveMinutes.Select(minutes => minutes == 0 ? "关闭" : minutes % 60 == 0 ? $"{minutes / 60} 小时" : $"{minutes} 分钟").ToArray());
-            autoSave.Select(Array.IndexOf(AutoSaveMinutes, _autoSaveMinutes));
-            AddRow(body, "自动存档", autoSave);
-            autoSave.ItemSelected += index => { _autoSaveMinutes = AutoSaveMinutes[index]; Save(); };
-        }
-        body.AddChild(UiStyle.Label("通知", true));
-        foreach (var category in Enum.GetValues<NotificationCategory>())
-        {
-            var options = Options("Notify_" + NotificationPolicy.Key(category), ["不响应", "降到 1×", "暂停"]);
-            options.Select((int)_actions[(int)category]);
-            AddRow(body, NotificationPolicy.Label(category), options);
-            var selected = category;
-            options.ItemSelected += index =>
-            {
-                _actions[(int)selected] = (NotificationAction)(int)index;
-                Save();
-            };
-        }
-        body.AddChild(UiStyle.Label("更改立即生效，并自动保存。等级过滤只保留在本次运行。"));
-        if (_recording is not null)
-        {
-            var report = _issueReport = new IssueReportPanel { Name = "IssueReportPanel" };
-            AddChild(report);
-            report.Configure(_recording);
-            body.AddChild(UiStyle.Button("ReportIssue", "报告问题", report.Open));
-        }
-        body.AddChild(UiStyle.Button("Back", "返回", Hide));
+        BuildLayout();
+        BuildDisplay(Page("Display", "显示"));
+        BuildGame(Page("Game", "游戏"));
+        BuildNotifications(Page("Notifications", "通知"));
+        BuildKeys(Page("Keys", "按键"));
+        BuildAbout(Page("About", "关于"));
+        VisibilityChanged += VisibilityUpdated;
+        SelectPage(0);
         Hide();
     }
 
     private void Apply()
     {
-        _window.Mode = _mode switch { 1 => Window.ModeEnum.Fullscreen, 2 => Window.ModeEnum.ExclusiveFullscreen,
-            _ => Window.ModeEnum.Windowed };
+        SetWindowMode(_pendingMode ?? _mode);
         _window.ContentScaleFactor = _scale;
         Engine.MaxFps = _fps;
         if (_host is not null) _host.AutoPauseOnFocusLoss = _focusPause;
