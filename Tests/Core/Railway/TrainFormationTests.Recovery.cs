@@ -12,14 +12,20 @@ public sealed partial class TrainFormationTests
         var input = Input with { Configuration = Input.Configuration with
         { WidthMeters = 8, HeightMeters = 2, MinimumNodeSpacingMeters = 2, SettlementRatio = 1,
             LairRatio = 0, HostileSettlementRatio = 0 },
-            Start = Input.Start with { Trains = [Input.Start.Trains[0] with { Vehicles = [Vehicle, Vehicle] }] } };
+            Start = Input.Start with { Trains = [Input.Start.Trains[0] with { Vehicles = [Vehicle, Vehicle, Vehicle] }] } };
         using var initial = Success(CoreFactory.Create().PrepareNew(input, TrainRecoveryFixture.Content,
             new(TrainRecoveryFixture.Runtime, false, 32)));
         using var session = initial.Activate();
         var original = TrainRecoveryFixture.Train(session);
         var destination = session.Read().World.Nodes.First(n => n.Id != ((TrainPosition.Node)original.Position).Id).Id;
         Accepted(session, new CoreCommand.ReplaceRunPlan(original.Id, new(false, [new PlanStop.Station(destination, 3, [])])));
+        Assert.IsTrue(original.Vehicles[0].Value < original.Vehicles[2].Value);
+        Accepted(session, new CoreCommand.ReplaceTrainFormation(original.Id, [original.Vehicles[0], original.Vehicles[1]]));
         Accepted(session, new CoreCommand.ReplaceTrainFormation(original.Id, [original.Vehicles[1]]));
+        var siteId = ((NodeOccupant.Settlement)session.Read().World.Nodes
+            .Single(n => n.Id == ((TrainPosition.Node)original.Position).Id).Occupant).Id;
+        var site = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(siteId)).Value;
+        CollectionAssert.AreEqual(new[] { original.Vehicles[0], original.Vehicles[2] }, site.ParkedVehicles.ToArray());
         CollectionAssert.AreEqual(new[] { original.Vehicles[1] }, TrainRecoveryFixture.Train(session).Vehicles.ToArray());
         var removed = ((Lookup<InstanceView>.Found)session.Read().FindInstance(new InstanceId.Vehicle(original.Vehicles[0]))).Value;
         Assert.IsNull(((InstanceDetails.Vehicle)removed.Details).Train);
@@ -31,6 +37,8 @@ public sealed partial class TrainFormationTests
         var decoded = Success(CoreFactory.Create().DecodeState(capture.Encode()));
         using var candidate = Success(CoreFactory.Create().PrepareRestore(decoded, TrainRecoveryFixture.Content, Options));
         using var restored = candidate.Activate();
+        var restoredSite = ((Lookup<SettlementView>.Found)restored.Read().FindSettlement(siteId)).Value;
+        CollectionAssert.AreEqual(new[] { original.Vehicles[0], original.Vehicles[2] }, restoredSite.ParkedVehicles.ToArray());
         Assert.AreEqual(TrainRecoveryFixture.Query(session), TrainRecoveryFixture.Query(restored));
         Assert.AreEqual(capture.Checkpoint, Success(restored.Capture(CapturePurpose.Save)).Checkpoint);
         Accepted(session, new CoreCommand.StartTrain(original.Id));

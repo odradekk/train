@@ -30,9 +30,18 @@ public sealed partial class TrainFormationTests
 
         var after = Train(session);
         CollectionAssert.AreEqual(new VehicleId[] { new(2), new(1) }, after.Vehicles.ToArray());
-        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(before with { Vehicles = after.Vehicles, LengthMeters = after.LengthMeters,
+        Assert.AreEqual(before.Position, after.Position);
+        Assert.AreEqual(before.Plan!.Loop, after.Plan!.Loop);
+        Assert.IsTrue(before.Plan.Stops.SequenceEqual(after.Plan.Stops));
+        Assert.IsTrue(before.Blockers.SequenceEqual(after.Blockers));
+        Assert.IsTrue(before.RecentReports.SequenceEqual(after.RecentReports));
+        Assert.AreEqual(before with { Vehicles = after.Vehicles, LengthMeters = after.LengthMeters,
             MassTons = after.MassTons, TractionKilonewtons = after.TractionKilonewtons,
-            Acceleration = after.Acceleration, MaximumSpeedMetersPerSecond = after.MaximumSpeedMetersPerSecond }), System.Text.Json.JsonSerializer.Serialize(after));
+            Acceleration = after.Acceleration, MaximumSpeedMetersPerSecond = after.MaximumSpeedMetersPerSecond,
+            Plan = after.Plan, Blockers = after.Blockers, RecentReports = after.RecentReports }, after);
+        var changed = (CoreEvent.TrainCompositionChanged)result.Events.Single().Event;
+        Assert.AreEqual(before.Id, changed.Train);
+        CollectionAssert.AreEqual(new VehicleId[] { new(2), new(1) }, changed.Vehicles.ToArray());
         var inventory = ((Lookup<InventoryView>.Found)session.Read().FindInventory(after.Inventory)).Value;
         Assert.AreEqual(goods.Id, inventory.Id);
         CollectionAssert.AreEqual(goods.Stacks.ToArray(), inventory.Stacks.ToArray());
@@ -150,6 +159,28 @@ public sealed partial class TrainFormationTests
         var command = new CoreCommand.ReplaceTrainFormation(new(1), [new(2), new(1)]);
         if (allowed) Accepted(session, command);
         else ReplacementRejected(session, command, "instance_locked", "OrderedVehicles");
+    }
+
+    [TestMethod]
+    [DataRow(TrainActivity.Stopped)]
+    [DataRow(TrainActivity.Retreating)]
+    public void Preview_and_replacement_reject_train_combat_and_retreat_before_vehicle_checks(TrainActivity activity)
+    {
+        var state = State();
+        var train = state.World.Trains[0] with { Activity = activity };
+        var combat = new global::Train.Core.Combat.CombatState(new(1),
+            new WorldLocation.Node(((TrainPosition.Node)train.Position).Id), 0,
+            [new(new CombatController.Train(train.Id), 0, false, 0, null)], []);
+        state = state with { World = state.World with { Trains = [train],
+            Combats = activity == TrainActivity.Stopped ? [combat] : [] } };
+        using var session = new CoreSession(state);
+        var preview = ((CoreResult<TrainFormationPreview>.Failure)session.Read()
+            .PreviewTrainFormation([new(2), new(1)], train.Id)).Problems.Single();
+        Assert.AreEqual("invalid_state", preview.Code);
+        Assert.AreEqual("Train.Activity", preview.Field);
+        Assert.AreEqual(new WorldObjectId.Train(train.Id), preview.Subject);
+        ReplacementRejected(session, new CoreCommand.ReplaceTrainFormation(train.Id, [new(2), new(1)]),
+            "invalid_state", "Train.Activity");
     }
 
     [TestMethod]

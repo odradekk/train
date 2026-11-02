@@ -34,4 +34,4 @@
 
 `PreviewTrainFormation(orderedVehicles, train)` 在当前读视图预览有序编组。`train` 为空时预览新编组，非空时预览该列车的原地重编，允许其现有成员。未初始化数组、零车辆身份或零列车身份抛 `ArgumentException`；成员、归属和位置不满足编组条件时只返回首个领域问题。成功返回 `TrainFormationPreview`：`LengthMeters`、`MassTons`、`TractionKilonewtons`、`Capacity`、`Blockers`、`DepartureProblem`。计算沿用列车实际能力规则；新编组按空库存计算，重编包含原库存货物。
 
-容量不足和身份耗尽等提交阻塞放在 `Blockers`，仍可读取成功预览的指标。`DepartureProblem` 只返回首个出发问题，优先顺序为缺控制、缺牵引、库存内容缺失、超载，与实际出发相同；加速度恰等于下限允许出发。查询不修改世界、不占用身份，也不生成命令或录制。宿主用缺控制和缺牵引提示不可出发，超载显示警告；提交时仍由 Core 重新检查当前状态。
+容量不足和身份耗尽等提交阻塞放在 `Blockers`，仍可读取成功预览的指标。`DepartureProblem` 只返回首个出发问题，优先顺序为缺控制、缺牵引、库存内容缺失、超载，与实际出发相同；新编组的 `DepartureProblem.Subject` 为 `null`，已有列车则为该列车主体。加速度恰等于下限允许出发。查询不修改世界、不占用身份，也不生成命令或录制。宿主用缺控制和缺牵引提示不可出发，超载显示警告；提交时仍由 Core 重新检查当前状态。
