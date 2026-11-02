@@ -7,7 +7,8 @@ namespace Train.App.Measurement;
 internal sealed record MeasurementAssessmentItem(string Metric, string Window, string Unit, string Rule,
     double? Threshold, double? Measured, string Status, string? Reason, double? ObservedSeconds = null,
     double? WindowStartSeconds = null, int? ExcludedFrames = null, double? Excess = null,
-    double? RawMaximum = null, double? GcPauseMaximum = null);
+    double? RawMaximum = null, double? GcPauseMaximum = null,
+    long? NodeVoxelCells = null, long? ReferenceNodeVoxelCells = null);
 
 /// <summary>报告逐项对照已确认目标；不代表目标配置或完整负载验收。
 /// Decision note: 2026-10-26-performance-measurement-system
@@ -28,7 +29,7 @@ internal static partial class MeasurementAssessment
         ["opening_p95"] = (0.5, "seconds", $"同类至少 {MinimumOpeningSamples} 次有效打开；≤"),
         ["opening_maximum"] = (1, "seconds", "所有有效打开；≤"),
         ["far_ready"] = (5, "seconds", "首个可操作后，64 米完整显示范围；≤"),
-        ["node_private_delta"] = (1073741824, "bytes", "节点稳态私有字节 − 进入前地图稳态私有字节；≤"),
+        ["node_private_delta"] = (1073741824, "bytes", "节点稳态私有字节 − 进入前地图稳态私有字节；≤ 1 GiB × max(1, 节点体素格数 ÷ 标准世界节点体素格数)"),
         ["node_render_delta"] = (536870912, "bytes", "节点稳态缓冲区加纹理 − 进入前地图稳态缓冲区加纹理；≤"),
         ["game_private"] = (4294967296, "bytes", "整个游戏稳态私有字节；≤"),
         ["game_working_set"] = (3221225472, "bytes", "整个游戏稳态工作集；≤"),
@@ -86,10 +87,13 @@ internal static partial class MeasurementAssessment
         if (MeasurementEvidence.UsesSidecars(scenario) && scenario != "scene-memory") AddOpenings(items, scenario, evidence);
         if (MeasurementEvidence.UsesPreparation(scenario))
         {
-            var reason = evidence?.PreparationProblem ??
+            var missingOperable = evidence?.Openings.Count(open => open.FirstOperable is null) ?? 0;
+            var reason = missingOperable > 0 ? $"{missingOperable} 次打开缺少 first_operable" : evidence?.PreparationProblem ??
                 (evidence is null || evidence.PreparationSamples == 0 ? "缺少可操作后的完整场景准备帧" :
                  Number(At(budget, "resource_work", "frame_count")) != evidence.PreparationFrames ? "场景准备帧缺失或观察截断" : null);
-            var item = Check("scene_preparation_maximum", "目标场景首次完整提交且可操作之后的下一绘制帧起；新空间正式首帧单列排除",
+            var item = Check("scene_preparation_maximum", (route
+                ? "路线 View.Interactive 确认后的下一绘制帧起"
+                : "确认 open.first_operable 的绘制至下一次绘制之间的区间起") + "；新空间正式首帧单列排除",
                 evidence?.PreparationMaximum, reason);
             items.Add(item with { RawMaximum = evidence?.PreparationRawMaximum, GcPauseMaximum = evidence?.PreparationGcPauseMaximum,
                 ExcludedFrames = item.Status == "unknown" ? null : evidence?.PreparationExcludedFrames,

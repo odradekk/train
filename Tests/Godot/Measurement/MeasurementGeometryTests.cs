@@ -1,6 +1,7 @@
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Measurement;
+using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Godot.Tests.Measurement;
@@ -8,6 +9,35 @@ namespace Train.Godot.Tests.Measurement;
 [TestClass]
 public sealed class MeasurementGeometryTests
 {
+    [TestMethod]
+    public void RailwayCenterAcceptsAVehicleOnlyWhenTheFocusLocatesTheTargetEdge()
+    {
+        var vehicle = new PickSubject.WorldObject(new WorldObjectId.Instance(new InstanceId.Vehicle(new(16))), null, null);
+        Assert.IsTrue(MeasurementRun.ProbeCenterMatchesEdge(vehicle, new WorldLocation.Edge(new(15), 50), new(15)));
+        Assert.IsFalse(MeasurementRun.ProbeCenterMatchesEdge(vehicle, new WorldLocation.Edge(new(14), 50), new(15)));
+        Assert.IsFalse(MeasurementRun.ProbeCenterMatchesEdge(vehicle, new WorldLocation.Node(new(15)), new(15)));
+        Assert.IsFalse(MeasurementRun.ProbeCenterMatchesEdge(vehicle, null, new(15)));
+    }
+
+    [TestMethod]
+    public void RailwayCenterKeepsTheTerrainRuleAndRejectsOtherSubjects()
+    {
+        Assert.IsTrue(MeasurementRun.ProbeCenterMatchesEdge(
+            new PickSubject.Terrain(new WorldLocation.Edge(new(15), 50)), null, new(15)));
+        Assert.IsFalse(MeasurementRun.ProbeCenterMatchesEdge(
+            new PickSubject.Terrain(new WorldLocation.Edge(new(14), 50)), new WorldLocation.Edge(new(15), 50), new(15)));
+        Assert.IsFalse(MeasurementRun.ProbeCenterMatchesEdge(
+            new PickSubject.Terrain(new WorldLocation.Node(new(15))), new WorldLocation.Edge(new(15), 50), new(15)));
+        foreach (var subject in new PickSubject?[]
+        {
+            new PickSubject.WorldObject(new WorldObjectId.Instance(new InstanceId.Building(new(16))), null, null),
+            new PickSubject.WorldObject(new WorldObjectId.Train(new(16)), null, null),
+            new PickSubject.WorldObject(new WorldObjectId.CreatureGroup(new(16)), null, null),
+            null
+        })
+            Assert.IsFalse(MeasurementRun.ProbeCenterMatchesEdge(subject, new WorldLocation.Edge(new(15), 50), new(15)));
+    }
+
     [TestMethod]
     public void ReferenceTerrainKeepsEveryMatchedProbeRingWithoutScanningFarTerrain()
     {

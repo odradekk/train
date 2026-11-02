@@ -20,7 +20,11 @@ NPC 初始化按 [#528 的批准决定](https://github.com/odradekk/train/issues
 
 初始化不是搜索，不增加候选或搜索工作量计数。三项关闭时保留原生成路径、随机键和预算结果；生成器版本仍为 `stage1-world-v1`，核心状态格式为 23，命令格式仍为 2。新增库存和车辆使用既有权威状态、引用、捕获、恢复和重放协议，不新增持久字段。
 
-违反契约取值范围的输入（包括空地貌带）抛 `ArgumentException`；没有带模板的聚居地类型在重试前返回 `config_invalid`；初始铁轨范围与 `[1,2]` 没有交集时，在 `configuration` 阶段返回 `config_invalid`，不消耗候选数或搜索工作量：`MinimumInitialTracks>2` 指向 `Configuration.InitialRailway.MinimumInitialTracks`，`MaximumInitialTracks<1` 指向 `Configuration.InitialRailway.MaximumInitialTracks`；不支持的版本、缺少引用或无法唯一匹配的地貌带返回配置失败。失败用一条 `CoreProblem("generation_failed", 字段路径, null, [类别, 阶段, 候选身份, 世界重试序号, 已用候选数, 已用搜索工作量])` 表达，六项都是字符串，计数使用不变区域十进制；类别为 `config_invalid`、`constraint_unsatisfied`、`budget_exhausted`。同步入口没有中断类别，也没有成功报告字段。预算跨整次准备累计，起点 BFS 与相邻生物聚落的线路扫描也计入搜索工作量；进入阶段时清空候选身份。配置失败和预算耗尽立即返回，约束失败有界重试，失败不消耗正式身份。最大阶段／世界重试数表示首次之外的次数。
+违反契约取值范围的输入（包括空地貌带）抛 `ArgumentException`；没有带模板的聚居地类型在重试前返回 `config_invalid`；初始铁轨范围与 `[1,2]` 没有交集时，在 `configuration` 阶段返回 `config_invalid`，不消耗候选数或搜索工作量：`MinimumInitialTracks>2` 指向 `Configuration.InitialRailway.MinimumInitialTracks`，`MaximumInitialTracks<1` 指向 `Configuration.InitialRailway.MaximumInitialTracks`；不支持的版本、缺少引用或无法唯一匹配的地貌带返回配置失败。失败用一条 `CoreProblem("generation_failed", 字段路径, null, [类别, 阶段, 候选身份, 世界重试序号, 已用候选数, 已用搜索工作量])` 表达，六项都是字符串，计数使用不变区域十进制；类别为 `config_invalid`、`constraint_unsatisfied`、`budget_exhausted`。同步入口没有中断类别，也没有成功报告字段。预算跨整次准备累计，起点 BFS 与相邻生物聚落的线路扫描也计入搜索工作量；进入阶段时清空候选身份。配置失败和预算耗尽立即返回，约束失败有界重试，失败不消耗正式身份。每轮的世界重试序号从 0 到 `MaximumWorldRetries`；每个世界候选内，节点生成和占据者分配的阶段重试序号各自从 0 到 `MaximumStageRetries`。
+
+第一轮所有尝试均因约束不满足而失败，且至少一次进入过占据者分配时，才再跑第二轮。第二轮的世界和阶段重试序号重新从 0 开始，使用第一轮相同序号对应的随机键。按与第一轮相同的节点随机顺序尝试放置生物聚落；放置后若聚居地不能经可铺初始铁路的线路全部连通，则跳过当前尝试放置的节点。放不够配置的生物聚落数量时，本次候选在 `occupants` 阶段以 `constraint_unsatisfied / Configuration.LairRatio` 失败，继续有界重试。两轮共用上述预算，第一轮成功时不进入第二轮。
+
+约束重试结束后仍未生成世界时，失败报告取最后一次失败。报告中的世界重试序号取自该次失败，第二轮从 0 重新编号。
 
 诊断的阶段和候选身份使用下表格式；格子坐标为生成时的非负整数，尚未分配正式节点编号。阶段开始及整阶段失败 `World.Nodes`、`World.Connected` 时，候选身份为空字符串。地貌在节点和线路采样期间求值，因此诊断没有单独的地貌阶段；地貌随机键仍使用阶段编号 1。
 
