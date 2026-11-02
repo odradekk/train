@@ -280,6 +280,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
     {
         var before = EconomyFixture.Create();
         var owned = EconomyFixture.Create(2, vehicle: EconomyFixture.VehicleState.Owned);
+        owned.FormationPreviews = TrainFormationTestScenario.Vehicle9;
         var formed = EconomyFixture.Create(3, vehicle: EconomyFixture.VehicleState.Formed);
         var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
         setup.Session.QueueSubmit(new CoreCommand.BuyVehicle(new(1), new(9), new(917)), CommandSource.UserInterface,
@@ -300,14 +301,13 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             Require(!quote.Contains("917") && details.Contains("已买入") && !details.Contains("已不在") && !quote.Contains("已不存在"),
                 $"买入成交后仍显示旧总额，或把已成交说成不在清单中：{details} / {quote}");
             await _input.Activate(Find<Button>(economy, "FormPurchased"));
-            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
-            var available = Find<ItemList>(formation, "AvailableVehicles");
-            Require(available.ItemCount == 1 && available.GetItemText(0).Contains("车辆 9"), "买后原车辆未进入编组候选。");
-            await _input.ClickItem(available, 0);
-            await _input.Activate(Find<Button>(formation, "AddSelected"));
-            Require(Find<ItemList>(formation, "OrderedVehicles").ItemCount == 1,
-                $"真实输入未把车辆9加入编组：availableSelected={string.Join(',', available.GetSelectedItems())}，rect={available.GetGlobalRect()}，hover={TestScene.GetTree().Root.GuiGetHoveredControl()?.GetPath()}。");
-            await _input.Activate(Find<Button>(formation, "Form"));
+            var formation = Find<TrainFormationWorkspace>(ui, "TrainFormationWorkspace");
+            var available = Find<VBoxContainer>(formation, "AvailableVehicles");
+            Require(available.GetChildCount() == 1 && Find<CheckBox>(available, "Vehicle9").IsVisibleInTree(),
+                "买后原车辆未进入编组候选。");
+            await _input.Activate(Find<CheckBox>(available, "Vehicle9"));
+            Require(Find<VBoxContainer>(formation, "OrderedVehicles").GetChildCount() == 1, "真实输入未把车辆9加入编组。");
+            await _input.Activate(Find<Button>(formation, "FormOnly"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, formed));
             Require(formed.FindTrain(new(8)) is Lookup<TrainView>.Found purchased &&
                 purchased.Value.Vehicles.SequenceEqual(new VehicleId[] { new(9) }) &&
@@ -623,9 +623,9 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
 
     private Task Page(Control economy, int index)
     {
-        string[] titles = ["库存", "市场", "现车", "仓库租用", "生产", "人口", "地块与建筑", "建造与工地"];
+        var title = index switch { 1 => "市场", 2 => "现车", 3 => "仓库租用", _ => "建造与工地" };
         var tabs = Find<TabContainer>(economy, "Pages");
-        return _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == titles[index]));
+        return _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == title));
     }
 
 }

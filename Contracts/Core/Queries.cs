@@ -14,6 +14,7 @@ public interface ICoreReadView
     Lookup<EdgeView> FindEdge(EdgeId id);
     Lookup<LocationView> FindLocation(WorldLocation location);
     Lookup<TrainView> FindTrain(TrainId id);
+    CoreResult<TrainFormationPreview> PreviewTrainFormation(ImmutableArray<VehicleId> orderedVehicles, TrainId? train);
     Lookup<InstanceView> FindInstance(InstanceId id);
     Lookup<SettlementView> FindSettlement(SettlementId id);
     Lookup<InventoryView> FindInventory(InventoryId id);
@@ -93,6 +94,9 @@ public sealed record TrainEngagementRules(TargetPriority Priority, TargetScope S
     EncounterAction Encounter, double RetreatStructureRatio);
 public sealed record SettlementEngagementRules(TargetPriority Priority, TargetScope Scope);
 public enum TrainOrderFacing { FirstEndLeading, LastEndLeading }
+public sealed record TrainFormationPreview(double LengthMeters, double MassTons, double TractionKilonewtons,
+    long Capacity, ImmutableArray<CoreProblem> Blockers, CoreProblem? DepartureProblem);
+
 public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity Activity,
     ImmutableArray<VehicleId> Vehicles, InventoryId Inventory, double SpeedMetersPerSecond,
     double LengthMeters, double MassTons, double TractionKilonewtons, double Acceleration,
@@ -241,7 +245,7 @@ public sealed record CreatureGroupView(CreatureGroupId Id, LairId? Home, WorldLo
 public sealed record LairView(LairId Id, NodeId Node, LairTypeId Type, ImmutableArray<CreatureGroupId> Groups);
 
 public sealed record MarketGoodView(GoodId Good, long Stock, long RestockTarget, long ReservedForUse,
-    long SellableQuantity, long ReceivableQuantity, ImmutableArray<CoreProblem> Blockers);
+    long SellableQuantity, long ReceivableQuantity, double ExpectedNetChangePerSecond, ImmutableArray<CoreProblem> Blockers);
 public sealed record MarketView(RuleStatusView Rule, SettlementStorageView Storage, ImmutableArray<MarketGoodView> Goods);
 public sealed record TradeQuoteRequest(TrainId Train, SettlementId Settlement, InventoryId LocalInventory,
     TradeAction Action, GoodId Good, long Quantity);

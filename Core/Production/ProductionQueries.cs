@@ -120,18 +120,25 @@ internal static class ProductionQueries
                 energy = Math.Max(0, energy - rate * process.PowerPerWork * SimulationTime.StepSeconds);
                 labor = Math.Max(0, labor - rate * process.LaborPerWork);
             }
-            var consumption = ImmutableArray.CreateBuilder<GoodsRateView>();
-            if (rate > 0)
-            {
-                consumption.AddRange(Inputs(process!.Details).Select(g => new GoodsRateView(g.Good, rate / process.WorkRequired * g.Quantity)));
-                if (fuel is not null && process.PowerPerWork > 0)
-                    consumption.Add(new(fuel.Good, rate * process.PowerPerWork / fuel.FuelEnergyPerUnit!.Value));
-            }
-            var rates = consumption.GroupBy(g => g.Good).OrderBy(g => g.Key, WorldReferences.GoodComparer)
-                .Select(g => new GoodsRateView(g.Key, g.Sum(r => r.UnitsPerSecond))).ToImmutableArray();
+            var rates = process is null ? [] : ConsumptionRates(process, rate, fuel);
             result.Add((view with { PotentialConsumption = rates }, process, rate));
         }
         return result.ToImmutable();
+    }
+
+    internal static IEnumerable<GoodsRateView> GoodsRates(ImmutableArray<GoodsQuantity> goods,
+        ProcessProjection process, double workPerSecond)
+        => goods.Select(g => new GoodsRateView(g.Good, workPerSecond / process.WorkRequired * g.Quantity));
+
+    internal static ImmutableArray<GoodsRateView> ConsumptionRates(ProcessProjection process,
+        double workPerSecond, GoodDefinitionProjection? fuel)
+    {
+        if (workPerSecond <= 0) return [];
+        var consumption = GoodsRates(Inputs(process.Details), process, workPerSecond).ToList();
+        if (fuel is not null && process.PowerPerWork > 0)
+            consumption.Add(new(fuel.Good, workPerSecond * process.PowerPerWork / fuel.FuelEnergyPerUnit!.Value));
+        return consumption.GroupBy(g => g.Good).OrderBy(g => g.Key, WorldReferences.GoodComparer)
+            .Select(g => new GoodsRateView(g.Key, g.Sum(r => r.UnitsPerSecond))).ToImmutableArray();
     }
 
     internal static ProcessProjection? Process(CoreContentProjection content, ProcessRef reference)

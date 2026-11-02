@@ -42,4 +42,5 @@ internal sealed class CountingCoreReadView(ICoreReadView inner) : ICoreReadView
     public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => inner.QuoteLease(request);
     public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => inner.GetJobQuote(request, funding);
     public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => inner.PreviewSettlement(node);
+    public CoreResult<TrainFormationPreview> PreviewTrainFormation(System.Collections.Immutable.ImmutableArray<VehicleId> orderedVehicles, TrainId? train) => inner.PreviewTrainFormation(orderedVehicles, train);
 }

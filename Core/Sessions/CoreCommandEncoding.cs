@@ -10,7 +10,7 @@ namespace Train.Core.Sessions;
 
 internal sealed record DecodedCommand(CoreInputId? InputIdentity, CoreCommand? Command);
 
-internal static class CoreCommandEncoding
+internal static partial class CoreCommandEncoding
 {
     internal static string Encode(CoreCommand command)
     {
@@ -28,6 +28,7 @@ internal static class CoreCommandEncoding
                 CoreCommand.ApplyInstanceDesign => "instance.apply_design",
                 CoreCommand.SetDeconstructionPaused => "construction.set_deconstruction_paused",
                 CoreCommand.FormTrain => "train.form",
+                CoreCommand.ReplaceTrainFormation => "train.replace_formation",
                 CoreCommand.DisbandTrain => "train.disband",
                 CoreCommand.ReplaceRunPlan => "train.replace_run_plan",
                 CoreCommand.StartTrain => "train.start",
@@ -185,14 +186,11 @@ internal static class CoreCommandEncoding
                     writer.WriteString("input_identity", publish.Content.Identity.Value);
                     break;
                 case CoreCommand.FormTrain form:
-                    if (form.OrderedVehicles.IsDefault) throw new ArgumentException("数组必须初始化。", nameof(command));
-                    writer.WriteStartArray("ordered_vehicles");
-                    foreach (var vehicle in form.OrderedVehicles)
-                    {
-                        if (vehicle.Value == 0) throw new ArgumentException("世界身份必须非零。", nameof(command));
-                        writer.WriteNumberValue(vehicle.Value);
-                    }
-                    writer.WriteEndArray();
+                    WriteFormation(writer, form.OrderedVehicles);
+                    break;
+                case CoreCommand.ReplaceTrainFormation replace:
+                    WriteIdentity(writer, "train", replace.Train.Value);
+                    WriteFormation(writer, replace.OrderedVehicles);
                     break;
                 case CoreCommand.ReplaceRunPlan replace:
                     WriteIdentity(writer, "train", replace.Train.Value);
@@ -290,6 +288,7 @@ internal static class CoreCommandEncoding
                 "construction.set_deconstruction_paused" => ["input_format_version", "kind", "job", "paused"],
                 "content.publish" => new[] { "input_format_version", "kind", "input_identity" },
                 "train.form" => ["input_format_version", "kind", "ordered_vehicles"],
+                "train.replace_formation" => ["input_format_version", "kind", "train", "ordered_vehicles"],
                 "train.replace_run_plan" => ["input_format_version", "kind", "train", "plan"],
                 "train.disband" or "train.start" or "train.stop" => ["input_format_version", "kind", "train"],
                 "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
@@ -438,13 +437,10 @@ internal static class CoreCommandEncoding
                 return Success(new(new(identity!), null));
             }
             if (name == "train.form")
-            {
-                var vehicles = Property(root, "ordered_vehicles", "", JsonValueKind.Array);
-                var builder = ImmutableArray.CreateBuilder<VehicleId>();
-                foreach (var vehicle in vehicles.EnumerateArray())
-                    builder.Add(new(Identity(vehicle, $"/ordered_vehicles/{builder.Count}")));
-                return Success(new(null, new CoreCommand.FormTrain(builder.ToImmutable())));
-            }
+                return Success(new(null, new CoreCommand.FormTrain(ReadFormation(root))));
+            if (name == "train.replace_formation")
+                return Success(new(null, new CoreCommand.ReplaceTrainFormation(
+                    new(Identity(Property(root, "train", "", JsonValueKind.Number), "/train")), ReadFormation(root))));
             if (name == "rail.debug_add_break")
             {
                 var edge = new EdgeId(Identity(Property(root, "edge", "", JsonValueKind.Number), "/edge"));

@@ -17,6 +17,9 @@ internal partial class EconomyPanels
     { ConstructionKind.Construction => "制造", ConstructionKind.Repair => "修理", ConstructionKind.Refit => "改装", ConstructionKind.Deconstruction => "拆解", _ => value.ToString() };
     internal static string ServiceState(ConstructionState value) => value switch
     { ConstructionState.Queued => "排队中", ConstructionState.Working => "进行中", ConstructionState.ResourceBlocked => "资源受阻", ConstructionState.Paused => "已暂停", ConstructionState.Failed => "已失败", ConstructionState.Completed => "已完成", _ => value.ToString() };
+    internal static string ServiceRemainingTime(ConstructionJobView job) => job.ActualWorkPerSecond > 0
+        ? $"预计还需 {Math.Ceiling(Math.Max(0, job.FrozenTotalWork - job.ProgressWork) / job.ActualWorkPerSecond):0} 秒"
+        : "当前未施工";
     internal static string ServiceLimit(WorkLimit value) => value switch
     { WorkLimit.Capability => "设施能力", WorkLimit.Power => "电力", WorkLimit.Labor => "劳动力", _ => value.ToString() };
 }

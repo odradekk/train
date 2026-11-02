@@ -191,6 +191,22 @@ public sealed class FixedCoreReadViewTests
         AssertUnconfigured(() => unconfigured.PreviewSettlement(node));
     }
 
+    [TestMethod]
+    public void FormationPreviewsMatchTrainAndOrderedMembersAndCopyConfiguration()
+    {
+        var result = new CoreResult<TrainFormationPreview>.Success(new(12, 30, 40, 50, [], null));
+        var entries = new List<(TrainId? Train, System.Collections.Immutable.ImmutableArray<VehicleId> OrderedVehicles,
+            CoreResult<TrainFormationPreview> Result)> { (new TrainId(3), [new(2), new(1)], result) };
+        var view = new FixedCoreReadView();
+        view.FormationPreviews = entries;
+        entries.Clear();
+        Assert.AreSame(result, view.PreviewTrainFormation([new(2), new(1)], new(3)));
+        AssertUnconfigured(() => view.PreviewTrainFormation([new(1), new(2)], new(3)));
+        AssertUnconfigured(() => view.PreviewTrainFormation([new(2), new(1)], new(4)));
+        AssertUnconfigured(() => view.PreviewTrainFormation([new(2), new(1)], null));
+        AssertUnconfigured(() => new FixedCoreReadView().PreviewTrainFormation([new(2)], null));
+    }
+
     private static void AssertUnconfigured(Action operation)
     {
         var error = Assert.ThrowsExactly<InvalidOperationException>(operation);
