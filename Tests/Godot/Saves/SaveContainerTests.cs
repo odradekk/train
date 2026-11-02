@@ -9,6 +9,70 @@ namespace Train.Godot.Tests.Saves;
 [TestClass]
 public sealed class SaveContainerTests
 {
+    private static string WorldDocument(string worldField) => """
+        {"Header":{"SaveFormatVersion":6,"Id":"e4a0ca31-b542-4f3e-bde2-bc4a27148a2b","Name":"world",
+        "SavedAt":"2026-11-02T00:00:00+00:00","Position":{"CompletedSteps":12,"Sequence":34},"Packages":[]
+        """ + worldField + "},\"CorePayload\":\"not JSON\",\"ContentPayload\":\"opaque\"}";
+
+    [TestMethod]
+    public void World_metadata_round_trips_at_both_seed_boundaries()
+    {
+        foreach (var seed in new[] { "0", "18446744073709551615" })
+        {
+            var input = WorldDocument(",\"World\":{\"GenerationProfileId\":\"fixture:terrain\",\"Seed\":" + seed + "}");
+            var encoded = SaveContainer.Encode(SaveContainer.Decode(input));
+            using var json = JsonDocument.Parse(encoded);
+            var world = json.RootElement.GetProperty("Header").GetProperty("World");
+            Assert.AreEqual("fixture:terrain", world.GetProperty("GenerationProfileId").GetString());
+            Assert.AreEqual(seed, world.GetProperty("Seed").GetRawText());
+            Assert.AreEqual("not JSON", SaveContainer.Decode(encoded).CorePayload);
+        }
+    }
+
+    [TestMethod]
+    public void Missing_or_null_world_remains_absent_when_encoded()
+    {
+        foreach (var field in new[] { "", ",\"World\":null" })
+        {
+            var decoded = SaveContainer.Decode(WorldDocument(field));
+            Assert.IsNull(decoded.Header.World);
+            using var encoded = JsonDocument.Parse(SaveContainer.Encode(decoded));
+            Assert.IsFalse(encoded.RootElement.GetProperty("Header").TryGetProperty("World", out _));
+        }
+    }
+
+    [TestMethod]
+    public void World_header_reader_does_not_consume_or_parse_the_payload()
+    {
+        var input = WorldDocument(",\"World\":{\"GenerationProfileId\":\"fixture:terrain\",\"Seed\":42}");
+        var end = input.IndexOf(",\"CorePayload\"", StringComparison.Ordinal);
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(input[..end] + ",broken payload"));
+        var header = SaveContainer.ReadHeader(stream);
+        Assert.AreEqual(new SaveWorld("fixture:terrain", 42), header.World);
+        Assert.AreEqual(Encoding.UTF8.GetByteCount(input[..end]), stream.Position);
+    }
+
+    [TestMethod]
+    public void Malformed_world_metadata_is_rejected_by_decode_and_header_reader()
+    {
+        foreach (var world in new[] { "{}", "[]", "false", "42", "\"world\"",
+            "{\"GenerationProfileId\":\"fixture:terrain\"}",
+            "{\"Seed\":0}", "{\"GenerationProfileId\":null,\"Seed\":0}",
+            "{\"GenerationProfileId\":\"\",\"Seed\":0}", "{\"GenerationProfileId\":\" \",\"Seed\":0}",
+            "{\"GenerationProfileId\":42,\"Seed\":0}",
+            "{\"GenerationProfileId\":\"fixture:terrain\",\"Seed\":null}",
+            "{\"GenerationProfileId\":\"fixture:terrain\",\"Seed\":-1}",
+            "{\"GenerationProfileId\":\"fixture:terrain\",\"Seed\":18446744073709551616}",
+            "{\"GenerationProfileId\":\"fixture:terrain\",\"Seed\":1.5}",
+            "{\"GenerationProfileId\":\"fixture:terrain\",\"Seed\":\"42\"}" })
+        {
+            var input = WorldDocument(",\"World\":" + world);
+            Assert.AreEqual("invalid-save", Assert.ThrowsExactly<SaveFormatException>(() => SaveContainer.Decode(input), world).Code);
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+            Assert.AreEqual("invalid-save", Assert.ThrowsExactly<SaveFormatException>(() => SaveContainer.ReadHeader(stream), world).Code);
+        }
+    }
+
     internal static SaveDocument Document(string payload = " {\r\n \"中文\": \"🚂\" } \n") => new(
         new(6, Guid.NewGuid(), "中文存档", DateTimeOffset.UtcNow, new(12, 34), [new("fixture:mod", "1.2")]), payload, payload);
 

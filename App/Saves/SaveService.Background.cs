@@ -2,12 +2,25 @@ namespace Train.App.Saves;
 
 internal sealed partial class SaveService
 {
+    private void OnOperationEnded(HostOperationResult result)
+    {
+        if (_restore != result.Operation || result.Kind != OperationKind.Restore)
+        {
+            if (result.Succeeded && result.Kind is OperationKind.NewGame or OperationKind.Reload or OperationKind.Authoring)
+                Changed?.Invoke();
+            return;
+        }
+        _restore = null;
+        LastMessage = result.Succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
+        Changed?.Invoke();
+    }
+
     private SaveFailure? StartWrite(WriteKind kind, SaveIdentity? target = null, string? path = null,
         bool overwrite = true, bool leaving = false)
     {
         if (_host.GetStatus() is { IsReplay: true } && kind != WriteKind.Export)
             return Fail("replay_read_only", "重放只允许显式导出边界为普通存档。");
-        if (_read is not null || _import is not null || _restore is not null || (!leaving && _leave is not null))
+        if (_read is not null || _import is not null || _restore is not null || _fileOperation is not null || (!leaving && _leave is not null))
             return Fail("busy", "正在处理其他存档操作。");
         var status = _host.GetStatus();
         if (status is null) return Fail("no-session", "当前没有对局。");

@@ -347,29 +347,33 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
                 $"全毁通知或冻结状态不对：{string.Join(" | ", notices)} / {ui.ErrorText}");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             var menu = app.GetNode<MainMenu>("MainMenu");
-            var panel = menu.GetChildren().OfType<SavePanel>().Single();
+            var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             await _input.WaitUntil(() => panel.Visible && UiTestInput.SaveButton(panel, "保存").Visible);
             Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().All(label => !label.Text.Contains("核心已冻结")),
                 "存档面板把未冻结的全毁说成核心已冻结。");
             owned.Add(app.Saves!.Status!.Identity.Id);
-            await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
+            await _input.Activate(UiTestInput.SaveButton(panel, "保存"));
             await _input.WaitUntil(() => !app.Saves.HasPendingWork && panel.Entries.Count > 0);
-            await _input.Activate(UiTestInput.SaveButton(panel, "读取最近存档"), panel);
-            await _input.WaitUntil(() => host.Restores >= 2 && app.Host.GetStatus() is not null &&
+            var identity = app.Saves.Status!.Identity;
+            var binding = app.Host.GetStatus()!.Binding;
+            var list = Find<ItemList>(panel, "Saves");
+            var row = Enumerable.Range(0, list.ItemCount).Single(index =>
+                list.GetItemText(index).StartsWith(identity.Name + " · ", StringComparison.Ordinal));
+            await _input.ClickItem(list, row);
+            await _input.Activate(UiTestInput.SaveButton(panel, "读取"));
+            await _input.WaitUntil(() => app.Host.GetStatus() is { } restored && restored.Binding != binding &&
                 ui.GetNode<MacroMap>("Root/World/MacroMap").IsVisibleInTree() &&
                 !ui.FindChildren("Notice", "Button", true, false).Cast<Button>().Any(button => button.Text.Contains(expected)));
             Require(!app.Host.GetStatus()!.IsFrozen && first.SubmitCount == 0 && host.Session.SubmitCount == 0,
                 "读档后核心被冻结，或界面自动提交了命令。");
-            if (!panel.Visible) await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
-            await _input.WaitUntil(() => panel.Visible);
-            await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
-            await _input.WaitUntil(() => app.Host.GetStatus() is null || LeaveDialog(panel)?.Visible == true);
+            if (panel.Visible) await _input.Activate(UiTestInput.SaveButton(panel, "关闭（Esc）"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "返回主菜单");
+            await _input.WaitUntil(() => app.Host.GetStatus() is null || UiTestInput.SavePromptVisible(panel, "未保存的更改"));
             if (app.Host.GetStatus() is not null)
             {
-                var leave = LeaveDialog(panel)!;
-                Require(!leave.DialogText.Contains("核心已冻结"), leave.DialogText);
-                var discard = leave.FindChildren("*", "Button", true, false).Cast<Button>().Single(button => button.Text == "不保存");
-                await _input.Activate(discard, leave);
+                var message = Find<Label>(panel, "PromptMessage").Text;
+                Require(!message.Contains("核心已冻结"), message);
+                await _input.Activate(UiTestInput.SavePromptButton(panel, "Discard"));
                 await _input.WaitUntil(() => app.Host.GetStatus() is null);
             }
         }
@@ -434,9 +438,6 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
         if (File.Exists(path)) File.Delete(path);
     }
 
-    private static ConfirmationDialog? LeaveDialog(SavePanel panel) =>
-        panel.GetChildren().OfType<ConfirmationDialog>().SingleOrDefault(dialog => dialog.Title == "未保存的更改");
-
     private static Button Button(Node parent, string name) =>
         parent.FindChildren(name, "Button", true, false).Cast<Button>().Single();
 
@@ -448,7 +449,6 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
         internal static readonly InstanceId SecondVehicle = new InstanceId.Vehicle(new(12));
         internal GateSession? Gate { get; private set; }
         internal ScriptedCoreSession Session => Gate!.Inner;
-        internal int Restores { get; private set; }
 
         internal HostCoordinator Create(TrainLogger logger, Func<CoreEvent, NotificationAction>? policy = null)
         {
@@ -461,7 +461,6 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
                 {
                     if (projection.Identity != HostCoreScenario.Input)
                         throw new InvalidOperationException("UNCONFIGURED: projection");
-                    Restores++;
                     var session = new ScriptedCoreSession(View(new(0, 0)));
                     session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(_capture));
                     session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), _capture)], [], [_capture.Checkpoint], [], [], _capture.References);
