@@ -33,6 +33,7 @@ public partial class SavePanel : Control
     private readonly Dictionary<int, SaveEntry> _rows = [];
     private Control? _previousFocus;
     private bool _rebuilding;
+    private bool _detailsDeferred;
 
     internal IReadOnlyList<SaveEntry> Entries => _entries;
 
@@ -158,6 +159,7 @@ public partial class SavePanel : Control
     public override void _Process(double delta)
     {
         if (_service is null) return;
+        if (Visible && _detailsDeferred && !_service.IsBusy) SelectRow();
         var status = _service.Status;
         _current.Visible = status is not null;
         _title.Text = _service.IsReplay ? "读取存档（只读重放，无法保存）" : status is null ? "读取存档" : "存档与读档";
@@ -219,6 +221,7 @@ public partial class SavePanel : Control
         if (_selected?.Path != selected?.Path || _selected?.Header.SavedAt != selected?.Header.SavedAt)
             _service?.CancelDetails();
         _selected = selected;
+        _detailsDeferred = selected is not null && _service?.IsBusy == true;
         if (selected is not null && _service is { IsBusy: false, Details: null, DetailsMessage: null })
             _service.Inspect(selected);
         RenderDetails();
