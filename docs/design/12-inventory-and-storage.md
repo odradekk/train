@@ -4,6 +4,8 @@
 
 > 决策出处：资源转录 Q261–Q263、Q266–Q267、Q277–Q279、Q282–Q283、Q293–Q294、Q300、Q329、Q416–Q417（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。删除 ItemInstance、库存只有 Stack，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
 
+> 租约倍数上限的初值由[非敌对聚居地的仓库页](https://github.com/odradekk/train/issues/903#issuecomment-6579060792)于 2026-11-02 确认为 7。
+
 ## 边界
 
 本文定义 Goods 在哪里存放以及如何计数：地点库存、Settlement Inventory、Train Inventory、Transfer、Storage Capacity 与 Storage Capability、Overcapacity，以及库存只有 Stack 的规则。Facility OutputBuffer 见 [13](13-production-runtime-and-facilities.md)；货物与体素定义的关系见 [02](02-definitions-and-content.md#库存中的货物)；Storage Equipment 的生产见 [11](11-goods-and-production-network.md)。市场交易与自动 Transfer 策略见 [19](19-markets-and-trading.md)。
@@ -40,7 +42,7 @@
 
 由[市场与交易](https://github.com/odradekk/train/issues/281) Q28 确认：租用库存与 NPC 库存所有权分开，但从同一份真实存储能力划分空间，不能重复承诺容量。
 
-- 新租和续租的期限可选当前市场固定租期的整数倍，倍数从 1 到规则规定的最大倍数；续租后的剩余租期也不得超过固定租期乘最大倍数。基础市场固定租期为 1 游戏日（86400 模拟秒、5184000 步），最大倍数初值为 12。有效租约从原到期步追加，到期租约从当前完成步起算；规则更新不追改既有租约。
+- 新租和续租的期限可选当前市场固定租期的整数倍，倍数从 1 到规则规定的最大倍数；续租后的剩余租期也不得超过固定租期乘最大倍数。基础市场固定租期为 1 游戏日（86400 模拟秒、5184000 步），最大倍数初值为 7。有效租约从原到期步追加，到期租约从当前完成步起算；规则更新不追改既有租约。
 - 可出租额度仍受 [16](16-settlements.md#仓库租用)的比例限制；新租只使用没有被现有库存、有效存储预留或其他租约占用的空间。未出租的比例额度不预先从 NPC 容量中扣除。
 - 有效租期内，完整租出额度从 NPC 库存容量与市场备货预算扣除，无论租户是否存满。租出额度已经包含其中的货物占位，不能再重复扣一次租户现有货物。
 - 到期后只取不存；现有租用货物继续占实际空间，未使用额度释放给聚居地，之后取走货物再释放对应空间。续租重新检查可取得的容量，不保证到期后还能租回原额度；已经保留的空间不能在续租时再算成新增占位。

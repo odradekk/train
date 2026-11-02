@@ -108,13 +108,14 @@ internal sealed class SettlementWarehousePage(Func<bool> canAct, GoodsRows goods
 
     private (InventoryView Inventory, LeaseView? Lease) Selected => _locals.FirstOrDefault(item => item.Lease?.Id == _leaseId && item.Lease is not null);
     private ulong Duration(int multiple) => checked((ulong)_rule!.LeaseDurationTicks * (ulong)multiple);
+    private string TermDays(int multiple) => (Duration(multiple) / (decimal)UiInput.StepsPerDay).ToString("0.#########", CultureInfo.InvariantCulture);
 
     private void RefreshTerms()
     {
         var count = _rule?.MaximumLeaseDurationMultiple ?? 0;
         while (_termChoice.ItemCount > count) _termChoice.RemoveItem(_termChoice.ItemCount - 1);
         while (_termChoice.ItemCount < count) _termChoice.AddItem("");
-        var problems = new List<string>();
+        var problems = new List<(int Multiple, string Reason)>();
         for (var index = 0; index < count; index++)
         {
             var reason = "";
@@ -126,17 +127,24 @@ internal sealed class SettlementWarehousePage(Func<bool> canAct, GoodsRows goods
                     CoreResult<LeaseQuote>.Faulted fault => CommandDiagnostics.Describe(fault.Fault),
                     _ => throw new InvalidOperationException("未知报价结果。")
                 };
-            var title = $"{index + 1} 倍";
+            var title = $"{TermDays(index + 1)} 天";
             if (_termChoice.GetItemText(index) != title) _termChoice.SetItemText(index, title);
             _termChoice.SetItemDisabled(index, reason.Length > 0);
-            if (reason.Length > 0) problems.Add($"{title}不可选：{reason}");
+            if (reason.Length > 0) problems.Add((index + 1, reason));
         }
         var selected = _multiple <= count ? _multiple - 1 : -1;
         if (_termChoice.Selected != selected) _termChoice.Select(selected);
-        _termProblems.Text = string.Join("\n", problems);
+        _termProblems.Text = string.Join("\n", problems.GroupBy(problem => problem.Reason).Select(group =>
+        {
+            var multiples = group.Select(problem => problem.Multiple).ToArray();
+            var days = multiples.Length > 1 && multiples[^1] - multiples[0] == multiples.Length - 1
+                ? $"{TermDays(multiples[0])} 到 {TermDays(multiples[^1])} 天"
+                : string.Join("、", multiples.Select(multiple => $"{TermDays(multiple)} 天"));
+            return $"{group.Key.TrimEnd('。')}，{days}不可选。";
+        }));
         _termProblems.Visible = problems.Count > 0;
         _duration.Text = _rule is null ? "市场规则缺失，暂时不能租用或续租。" :
-            $"本次租期：{Duration(_multiple) / (decimal)UiInput.StepsPerDay:0.#########} 天";
+            $"本次租期：{TermDays(_multiple)} 天";
     }
 
     private bool TermAvailable => _termChoice.Selected >= 0 && !_termChoice.IsItemDisabled(_termChoice.Selected);
@@ -212,7 +220,7 @@ internal sealed class SettlementWarehousePage(Func<bool> canAct, GoodsRows goods
 
     private string Describe(ImmutableArray<CoreProblem> problems) => string.Join("\n", problems.Select(problem =>
         problem.Field == "Request.DurationSteps" && _rule is not null
-            ? $"续租后剩余租期不能超过最长租期 {Duration(_rule.MaximumLeaseDurationMultiple) / (decimal)UiInput.StepsPerDay:0.#########} 天。"
+            ? $"续租后最长 {TermDays(_rule.MaximumLeaseDurationMultiple)} 天"
             : CommandDiagnostics.Describe(problem with { Subject = null }, _content)));
 
     internal void Close() { _leaseIds.Clear(); _quote = _pressedQuote = null; }

@@ -110,7 +110,7 @@ public partial class EconomyUiTests
             Require(terms.Selected == 1 && !terms.IsItemDisabled(0) && terms.IsItemDisabled(1) && terms.IsItemDisabled(2) &&
                 Find<Button>(panel, "ConfirmLease").Disabled, "应按核心期限阻塞禁用续租，容量阻塞不应禁用期限选择。");
             var text = Find<Label>(panel, "LeaseTermProblems").Text;
-            Require(text.Contains("最长租期") && text.Contains("报价被拒绝") && !text.Contains("Request.") && !text.Contains("fixture:"),
+            Require(text.Contains("续租后最长 3 天") && text.Contains("报价被拒绝") && !text.Contains("Request.") && !text.Contains("fixture:"),
                 "不可选期限应说明中文原因。");
             Advance(faulted);
             Require(terms.Selected == 1 && terms.IsItemDisabled(1) && !terms.IsItemDisabled(2) &&
