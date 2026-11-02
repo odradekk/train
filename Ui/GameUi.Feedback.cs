@@ -35,14 +35,21 @@ public partial class GameUi
     private void OpenNotice(NotificationNotice notice)
     {
         if (_host?.GetStatus() is not { } status) { ReportUiError("已不存在"); return; }
-        if (notice.Subject is { } subject)
+        var location = notice.Location;
+        if (notice.Subject is WorldObjectId.CreatureGroup group)
+        {
+            if (status.View.FindCreatureGroup(group.Id) is not Lookup<CreatureGroupView>.Found found)
+            { ReportUiError("已不存在"); return; }
+            location = found.Value.Location;
+        }
+        else if (notice.Subject is { } subject)
         {
             if (!SubjectExists(status.View, subject)) { ReportUiError("已不存在"); return; }
             SelectObject(subject);
             return;
         }
-        if (notice.Location is WorldLocation.Node node) SelectObject(new WorldObjectId.Node(node.Id));
-        else if (notice.Location is WorldLocation.Edge edge) SelectObject(new WorldObjectId.Edge(edge.Id));
+        if (location is WorldLocation.Node node) SelectObject(new WorldObjectId.Node(node.Id));
+        else if (location is WorldLocation.Edge edge) SelectObject(new WorldObjectId.Edge(edge.Id));
         else ReportUiError("已不存在");
     }
 

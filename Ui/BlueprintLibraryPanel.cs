@@ -56,7 +56,9 @@ internal partial class BlueprintLibraryPanel : Control
         var title = UiStyle.Label("蓝图库", true); title.SizeFlagsHorizontal = SizeFlags.ExpandFill; heading.AddChild(title);
         heading.AddChild(UiStyle.Button("NewDesign", "新建设计…", NewDraft, true));
         heading.AddChild(UiStyle.Button("CloseLibrary", "关闭", Hide));
-        var columns = new HBoxContainer { SizeFlagsVertical = SizeFlags.ExpandFill }; body.AddChild(columns);
+        var scroll = new ScrollContainer { Name = "ColumnsScroll", VerticalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Auto, SizeFlagsVertical = SizeFlags.ExpandFill }; body.AddChild(scroll);
+        var columns = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill }; scroll.AddChild(columns);
         columns.AddThemeConstantOverride("separation", Gap);
         var sideScroll = new ScrollContainer { CustomMinimumSize = new(210, 0), HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         columns.AddChild(sideScroll);

@@ -23,7 +23,8 @@ internal static class EconomyFixture
         IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>? tradeQuotes = null,
         SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1, InventoryView? settlementInventory = null,
         IReadOnlyList<ConstructionJobView>? commissionJobs = null,
-        double foodExpectedNetChangePerSecond = 0, double equipmentExpectedNetChangePerSecond = 0)
+        double foodExpectedNetChangePerSecond = 0, double equipmentExpectedNetChangePerSecond = 0,
+        ulong completedSteps = 0, ulong? leaseExpiresAt = null, InventoryView? leaseInventory = null)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -91,7 +92,7 @@ internal static class EconomyFixture
             new LeaseRequest.Renew(new(1), LeaseDuration * 3)];
         foreach (var request in leaseRequests)
             leases.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(revision), new(419), 3, blockers)));
-        return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
+        return new(new(completedSteps, revision), HostCoreScenario.Input, revision: new(revision))
         {
             World = new(1, new("fixture:railway"), 1000, 600, [node], [], vehicle == VehicleState.Formed
                 ? [new(train.Id, train.Position, train.Activity), new(purchasedTrain.Id, purchasedTrain.Position, purchasedTrain.Activity)]
@@ -127,7 +128,7 @@ internal static class EconomyFixture
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
             {
                 [new(10)] = new Lookup<InventoryView>.Found(settlementInventory ?? Inventory(10, new InventoryOwner.Settlement(new(1)))),
-                [new(11)] = new Lookup<InventoryView>.Found(Inventory(11, new InventoryOwner.Lease(new(1)))),
+                [new(11)] = new Lookup<InventoryView>.Found(leaseInventory ?? Inventory(11, new InventoryOwner.Lease(new(1)))),
                 [new(12)] = new Lookup<InventoryView>.Found(Inventory(12, new InventoryOwner.Train(train.Id))),
                 [new(14)] = new Lookup<InventoryView>.Found(Inventory(14, new InventoryOwner.Lease(new(2)))),
                 [new(13)] = vehicle == VehicleState.Formed
@@ -136,9 +137,9 @@ internal static class EconomyFixture
             },
             Leases = new Dictionary<LeaseId, Lookup<LeaseView>>
             {
-                [new(1)] = new Lookup<LeaseView>.Found(new(new(1), new(1), new(11), 20, LeaseDuration, new(419), false)),
+                [new(1)] = new Lookup<LeaseView>.Found(new(new(1), new(1), new(11), 20, leaseExpiresAt ?? LeaseDuration, new(419), completedSteps >= (leaseExpiresAt ?? LeaseDuration))),
                 [new(2)] = leaseCount > 1
-                    ? new Lookup<LeaseView>.Found(new(new(2), new(1), new(14), 20, LeaseDuration * 2, new(419), false))
+                    ? new Lookup<LeaseView>.Found(new(new(2), new(1), new(14), 20, LeaseDuration * 2, new(419), completedSteps >= LeaseDuration * 2))
                     : new Lookup<LeaseView>.Missing()
             },
             Jobs = (commissionJobs ?? []).ToDictionary(job => job.Id,
@@ -152,14 +153,14 @@ internal static class EconomyFixture
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
         ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
-        string? equipmentName = null)
+        string? equipmentName = null, long? leaseDurationTicks = null)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
         var market = new MarketRuleProjection(new("fixture:economy"), new("fixture-market-v1"), 1, 1, 1,
             new(new(10000), new(10000), new(10000), new(0)), [], new(10000), new(10000), [],
-            60, 10, new(1), new(1), new(10000), (long)LeaseDuration, maxLeaseMultiple);
+            60, 10, new(1), new(1), new(10000), leaseDurationTicks ?? (long)LeaseDuration, maxLeaseMultiple);
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
             MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market],
