@@ -165,9 +165,12 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => fixture.App.Authoring is not null && fixture.Editor.Session is not null);
             var panel = fixture.App.FindChildren("Authoring", "Control", true, false).OfType<AuthoringPanel>().Single();
             var service = fixture.App.Authoring!; panel.Open();
-            var core = Find<Button>(panel, "OpenCore");
-            Require(core.Visible == service.CanWriteCore && (!service.CanWriteCore || !core.Disabled), "core 写入入口必须服从真实服务的源码写入门槛。");
-            Require(!panel.GetNode<PanelContainer>("Authoring").Visible, "网格编辑会话打开时，创作窗体必须隐藏，不能遮挡现有编辑器。");
+            var source = Find<OptionButton>(panel, "SourcePackage");
+            var core = Enumerable.Range(0, source.ItemCount).Where(index => source.GetItemText(index) == "core（开发源码）").ToArray();
+            Require(core.Any() == service.CanWriteCore && (!service.CanWriteCore || !source.Disabled && !source.IsItemDisabled(core.Single())),
+                "core 写入入口必须服从真实服务的源码写入门槛。");
+            Require(!panel.GetNode<Control>("AuthoringMode").Visible, "网格编辑会话打开时，创作窗体必须隐藏，不能遮挡现有编辑器。");
+            Require(!panel.GetNode<Control>("AuthoringBackground").Visible, "全屏背景必须随窗体隐藏，让网格编辑器接收鼠标输入。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
@@ -213,21 +216,27 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).OpenAuthoringPackageCall = (_, id, version, _) =>
                 new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, []));
             controller = new(service, fixture.Editor); TestScene.AddChild(controller.View);
-            panel = new AuthoringPanel { Name = "TemplatePickingPanel" }; panel.Initialize(service, fixture.Editor); TestScene.AddChild(panel);
+            panel = new AuthoringPanel { Name = "TemplatePickingPanel" }; panel.Initialize(service, fixture.Editor, controller); TestScene.AddChild(panel);
             controller.PlotSelected += panel.SelectPlot;
             service.OpenCore();
             await FramesUntil(TestScene, () => { service.Process(); return service.Package is not null; });
             service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("repeated-plots", new("", ""), null, 1, null,
                 [new(5, PlotSize.Small, new(0, 0, 0), VoxelOrientation.PxPy, null), new(5, PlotSize.Large, new(8, 0, 0), VoxelOrientation.PxPy, null)], [], [], [])));
-            panel.Open(); service.PreviewTemplate(service.Form!);
+            panel.Open(); _ = service.PreviewTemplate(service.Form!);
             await FramesUntil(TestScene, () => { service.Process(); controller.Process(0); return controller.View.Interactive; });
             Require(preview is not null, "模板预览入口必须创建配置的预览。");
             Require(ReferenceEquals(service.TemplatePreview, preview), "显示与拾取必须使用同一份服务预览。");
-            await UiCapture.Capture(TestScene, "developer-authoring");
-            var position = TestScene.GetViewport().GetVisibleRect().End - new Vector2(35, 200);
-            var origin = controller.View.CameraRig.Camera.ProjectRayOrigin(position);
-            var direction = controller.View.CameraRig.Camera.ProjectRayNormal(position);
             var input = new UiTestInput(TestScene);
+            var previewArea = Find<Control>(panel, "AuthoringPreview");
+            if (!previewArea.IsVisibleInTree()) await input.Activate(Find<Button>(panel, "TogglePreview"));
+            var container = previewArea.GetChildren().OfType<SubViewportContainer>().Single();
+            await FramesUntil(TestScene, () => container.IsVisibleInTree() && container.Size.X > 0 && container.Size.Y > 0);
+            await input.Frames(2);
+            await UiCapture.Capture(TestScene, "developer-authoring");
+            var position = container.GetGlobalRect().GetCenter();
+            var viewportPosition = container.GetChildren().OfType<SubViewport>().Single().GetVisibleRect().GetCenter();
+            var origin = controller.View.CameraRig.Camera.ProjectRayOrigin(viewportPosition);
+            var direction = controller.View.CameraRig.Camera.ProjectRayNormal(viewportPosition);
             await input.MouseButton(position, MouseButton.Left, true);
             await input.MouseButton(position, MouseButton.Left, false);
             Require(preview!.Rays.Count == 1, "真实视口点击必须调用当前模板的 PickPlot 一次。");
@@ -245,8 +254,8 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
         }
         finally
         {
-            panel?.QueueFree(); await new UiTestInput(TestScene).Frames(2);
             controller?.Dispose(); controller?.View.QueueFree();
+            panel?.QueueFree(); await new UiTestInput(TestScene).Frames(2);
             service?.Dispose(); fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3);
             Directory.Delete(temporary, true);
         }

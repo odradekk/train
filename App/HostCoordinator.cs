@@ -33,7 +33,7 @@ internal sealed partial class HostCoordinator : IDisposable
     private readonly IContentFactory _contentFactory;
     private readonly IContentFiles _files;
     private readonly IAssetInspector _assets;
-    private readonly ContentInstallation _installation;
+    private ContentInstallation _installation;
     private readonly TrainLogger _logger;
     private readonly Func<CoreEvent, NotificationAction> _notification;
     private readonly Func<double>? _seconds;
@@ -89,21 +89,6 @@ internal sealed partial class HostCoordinator : IDisposable
         return new(group.Binding, group.View, driver.PlayerPaused, driver.FocusPaused,
             driver.OperationLocked, driver.Frozen, driver.Speed, driver.ActualSpeed, driver.Remainder,
             group.Replay is not null, driver.EditingPaused, driver.OverlayPaused);
-    }
-
-    internal CoreProblem? BeginEditing()
-    {
-        EnsureOwner();
-        if (MutationProblem(allowFrozen: true) is { } problem) return problem;
-        _active!.Driver.SetEditingPaused(true);
-        return null;
-    }
-
-    internal void EndEditing()
-    {
-        EnsureOwner();
-        _active?.Driver.SetEditingPaused(false);
-        _skipNextFrame = true;
     }
 
     internal void SetFocused(bool focused) { EnsureOwner(); _focused = focused; UpdateFocusPause(); }
@@ -330,14 +315,6 @@ internal sealed partial class HostCoordinator : IDisposable
 
     internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
         => BeginReload(source, null);
-
-    internal (long Operation, CoreProblem? Problem) BeginPackageWrite(
-        Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>> prepare)
-    {
-        EnsureOwner();
-        if (MutationProblem() is { } problem) return (0, problem);
-        return BeginReload(CommandSource.UserInterface, prepare);
-    }
 
     private (long Operation, CoreProblem? Problem) BeginReload(CommandSource source,
         Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>>? prepare)

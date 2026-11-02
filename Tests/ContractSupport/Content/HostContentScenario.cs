@@ -23,6 +23,7 @@ public static class HostContentScenario
 
 public sealed class ScriptedContentFactory : IContentFactory
 {
+    public Func<ContentInstallation, IContentFiles, ContentResult<ImmutableArray<PackageStatus>>>? DiscoverCall { get; set; }
     public Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>>? PrepareLoadCall { get; set; }
     public Func<IContentView, GenerationProfileId, ulong, string, ContentResult<WorldGenerationInput>>? CreateWorldInputCall { get; init; }
     public Func<string, ContentResult<IContentCapture>>? DecodeCaptureCall { get; set; }
@@ -49,7 +50,8 @@ public sealed class ScriptedContentFactory : IContentFactory
         ImmutableArray<OwnedSettlementTemplateReference> copies) =>
         (WithSettlementCopiesCall ?? throw Unconfigured())(basis, copies);
 
-    public ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files) => throw Unconfigured();
+    public ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files) =>
+        (DiscoverCall ?? throw Unconfigured())(installation, files);
     public ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft) => (EvaluateDesignCall ?? throw Unconfigured())(content, draft);
     public ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target) => throw Unconfigured();
     public ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit) => (PrepareEditCall ?? throw Unconfigured())(basis, edit);

@@ -130,7 +130,8 @@ public partial class GameUi
         if (_authoring is not null)
         {
             _authoringPanel = new AuthoringPanel { Name = "Authoring" };
-            _authoringPanel.Initialize(_authoring, _editor); _root.AddChild(_authoringPanel);
+            _authoringPanel.Initialize(_authoring, _editor, _templates); _root.AddChild(_authoringPanel);
+            _menu.AuthoringRequested += _authoringPanel.Open;
             if (_templates is not null) _templates.PlotSelected += _authoringPanel.SelectPlot;
         }
         if (_panels is not null) _panels.RefitRequested += _editor.OpenInstance;

@@ -17,26 +17,8 @@ namespace Train.Godot.Tests.Authoring;
 
 [TestClass]
 [TestCategory("integration")]
-public sealed class AuthoringServiceTests
+public sealed partial class AuthoringServiceTests
 {
-    [TestMethod]
-    public void Development_requires_active_game_and_exported_core_is_read_only()
-    {
-        using var fixture = new AuthoringFixture(ready: false);
-        Assert.IsFalse(fixture.Service.CanUse);
-        fixture.Start();
-        Assert.IsTrue(fixture.Service.CanUse);
-        using var release = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, false, fixture.Mods, fixture.Core);
-        Assert.IsFalse(release.CanUse);
-        release.OpenCore();
-        Assert.IsNull(release.Target);
-        using var exported = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, true, fixture.Mods, null);
-        Assert.IsFalse(exported.CanWriteCore);
-        exported.OpenCore();
-        StringAssert.Contains(exported.Message!, "只读");
-        Assert.IsNull(exported.Target);
-    }
-
     [TestMethod]
     public void Grid_blueprint_draft_event_becomes_write_definition_and_reload_uses_disk()
     {

@@ -113,6 +113,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
             var panel = Find<AuthoringPanel>(ui, "Authoring");
             panel.Open();
             await new UiTestInput(TestScene).Activate(Find<Button>(panel, "Publish"));
+            await new UiTestInput(TestScene).Activate(Find<Button>(panel, "ConfirmWrite"));
             await FramesUntil(TestScene, () => !service.IsBusy && !host.IsBusy, timeout: ContentPreparationTimeout);
             Require(service.LastWrite is { Success: false, Completed.IsEmpty: true },
                 "外部修改必须拒绝全部写入：" + service.Message);

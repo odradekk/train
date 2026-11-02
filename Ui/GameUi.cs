@@ -23,6 +23,8 @@ public partial class GameUi : CanvasLayer
     private AuthoringPanel? _authoringPanel;
     private TemplateSceneController? _templates;
     private bool _editing;
+    private bool _authoringWasOpen;
+    private Control.FocusBehaviorRecursiveEnum _menuFocusBeforeAuthoring, _worldFocusBeforeAuthoring;
     private HostCoordinator? _host;
     private RecordingService? _recording;
     private SaveService? _saves;
@@ -98,7 +100,24 @@ public partial class GameUi : CanvasLayer
         _status.Scenes = _scenes;
         _status.Core = status?.View;
         _status.Selected = _shell.SelectedObject is WorldObjectId.Instance selected ? [selected.Id] : [];
-        var editing = _editor.IsOpen || _authoring?.Form is not null;
+        var authoringOpen = _authoringPanel?.IsOpen == true;
+        var editing = _editor.IsOpen || authoringOpen;
+        _menu.Visible = status is null && !authoringOpen;
+        if (authoringOpen != _authoringWasOpen)
+        {
+            if (authoringOpen)
+            {
+                _menuFocusBeforeAuthoring = _menu.FocusBehaviorRecursive;
+                _worldFocusBeforeAuthoring = _world.FocusBehaviorRecursive;
+                _menu.FocusBehaviorRecursive = _world.FocusBehaviorRecursive = Control.FocusBehaviorRecursiveEnum.Disabled;
+            }
+            else
+            {
+                _menu.FocusBehaviorRecursive = _menuFocusBeforeAuthoring;
+                _world.FocusBehaviorRecursive = _worldFocusBeforeAuthoring;
+            }
+            _authoringWasOpen = authoringOpen;
+        }
         _editing = editing;
         _world.Visible = status is not null && !editing;
         if (editing) _minimap.Clear();
@@ -202,5 +221,6 @@ public partial class GameUi : CanvasLayer
         { _host.BoundaryCompleted -= OnBoundary; _host.OperationEnded -= OnOperationEnded; }
         _menu.NewGameRequested -= OpenNewGame;
         _menu.SettingsRequested -= _settings.Open;
+        if (_authoringPanel is not null) _menu.AuthoringRequested -= _authoringPanel.Open;
     }
 }

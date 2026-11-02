@@ -116,6 +116,7 @@ public partial class GameUi
 
     private bool CloseOverlay()
     {
+        if (_authoringPanel?.HandleEscape() == true) return true;
         if (_menu.CloseSavesOnEscape()) return true;
         if (_errorPanel.Visible) { _errorPanel.Hide(); return true; }
         if (_notices?.CloseLog() == true) return true;
@@ -149,8 +150,8 @@ public partial class GameUi
         _noticeButton.Text = _notices?.UnreadCount > 0 ? $"通知 {_notices.UnreadCount}" : "通知";
         if (_authoringMenuIndex >= 0)
         {
-            _gameMenu.GetPopup().SetItemDisabled(_authoringMenuIndex, !_authoring!.CanUse || _authoring.IsBusy || _host!.IsBusy);
-            _gameMenu.GetPopup().SetItemTooltip(_authoringMenuIndex, "制作内容；需要可编辑的对局且当前没有其他操作。");
+            _gameMenu.GetPopup().SetItemDisabled(_authoringMenuIndex, !_authoring!.CanOpen);
+            _gameMenu.GetPopup().SetItemTooltip(_authoringMenuIndex, "制作内容；请等待当前操作结束。");
         }
     }
 
