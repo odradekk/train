@@ -3,9 +3,11 @@ using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
 using Train.Content.ContractSupport;
+using Train.Core.Contracts;
 using Train.Rendering;
 using Train.Scenes.Contracts;
 using static Train.Engine.Tests.Assertions;
+using NVector3 = System.Numerics.Vector3;
 
 namespace Train.Engine.Tests;
 
@@ -33,32 +35,39 @@ public partial class SceneDisplayTests
     }
 
     [Test]
-    public async Task New_displays_make_progress_when_another_display_prepares_first_each_frame()
+    public async Task New_displays_reuse_geometry_costs_without_blocking_the_world_for_whole_frames()
     {
+        using var costs = new GeometryCostScope();
         await new UiTestInput(TestScene).Frames(1);
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var world = Attach(cache, new FixedContentView(), completeInitialFrame: true);
-        var shown = Frame(1, []);
+        var shown = Frame(1, [Object(99, Peak(99))]);
         await Commit(world, shown);
-        using var preview = Attach(cache, new FixedContentView());
-        var incoming = Frame(2, [Object(1, Peak(1))]);
-        SceneDisplay.PreparedFrame? prepared = null;
-        for (var frame = 0; frame < 12 && prepared is null; frame++)
+        using var previewCache = new AssetResourceCache(dispatcher);
+        for (var icon = 0; icon < 3; icon++)
         {
-            await new UiTestInput(TestScene).Frames(1);
-            using (var active = world.Prepare(shown)) active?.Commit();
-            prepared = preview.Prepare(incoming);
-            await preview.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30));
+            using var preview = Attach(previewCache, new FixedContentView());
+            var incoming = Frame(2, [Object(1, Peak(icon))]);
+            SceneDisplay.PreparedFrame? prepared = null;
+            for (var frame = 0; frame < 12 && prepared is null; frame++)
+            {
+                await new UiTestInput(TestScene).Frames(1);
+                using var active = world.Prepare(shown);
+                Require(active is not null,
+                    "世界已取得几何成本样本后，新预览不能再次预约首项，整帧挡住世界显示。");
+                active!.Commit();
+                prepared = preview.Prepare(incoming);
+                await preview.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            using (prepared)
+            {
+                Require(prepared is not null, "新显示必须沿用已有成本样本，在有限帧内完成准备。");
+                prepared!.Commit();
+            }
+            Require(ReferenceEquals(preview.DisplayedFrame, incoming) && preview.Objects.Count == 1,
+                "新显示须一次接入完整几何。");
         }
-        using (prepared)
-        {
-            Require(prepared is not null,
-                "每帧先准备世界场景时，新显示的无样本阶段也必须在有限帧内推进，不能永久等首项。");
-            prepared!.Commit();
-        }
-        Require(ReferenceEquals(preview.DisplayedFrame, incoming) && preview.Objects.Count == 1,
-            "新显示须一次接入完整几何。");
     }
 
     [Test]
@@ -66,6 +75,7 @@ public partial class SceneDisplayTests
     {
         foreach (var candidate in new[] { false, true })
         {
+            using var costs = new GeometryCostScope();
             await new UiTestInput(TestScene).Frames(1);
             using var dispatcher = new GodotMainThreadDispatcher();
             using var cache = new AssetResourceCache(dispatcher);
@@ -194,8 +204,81 @@ public partial class SceneDisplayTests
         await CheckColdGeometryAdmission(measureCold: false);
     }
 
+    [Test]
+    public async Task Incremental_shift_removal_and_multiple_visuals_match_uninterrupted_preparation()
+    {
+        using var costs = new GeometryCostScope();
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var sliced = Attach(cache, new FixedContentView());
+        using var whole = Attach(cache, new FixedContentView());
+        var first = Frame(1, [Object(1, Mesh(), new(10, 0, 0)),
+            Object(2, Mesh(), new(2, 0, 0), new(1)), Object(3, Mesh())]);
+        await Commit(sliced, first);
+        await Commit(whole, first);
+        var multiple = Object(4, Peak(2), new(7, 0, 0)) with
+        {
+            Visuals = [new SceneVisual.Geometry(Peak(2), new(false, 0, 0, false)),
+                new SceneVisual.Geometry(Peak(3), new(false, 0, 0, false)),
+                new SceneVisual.Geometry(Peak(4), new(false, 0, 0, false))]
+        };
+        var delta = Frame(2, [multiple, Object(5, Peak(5), new(9, 0, 0))], first.Update.Frame,
+            shift: new(-100, 0, 0), origin: new(100, 0, 0), removed: [new(3)],
+            fog: [new(new(-10), new(10))]);
+        await ScenePackingTestDriver.StartFormal(sliced, delta, TestScene);
+        long timestamp = 0;
+        sliced.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var calls = 0;
+        SceneDisplay.PreparedFrame? prepared = null;
+        await AdvancePreparation(() =>
+        {
+            prepared = sliced.Prepare(delta);
+            if (prepared is not null) return;
+            calls++;
+            Require(ReferenceEquals(sliced.DisplayedFrame, first) && sliced.Objects.ContainsKey(new(3)),
+                "断点准备不能提前发布移除或新对象。");
+            Near(sliced.Objects[new(1)].Root.GlobalPosition, new(10, 0, 0));
+        }, () => prepared is not null);
+        Require(calls >= 3, "多视觉与雾必须跨调用恢复。");
+        using (prepared) prepared!.Commit();
+        // 分步显示的一秒假时钟样本不能充当零耗时参照显示的估算。
+        using var measuredCosts = new GeometryCostScope(TimeSpan.Zero);
+        await ScenePackingTestDriver.StartFormal(whole, delta, TestScene);
+        using (var uninterrupted = whole.Prepare(delta))
+        {
+            Require(uninterrupted is not null, "已有阶段样本后，零耗时准备必须一次完成同一增量。");
+            uninterrupted!.Commit();
+        }
+        Require(sliced.Objects.Keys.ToHashSet().SetEquals(whole.Objects.Keys) && !sliced.Objects.ContainsKey(new(3)),
+            "分步准备与一次完成必须具有同一对象集。");
+        foreach (var (id, actual) in sliced.Objects)
+        {
+            var expected = whole.Objects[id];
+            Near(actual.Root.GlobalPosition, expected.Root.GlobalPosition);
+            Require(actual.Source == expected.Source && actual.Visuals.Length == expected.Visuals.Length,
+                "恢复必须保留来源、顺序及完整视觉。");
+            for (var index = 0; index < actual.Visuals.Length; index++)
+            {
+                using var arrays = actual.Visuals[index].Node.GetChild<MeshInstance3D>(0).Mesh.SurfaceGetArrays(0);
+                using var otherArrays = expected.Visuals[index].Node.GetChild<MeshInstance3D>(0).Mesh.SurfaceGetArrays(0);
+                Require(arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array().SequenceEqual(
+                    otherArrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array()), "恢复不得重复或错置视觉网格。");
+            }
+            var hit = new SceneHit(delta.Update.Frame, id, new PickSubject.Terrain(new WorldLocation.Node(new(1))),
+                default, GridFace.PositiveY, default, NVector3.UnitY, 1, []);
+            Require(sliced.CanSelect(hit) && whole.CanSelect(hit), "已提交增量中的对象必须保持相同拾取兼容性。");
+        }
+        Near(sliced.Objects[new(1)].Root.GlobalPosition, new(-90, 0, 0));
+        Near(sliced.Objects[new(2)].Root.GlobalPosition, new(-88, 0, 0));
+        var fog = sliced.Root.GetNode<Node3D>("LoadingFog");
+        var otherFog = whole.Root.GetNode<Node3D>("LoadingFog");
+        Require(fog.GetChildCount() == 1 && otherFog.GetChildCount() == 1, "雾区域不能在恢复中丢失或重复。");
+        Near(fog.GetChild<MeshInstance3D>(0).Position, otherFog.GetChild<MeshInstance3D>(0).Position);
+    }
+
     private async Task CheckColdGeometryAdmission(bool measureCold, int milliseconds = 3)
     {
+        using var costs = new GeometryCostScope();
         await new UiTestInput(TestScene).Frames(1);
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);

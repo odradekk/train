@@ -9,6 +9,24 @@ namespace Train.Engine.Tests;
 
 public partial class SceneDisplayTests
 {
+    private sealed class GeometryCostScope : IDisposable
+    {
+        private readonly TimeSpan?[] _previous = [.. SceneResources.GeometryPreparationCosts];
+        private readonly TimeSpan? _previousHit = SceneResources.CachedGeometryPreparationCost;
+
+        internal GeometryCostScope(TimeSpan? measured = null)
+        {
+            Array.Fill(SceneResources.GeometryPreparationCosts, measured);
+            SceneResources.CachedGeometryPreparationCost = measured;
+        }
+
+        public void Dispose()
+        {
+            _previous.CopyTo(SceneResources.GeometryPreparationCosts, 0);
+            SceneResources.CachedGeometryPreparationCost = _previousHit;
+        }
+    }
+
     private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content, bool completeInitialFrame = false)
     {
         var display = new SceneDisplay(cache, content, completeInitialFrame) { Timestamp = () => 0 };

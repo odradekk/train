@@ -7,8 +7,8 @@ namespace Train.Rendering;
 
 internal sealed partial class SceneResources
 {
-    private readonly TimeSpan?[] _geometryCosts = new TimeSpan?[4];
-    private TimeSpan? _cachedGeometryCost;
+    internal static readonly TimeSpan?[] GeometryPreparationCosts = new TimeSpan?[4];
+    internal static TimeSpan? CachedGeometryPreparationCost;
 
     internal PreparedVisual? TryPrepare(SceneVisual.Geometry source, SceneMeshPacking? packing,
         SceneDisplay.PreparationSlice slice, ref GeometryPreparation? pending)
@@ -35,7 +35,7 @@ internal sealed partial class SceneResources
 
         internal PreparedVisual? Advance(SceneMeshPacking? packing, SceneDisplay.PreparationSlice slice)
         {
-            while (_stage < owner._geometryCosts.Length)
+            while (_stage < GeometryPreparationCosts.Length)
             {
                 var cached = _stage == 1 && owner.HasGeometry(source.Mesh);
                 if (_stage <= 1 && !owner.HasGeometry(source.Mesh) && _data is null)
@@ -46,7 +46,7 @@ internal sealed partial class SceneResources
                     }
                     else _data = PackedSceneMesh.Create(source.Mesh, CancellationToken.None);
                 }
-                var estimate = cached ? owner._cachedGeometryCost : owner._geometryCosts[_stage];
+                var estimate = cached ? CachedGeometryPreparationCost : GeometryPreparationCosts[_stage];
                 if (!slice.Start(estimate ?? default,
                     requireFresh: !cached && estimate is null)) return null;
                 var started = slice.Timestamp();
@@ -63,8 +63,8 @@ internal sealed partial class SceneResources
                         break;
                 }
                 var elapsed = Stopwatch.GetElapsedTime(started, slice.Timestamp());
-                if (cached) owner._cachedGeometryCost = elapsed;
-                else owner._geometryCosts[_stage] = elapsed;
+                if (cached) CachedGeometryPreparationCost = elapsed;
+                else GeometryPreparationCosts[_stage] = elapsed;
                 _stage++;
             }
             var result = _visual;
