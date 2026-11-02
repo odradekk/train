@@ -20,6 +20,7 @@ internal sealed class EconomyReportsPanel
     private VBoxContainer _reportsBody = null!;
     private Label _reportsState = null!;
     private Label _reportsText = null!;
+    internal event Action<Control>? Opened;
 
     internal void Open()
     {
@@ -31,6 +32,7 @@ internal sealed class EconomyReportsPanel
         _reportsState = Text(_reportsBody, "State", "");
         _reportsText = Text(List(_reportsBody, "Reports", 570), "ReportsText", "");
         Refresh(status.Binding, status.View, content);
+        Opened?.Invoke(_reportsPanel);
     }
 
     internal void Close() { RemoveWindow(_reportsPanel); _reportsPanel = null; }

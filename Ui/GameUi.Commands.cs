@@ -10,28 +10,42 @@ public partial class GameUi
         => Submit(target, command, null);
 
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
+        => Submit(target, command, candidate, ShowError);
+
+    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command,
+        IContentCandidate? candidate, Action<string> reportError)
+        => (SubmitResult(target, command, candidate, reportError) as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
+
+    private SubmissionResult SubmitInline(PanelTarget? target, CoreCommand command)
+        => SubmitResult(target, command, null, null);
+
+    private SubmissionResult SubmitResult(PanelTarget? target, CoreCommand command,
+        IContentCandidate? candidate, Action<string>? reportError)
     {
         var status = _host?.GetStatus();
         if (status is null || _host!.Content is not { } content || target is null ||
             !target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)) || _host.IsBusy)
         {
-            ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
-            return null;
+            const string message = "当前操作不可提交：对象已失效或宿主正在操作。";
+            _logger.Warning("ui", "ui_operation_invalid", message);
+            reportError?.Invoke(message);
+            return new SubmissionResult.NotAccepted(new("object_missing", "Target", null, []));
         }
         SubmissionResult result;
         try { result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate); }
         catch (NotImplementedException)
         {
             _logger.Warning("ui", "command_not_implemented", command.GetType().Name);
-            ShowError("该操作尚未实现。");
-            return null;
+            reportError?.Invoke("该操作尚未实现。");
+            return new SubmissionResult.NotAccepted(new("command_not_implemented", "Command", null, []));
         }
-        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) ShowError(problem);
-        return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
+        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) reportError?.Invoke(problem);
+        return result;
     }
 
     private void SetSpeed(SimulationSpeed? speed)
     {
+        _notificationPause = null;
         if (_host is null) return;
         if (speed is null) { Report(_host.SetPaused(true)); return; }
         var problem = _host.SetSpeed(speed.Value);

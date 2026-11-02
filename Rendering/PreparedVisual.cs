@@ -8,15 +8,17 @@ internal sealed class PreparedVisual : IDisposable
 {
     private readonly AssetResourceCache _cache;
     private readonly List<IDisposable> _owned = [];
-    private readonly List<ShaderMaterial> _materials = [];
+    private readonly List<SceneMaterialLease> _materials = [];
+    private readonly Action _released;
     private bool _disposed;
     private bool _nodeReleased;
     private bool _constructionFogExempt;
 
-    internal PreparedVisual(AssetResourceCache cache, SceneVisual visual)
+    internal PreparedVisual(AssetResourceCache cache, SceneVisual visual, Action released)
     {
         _cache = cache;
         Visual = visual;
+        _released = released;
     }
 
     internal Node3D Node { get; } = new();
@@ -24,17 +26,11 @@ internal sealed class PreparedVisual : IDisposable
     internal void ExemptConstructionFog(bool exempt, Shader normal, Shader followed, Shader normalModel, Shader followedModel)
     {
         if (_constructionFogExempt == exempt) return;
-        if (exempt && Visual is SceneVisual.Model model && _materials.Count == 0)
-        {
-            // 普通模型共享材质；跟随豁免只切换本实例的副本，保留原租约到释放。
-            var instance = Node.GetChild<MeshInstance3D>(0);
-            for (var index = 0; index < model.Materials.Length; index++)
-                instance.SetSurfaceOverrideMaterial(index,
-                    Material((ShaderMaterial)instance.GetSurfaceOverrideMaterial(index).Duplicate()));
-        }
+        if (exempt) MakeMaterialsIndependent();
         _constructionFogExempt = exempt;
-        foreach (var material in _materials)
+        foreach (var lease in _materials)
         {
+            var material = lease.Value;
             if (material.Shader == normal || material.Shader == followed)
                 material.Shader = exempt ? followed : normal;
             else if (material.Shader == normalModel || material.Shader == followedModel)
@@ -48,7 +44,28 @@ internal sealed class PreparedVisual : IDisposable
         }
     }
     internal T Own<T>(T value) where T : IDisposable { _owned.Add(value); return value; }
-    internal ShaderMaterial Material(ShaderMaterial value) { _materials.Add(value); return Own(value); }
+    internal ShaderMaterial Material(SceneMaterialLease value) { _materials.Add(value); return Own(value).Value; }
+
+    private void MakeMaterialsIndependent()
+    {
+        foreach (var lease in _materials)
+        {
+            var before = lease.Value;
+            var after = lease.MakeIndependent();
+            if (before != after) Replace(Node, before, after);
+        }
+
+        static void Replace(Node node, ShaderMaterial before, ShaderMaterial after)
+        {
+            if (node is MeshInstance3D mesh)
+            {
+                if (mesh.MaterialOverride == before) mesh.MaterialOverride = after;
+                for (var index = 0; index < mesh.GetSurfaceOverrideMaterialCount(); index++)
+                    if (mesh.GetSurfaceOverrideMaterial(index) == before) mesh.SetSurfaceOverrideMaterial(index, after);
+            }
+            foreach (var child in node.GetChildren()) Replace(child, before, after);
+        }
+    }
 
     internal bool CanUpdate(SceneVisual visual) => (Visual, visual) switch
     {
@@ -77,8 +94,10 @@ internal sealed class PreparedVisual : IDisposable
         switch (visual)
         {
             case SceneVisual.Geometry geometry:
-                foreach (var material in _materials)
+                MakeMaterialsIndependent();
+                foreach (var lease in _materials)
                 {
+                    var material = lease.Value;
                     SceneResources.SetSurface(material, geometry.Surface);
                     if (geometry.Mesh.Material is SceneMaterial.Voxel voxel) SceneResources.SetPaint(material, voxel.Paint);
                 }
@@ -112,6 +131,7 @@ internal sealed class PreparedVisual : IDisposable
             if (singleStep && _owned.Count > 0) return false;
         }
         _disposed = true;
+        _released();
         return true;
     }
 
@@ -123,5 +143,6 @@ internal sealed class PreparedVisual : IDisposable
         if (!_nodeReleased) Node.Free();
         for (var index = _owned.Count - 1; index >= 0; index--) _owned[index].Dispose();
         _owned.Clear();
+        _released();
     }
 }

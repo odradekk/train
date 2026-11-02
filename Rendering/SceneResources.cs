@@ -13,15 +13,6 @@ internal sealed partial class SceneResources : IDisposable
         internal int Users { get; set; }
     }
 
-    private readonly record struct ModelMaterialKey(AssetRevision Asset, int Surface,
-        MaterialCategory Category, PaintColor? Paint, SurfaceState State);
-
-    private sealed class ModelMaterialResource(ShaderMaterial material)
-    {
-        internal ShaderMaterial Material { get; } = material;
-        internal int Users { get; set; }
-    }
-
     private readonly AssetResourceCache _cache;
     private readonly IContentView _content;
     private readonly Shader _surfaceShader;
@@ -32,7 +23,7 @@ internal sealed partial class SceneResources : IDisposable
     private readonly Shader _followedModelShader;
     private readonly Texture2D _damageMask;
     private readonly Dictionary<SceneMesh, GeometryResource> _geometry = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<ModelMaterialKey, ModelMaterialResource> _modelMaterials = [];
+    private int _visualsInUse;
     private bool _disposed;
 
     internal SceneResources(AssetResourceCache cache, IContentView content)
@@ -77,6 +68,15 @@ internal sealed partial class SceneResources : IDisposable
         return HasGeometry(mesh) ? AcquireGeometry(mesh, null) : null;
     }
 
+    internal PreparedVisual? TryPrepare(SceneVisual visual, SceneMeshPacking? packing)
+    {
+        _cache.RequireMainThread();
+        PackedSceneMesh? data = null;
+        if (visual is SceneVisual.Geometry geometry && !HasGeometry(geometry.Mesh) && packing is not null &&
+            !packing.TryTake(geometry.Mesh, out data)) return null;
+        return Prepare(visual, data);
+    }
+
     internal PreparedVisual Prepare(SceneVisual visual, PackedSceneMesh? data = null)
     {
         _cache.RequireMainThread();
@@ -86,7 +86,7 @@ internal sealed partial class SceneResources : IDisposable
             using var preparation = new GeometryPreparation(this, geometry, data);
             return preparation.Advance(null, null)!;
         }
-        var result = new PreparedVisual(_cache, visual);
+        var result = CreateVisual(visual);
         try
         {
             switch (visual)
@@ -99,15 +99,15 @@ internal sealed partial class SceneResources : IDisposable
                     result.Node.AddChild(instance);
                     for (var index = 0; index < asset.Surfaces.Length; index++)
                     {
-                        var surface = result.Own(AcquireModelMaterial(model, index, asset.Surfaces[index])).Value;
+                        var surface = result.Material(AcquireModelMaterial(model, index, asset.Surfaces[index]));
                         instance.SetSurfaceOverrideMaterial(index, surface);
                     }
                     instance.SetInstanceShaderParameter(SceneResources.RelativeHeightPlane, new Vector4(model.RelativeHeightPlane.X,
                         model.RelativeHeightPlane.Y, model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
                     break;
                 case SceneVisual.Wheelset wheelset:
-                    var wheelMaterial = result.Material(SurfaceMaterial(MaterialCategory.BareMetal, new Color(0.26f, 0.28f, 0.30f)));
-                    var wheelMarkerMaterial = result.Material(SurfaceMaterial(MaterialCategory.BareMetal, new Color("#8e9398")));
+                    var wheelMaterial = result.Material(AcquireWheelMaterial(new Color(0.26f, 0.28f, 0.30f)));
+                    var wheelMarkerMaterial = result.Material(AcquireWheelMaterial(new Color("#8e9398")));
                     foreach (var side in new[] { -1, 1 })
                     {
                         var cylinder = result.Own(new CylinderMesh
@@ -160,34 +160,15 @@ internal sealed partial class SceneResources : IDisposable
         catch { result.Dispose(); throw; }
     }
 
+    private PreparedVisual CreateVisual(SceneVisual visual)
+    {
+        var result = new PreparedVisual(_cache, visual, () => _visualsInUse--);
+        _visualsInUse++;
+        return result;
+    }
+
     private ContentAsset Asset(AssetRevision revision) => _content.FindAsset(revision) is ContentLookup<ContentAsset>.Found found
         ? found.Value : throw new InvalidOperationException($"显示资产未就绪：{revision}。");
-
-    private AssetLease<ShaderMaterial> AcquireModelMaterial(SceneVisual.Model model, int index, ModelSurface source)
-    {
-        var key = new ModelMaterialKey(model.Asset, index, model.Materials[index], model.Paint, model.Surface);
-        if (!_modelMaterials.TryGetValue(key, out var entry))
-        {
-            var material = SurfaceMaterial(key.Category, source.BaseColorFactor, source.BaseColorTexture, key.Paint, _modelShader);
-            try
-            {
-                SetSurface(material, key.State);
-                material.SetShaderParameter(_alphaCutout, source.AlphaMode == AssetAlphaMode.Mask);
-                material.SetShaderParameter(_alphaCutoff, source.AlphaCutoff);
-            }
-            catch { material.Dispose(); throw; }
-            entry = new(material);
-            _modelMaterials.Add(key, entry);
-        }
-        entry.Users++;
-        return new(entry.Material, () =>
-        {
-            _cache.RequireMainThread();
-            if (--entry.Users != 0) return;
-            _modelMaterials.Remove(key);
-            entry.Material.Dispose();
-        });
-    }
 
     private AssetLease<ArrayMesh> AcquireGeometry(SceneMesh source, PackedSceneMesh? data)
     {
@@ -204,32 +185,6 @@ internal sealed partial class SceneResources : IDisposable
             _geometry.Remove(source);
             entry.Mesh.Dispose();
         });
-    }
-
-    private ShaderMaterial GeometryMaterial(PreparedVisual owner, SceneMaterial material)
-    {
-        if (material is SceneMaterial.Voxel voxel)
-        {
-            var texture = owner.Own(_cache.AcquireFaceTexture(Asset(voxel.Texture)));
-            var surface = owner.Material(SurfaceMaterial(voxel.Category, Colors.White, texture.Value, voxel.Paint));
-            surface.SetShaderParameter(_voxelPaintMask, true);
-            return surface;
-        }
-        if (material is not SceneMaterial.BuiltIn builtIn) throw new ArgumentOutOfRangeException(nameof(material));
-        var preparedMaterial = owner.Material(builtIn.Kind switch
-        {
-            BuiltInMaterial.RailSteel => SurfaceMaterial(MaterialCategory.BareMetal, Color.FromHtml("#5e4434")),
-            BuiltInMaterial.Sleeper => SurfaceMaterial(MaterialCategory.Concrete, Color.FromHtml("#9d9a93")),
-            BuiltInMaterial.Construction => SurfaceMaterial(MaterialCategory.Concrete, new Color(0.72f, 0.48f, 0.13f)),
-            BuiltInMaterial.Water => new ShaderMaterial { Shader = _waterShader },
-            _ => throw new ArgumentOutOfRangeException(nameof(material))
-        });
-        if (builtIn.Kind == BuiltInMaterial.RailSteel)
-        {
-            preparedMaterial.SetShaderParameter(_railSteel, true);
-            preparedMaterial.SetShaderParameter(_railHeadColor, Color.FromHtml("#b9bcbf"));
-        }
-        return preparedMaterial;
     }
 
     private ShaderMaterial SurfaceMaterial(MaterialCategory category, Color color, Texture2D? texture = null, PaintColor? paint = null,
@@ -273,7 +228,8 @@ internal sealed partial class SceneResources : IDisposable
     {
         _cache.RequireMainThread();
         if (_disposed) return;
-        if (_geometry.Count != 0 || _modelMaterials.Count != 0)
+        // 私有材质已移出缓存，但仍需共享着色器；准备中的网格租约也可能独立存活。
+        if (_visualsInUse != 0 || _geometry.Count != 0)
             throw new InvalidOperationException("场景显示资源仍在使用。");
         _disposed = true;
         _surfaceShader.Dispose();

@@ -55,12 +55,12 @@ internal sealed partial class SceneResources
                     var started = slice?.Timestamp() ?? 0;
                     switch (_stage)
                     {
-                        case 0: _visual = new(owner._cache, source); break;
+                        case 0: _visual = owner.CreateVisual(source); break;
                         case 1:
                             _mesh = _visual!.Own(owner.AcquireGeometry(source.Mesh, _data));
                             _data = null;
                             break;
-                        case 2: _material = owner.GeometryMaterial(_visual!, source.Mesh.Material); break;
+                        case 2: _material = owner.GeometryMaterial(_visual!, source); break;
                         case 3: SetSurface(_material!, source.Surface); break;
                         case 4:
                             _visual!.Node.AddChild(new MeshInstance3D { Mesh = _mesh!.Value, MaterialOverride = _material });

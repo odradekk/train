@@ -17,7 +17,6 @@ namespace Train.Ui;
 public partial class GameUi
 {
     private Label _error = null!;
-    private long? _missingErrorOperation;
     private PanelContainer _errorPanel = null!;
     private NotificationPolicy _policy = null!;
     private NotificationPanel? _notices;
@@ -36,35 +35,14 @@ public partial class GameUi
     private void OpenNotice(NotificationNotice notice)
     {
         if (_host?.GetStatus() is not { } status) { ReportUiError("已不存在"); return; }
-        var view = status.View;
-        switch (notice.Subject)
+        if (notice.Subject is { } subject)
         {
-            case WorldObjectId.Settlement settlement:
-                var occupied = view.World.Nodes.FirstOrDefault(item =>
-                    item.Occupant is NodeOccupant.Settlement node && node.Id == settlement.Id);
-                if (occupied is null) { ReportUiError("已不存在"); return; }
-                OpenLocation(new WorldLocation.Node(occupied.Id));
-                return;
-            case WorldObjectId.Instance instance:
-                if (view.FindInstance(instance.Id) is not Lookup<InstanceView>.Found found ||
-                    !LocationExists(view, found.Value.Location))
-                { ReportUiError("已不存在"); return; }
-                OpenLocation(found.Value.Location);
-                return;
-            case WorldObjectId.Train train:
-                if (!view.World.Trains.Any(item => item.Id == train.Id)) { ReportUiError("已不存在"); return; }
-                OpenScene(new WorldObjectId.Train(train.Id));
-                return;
-            case WorldObjectId.Combat combat:
-                var listed = view.World.Combats.FirstOrDefault(item => item.Id == combat.Id);
-                if (listed is null) { ReportUiError("已不存在"); return; }
-                OpenLocation(listed.Location);
-                return;
-            case { } subject when !SubjectExists(view, subject):
-                ReportUiError("已不存在");
-                return;
+            if (!SubjectExists(status.View, subject)) { ReportUiError("已不存在"); return; }
+            SelectObject(subject);
+            return;
         }
-        if (notice.Location is { } location) OpenLocation(location);
+        if (notice.Location is WorldLocation.Node node) SelectObject(new WorldObjectId.Node(node.Id));
+        else if (notice.Location is WorldLocation.Edge edge) SelectObject(new WorldObjectId.Edge(edge.Id));
         else ReportUiError("已不存在");
     }
 
@@ -92,8 +70,11 @@ public partial class GameUi
         }
         if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
-            var message = string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
-                .Concat(result.Diagnostics.Select(problem => problem.Message)));
+            var message = result.Kind == OperationKind.NewGame || result.Kind == OperationKind.Reload && _host?.Content is null
+                ? !result.Diagnostics.IsEmpty ? "部分内容无法加载，请检查已安装的内容包。" :
+                    string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, _host?.Content)))
+                : string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
+                    .Concat(result.Diagnostics.Select(problem => problem.Message)));
             var operation = result.Kind switch
             { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => _host?.Content is null ? "启动内容加载" : "内容重载", _ => "宿主操作" };
             if (result.Status == HostOperationStatus.Faulted)
@@ -101,12 +82,12 @@ public partial class GameUi
             else if (message.Length == 0) message = result.Status == HostOperationStatus.NotAccepted
                 ? $"{operation}当前无法执行，请稍后重试。" : $"{operation}准备失败，请检查内容或输入。";
             ShowError(message);
-            if (_newOperation == result.Operation) _newGameError!.Text = message;
+            if (_newOperation == result.Operation) NewGameProblem(message);
         }
         if (_newOperation != result.Operation) return;
         _newOperation = 0;
-        _confirmMissing!.Hide();
-        _createNewGame!.Disabled = false;
+        SetNewGameBusy(false);
+        _createNewGame!.Text = "开始游戏";
         if (result.Succeeded || result.Status == HostOperationStatus.Cancelled)
             _newGame!.Hide();
     }
@@ -119,7 +100,6 @@ public partial class GameUi
 
     private void ShowMessage(string title, string message, Color color)
     {
-        _missingErrorOperation = null;
         ((Label)_errorPanel.FindChild("Title", true, false)).Text = title;
         _error.Text = message;
         _error.AddThemeColorOverride("font_color", color);

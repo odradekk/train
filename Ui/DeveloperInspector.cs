@@ -46,6 +46,7 @@ public partial class DeveloperInspector : Window
     }
 
     internal void Open() { PopupCentered(); Refresh(); }
+    public override void _UnhandledInput(InputEvent input) => UiStyle.CloseOnEscape(this, input);
 
     internal void Execute(IReadOnlyList<string> args)
     {
