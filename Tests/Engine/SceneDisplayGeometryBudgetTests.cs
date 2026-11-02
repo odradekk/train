@@ -318,7 +318,8 @@ public partial class SceneDisplayTests
                 ? "已测冷成本不能被0ms命中覆盖，剩余2ms时必须在生成新网格前停下。"
                 : "没有冷成本样本时，本帧已做过工作就必须在生成新网格前停下。");
             PreparedVisual? resumed = null;
-            for (var frame = 0; frame < 4 && resumed is null; frame++)
+            var allowedFrames = measureCold ? 1 : 4;
+            for (var frame = 0; frame < allowedFrames && resumed is null; frame++)
             {
                 await new UiTestInput(TestScene).Frames(1);
                 display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
@@ -327,7 +328,8 @@ public partial class SceneDisplayTests
             }
             using (resumed)
                 Require(resumed is not null && GeometryIsCached(resources, other),
-                    "后续帧首项必须恢复推进，未知阶段和超过整帧预算的估算都不能饿死。");
+                    measureCold ? $"已测冷成本为{milliseconds}ms时，必须恰好在下一帧首项完成续做。"
+                    : "后续帧首项必须恢复推进，未知阶段不能饿死。");
         }
         finally { pending?.Dispose(); }
     }
