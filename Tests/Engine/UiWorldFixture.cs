@@ -165,6 +165,11 @@ internal static class UiWorldFixture
                     new WorldLocation.Node(second.Id), [], [], [], [], new NodeOccupant.Empty()))
             },
             Instances = instances,
+            Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
+            {
+                [train.Inventory] = new Lookup<InventoryView>.Found(new(train.Inventory, new InventoryOwner.Train(train.Id),
+                    location, InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], []))
+            },
             Trains = formed
                 ? new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) }
                 : new Dictionary<TrainId, Lookup<TrainView>>()

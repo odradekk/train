@@ -10,22 +10,22 @@ internal enum WorldListKind { Nodes, Edges, Fleet, Combats }
 public partial class WorldPanels : Control
 {
     private HostCoordinator _host = null!;
-    private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
     private Action<string> _reportError = null!;
     private HostBinding _binding;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
     private readonly Dictionary<WorldListKind, WorldListDrawer> _lists = [];
     private DetailPanelControls? _detail;
+    private TrainInspector? _trainInspector;
+    private Func<PanelTarget?, CoreCommand, SubmissionResult> _submitInline = null!;
     private ConfirmationDialog _disband = null!;
     private PanelTarget? _disbandTarget;
-    private TrainId _disbandTrain;
 
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
+    internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? TrainFormationRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<PanelTarget, NodeId>? FoundingRequested;
     internal event Action<PanelTarget, EdgeId>? RailwayWorkRequested;
-    internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
     internal event Action<TrainId>? TrainCombatRequested;
@@ -34,15 +34,16 @@ public partial class WorldPanels : Control
     internal event Action<WorldObjectId, Control>? InspectorOpened;
 
     internal void Initialize(HostCoordinator host,
-        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
-    { _host = host; _submit = submit; _reportError = reportError; }
+        Action<string> reportError,
+        Func<PanelTarget?, CoreCommand, SubmissionResult> submitInline)
+    { _host = host; _reportError = reportError; _submitInline = submitInline; }
 
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
         _disband = new ConfirmationDialog { Name = "DisbandConfirmation", OkButtonText = "解编", CancelButtonText = "取消" };
-        _disband.Confirmed += () => _submit(_disbandTarget, new CoreCommand.DisbandTrain(_disbandTrain));
+        _disband.Confirmed += () => { if (_trainInspector?.Target == _disbandTarget) _trainInspector?.Disband(); };
         AddChild(_disband);
     }
 
@@ -55,6 +56,7 @@ public partial class WorldPanels : Control
         }
         _binding = binding; _view = view; _content = content;
         foreach (var entry in _lists.Values) entry.Refresh(view, content);
+        _trainInspector?.Refresh(binding, view, content);
         if (_detail is { } detail)
         {
             var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
@@ -63,8 +65,10 @@ public partial class WorldPanels : Control
         if (_disbandTarget is { } target)
         {
             var valid = target.IsAvailable(binding, view, _host.PanelGenerationCurrent(target.Binding, target.Generation));
-            _disband.GetOkButton().Disabled = !valid || _host.IsBusy;
-            _disband.DialogText = valid ? "解编后车辆停放在所在聚居地。" : "已不存在：对象或所属对局已失效。";
+            var train = valid ? (view.FindTrain(((WorldObjectId.Train)target.Object).Id) as Lookup<TrainView>.Found)?.Value : null;
+            var reason = train is null ? "已不存在：对象或所属对局已失效。" : TrainInspector.DisbandReason(train, view);
+            _disband.GetOkButton().Disabled = reason is not null || _host.IsBusy;
+            _disband.DialogText = reason ?? $"解编后 {train!.Vehicles.Length} 辆车停放在{NodeName(((TrainPosition.Node)train.Position).Id, view, content)}。\n车上无货物，运行计划会删除。";
         }
     }
 
@@ -99,15 +103,29 @@ public partial class WorldPanels : Control
     }
 
     internal bool IsObjectOpen(WorldObjectId target) =>
-        _detail is { } detail && detail.Target.Object == target && detail.Panel.IsVisibleInTree();
+        _detail is { } detail && detail.Target.Object == target && detail.Panel.IsVisibleInTree() ||
+        _trainInspector is { } train && train.Target.Object == target && train.Panel.IsVisibleInTree();
 
     internal void OpenObject(WorldObjectId target)
     {
         var bound = new PanelTarget(_binding, _content.Generation, target);
+        if (_trainInspector is { } opened && opened.Target == bound)
+        { opened.Panel.Show(); InspectorOpened?.Invoke(target, opened.Panel); return; }
         if (_detail is { } existing && existing.Target == bound)
         { existing.Panel.Show(); InspectorOpened?.Invoke(target, existing.Panel); return; }
         CloseDetail();
         _detail = null;
+        if (target is WorldObjectId.Train trainTarget)
+        {
+            _trainInspector = new(this, _host, bound, _submitInline,
+                train => { if (Available(bound)) PlanRequested?.Invoke(bound, train, _view, _content); },
+                train => { if (Available(bound)) TrainFormationRequested?.Invoke(bound, train, _view, _content); },
+                () => TrainCombatRequested?.Invoke(trainTarget.Id), () => ConfirmDisband(bound),
+                id => RefitRequested?.Invoke(id), id => VehicleServiceRequested?.Invoke(id));
+            Refresh(_binding, _view, _content);
+            InspectorOpened?.Invoke(target, _trainInspector.Panel);
+            return;
+        }
         PanelContainer panel = null!;
         panel = UiStyle.Panel(this, "Details", NameOf(target, _view, _content), new(408, 68), 420,
             () => panel.Hide(), out var body);
@@ -121,13 +139,6 @@ public partial class WorldPanels : Control
                 refit, service, NameOf).Controls,
             WorldObjectId.Edge { Id: var edgeId } => new EdgeDetailPanel(panel, body, bound, edgeId, () => Available(bound),
                 (source, id) => RailwayWorkRequested?.Invoke(source, id)).Controls,
-            WorldObjectId.Train { Id: var trainId } => new TrainDetailPanel(panel, body, bound, trainId, () => Available(bound),
-                (source, id) => InventoryRequested?.Invoke(source, id), id => TrainCombatRequested?.Invoke(id),
-                (source, id) =>
-                {
-                    if (_view.FindTrain(id) is Lookup<TrainView>.Found found)
-                        PlanRequested?.Invoke(source, found.Value, _view, _content);
-                }, _submit, ConfirmDisband, refit, service).Controls,
             WorldObjectId.Instance { Id: var instanceId } => new InstanceDetailPanel(panel, body, bound, instanceId, () => Available(bound),
                 refit, service).Controls,
             _ => new DetailPanelControls(panel, body, bound, (_, _) => "已不存在", _ => [])
@@ -140,9 +151,12 @@ public partial class WorldPanels : Control
 
     private void CloseDetail()
     {
-        if (_detail is not { } detail) return;
-        detail.Panel.GetParent()?.RemoveChild(detail.Panel);
-        detail.Panel.QueueFree();
+        var panel = _trainInspector?.Panel ?? _detail?.Panel;
+        if (panel is null) return;
+        panel.GetParent()?.RemoveChild(panel);
+        panel.QueueFree();
+        _trainInspector = null; _detail = null;
+        _disband.Hide(); _disbandTarget = null;
     }
 
     private bool Available(PanelTarget target)
@@ -155,11 +169,11 @@ public partial class WorldPanels : Control
         return false;
     }
 
-    private void ConfirmDisband(PanelTarget target, TrainId train)
+    private void ConfirmDisband(PanelTarget target)
     {
         if (!Available(target)) return;
-        _disbandTarget = target; _disbandTrain = train;
-        _disband.Title = $"解编列车 {train.Value}？";
+        _disbandTarget = target;
+        _disband.Title = $"解编列车 {((WorldObjectId.Train)target.Object).Id.Value}？";
         Refresh(_binding, _view, _content);
         _disband.PopupCentered(new(480, 180));
     }
