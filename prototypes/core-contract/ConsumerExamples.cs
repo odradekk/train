@@ -14,6 +14,15 @@ public static class ConsumerExamples
                     new AutomaticGoodsRule(new AutomaticGoodsAction.Load(), good,
                         localInventory, targetQuantity)))))), CommandSource.UserInterface);
 
+    public static CoreResult<TrainFormationPreview> PreviewFormation(ICoreSession session,
+        ImmutableArray<VehicleId> orderedVehicles, TrainId? train)
+        => session.Read().PreviewTrainFormation(orderedVehicles, train);
+
+    public static SubmissionResult ReplaceFormation(ICoreSession session, TrainId train,
+        ImmutableArray<VehicleId> orderedVehicles)
+        => session.Submit(new CoreCommand.ReplaceTrainFormation(train, orderedVehicles),
+            CommandSource.UserInterface);
+
     public static ImmutableArray<GoodsQuantity> ReadBatchOutputs(ProcessProjection process)
         => process.Details switch
         {

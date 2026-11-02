@@ -31,8 +31,10 @@ internal static class TrainCommands
                     throw new ArgumentException("线路编号必须非零，材料来源必须为空或非零。", nameof(command));
                 return;
             case CoreCommand.FormTrain form:
-                if (form.OrderedVehicles.IsDefault || form.OrderedVehicles.Any(v => v.Value == 0))
-                    throw new ArgumentException("车辆数组必须初始化且编号非零。", nameof(command));
+                TrainFormation.Validate(form.OrderedVehicles, null);
+                return;
+            case CoreCommand.ReplaceTrainFormation formation:
+                TrainFormation.Validate(formation.OrderedVehicles, formation.Train);
                 return;
             case CoreCommand.ReplaceRunPlan replace:
                 ArgumentNullException.ThrowIfNull(replace.Plan);
@@ -67,6 +69,7 @@ internal static class TrainCommands
         if (command is CoreCommand.RepairRail repair) return RailwayWorks.Repair(world, content, repair);
         if (command is CoreCommand.SetAutomaticRailRepair automatic) return RailwayWorks.SetAutomatic(world, content, automatic);
         if (command is CoreCommand.FormTrain form) return Form(world, content, form);
+        if (command is CoreCommand.ReplaceTrainFormation formation) return TrainFormation.Replace(world, content, formation);
         var id = command switch
         {
             CoreCommand.DisbandTrain c => c.Train,
@@ -142,31 +145,14 @@ internal static class TrainCommands
 
     private static CommandEffect Form(WorldState world, CoreContentProjection content, CoreCommand.FormTrain command)
     {
-        if (command.OrderedVehicles.IsEmpty) return Reject("composition_empty", "OrderedVehicles");
-        if (command.OrderedVehicles.Distinct().Count() != command.OrderedVehicles.Length)
-            return Reject("vehicle_duplicate", "OrderedVehicles");
         SettlementState? settlement = null;
-        foreach (var id in command.OrderedVehicles)
-        {
-            var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(id));
-            var instance = world.Instances.FirstOrDefault(i => i.Id == new InstanceId.Vehicle(id));
-            if (instance is null) return Reject("object_missing", "OrderedVehicles", subject);
-            if (CombatQueries.IsInCombat(world, instance.Id)) return Reject("invalid_state", "OrderedVehicles", subject);
-            if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("not_owned", "OrderedVehicles", subject);
-            if (ConstructionJobs.Lock(world, instance.Id) == InstanceLock.UnderDeconstruction)
-                return Reject("instance_locked", "OrderedVehicles", subject);
-            if (instance.Details is not InstanceDetails.Vehicle { Train: null }) return Reject("vehicle_in_train", "OrderedVehicles", subject);
-            var parked = world.Settlements.Single(s => s.ParkedVehicles.Contains(id));
-            if (settlement is not null && settlement.Id != parked.Id) return Reject("vehicles_not_colocated", "OrderedVehicles", subject);
-            settlement = parked;
-        }
-        if (settlement!.Relation == SettlementRelation.Hostile)
-            return Reject("access_denied", "OrderedVehicles", new WorldObjectId.Settlement(settlement.Id));
-        if (world.Next.Train == ulong.MaxValue || world.Next.Inventory == ulong.MaxValue)
-            return Reject("identity_exhausted", "World.Next");
+        if (TrainFormation.CheckVehicles(world, command.OrderedVehicles, null, ref settlement) is { } problem)
+            return new CommandEffect.Rejected([problem]);
+        if (TrainFormation.IdentityProblem(world) is { } exhausted) return new CommandEffect.Rejected([exhausted]);
+        var site = settlement!;
         var train = new TrainId(world.Next.Train);
         var inventory = new InventoryId(world.Next.Inventory);
-        var added = new TrainState(train, new TrainPosition.Node(settlement.Node, null, null, null, null, NodeTravelPhase.Waiting,
+        var added = new TrainState(train, new TrainPosition.Node(site.Node, null, null, null, null, NodeTravelPhase.Waiting,
             TrainOperations.Rule(world, content).ApproachLengthMeters, null), command.OrderedVehicles, inventory,
             TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null,
             CombatRules.DefaultTrainEngagement(command.OrderedVehicles.Any(vehicle => CombatRules.Armed(world, content,
@@ -176,7 +162,7 @@ internal static class TrainCommands
             Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [], [])),
             Instances = world.Instances.Select(i => i.Id is InstanceId.Vehicle v && command.OrderedVehicles.Contains(v.Id)
                 ? i with { Details = ((InstanceDetails.Vehicle)i.Details) with { Train = train } } : i).ToImmutableArray(),
-            Settlements = world.Settlements.Select(s => s.Id == settlement.Id ? s with
+            Settlements = world.Settlements.Select(s => s.Id == site.Id ? s with
                 { ParkedVehicles = s.ParkedVehicles.Except(command.OrderedVehicles).ToImmutableArray() } : s).ToImmutableArray(),
             Next = world.Next with { Train = world.Next.Train + 1, Inventory = world.Next.Inventory + 1 }
         }, [new WorldObjectId.Train(train), new WorldObjectId.Inventory(inventory)]);
