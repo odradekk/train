@@ -22,8 +22,8 @@ public sealed class RailwayGenerationTests
         var begin = segment.Index * RailwayCoordinates.SegmentLengthCells;
         var cell = segment.Geometry.Picking.Single().Grid.Cells.First(cell =>
         {
-            var arc = ((WorldLocation.Edge)((PickSubject.Terrain)cell.Subject!).Location).DistanceMeters * RailwayCoordinates.CellsPerMeter;
             var center = RailwayCoordinates.Add(segment.Origin, new Vector3(cell.At.X + .5f, 0, cell.At.Z + .5f));
+            var arc = path.Locate(center);
             var sample = path.Sample(arc);
             var lateral = (center.X - sample.Position.X) * sample.Right.X +
                 (center.Z - sample.Position.Z) * sample.Right.Z;
@@ -31,7 +31,8 @@ public sealed class RailwayGenerationTests
                 cell.At.Y + 1 + segment.Origin.Y == segment.Heights[new(cell.At.X, cell.At.Z)];
         });
         var point = new Vector3(cell.At.X + .5f, cell.At.Y + 1, cell.At.Z + .5f);
-        var expected = ((PickSubject.Terrain)cell.Subject!).Location;
+        var expected = new WorldLocation.Edge(RailwayFixtures.Edge,
+            path.Locate(RailwayCoordinates.Add(segment.Origin, point)) / RailwayCoordinates.CellsPerMeter);
         Assert.AreEqual((double)point.Y, ((Lookup<double>.Found)frame.TerrainHeight(point.X, point.Z)).Value);
         var located = (WorldLocation.Edge)((Lookup<WorldLocation>.Found)frame.Locate(point)).Value;
         Assert.AreEqual(((WorldLocation.Edge)expected).DistanceMeters, located.DistanceMeters, 1e-6);
