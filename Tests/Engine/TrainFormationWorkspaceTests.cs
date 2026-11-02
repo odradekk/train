@@ -21,6 +21,7 @@ public partial class TrainFormationWorkspaceTests(Node testScene) : TestClass(te
         await WithWorkspace(submitted, async (panel, binding, view, content) =>
         {
             panel.Open(new(binding, content.Generation, new WorldObjectId.Node(new(1))), new NodeId(1), view, content);
+            await UiCapture.Capture(TestScene, "formation-nothing-selected");
             var input = new UiTestInput(TestScene);
             await input.Activate(Find<CheckBox>(panel, "Vehicle1"));
             await input.Activate(Find<CheckBox>(panel, "Vehicle2"));

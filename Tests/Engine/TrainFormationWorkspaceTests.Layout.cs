@@ -50,7 +50,23 @@ public partial class TrainFormationWorkspaceTests
                         $"编组工作区或主按钮越过可用区域：{dimensions} × {factor}，{bounds}，{form}。");
                     Require(Find<VBoxContainer>(panel, "AvailableVehicles").GetChildCount() == 50,
                         "缩放丢失候选车辆。");
-                    if (dimensions.X == 1920) await UiCapture.Capture(TestScene, "formation-long-list");
+                    await UiCapture.Capture(TestScene, $"formation-layout-{dimensions.X}x{dimensions.Y}-{factor}", factor, dimensions);
+                    if (dimensions.X == 960)
+                    {
+                        var scroll = Find<ScrollContainer>(panel, "ColumnsScroll");
+                        var scrollbarRect = scroll.GetHScrollBar().GetGlobalRect();
+                        var input = new UiTestInput(TestScene);
+                        await input.Click(new(scrollbarRect.End.X - 2, scrollbarRect.GetCenter().Y));
+                        await input.Click(new(scrollbarRect.End.X - 2, scrollbarRect.GetCenter().Y));
+                        Require(scroll.ScrollHorizontal > 0, "窄窗口不能横向滚动到编组顺序区。");
+                        var order = Find<VBoxContainer>(panel, "OrderedVehicles").GetParent<ScrollContainer>();
+                        var verticalRect = order.GetVScrollBar().GetGlobalRect();
+                        await input.Click(new(verticalRect.GetCenter().X, verticalRect.End.Y - 2));
+                        await input.Click(new(verticalRect.GetCenter().X, verticalRect.End.Y - 2));
+                        Require(order.GetGlobalRect().Encloses(Find<Button>(order, "Remove").GetGlobalRect()),
+                            "窄窗口滚动后仍不能完整显示移出按钮。");
+                        await UiCapture.Capture(TestScene, "formation-layout-960x1080-2-right", factor, dimensions);
+                    }
                 }
             }, view, shell: true, contentOverride: content);
         }
@@ -82,6 +98,7 @@ public partial class TrainFormationWorkspaceTests
             Require(Find<CheckBox>(panel, "Vehicle1").Disabled && Find<CheckBox>(panel, "Vehicle1").ButtonPressed &&
                 Find<Button>(panel, "Form").Disabled && Find<Button>(panel, "FormOnly").Disabled &&
                 Find<Label>(panel, "Reason").Text.Contains("不可用"), "离开当前地点的车辆仍可提交，或失效草稿没有保留。");
+            await UiCapture.Capture(TestScene, "formation-stale-vehicle");
             await input.Activate(Find<Button>(Find<VBoxContainer>(panel, "OrderedVehicles").GetChild(0), "Remove"));
             Require(Find<VBoxContainer>(panel, "OrderedVehicles").GetChildCount() == 0,
                 "失效车辆不能从草稿移出。");

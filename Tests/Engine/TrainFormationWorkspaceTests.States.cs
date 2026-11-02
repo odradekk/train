@@ -68,6 +68,7 @@ public partial class TrainFormationWorkspaceTests
                 Find<VBoxContainer>(panel, "OrderedVehicles").GetChildCount() == 1 && reason.Contains("地点") &&
                 !reason.Contains("987654") && !reason.Contains("OrderedVehicles") && !reason.Contains("vehicles_not_colocated"),
                 "拒绝丢失草稿或泄漏内部诊断。");
+            await UiCapture.Capture(TestScene, "formation-rejected");
             await input.Activate(Find<Button>(panel, "FormOnly"));
             Require(submitted.Count == 2 && !panel.Visible, "拒绝后未能重试原草稿。");
         }, decide: _ => new SubmissionResult.Completed(new(1, default, default, attempts++ == 0
@@ -92,11 +93,13 @@ public partial class TrainFormationWorkspaceTests
                 panel.Refresh(binding, view, content);
                 Require(Find<Button>(panel, "Form").Disabled && Find<Label>(panel, "Reason").Text.Contains("处理"),
                     "忙碌时仍能提交编组。");
+                await UiCapture.Capture(TestScene, "formation-busy");
             }
             finally { host.UnlockLeaving(); }
             panel.Refresh(default, view, content);
             Require(Find<Button>(panel, "Form").Disabled && Find<Button>(panel, "FormOnly").Disabled &&
                 Find<Label>(panel, "Reason").Text.Contains("已不存在"), "失效对局仍能提交草稿。");
+            await UiCapture.Capture(TestScene, "formation-stale-session");
         });
     }
 
@@ -161,6 +164,7 @@ public partial class TrainFormationWorkspaceTests
             Open(panel, binding, current, content);
             Require(Find<VBoxContainer>(panel, "AvailableVehicles").GetChildCount() == 0 &&
                 Find<Button>(panel, "Form").Disabled && Find<Label>(panel, "Reason").Text.Contains("没有"), "空候选缺少禁用原因。");
+            await UiCapture.Capture(TestScene, "formation-empty");
             await new UiTestInput(TestScene).Activate(Find<Button>(panel, "Cancel"));
             Require(!panel.Visible && submitted.Count == 0, "取消提交了编组或没有关闭工作区。");
         }, view);
