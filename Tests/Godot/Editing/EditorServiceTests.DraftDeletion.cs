@@ -11,7 +11,7 @@ public sealed partial class EditorServiceTests
     [TestCategory("integration")]
     [DataRow(false)]
     [DataRow(true)]
-    public void Delete_user_draft_uses_its_actual_file_and_keeps_it_on_failure(bool locked)
+    public void Delete_user_draft_uses_its_actual_file_and_keeps_it_on_failure(bool fail)
     {
         using var fixture = new EditingFixture();
         var draft = new SavedContentDraft(new(Guid.NewGuid()), new(1), new DraftTarget.UserBlueprint(null),
@@ -27,13 +27,13 @@ public sealed partial class EditorServiceTests
         var selected = fixture.Editor.UserDrafts().Single(item => item.Id == draft.Id);
         var changes = 0;
         fixture.Editor.Changed += () => changes++;
-        using (locked ? new FileStream(actual, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
-            fixture.Editor.DeleteDraft(selected);
-        Assert.AreEqual(locked, File.Exists(actual));
+        if (fail) fixture.Editor.DeleteFile = path => throw new IOException(path);
+        fixture.Editor.DeleteDraft(selected);
+        Assert.AreEqual(fail, File.Exists(actual));
         Assert.AreEqual("other", File.ReadAllText(unrelated));
         Assert.IsTrue(changes > 0);
-        Assert.AreEqual(locked, fixture.Editor.HasError);
-        Assert.AreEqual(locked, fixture.Editor.UserDrafts().Any(item => item.Id == draft.Id));
+        Assert.AreEqual(fail, fixture.Editor.HasError);
+        Assert.AreEqual(fail, fixture.Editor.UserDrafts().Any(item => item.Id == draft.Id));
         Assert.IsFalse(fixture.Editor.Message?.Contains(fixture.Root, StringComparison.Ordinal) == true);
     }
 
