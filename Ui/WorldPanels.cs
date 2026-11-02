@@ -72,7 +72,7 @@ public partial class WorldPanels : Control
     {
         if (_view is null) return;
         if (_lists.TryGetValue(kind, out var existing))
-        { existing.Panel.Show(); ListOpened?.Invoke(existing.Panel); return; }
+        { existing.Panel.Show(); ListOpened?.Invoke(existing.Panel); existing.Refresh(_view, _content); return; }
         PanelContainer panel = null!;
         var title = kind switch { WorldListKind.Nodes => "聚居地", WorldListKind.Edges => "线路",
             WorldListKind.Combats => "战斗", _ => "车队" };
@@ -86,8 +86,8 @@ public partial class WorldPanels : Control
             SelectionRequested?.Invoke(id);
         }, () => Refresh(_binding, _view, _content));
         _lists.Add(kind, list);
-        Refresh(_binding, _view, _content);
         ListOpened?.Invoke(panel);
+        Refresh(_binding, _view, _content);
     }
 
     internal void Invalidate()

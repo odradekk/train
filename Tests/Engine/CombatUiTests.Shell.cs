@@ -29,7 +29,7 @@ public partial class CombatUiTests
     private async Task<CombatPanel> SelectBattlefield(GameUi ui)
     {
         await Press(Find<Button>(ui, "Combats"));
-        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "CombatsList"), "Objects"), 0);
+        await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "CombatsList"), "Objects"), 0);
         var combat = Find<CombatPanel>(ui, "CombatPanel");
         await _input.WaitUntil(() => combat.FindChildren("Vehicle11", "Button", true, false).Count == 1);
         await Press(Button(combat, "Vehicle11"));

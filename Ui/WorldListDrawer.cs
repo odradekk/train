@@ -4,16 +4,21 @@ using Train.Core.Contracts;
 
 namespace Train.Ui;
 
-/// <summary>
-/// 导航列表的筛选、分组和对象选择。
-/// Decision note: 2026-10-31-docked-game-shell
-/// </summary>
+// Decision note: 2026-10-31-docked-game-shell
 internal sealed class WorldListDrawer
 {
     private readonly WorldListKind _kind;
     private readonly LineEdit _search;
-    private readonly OptionButton? _filter;
-    private readonly ItemList _list;
+    private readonly List<Button> _filters = [];
+    private int _filter;
+    private ICoreReadView? _lastView;
+    private IContentView? _lastContent;
+    private string? _lastSearch;
+    private int _lastFilter;
+    private readonly Tree _list;
+    private readonly VScrollBar _scroll;
+    private readonly List<TreeItem> _items = [];
+    private bool _updating;
     private readonly Label _empty;
     private IReadOnlyList<Row> _rows = [];
     internal PanelContainer Panel { get; }
@@ -30,33 +35,36 @@ internal sealed class WorldListDrawer
         if (kind is WorldListKind.Fleet or WorldListKind.Edges)
         {
             var filters = new HBoxContainer();
-            filters.AddChild(UiStyle.Label("筛选"));
-            _filter = new OptionButton { Name = "Filter", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+            var group = new ButtonGroup();
             foreach (var label in kind == WorldListKind.Fleet
                 ? new[] { "全部", "需要处理", "运行中", "已停车" }
-                : new[] { "全部", "已建成", "有断点", "未建成" }) _filter.AddItem(label);
-            filters.AddChild(_filter);
+                : new[] { "全部", "已建成", "有断点", "未建成" })
+            {
+                var index = _filters.Count;
+                var button = new Button { Name = "Filter" + index, Text = label, ToggleMode = true,
+                    ButtonGroup = group, ButtonPressed = index == 0, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+                button.Pressed += () => { _filter = index; _scroll!.Value = 0; refresh(); };
+                _filters.Add(button);
+                filters.AddChild(button);
+            }
             body.AddChild(filters);
-            _filter.ItemSelected += _ => { _list!.GetVScrollBar().Value = 0; refresh(); };
         }
         _empty = UiStyle.Label("没有符合条件的对象。");
         _empty.Name = "Empty";
         _empty.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.AddChild(_empty);
-        // ItemList 只在 Top 模式和固定列宽下换行；完整文本同时保留在提示中。
-        _list = new ItemList { Name = "Objects", SizeFlagsVertical = Control.SizeFlags.ExpandFill,
-            AllowReselect = true, IconMode = ItemList.IconModeEnum.Top,
-            MaxTextLines = kind == WorldListKind.Fleet ? 6 : kind == WorldListKind.Edges ? 4 : 2,
-            TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
-            MouseForcePassScrollEvents = false };
+        _list = new Tree { Name = "Objects", SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+            HideRoot = true, HideFolding = true, AllowReselect = true,
+            ScrollHorizontalEnabled = false, MouseForcePassScrollEvents = false };
+        _list.SetColumnClipContent(0, true);
         body.AddChild(_list);
-        _list.Resized += () => _list.FixedColumnWidth = Math.Max(1,
-            (int)(_list.Size.X - _list.GetThemeStylebox("panel").GetMinimumSize().X - _list.GetVScrollBar().Size.X));
-        _list.ItemSelected += index =>
+        _scroll = _list.GetChildren(true).OfType<VScrollBar>().Single();
+        _list.ItemSelected += () =>
         {
-            if (index >= 0 && index < _rows.Count && _rows[(int)index].Object is { } id) selected(id);
+            if (!_updating && _list.GetSelected() is { } item &&
+                _rows[item.GetMetadata(0).AsInt32()].Object is { } id) selected(id);
         };
-        _search.TextChanged += _ => { _list.GetVScrollBar().Value = 0; refresh(); };
+        _search.TextChanged += _ => { _scroll.Value = 0; refresh(); };
         var hint = UiStyle.Label("点一行打开检查器，不改变当前视角。");
         hint.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.AddChild(hint);
@@ -64,35 +72,58 @@ internal sealed class WorldListDrawer
 
     internal void Refresh(ICoreReadView view, IContentView content)
     {
+        if (!Panel.IsVisibleInTree() || ReferenceEquals(view, _lastView) && ReferenceEquals(content, _lastContent) &&
+            _search.Text == _lastSearch && _filter == _lastFilter) return;
+        _lastView = view;
+        _lastContent = content;
+        _lastSearch = _search.Text;
+        _lastFilter = _filter;
         if (_kind == WorldListKind.Fleet)
         {
             var count = view.World.Trains.Count(item => view.FindTrain(item.Id) is Lookup<TrainView>.Found found && NeedsAttention(found.Value));
-            _filter!.SetItemText(1, $"需要处理 {count}");
+            _filters[1].Text = $"需要处理 {count}";
         }
-        var rows = Rows(_kind, view, content, _search.Text, _filter?.Selected ?? 0);
+        var rows = Rows(_kind, view, content, _search.Text, _filter);
         _empty.Visible = rows.Count == 0;
         if (_rows.SequenceEqual(rows)) return;
-        var scroll = _list.GetVScrollBar().Value;
-        var selection = _list.GetSelectedItems();
-        var selected = selection.Length == 0 ? null : _rows[selection[0]].Object;
+        var scroll = _scroll.Value;
+        var selected = _list.GetSelected() is { } current ? _rows[current.GetMetadata(0).AsInt32()].Object : null;
         var rebuild = !_rows.Select(row => row.Object).SequenceEqual(rows.Select(row => row.Object));
-        if (rebuild) _list.Clear();
+        _updating = true;
+        TreeItem? root = null;
+        TreeItem? group = null;
+        if (rebuild)
+        {
+            _list.Clear();
+            _items.Clear();
+            root = _list.CreateItem();
+        }
         for (var index = 0; index < rows.Count; index++)
         {
             var row = rows[index];
-            var text = row.Text.Replace("\n", " · ");
-            if (rebuild) _list.AddItem(text);
-            else if (_rows[index].Text != row.Text) _list.SetItemText(index, text);
-            _list.SetItemTooltip(index, row.Text);
-            _list.SetItemSelectable(index, row.Object is not null);
-            _list.SetItemCustomFgColor(index, row.Attention ? UiStyle.Warning :
-                row.Object is null ? UiStyle.Info : UiStyle.Foreground);
-            if (rebuild && selected is not null && row.Object == selected) _list.Select(index);
+            TreeItem item;
+            if (rebuild)
+            {
+                item = _list.CreateItem(row.Object is null ? root : group ?? root);
+                if (row.Object is null) group = item;
+                item.DisableFolding = true;
+                item.SetMetadata(0, index);
+                item.SetSelectable(0, row.Object is not null);
+                item.SetTextAlignment(0, HorizontalAlignment.Left);
+                item.SetTextOverrunBehavior(0, TextServer.OverrunBehavior.TrimEllipsis);
+                _items.Add(item);
+            }
+            else item = _items[index];
+            item.SetText(0, row.Text);
+            item.SetTooltipText(0, row.Text);
+            item.SetCustomColor(0, row.Attention ? UiStyle.Warning : row.Object is null ? UiStyle.Info : UiStyle.Foreground);
+            if (rebuild && selected is not null && row.Object == selected) item.Select(0);
         }
+        _updating = false;
         _rows = rows;
         Callable.From(() =>
         {
-            if (GodotObject.IsInstanceValid(_list)) _list.GetVScrollBar().Value = scroll;
+            if (GodotObject.IsInstanceValid(_scroll)) _scroll.Value = scroll;
         }).CallDeferred();
     }
 
@@ -153,7 +184,7 @@ internal sealed class WorldListDrawer
             var train = found.Value;
             if (!(filter switch
             {
-                1 => NeedsAttention(train), 2 => train.Activity == TrainActivity.Running,
+                1 => NeedsAttention(train), 2 => train.Activity != TrainActivity.Stopped,
                 3 => train.Activity == TrainActivity.Stopped, _ => true
             })) continue;
             var destination = "暂无去向";
@@ -168,8 +199,8 @@ internal sealed class WorldListDrawer
             var report = train.RecentReports.IsEmpty ? "暂无运行报告"
                 : $"最近报告净现金流 {train.RecentReports[^1].Totals.NetCashFlow:+0;-0;0}";
             rows.Add(new(new WorldObjectId.Train(train.Id),
-                $"{name}{(NeedsAttention(train) ? " · 需要处理" : "")}\n{WorldPanels.Activity(train.Activity)} · {destination}\n" +
-                (train.Plan is null ? "没有运行计划 · " : "") + report, NeedsAttention(train)));
+                $"{name} · {WorldPanels.Activity(train.Activity)}{(NeedsAttention(train) ? " · 需要处理" : "")}\n{destination}\n" +
+                (train.Plan is null ? "没有运行计划\n" : "") + report, NeedsAttention(train)));
         }
         return rows;
     }

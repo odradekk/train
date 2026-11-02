@@ -13,54 +13,48 @@ public class WorldListUiTests(Node testScene) : TestClass(testScene)
     private readonly UiTestInput _input = new(testScene);
 
     [Test]
-    public async Task Fleet_filter_and_search_intersect_and_survive_closing_the_drawer()
+    public async Task Named_fleet_filter_and_search_survive_closing_the_drawer()
     {
         await Run(async (app, ui, shell) =>
         {
             await Open(ui, "Fleet");
             var panel = shell.ListContent!;
-            var list = Find<ItemList>(panel, "Objects");
-            var filter = Find<OptionButton>(panel, "Filter");
+            var list = Find<Tree>(panel, "Objects");
             var search = Find<LineEdit>(panel, "Search");
-            Require(list.ItemCount == 36, "全部车队应显示夹具的36列列车。");
-            await _input.Choose(filter, 2);
-            Require(list.ItemCount == 1, "运行中筛选应只显示运行中的列车。");
-            await _input.Enter(search, "列车 7");
-            Require(list.ItemCount == 0, "搜索必须与运行中筛选叠加，不能重新显示已停车列车。");
-            Require(panel.FindChildren("*", "Label", true, false).Cast<Label>()
-                .Any(label => label.IsVisibleInTree() && label.Text.Contains("没有")), "零结果必须显示可见提示。");
-            await _input.Choose(filter, 1);
-            Require(list.ItemCount == 1, "需要处理筛选与相同搜索应找到无计划且已停车的列车7。");
+            Require(FilterButton(panel, "需要处理").Text.EndsWith(" 34"), "需要处理数量必须直接显示在按钮上。");
+            await Filter(panel, "需要处理");
+            await _input.Enter(search, "列车 8");
+            Require(TreeItems(list).Length == 0 && Find<Label>(panel, "Empty").IsVisibleInTree(),
+                "有计划且运行中的列车不能出现在需要处理搜索结果中，零结果必须显示提示。");
+            await _input.Enter(search, "列车 9");
+            await _input.ClickItem(list, 0);
+            Require(shell.SelectedObject == new WorldObjectId.Train(new(9)), "按名称切换的筛选必须连接到需要处理条件。");
+            await _input.PressKey(Key.Escape);
             await Open(ui, "Fleet");
             Require(shell.ListContent is null, "再次点击车队入口应收起抽屉。");
             await Open(ui, "Fleet");
-            Require(Find<OptionButton>(shell.ListContent!, "Filter").Selected == 1 &&
-                Find<LineEdit>(shell.ListContent!, "Search").Text == "列车 7" &&
-                Find<ItemList>(shell.ListContent!, "Objects").ItemCount == 1,
+            Require(FilterButton(shell.ListContent!, "需要处理").ButtonPressed &&
+                Find<LineEdit>(shell.ListContent!, "Search").Text == "列车 9" && TreeItems(list).Length == 1,
                 "关闭重开应保留筛选、搜索及匹配结果。");
         });
     }
 
     [Test]
-    public async Task Edge_filter_separates_built_broken_and_unbuilt_lines()
+    public async Task Named_edge_filters_select_the_corresponding_objects()
     {
         await Run(async (app, ui, shell) =>
         {
             await Open(ui, "Edges");
             var panel = shell.ListContent!;
-            var filter = Find<OptionButton>(panel, "Filter");
-            var list = Find<ItemList>(panel, "Objects");
-            Require(list.ItemCount == 3, "全部线路应包括完整、有断点和未建成线路。");
-            await _input.Choose(filter, 1);
-            Require(list.ItemCount == 2, "已建成筛选应包括完整线路和有断点线路。");
-            await _input.Choose(filter, 2);
-            Require(list.ItemCount == 1, "有断点筛选应只保留有断点线路。");
-            await _input.Enter(Find<LineEdit>(panel, "Search"), "没有此地名");
-            Require(list.ItemCount == 0, "线路搜索必须与断点筛选叠加。");
+            var list = Find<Tree>(panel, "Objects");
+            await Filter(panel, "未建成");
+            await _input.ClickItem(list, 0);
+            Require(shell.SelectedObject == new WorldObjectId.Edge(new(3)), "未建成按钮必须连接零轨线路筛选。");
+            await _input.PressKey(Key.Escape);
+            await Filter(panel, "有断点");
             await _input.Enter(Find<LineEdit>(panel, "Search"), "北方");
-            Require(list.ItemCount == 1, "线路应能按端点展示名称搜索。");
-            await _input.Choose(filter, 3);
-            Require(list.ItemCount == 1, "未建成筛选应只显示零轨线路。");
+            await _input.ClickItem(list, 0);
+            Require(shell.SelectedObject == new WorldObjectId.Edge(new(2)), "有断点按钮必须与名称搜索共同筛选断点线路。");
         });
     }
 
@@ -70,21 +64,24 @@ public class WorldListUiTests(Node testScene) : TestClass(testScene)
         await Run(async (app, ui, shell) =>
         {
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            var initialZoom = map.Zoom;
+            var initialOffset = map.Offset;
             var point = map.GlobalPosition + map.Size / 2;
             await _input.MouseButton(point, MouseButton.WheelUp, true);
             await _input.MouseButton(point, MouseButton.WheelUp, false);
             await _input.Drag(point, new(45, 25));
+            Require(map.Zoom != initialZoom && map.Offset != initialOffset, "测试输入必须先改变地图缩放和平移。");
             await Open(ui, "Fleet");
-            var list = Find<ItemList>(shell.ListContent!, "Objects");
+            var list = Find<Tree>(shell.ListContent!, "Objects");
             var zoom = map.Zoom;
             var offset = map.Offset;
-            await _input.ClickItem(list, 0);
-            Require(shell.SelectedObject == new WorldObjectId.Train(new(7)) && shell.InspectorContent is not null,
+            await _input.ClickItem(list, 1);
+            Require(shell.SelectedObject == new WorldObjectId.Train(new(8)) && shell.InspectorContent is not null,
                 "真实行点击必须打开所选列车检查器。");
             Require(map.Zoom == zoom && map.Offset == offset, "列表选择不能改变宏观地图缩放或平移。");
             await _input.PressKey(Key.Escape);
             Require(shell.InspectorContent is null && shell.ListContent is not null, "关闭检查器应保留抽屉。");
-            var scroll = list.GetVScrollBar();
+            var scroll = list.GetChildren(true).OfType<VScrollBar>().Single();
             await _input.WaitUntil(() => scroll.Visible && scroll.MaxValue > scroll.Page);
             var wheelPoint = list.GetGlobalRect().GetCenter();
             for (var i = 0; i < 4; i++)
@@ -94,15 +91,39 @@ public class WorldListUiTests(Node testScene) : TestClass(testScene)
             }
             var before = scroll.Value;
             Require(before > 0, "真实滚轮输入必须让列表产生非零滚动。");
-            var after = WorldListUiFixture.View(2);
+            var preceding = ((Lookup<TrainView>.Found)ui.View!.FindTrain(new(8))).Value with { Id = new(6) };
+            var after = WorldListUiFixture.View(2, preceding, 777);
             var setup = _setup!;
             setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
             Require(app.Host!.Step(1).Problem is null, "普通刷新必须发布新读视图。");
             await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
-            Require(list.GetSelectedItems().SequenceEqual(new[] { 0 }) && Math.Abs(scroll.Value - before) < .01,
+            await _input.Frames(2);
+            Require(list.GetSelected() is { } selected && selected.GetText(0).StartsWith("列车 8") &&
+                selected.GetText(0).Contains("+777") && Math.Abs(scroll.Value - before) < .01,
                 "普通刷新必须保留同一对象行的选择及滚动位置。");
             Require(map.Zoom == zoom && map.Offset == offset, "普通刷新不能改变宏观地图视角。");
             setup.Session.AssertComplete();
+        });
+    }
+
+    [Test]
+    public async Task Hidden_drawer_waits_until_reopened_to_update_rows()
+    {
+        await Run(async (app, ui, shell) =>
+        {
+            await Open(ui, "Fleet");
+            var list = Find<Tree>(shell.ListContent!, "Objects");
+            var original = TreeItems(list)[1].GetText(0);
+            await Open(ui, "Fleet");
+            var after = WorldListUiFixture.View(2, runningCashFlow: 999);
+            _setup!.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
+            Require(app.Host!.Step(1).Problem is null, "隐藏期间必须发布新读视图。");
+            await _input.WaitUntil(() => ReferenceEquals(ui.View, after));
+            await _input.Frames(2);
+            Require(TreeItems(list)[1].GetText(0) == original, "隐藏抽屉不能更新行。");
+            await Open(ui, "Fleet");
+            Require(TreeItems(list)[1].GetText(0).Contains("+999"), "重新打开必须立即显示最新读视图。");
+            _setup.Session.AssertComplete();
         });
     }
 
@@ -112,16 +133,12 @@ public class WorldListUiTests(Node testScene) : TestClass(testScene)
         await Run(async (app, ui, shell) =>
         {
             await Open(ui, "Nodes");
-            var list = Find<ItemList>(shell.ListContent!, "Objects");
-            Require(list.ItemCount > 2 && !list.IsItemSelectable(0), "节点列表首行应为不可选择的分组标题。");
+            var list = Find<Tree>(shell.ListContent!, "Objects");
+            Require(TreeItems(list).Length > 2 && !TreeItems(list)[0].IsSelectable(0), "节点列表首行应为不可选择的分组标题。");
             await _input.ClickItem(list, 0);
             Require(shell.SelectedObject is null && shell.InspectorContent is null, "点击分组标题不能选择对象。");
             var rows = WorldListDrawer.Rows(WorldListKind.Nodes, ui.View!, app.Host!.Content!, "", 0);
             var row = Enumerable.Range(0, rows.Count).Single(index => rows[index].Object == new WorldObjectId.Node(new(1)));
-            list.Select(row);
-            list.EnsureCurrentIsVisible();
-            await _input.Frames(2);
-            Require(shell.InspectorContent is null, "定位行不能代替真实输入打开检查器。");
             await _input.ClickItem(list, row);
             Require(shell.SelectedObject == new WorldObjectId.Node(new(1)) && shell.InspectorContent is not null,
                 "分组下的真实节点仍须能打开检查器。");
@@ -145,19 +162,22 @@ public class WorldListUiTests(Node testScene) : TestClass(testScene)
                     var count = entry is "Fleet" or "Edges" ? 4 : 1;
                     for (var index = 0; index < count; index++)
                     {
-                        if (count > 1) await _input.Choose(Find<OptionButton>(panel, "Filter"), index);
+                        if (count > 1) await Filter(panel, (entry == "Fleet"
+                            ? new[] { "全部", "需要处理", "运行中", "已停车" } : new[] { "全部", "已建成", "有断点", "未建成" })[index]);
                         await _input.Frames(3);
                         ShellGeometry.Check(ui);
+                        Require(TreeItems(Find<Tree>(panel, "Objects")).All(item => item.GetTextAlignment(0) == HorizontalAlignment.Left),
+                            "对象行和组标题必须左对齐。");
                         await UiCapture.Capture(TestScene, $"world-list-{entry.ToLowerInvariant()}-{index}");
                     }
                 }
                 window.Size = new(1280, 720);
                 await Open(ui, "Edges");
-                await _input.Choose(Find<OptionButton>(shell.ListContent!, "Filter"), 0);
+                await Filter(shell.ListContent!, "全部");
                 await _input.Frames(3);
                 ShellGeometry.Check(ui);
-                var list = Find<ItemList>(shell.ListContent!, "Objects");
-                Require(!list.GetHScrollBar().Visible && list.GetItemTooltip(0).Contains("北方长名称河谷与山间运输枢纽平原"),
+                var list = Find<Tree>(shell.ListContent!, "Objects");
+                Require(!list.ScrollHorizontalEnabled && TreeItems(list)[0].GetTooltipText(0).Contains("北方长名称河谷与山间运输枢纽平原"),
                     "窄窗口应保持列表宽度，完整长地名仍能通过提示读取。");
                 await UiCapture.Capture(TestScene, "world-list-long-names-1280", size: new(1280, 720));
             }
@@ -166,6 +186,17 @@ public class WorldListUiTests(Node testScene) : TestClass(testScene)
     }
 
     private HostSimulationTests.HostSetup? _setup;
+
+    private static Button FilterButton(Control panel, string name) => panel.FindChildren("*", "Button", true, false)
+        .Cast<Button>().Single(button => button.ToggleMode && (button.Text == name || button.Text.StartsWith(name + " ")));
+
+    private async Task Filter(Control panel, string name)
+    {
+        var button = FilterButton(panel, name);
+        Require(button.IsVisibleInTree(), "四个筛选必须常显。");
+        await _input.Click(button.GetGlobalRect().GetCenter());
+        Require(button.ButtonPressed, "单次点击必须切换筛选。");
+    }
 
     private async Task Open(GameUi ui, string entry)
     {

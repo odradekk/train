@@ -42,7 +42,7 @@ internal static class WorldListUiFixture
         };
     }
 
-    internal static FixedCoreReadView View(ulong revision = 1)
+    internal static FixedCoreReadView View(ulong revision = 1, TrainView? precedingTrain = null, long runningCashFlow = 250)
     {
         var basis = UiWorldFixture.Map();
         var first = basis.World.Nodes[0] with { Terrain = new(new("fixture:long-plain"), 0, []) };
@@ -61,8 +61,9 @@ internal static class WorldListUiFixture
             Plan = id == 7 ? null : plan,
             NextStopIndex = id == 7 ? null : 1,
             RecentReports = id is 8 or 9 ? [new(new((ulong)id), new(0, 1), RunEndReason.LoopCompleted,
-                new(new(0, 0), new(500), new(id == 8 ? 200 : 600), new(50), id == 8 ? 250 : -150, 30, .6, []))] : []
+                new(new(0, 0), new(500), new(id == 8 ? 200 : 600), new(50), id == 8 ? runningCashFlow : -150, 30, .6, []))] : []
         }).ToArray();
+        if (precedingTrain is not null) trains = [precedingTrain, .. trains];
         var edges = new[]
         {
             new EdgeMapItem(new(1), first.Id, second.Id, 500, first.Terrain, 1, 1, [], []),

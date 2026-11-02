@@ -288,19 +288,17 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(Find<Button>(ui, "Edges"));
-            var list = Find<ItemList>(Find<PanelContainer>(ui, "EdgesList"), "Objects");
+            var list = Find<Tree>(Find<PanelContainer>(ui, "EdgesList"), "Objects");
             var index = EdgeRow(ui, new(16));
-            Require(index >= 0, "线路列表没有线路 16：" + string.Join(" | ", Enumerable.Range(0, list.ItemCount).Select(list.GetItemText)));
-            for (var frame = 0; frame < 180 && list.GetItemRect(index).Size.Y <= 0; frame++) await _input.Frames();
-            Require(list.IsVisibleInTree() && list.GetItemRect(index).Size.Y > 0,
-                $"线路列表无法点击：visible={list.IsVisibleInTree()} size={list.Size} rect={list.GetItemRect(index)} count={list.ItemCount}");
-            list.Select(index);
-            list.EnsureCurrentIsVisible();
+            var row = TreeItems(list)[index];
+            for (var frame = 0; frame < 180 && list.GetItemAreaRect(row).Size.Y <= 0; frame++) await _input.Frames();
+            Require(list.IsVisibleInTree() && list.GetItemAreaRect(row).Size.Y > 0,
+                $"线路列表无法点击：visible={list.IsVisibleInTree()} size={list.Size} rect={list.GetItemAreaRect(row)} count={TreeItems(list).Length}");
+            list.ScrollToItem(row);
             await _input.Frames(2);
-            var visible = list.GetItemRect(index).GetCenter()
-                - new Vector2((float)list.GetHScrollBar().Value, (float)list.GetVScrollBar().Value);
-            Require(list.GetItemAtPosition(visible, true) == index,
-                $"线路 16 的可见位置没有命中该行。rect={list.GetItemRect(index)} scroll={list.GetVScrollBar().Value} point={visible}");
+            var visible = list.GetItemAreaRect(row).GetCenter();
+            Require(list.GetItemAtPosition(visible) == row,
+                $"线路 16 的可见位置没有命中该行。rect={list.GetItemAreaRect(row)} point={visible}");
             await _input.Click(list.GlobalPosition + visible);
             await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
             var panel = Find<PanelContainer>(ui, "RailwayWork");

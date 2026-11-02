@@ -185,8 +185,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             var list = NodeObjects(ui);
             var rows = WorldListDrawer.Rows(WorldListKind.Nodes, status.View, content, "", 0);
             var row = Enumerable.Range(0, rows.Count).Single(i => rows[i].Object == new WorldObjectId.Node(nodes[index].Id));
-            list.Select(row);
-            list.EnsureCurrentIsVisible();
+            list.ScrollToItem(TreeItems(list)[row]);
             await _input.Frames(2);
             await _input.ClickItem(list, row);
             Require(Find<GameShell>(ui, "World").SelectedObject == new WorldObjectId.Node(nodes[index].Id),
@@ -280,7 +279,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
         var node = ui.View!.World.Nodes[nodeIndex];
         var rows = WorldListDrawer.Rows(WorldListKind.Nodes, ui.View!, ui.GetParent<Train.App.App>().Host!.Content!, "", 0);
         var row = Enumerable.Range(0, rows.Count).Single(i => rows[i].Object == new WorldObjectId.Node(node.Id));
-        await _input.ClickItem(Find<ItemList>(panel, "Objects"), row);
+        await _input.ClickItem(Find<Tree>(panel, "Objects"), row);
         var expected = node.Occupant is NodeOccupant.Settlement town
             ? (WorldObjectId)new WorldObjectId.Settlement(town.Id) : new WorldObjectId.Node(node.Id);
         Require(Find<GameShell>(ui, "World").SelectedObject == expected, "节点行点击必须选中指定的实际对象。");

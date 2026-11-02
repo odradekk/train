@@ -226,7 +226,7 @@ public partial class UiTests(Node testScene) : TestClass(testScene)
             var fleet = Find<Button>(ui, "Fleet");
             fleet.GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
+            var list = Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             Require(list.IsVisibleInTree(), "顶栏实际按键没有打开车队列表。");
             await _input.Frames(2);
             var covered = list.GlobalPosition + new Vector2(30, 30);
@@ -324,12 +324,12 @@ public partial class UiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             Find<Button>(ui, "Fleet").GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
+            var list = Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             await _input.ClickItem(list, 0);
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             var stop = Find<Button>(Find<PanelContainer>(ui, "Details"), "Stop");
             Require(stop is not null && stop.IsVisibleInTree(),
-                $"实际列表点击没有打开列车详情：rect={list.GetGlobalRect()}，item={list.GetItemRect(0)}，selected={string.Join(',', list.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
+                $"点击列表未打开列车详情：rect={list.GetGlobalRect()}，item={list.GetItemAreaRect(TreeItems(list)[0])}，selected={list.GetSelected()?.GetText(0)}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
             stop!.GrabFocus();
             await _input.PressKey(Key.Space);
             Require(setup.Session.SubmitCount == 1 && ui.ErrorText.Contains("没有可达路径。对象：列车 7。") &&

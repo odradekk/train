@@ -47,7 +47,7 @@ public partial class RailwayWorkUiTests
     {
         if (Find<GameShell>(ui, "World").ListContent?.Name != "EdgesList")
             await _input.Activate(Find<Button>(ui, "Edges"));
-        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
+        await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
         await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
         return Find<PanelContainer>(ui, "RailwayWork");
     }

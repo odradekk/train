@@ -366,7 +366,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 Find<Label>(economy, "Quote").Text.Contains("可用容量不足") &&
                 !Find<Label>(economy, "Quote").Text.Contains("insufficient_"), "受阻报价未禁止提交或遗漏原因。");
             await _input.Activate(Find<Button>(ui, "Fleet"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             await _input.Activate(Find<Button>(ui, "Inventory"));
             var inventory = Find<PanelContainer>(ui, "TrainInventory");
             Require(!economy.IsVisibleInTree() && inventory.IsVisibleInTree(), "列车库存没有替换聚居地检查器。");
