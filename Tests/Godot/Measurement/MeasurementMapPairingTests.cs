@@ -51,6 +51,7 @@ public sealed class MeasurementMapPairingTests
     private static object Open(double click, object steady) => new
     {
         kind = "open", name = "memory-node", target = "Node { Id = 2 }", click,
+        node_voxel_cells = MeasurementAssessment.ReferenceNodeVoxelCells,
         observation_ended = click + 6, click_to_operable_seconds = .2,
         operable_to_ready_seconds = 1, sample_valid = true, steady
     };

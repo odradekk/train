@@ -5,6 +5,9 @@ namespace Train.App.Measurement;
 
 internal static partial class MeasurementAssessment
 {
+    // scripts/measure/baselines/2026-11-02-node-voxel-budget.md：standard-world 节点 2，读档后、首次点击前。
+    internal const long ReferenceNodeVoxelCells = 71407;
+
     private static void AddOpenings(List<MeasurementAssessmentItem> items, string scenario, MeasurementEvidence? evidence)
     {
         var groups = evidence?.Openings.GroupBy(open => open.Type).ToArray() ?? [];
@@ -49,17 +52,39 @@ internal static partial class MeasurementAssessment
 
         var noBaseline = scenario != "scene-memory" ? "场景没有进入前的地图稳态读数或强制 GC 配对" : null;
         var nodes = evidence?.Openings.Where(open => open.Node && open.Valid).ToArray() ?? [];
-        var pairs = nodes.Select(open => (Node: open.Steady, Map: evidence?.MapBefore(open.Click))).ToArray();
+        var pairs = nodes.Select(open => (Node: open.Steady, Map: evidence?.MapBefore(open.Click), open.NodeVoxelCells)).ToArray();
         var reason = noBaseline ?? evidence?.OpeningProblem ?? evidence?.MapProblem;
         const string paired = "同进程节点稳态 − 点击前最近一次地图稳态中位数";
-        items.Add(Check("node_private_delta", paired,
-            Maximum(pairs.Select(pair => pair.Node.Private - pair.Map?.Private)), reason));
+        items.Add(NodePrivateDelta(pairs.Select(pair => (pair.NodeVoxelCells, pair.Node.Private - pair.Map?.Private)), reason));
         items.Add(Check("node_render_delta", paired,
             Maximum(pairs.Select(pair => pair.Node.Buffer + pair.Node.Texture - pair.Map?.Buffer - pair.Map?.Texture)), reason));
         if (scenario == "scene-soak") AddSoakHeap(items, At(budget, "soak"));
         else items.Add(Check("retired_heap_delta", "同进程返回地图后强制 GC − cycle 0 初始地图强制 GC",
             Maximum(evidence?.RetiredHeaps.Select(heap => heap - evidence.InitialHeap) ?? []),
             noBaseline ?? evidence?.OpeningProblem ?? evidence?.HeapProblem));
+    }
+
+    /// <summary>逐次打开计算节点预算，报告增量减预算最大的那次。
+    /// Decision note: 2026-11-01-node-memory-remaining-gap
+    /// </summary>
+    private static MeasurementAssessmentItem NodePrivateDelta(IEnumerable<(long? Cells, double? Delta)> samples,
+        string? reason)
+    {
+        const string metric = "node_private_delta";
+        const string window = "同进程节点稳态 − 点击前最近一次地图稳态中位数；增量减预算最大的打开";
+        var target = Targets[metric];
+        var pairs = samples.Select(sample => (sample.Cells, sample.Delta,
+            Budget: sample.Cells is { } cells ? target.Value * Math.Max(1, (double)cells / ReferenceNodeVoxelCells) : null)).ToArray();
+        reason ??= pairs.Length == 0 ? "缺少有效节点打开" :
+            pairs.Any(pair => pair.Cells is null) ? "缺少有效节点体素格数" :
+            pairs.Any(pair => pair.Delta is null) ? "缺少节点或地图稳态私有字节" : null;
+        if (reason is not null) return Check(metric, window, null, reason) with
+            { Threshold = null, ReferenceNodeVoxelCells = ReferenceNodeVoxelCells };
+        var worst = pairs.MaxBy(pair => pair.Delta - pair.Budget);
+        return new(metric, window, target.Unit, target.Rule, worst.Budget, worst.Delta,
+            worst.Delta <= worst.Budget ? "passed" : "failed", null,
+            Excess: Math.Max(0, worst.Delta!.Value - worst.Budget!.Value),
+            NodeVoxelCells: worst.Cells, ReferenceNodeVoxelCells: ReferenceNodeVoxelCells);
     }
 
     private static void AddSoakHeap(List<MeasurementAssessmentItem> items, JsonElement soak)
