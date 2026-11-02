@@ -376,8 +376,8 @@ internal sealed partial class HostCoordinator : IDisposable
     }
 
     internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
-        ulong seed, string generatorVersion, CoreSessionOptions options)
-        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, options: options);
+        ulong seed, string generatorVersion, CoreSessionOptions options, SaveIdentity? save = null)
+        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, save, options: options);
 
     internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
         string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true)
@@ -469,7 +469,7 @@ internal sealed partial class HostCoordinator : IDisposable
     internal bool Cancel(long operationId)
     {
         EnsureOwner();
-        // 编辑准备可能已替换用户文件，必须接收写入结果并完成激活。
+        // 编辑可能已写文件，须接收并激活结果
         if (_insideBoundary || _pending is not { } operation || operation.Id != operationId ||
             operation.Kind is OperationKind.Edit or OperationKind.Authoring) return false;
         _pending = null;

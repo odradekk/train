@@ -15,20 +15,21 @@ internal static class UiCapture
         window.Size = new Vector2I(1920, 1080);
     }
 
-    internal static async Task Capture(Node scene, string name, float scale = 1)
+    internal static async Task Capture(Node scene, string name, float scale = 1, Vector2I? size = null)
     {
         var output = OutputDirectory;
         if (string.IsNullOrWhiteSpace(output)) return;
         var window = scene.GetTree().Root;
-        var drawable = window.Size == new Vector2I(1920, 1080) && window.Mode != Window.ModeEnum.Minimized;
+        var expectedSize = size ?? new Vector2I(1920, 1080);
+        var drawable = window.Size == expectedSize && window.Mode != Window.ModeEnum.Minimized;
         if (drawable)
         {
             await scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             await scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         }
         using var image = drawable ? window.GetTexture().GetImage() : null;
-        var valid = window.Size == new Vector2I(1920, 1080) && window.Mode != Window.ModeEnum.Minimized &&
-            Mathf.IsEqualApprox(window.ContentScaleFactor, scale) && image?.GetWidth() == 1920 && image.GetHeight() == 1080;
+        var valid = window.Size == expectedSize && window.Mode != Window.ModeEnum.Minimized &&
+            Mathf.IsEqualApprox(window.ContentScaleFactor, scale) && image?.GetWidth() == expectedSize.X && image.GetHeight() == expectedSize.Y;
         Directory.CreateDirectory(output);
         var metadata = System.Text.Json.JsonSerializer.Serialize(new
         {

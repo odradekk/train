@@ -76,7 +76,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
                 Require(button.IsVisibleInTree() && !button.Disabled,
                     $"生产菜单须提供可用的 {name} 按钮。");
             }
-            Require(quit.Text == "退出", "Main menu must expose the quit button.");
+            Require(quit.Text == "退出游戏", "Main menu must expose the quit button.");
             quit.EmitSignal(BaseButton.SignalName.Pressed);
             Require(requests == 1, "Quit button signal did not reach App's quit request.");
         }
