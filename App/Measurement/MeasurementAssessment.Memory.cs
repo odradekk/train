@@ -31,13 +31,19 @@ internal static partial class MeasurementAssessment
     private static void AddMemory(List<MeasurementAssessmentItem> items, string scenario, JsonElement budget, MeasurementEvidence? evidence)
     {
         List<SteadyMemory> steady = evidence?.Openings.Select(open => open.Steady).ToList() ?? [];
+        if (scenario == "scene-soak" && evidence is not null) steady.AddRange(evidence.MapMemory);
         foreach (var field in new[] { "initial_map", "editor_steady", "after_editor_map", "final_map" })
             if (At(budget, field).ValueKind == JsonValueKind.Object) steady.Add(SteadyMemory.Read(At(budget, field)));
         if (At(budget, "editor_sequence", "after").ValueKind == JsonValueKind.Object)
             steady.Add(SteadyMemory.Read(At(budget, "editor_sequence", "after")));
         const string window = "整个游戏：已记录稳态中位数中的最大值（不含峰值）";
         items.Add(Check("game_private", window, Maximum(steady.Select(value => value.Private)), evidence?.OpeningProblem));
-        items.Add(Check("game_working_set", window, Maximum(steady.Select(value => value.Working)), evidence?.OpeningProblem));
+        var working = Check("game_working_set", window, Maximum(steady.Select(value => value.Working)), evidence?.OpeningProblem);
+        items.Add(OperatingSystem.IsLinux() ? working with
+        {
+            Threshold = null, Status = working.Status == "unknown" ? "unknown" : "recorded",
+            Rule = "Linux 工作集只记录；3 GiB 上限留到目标配置 Windows 判定"
+        } : working);
         items.Add(Check("game_render", window, Maximum(steady.Select(value => value.Render)), evidence?.OpeningProblem));
         if (scenario is not ("scene-node" or "scene-node-first" or "scene-memory" or "scene-soak")) return;
 
@@ -50,10 +56,27 @@ internal static partial class MeasurementAssessment
             Maximum(pairs.Select(pair => pair.Node.Private - pair.Map?.Private)), reason));
         items.Add(Check("node_render_delta", paired,
             Maximum(pairs.Select(pair => pair.Node.Buffer + pair.Node.Texture - pair.Map?.Buffer - pair.Map?.Texture)), reason));
-        items.Add(Check("retired_heap_delta", "同进程返回地图后强制 GC − cycle 0 初始地图强制 GC",
+        if (scenario == "scene-soak") AddSoakHeap(items, At(budget, "soak"));
+        else items.Add(Check("retired_heap_delta", "同进程返回地图后强制 GC − cycle 0 初始地图强制 GC",
             Maximum(evidence?.RetiredHeaps.Select(heap => heap - evidence.InitialHeap) ?? []),
             noBaseline ?? evidence?.OpeningProblem ?? evidence?.HeapProblem));
-        if (scenario == "scene-memory") AddGrowth(items, default, Number(At(budget, "memory_loop_seconds")));
+    }
+
+    private static void AddSoakHeap(List<MeasurementAssessmentItem> items, JsonElement soak)
+    {
+        var rows = Array(At(soak, "memory", "reset_heaps")).ToArray();
+        var heaps = rows.Where(heap => At(heap, "phase").ToString() == "reset").ToArray();
+        var valid = rows.All(heap => At(heap, "phase").ToString() is "reset" or "final") &&
+            heaps.Length >= 2 && Number(At(soak, "segments")) == heaps.Length &&
+            heaps.Select((heap, index) => Number(At(heap, "segment")) == index + 1 &&
+                Number(At(heap, "live_bytes")) is >= 0).All(value => value);
+        var seconds = Number(At(soak, "seconds"));
+        var item = Check("retired_heap_delta", "长测：每段重读同一存档、暂停地图后强制 GC − 第 1 段；各段最大值，不含 final",
+            valid ? heaps.Max(heap => Number(At(heap, "live_bytes"))!.Value) - Number(At(heaps[0], "live_bytes")) : null,
+            seconds is null or < GrowthObservationSeconds ? "观测时长不足两小时" :
+            valid ? null : "缺少完整分段的同状态强制 GC 读数");
+        items.Add(item with { ObservedSeconds = seconds, Excess = item.Status == "unknown" ? null :
+            Math.Max(0, item.Measured!.Value - item.Threshold!.Value) });
     }
 
     private static double? Maximum(IEnumerable<double?> values)

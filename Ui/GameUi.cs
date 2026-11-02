@@ -67,7 +67,6 @@ public partial class GameUi : CanvasLayer
         }
         if (PanelArea == area) return;
         PanelArea = area;
-        _menu.FitSaves(area);
         PanelAreaChanged?.Invoke();
     }
 
@@ -142,6 +141,7 @@ public partial class GameUi : CanvasLayer
             CloseSessionPanels();
             _icons.Bind(default, null);
             _view = null; _content = null; _binding = default;
+            _menu.CloseSaves();
             _world.Hide(); _errorPanel.Hide(); _settings.Hide();
             _menu.Show();
         }

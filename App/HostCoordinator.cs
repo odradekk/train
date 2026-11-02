@@ -21,9 +21,9 @@ internal sealed record HostOperationResult(long Operation, OperationKind Kind, H
 }
 internal sealed record HostStatus(HostBinding Binding, ICoreReadView View,
     bool PlayerPaused, bool FocusPaused, bool OperationLocked, bool IsFrozen,
-    SimulationSpeed Speed, double ActualSpeed, double Remainder, bool IsReplay = false, bool EditingPaused = false)
+    SimulationSpeed Speed, double ActualSpeed, double Remainder, bool IsReplay = false, bool EditingPaused = false, bool OverlayPaused = false)
 {
-    internal bool IsPaused => PlayerPaused || FocusPaused || EditingPaused || OperationLocked || IsFrozen;
+    internal bool IsPaused => PlayerPaused || FocusPaused || EditingPaused || OverlayPaused || OperationLocked || IsFrozen;
     internal double SimulationSeconds => View.Position.CompletedSteps / (double)SimulationTime.StepsPerSecond;
 }
 
@@ -88,7 +88,7 @@ internal sealed partial class HostCoordinator : IDisposable
         var driver = group.Driver;
         return new(group.Binding, group.View, driver.PlayerPaused, driver.FocusPaused,
             driver.OperationLocked, driver.Frozen, driver.Speed, driver.ActualSpeed, driver.Remainder,
-            group.Replay is not null, driver.EditingPaused);
+            group.Replay is not null, driver.EditingPaused, driver.OverlayPaused);
     }
 
     internal CoreProblem? BeginEditing()
@@ -107,6 +107,12 @@ internal sealed partial class HostCoordinator : IDisposable
     }
 
     internal void SetFocused(bool focused) { EnsureOwner(); _focused = focused; UpdateFocusPause(); }
+    internal void SetOverlayPaused(bool paused)
+    {
+        EnsureOwner();
+        _active?.Driver.SetOverlayPaused(paused);
+        _skipNextFrame = true;
+    }
     private void UpdateFocusPause() => _active?.Driver.SetFocusPaused(_autoPauseOnFocusLoss && !_focused);
 
     internal CoreProblem? SetPaused(bool paused)
@@ -204,61 +210,6 @@ internal sealed partial class HostCoordinator : IDisposable
         group.ReleasedInputs.UnionWith(result.ReleasedInputs);
         group.History.RemoveAll(view => group.ReleasedInputs.Contains(view.Core.Identity)
             && !ReferenceEquals(view, group.Content));
-    }
-
-    internal SaveStatus? GetSaveStatus()
-    {
-        EnsureOwner();
-        return _active is not { Replay: null } group ? null : new(group.Binding, group.Save,
-            group.Saved != new SaveRevision(group.View.Revision, group.Content.PersistentRevision, group.Save.Name),
-            group.Driver.Frozen);
-    }
-
-    internal (SaveCapture? Capture, SaveFailure? Failure) CaptureSave()
-    {
-        EnsureOwner();
-        if (_pending is not null || _insideBoundary) return (null, new("busy", "正在处理其他操作。"));
-        if (_active is not { } group) return (null, new("no_session", "当前没有对局。"));
-        if (group.Driver.Frozen) return (null, new("frozen", "核心已冻结，不能保存普通存档。"));
-        _insideBoundary = true;
-        try
-        {
-            var core = CaptureCurrent();
-            if (core is CoreResult<ICoreCapture>.Failure rejected)
-                return (null, new(rejected.Problems[0].Code, "核心状态捕获失败。"));
-            if (core is CoreResult<ICoreCapture>.Faulted failed)
-                return (null, new(failed.Fault.Code, failed.Diagnostic?.Message ?? "核心状态捕获失败。"));
-            var fixedCore = ((CoreResult<ICoreCapture>.Success)core).Value;
-            var content = _contentFactory.Capture(group.Content, fixedCore.References);
-            if (content is ContentResult<IContentCapture>.Failure invalid)
-                return (null, new(invalid.Diagnostics[0].Code, invalid.Diagnostics[0].Message));
-            if (content is ContentResult<IContentCapture>.Faulted faulted)
-                return (null, new(faulted.Code, faulted.Message));
-            var fixedContent = ((ContentResult<IContentCapture>.Success)content).Value;
-            var identity = group.Replay is null ? group.Save : new SaveIdentity(Guid.NewGuid(), "重放边界副本");
-            return (new(group.Binding, identity,
-                new(fixedCore.Revision, fixedContent.Revision, identity.Name), fixedCore, fixedContent), null);
-        }
-        finally { _insideBoundary = false; }
-    }
-
-    internal bool CompleteSave(SaveCapture capture, SaveIdentity target)
-    {
-        EnsureOwner();
-        if (_active is not { } group || group.Binding != capture.Binding || group.Save.Id != capture.Identity.Id)
-            return false;
-        group.Save = new(target.Id, group.Save.Name == capture.Identity.Name ? target.Name : group.Save.Name);
-        group.Saved = capture.Revision with { Name = target.Name };
-        return true;
-    }
-
-    internal CoreProblem? RenameSave(string name)
-    {
-        EnsureOwner();
-        if (MutationProblem() is { } problem) return problem;
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        _active!.Save = _active.Save with { Name = name };
-        return null;
     }
 
     internal CoreProblem? LockLeaving()
@@ -375,14 +326,6 @@ internal sealed partial class HostCoordinator : IDisposable
         finally { _insideBoundary = false; }
     }
 
-    internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
-        ulong seed, string generatorVersion, CoreSessionOptions options, SaveIdentity? save = null)
-        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, save, options: options);
-
-    internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
-        string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true)
-        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved, options);
-
     internal (long Operation, CoreProblem? Problem) BeginReplay(string path, Func<string, RecordingPackage>? read = null)
     {
         EnsureOwner();
@@ -482,13 +425,14 @@ internal sealed partial class HostCoordinator : IDisposable
         return true;
     }
 
-    internal (long Operation, ContentPreparationReport Content, ImmutableArray<MissingCoreReference> Core)? MissingConfirmation
+    internal (long Operation, ContentPreparationReport Content, ImmutableArray<MissingCoreReference> Core,
+        ImmutableArray<PackageMetadata> Packages)? MissingConfirmation
     {
         get
         {
             EnsureOwner();
             if (_pending is not { Prepared: { } prepared } operation) return null;
-            return (operation.Id, prepared.ContentCandidate!.Report, prepared.CoreCandidate!.MissingReferences);
+            return (operation.Id, prepared.ContentCandidate!.Report, prepared.CoreCandidate!.MissingReferences, prepared.SavedPackages);
         }
     }
 
@@ -634,6 +578,7 @@ internal sealed partial class HostCoordinator : IDisposable
                     if (!operation.Unsaved && prepared.Saved is { } saved)
                         group.Saved = saved with { Name = group.Save.Name };
                 }
+                group.World = prepared.World;
                 if (group.View.Fault is not null) group.Driver.Freeze();
                 _active = group; _content = group.Content;
                 activatedCore = null;
@@ -890,6 +835,7 @@ internal sealed partial class HostCoordinator : IDisposable
         internal ICoreReadView View { get; set; }
         internal SimulationFrameDriver Driver { get; }
         internal SaveIdentity Save { get; set; } = new(Guid.NewGuid(), "未命名存档");
+        internal SaveWorld? World { get; set; }
         internal SaveRevision? Saved { get; set; }
         internal RuntimeIdentity Runtime { get; }
         internal List<IContentView> History { get; } = [];
@@ -922,7 +868,9 @@ internal sealed partial class HostCoordinator : IDisposable
     internal sealed record PreparedOperation(ContentResult<IContentCandidate>? Content,
         CoreResult<ICoreSessionCandidate>? Core, IContentView? Paired) : IDisposable
     {
+        internal SaveWorld? World { get; init; }
         internal SaveRevision? Saved { get; init; }
+        internal ImmutableArray<PackageMetadata> SavedPackages { get; init; } = [];
         internal ICoreReplay? Replay { get; set; }
         internal ImmutableArray<IContentView> History { get; init; } = [];
         internal ReplayRecording? Recording { get; init; }

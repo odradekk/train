@@ -32,18 +32,25 @@ internal sealed class FileSaveStore
         return Path.Combine(DirectoryFor(id), $"autosave-{slot}.json");
     }
 
+    internal string[] PathsFor(Guid id) => [PathFor(id), AutoPathFor(id, 0), AutoPathFor(id, 1), AutoPathFor(id, 2)];
+
+    // 列表读头部与后台删除、替换会并行。
+    internal static Stream OpenRead(string target) =>
+        new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
     internal SaveDocument Read(string target)
     {
         try
         {
-            using var reader = new StreamReader(target, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false);
+            using var stream = OpenRead(target);
+            using var reader = new StreamReader(stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false);
             return SaveContainer.Decode(reader.ReadToEnd());
         }
         catch (DecoderFallbackException) { throw new SaveFormatException("invalid-save", "存档文件不是有效的 UTF-8"); }
     }
     internal SaveHeader ReadHeader(string target)
     {
-        using var stream = File.OpenRead(target);
+        using var stream = OpenRead(target);
         return SaveContainer.ReadHeader(stream);
     }
 

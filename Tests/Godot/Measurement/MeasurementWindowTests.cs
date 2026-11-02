@@ -214,15 +214,15 @@ public sealed class MeasurementWindowTests
     }
 
     [TestMethod]
-    public void SoakDoesNotSubstitutePeaksOrResetHeapsForMissingSteadyPairs()
+    public void SoakDoesNotSubstituteWholeRunSlopeOrPeaksForMissingEvidence()
     {
         using var report = Report("scene-soak", Timing(), Soak("None", 0, 480));
         foreach (var metric in new[] { "node_private_delta", "node_render_delta", "retired_heap_delta", "game_private" })
             Assert.AreEqual("unknown", Item(report, metric).GetProperty("status").GetString(), metric);
         var growth = Item(report, "private_growth");
         Assert.AreEqual("unknown", growth.GetProperty("status").GetString());
-        Assert.AreEqual(123, growth.GetProperty("measured").GetDouble());
-        Assert.AreEqual(7200, growth.GetProperty("observed_seconds").GetDouble());
+        Assert.AreEqual(JsonValueKind.Null, growth.GetProperty("measured").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, growth.GetProperty("observed_seconds").ValueKind);
         Assert.IsFalse(string.IsNullOrWhiteSpace(growth.GetProperty("reason").GetString()));
     }
 
