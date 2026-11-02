@@ -67,12 +67,6 @@ public partial class MacroMap : Control
         }
     }
 
-    internal void PositionLayerPanel(float top)
-    {
-        _layersTop = top;
-        _layers.Position = new(Math.Max(8, Size.X - _layers.Size.X - 12), top);
-    }
-
     internal void RefreshPlatformQueues(double delta)
     {
         if (!IsVisibleInTree() || !_platforms.ButtonPressed || View is null)

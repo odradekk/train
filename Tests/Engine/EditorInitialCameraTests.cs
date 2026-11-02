@@ -33,9 +33,10 @@ public class EditorInitialCameraTests(Node testScene) : TestClass(testScene)
             camera.Zoom(1f);
             var posed = Pose(camera);
             var displayed = fixture.Controller.Display!.DisplayedFrame;
-            var preview = (SceneResult<IEditPreview>.Success)fixture.Editor.Preview(new EditOperation.Properties(
-                new("取景后", ""), EditorPreviewSession.Draft.Specification))!;
-            fixture.Editor.Apply(preview.Value, false);
+            var operation = new EditOperation.Properties(new("取景后", ""), EditorPreviewSession.Draft.Specification);
+            Require(fixture.Editor.Preview(operation) is SceneResult<IEditPreview>.Success { Value.CanApply: true },
+                "取景后的编辑预览必须可以应用。");
+            fixture.Editor.Apply(operation);
             await FramesUntil(TestScene, () => fixture.Editor.State?.Snapshot.Stamp.Revision.Value > 0 &&
                 fixture.Editor.State?.CurrentEvaluation is DesignEvaluation.Complete &&
                 fixture.Controller.Display?.DisplayedFrame is { } frame && !ReferenceEquals(frame, displayed));

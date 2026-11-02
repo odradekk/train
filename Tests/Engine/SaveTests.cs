@@ -13,7 +13,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class SaveTests(Node testScene) : TestClass(testScene)
+public partial class SaveTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
@@ -36,7 +36,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             var menu = app.GetNode<MainMenu>("MainMenu");
             var ui = app.GetNode<GameUi>("GameUi");
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
             await _input.WaitUntil(() => !saves.HasPendingWork);
             var store = new FileSaveStore(OS.GetUserDataDir());
@@ -82,26 +82,25 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => app.Saves!.Status is not null);
             owned.Add(app.Saves!.Status!.Identity.Id);
             var ui = app.GetNode<GameUi>("GameUi");
-            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            var combat = ui.GetNode<CombatPanel>("Root/World/CombatPanel");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            await _input.ClickItem(panels.GetNode<ItemList>("NodesList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            await _input.ClickItem(panels.GetNode<ItemList>("FleetList/Layout/Content/Body/Objects"), 0);
-            await _input.Activate(panels.FindChildren("OpenCombat", "Button", true, false).Cast<Button>().Single());
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/EconomyReports"));
-            Require(panels.FindChildren("Description", "Label", true, false).Count == 2 && combat.Visible &&
+            var combat = Find<CombatPanel>(ui, "CombatPanel");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.Activate(Find<Button>(ui, "Fleet"));
+            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "OpenCombat"));
+            await _input.Activate(Find<Button>(ui, "EconomyReports"));
+            Require(ui.FindChildren("Description", "Label", true, false).Count == 1 && combat.Visible &&
                 combat.ContextTrain == new TrainId(7) && Find<PanelContainer>(ui, "EconomyReports").IsVisibleInTree(),
                 "没有打开上一局的节点和列车详情、战斗面板与经营报告。");
             var binding = app.Host!.GetStatus()!.Binding;
             var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
             await _input.WaitUntil(() => !app.Saves.HasPendingWork && panel.Entries.Count > 0);
             await _input.Activate(UiTestInput.SaveButton(panel, "读取最近存档"), panel);
             await _input.WaitUntil(() => app.Host.GetStatus() is { } status && status.Binding != binding);
             await _input.Frames();
-            Require(panels.FindChildren("Description", "Label", true, false).Count == 0 && !combat.Visible &&
+            Require(ui.FindChildren("Description", "Label", true, false).Count == 0 && !combat.Visible &&
                 combat.ContextTrain is null && combat.SelectedCombat is null &&
                 ui.FindChildren("EconomyReports", "PanelContainer", true, false).Count == 0,
                 "读档后仍留着上一局的详情、战斗面板或经营报告。");
@@ -125,33 +124,33 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             owned.Add(app.Saves!.Status!.Identity.Id);
             var ui = app.GetNode<GameUi>("GameUi");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var nodes = panels.GetNode<ItemList>("NodesList/Layout/Content/Body/Objects");
+            await _input.Activate(Find<Button>(ui, "Nodes"));
+            var nodes = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
             await _input.ClickItem(nodes, 0);
-            await _input.Activate(panels.FindChildren("Form", "Button", true, false).Cast<Button>().Single());
-            var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
-            var available = formation.FindChildren("AvailableVehicles", "ItemList", true, false).Cast<ItemList>().Single();
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
+            var formation = Find<TrainFormationPanel>(ui, "TrainFormationPanel");
+            var available = Find<ItemList>(formation, "AvailableVehicles");
             await _input.ClickItem(available, 0);
-            await _input.Activate(formation.FindChildren("AddSelected", "Button", true, false).Cast<Button>().Single());
-            var form = formation.FindChildren("Form", "Button", true, false).Cast<Button>().Single();
+            await _input.Activate(Find<Button>(formation, "AddSelected"));
+            var form = Find<Button>(formation, "Form");
             Require(formation.IsVisibleInTree() && !form.Disabled &&
-                formation.FindChildren("OrderedVehicles", "ItemList", true, false).Cast<ItemList>().Single().ItemCount == 1,
+                Find<ItemList>(formation, "OrderedVehicles").ItemCount == 1,
                 "未建立可提交的编组草稿。");
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            var fleet = panels.GetNode<ItemList>("FleetList/Layout/Content/Body/Objects");
+            await _input.PressKey(Key.Escape);
+            await _input.Activate(Find<Button>(ui, "Fleet"));
+            var fleet = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             await _input.ClickItem(fleet, 0);
-            await _input.Activate(panels.FindChildren("EditPlan", "Button", true, false).Cast<Button>().Single());
-            var plan = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
-            await _input.Activate(plan.GetNode<CheckBox>("Plan/Layout/Content/Body/Loop"));
-            var apply = plan.FindChildren("Apply", "Button", true, false).Cast<Button>().Single();
-            var descriptions = panels.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
-            Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 2 &&
+            await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "EditPlan"));
+            var plan = Find<TrainPlanWorkspace>(ui, "TrainPlanWorkspace");
+            var apply = Find<Button>(plan, "Apply");
+            var descriptions = ui.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
+            Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 1 &&
                 descriptions.All(label => !label.Text.Contains("已不存在", StringComparison.Ordinal)),
                 "未建立有效节点、列车详情和可提交的计划草稿。");
             var session = setup.Session!;
             var menu = app.GetNode<MainMenu>("MainMenu");
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
-            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             Require(panel.Visible, "游戏顶栏真实输入未打开存档面板。");
             await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
             await _input.WaitUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
@@ -169,7 +168,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 "不保存离开后仍保留活动会话或游戏界面。");
             await _input.Frames();
             Require(descriptions.All(label => !GodotObject.IsInstanceValid(label)) &&
-                panels.FindChildren("Description", "Label", true, false).Count == 0 &&
+                ui.FindChildren("Description", "Label", true, false).Count == 0 &&
                 !panels.IsObjectOpen(new WorldObjectId.Node(new(1))) &&
                 !panels.IsObjectOpen(new WorldObjectId.Train(new(7))) && form.Disabled && apply.Disabled &&
                 formation.FindChildren("Reason", "Label", true, false).Cast<Label>().Single().Text.Contains("已不存在") &&
@@ -398,89 +397,5 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 "不保存按钮未执行退出回调，或错误地确认了保存。");
         }
         finally { await Cleanup(fixture, app, owned); }
-    }
-
-    private static T Dialog<T>(SavePanel panel, string title) where T : Window =>
-        panel.GetChildren().OfType<T>().Single(dialog => dialog.Title == title);
-
-    private static void Press(SavePanel panel, string text)
-    {
-        var button = UiTestInput.SaveButton(panel, text);
-        Require(!button.Disabled && button.Visible, $"按钮不可用：{text}。");
-        button.EmitSignal(BaseButton.SignalName.Pressed);
-    }
-
-    private async Task Cleanup(Fixture fixture, Train.App.App? app, HashSet<Guid> owned)
-    {
-        try
-        {
-            if (app?.Saves is { } saves)
-            {
-                if (saves.Status is { } status) owned.Add(status.Identity.Id);
-                saves.Cancel();
-                await _input.WaitUntil(() => !saves.HasPendingWork);
-            }
-        }
-        finally
-        {
-            try { await fixture.Cleanup(); }
-            finally
-            {
-                UiTestInput.DeleteSaves(owned);
-            }
-        }
-    }
-
-    private sealed class SaveSetup
-    {
-        internal ScriptedCoreSession? Session { get; private set; }
-        internal ScriptedContentFactory? Content { get; private set; }
-        internal bool MissingOnRestore { get; set; }
-
-        internal HostCoordinator Create(TrainLogger logger)
-        {
-            var capture = new FixedCoreCapture(new(new(0, 0), "engine save", "engine sha"),
-                HostCoreScenario.References, "engine core", HostCoreScenario.Input, new(0));
-            var core = new ScriptedCoreFactory
-            {
-                DecodeStateCall = payload => payload == "engine core"
-                    ? new CoreResult<ICoreCapture>.Success(capture) : throw new InvalidOperationException("UNCONFIGURED: core payload"),
-                PrepareRestoreCall = (_, projection, _) =>
-                {
-                    Require(projection.Identity == HostCoreScenario.Input, "恢复时收到错误内容投影。");
-                    Session = new(UiWorldFixture.Save(projection.Identity));
-                    Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));
-                    Session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), capture)], [], [capture.Checkpoint], [], [], capture.References);
-                    Session.ConfirmRecordingStartCall = (point, _) => point.Value == 1 ? new([], [])
-                        : throw new InvalidOperationException("UNCONFIGURED: recording point");
-                    return new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(Session, HostCoreScenario.References));
-                }
-            };
-            Content = new()
-            {
-                CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(new FixedContentReplayCapture(history, "engine recording content")),
-                CaptureCall = (view, _) => new ContentResult<IContentCapture>.Success(new FixedContentCapture("engine content", view.PersistentRevision)),
-                DecodeCaptureCall = payload => payload == "engine content"
-                    ? new ContentResult<IContentCapture>.Success(new FixedContentCapture(payload)) : throw new InvalidOperationException("UNCONFIGURED: content payload"),
-                PrepareLoadCall = (request, _, _) =>
-                {
-                    Require(request.Purpose is ContentLoadPurpose.Restore, "存档引擎情景只允许恢复。");
-                    var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
-                    {
-                        Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-                        { [new("engine-vehicle")] = new ContentLookup<DesignEvaluation>.NotFound() }
-                    };
-                    var report = new ContentPreparationReport([], MissingOnRestore
-                        ? [new(new ContentReference.Generation(new("fixture:missing")), null, "runtime", [])] : [], [], []);
-                    return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(view, report: report));
-                }
-            };
-            var options = new CoreSessionOptions(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1);
-            var host = new HostCoordinator(core, Content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
-                new(new("builtin"), new("mods"), null, "engine-save", []), logger, sessionOptions: options);
-            Require(host.BeginRestore("engine core", "engine content", options).Problem is null, "无法开始初始恢复。");
-            return host;
-        }
-
     }
 }

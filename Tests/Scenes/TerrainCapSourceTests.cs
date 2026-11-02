@@ -74,7 +74,7 @@ public sealed class TerrainCapSourceTests
         var center = (bounds.Minimum + bounds.Maximum) / 2;
         var chunkFrom = new GridColumn((int)Math.Floor(center.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
             (int)Math.Floor(center.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
-        var boundaryKey = prepared.Global.Parts.First(item => NodePartKeys.IsBoundary(item.Key) && !item.Value.Heights.IsEmpty).Key;
+        var boundaryKey = prepared.Global.Parts.First(item => NodePartKeys.IsBoundary(item.Key) && item.Value.Heights.Count != 0).Key;
         var boundary = (Key: boundaryKey, Work: source.Boundary(boundaryKey));
         var chunk = (Key: NodeScene.ChunkKey(chunkFrom), Work: source.Chunk(chunkFrom));
         foreach (var (key, work) in new[] { chunk, boundary })

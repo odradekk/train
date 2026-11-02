@@ -7,6 +7,62 @@ namespace Train.Engine.Tests;
 
 internal sealed class UiTestInput(Node scene)
 {
+    internal async Task ClickLastTabWithScrollArrow(TabContainer tabs)
+    {
+        var bar = tabs.GetTabBar();
+        var last = tabs.GetTabCount() - 1;
+        Require(bar.GetTabOffset() == 0 && bar.GetOffsetButtonsVisible(), "页签栏必须从第一页开始且显示滚动箭头。");
+        var increment = bar.GetThemeIcon("increment");
+        var decrement = bar.GetThemeIcon("decrement");
+        var right = bar.Size.X - increment.GetWidth() - decrement.GetWidth();
+        var arrow = bar.GlobalPosition + new Vector2(bar.Size.X - increment.GetWidth() / 2f, bar.Size.Y / 2);
+        var clicks = 0;
+        while ((bar.GetTabIdxAtPoint(bar.GetTabRect(last).GetCenter()) != last ||
+            bar.GetTabRect(last).GetCenter().X >= right) && clicks++ < tabs.GetTabCount())
+        {
+            await Click(arrow);
+            await Frames(2);
+        }
+        Require(clicks > 0 && bar.GetTabIdxAtPoint(bar.GetTabRect(last).GetCenter()) == last &&
+            bar.GetTabRect(last).GetCenter().X < right,
+            $"鼠标点击滚动箭头必须把最后一页滚入可见区域：offset={bar.GetTabOffset()} size={bar.Size} last={bar.GetTabRect(last)} right={right} arrow={arrow} clicks={clicks}。");
+        await Click(bar.GlobalPosition + bar.GetTabRect(last).GetCenter());
+        Require(tabs.CurrentTab == last, "滚动后必须能用鼠标点开最后一页。");
+    }
+
+    internal async Task ClickTab(TabContainer tabs, int index)
+    {
+        var bar = tabs.GetTabBar();
+        bar.EnsureTabVisible(index);
+        await Frames(2);
+        var point = bar.GlobalPosition + bar.GetTabRect(index).GetCenter();
+        Require(bar.GetGlobalRect().HasPoint(point), "目标页签必须滚入可见范围后再点击。");
+        await Click(point);
+        Require(tabs.CurrentTab == index, $"鼠标没有切换到第 {index + 1} 页。");
+    }
+
+    internal async Task ChooseTab(TabContainer tabs, int index)
+    {
+        tabs.GetTabBar().GrabFocus();
+        var direction = tabs.CurrentTab < index ? Key.Right : Key.Left;
+        var moves = Math.Abs(tabs.CurrentTab - index);
+        for (var move = 0; move < moves; move++) await PressKey(direction);
+        Require(tabs.CurrentTab == index, "键盘应能切换到滚动范围外的页签。");
+    }
+
+    internal async Task ChooseMenu(MenuButton menu, string text)
+    {
+        await Activate(menu);
+        var popup = menu.GetPopup();
+        await WaitUntil(() => popup.Visible);
+        if (popup.GetFocusedItem() < 0) await PressKey(Key.Down);
+        var index = Enumerable.Range(0, popup.ItemCount).Single(item => popup.GetItemText(item) == text);
+        var direction = popup.GetFocusedItem() < index ? Key.Down : Key.Up;
+        var moves = Math.Abs(popup.GetFocusedItem() - index);
+        for (var move = 0; move < moves; move++) await PressKey(direction);
+        await PressKey(Key.Enter);
+    }
+
     internal async Task Activate(BaseButton button, Window? window = null)
     {
         Require(button.IsVisibleInTree() && !button.Disabled, $"真实输入按钮不可用：{button.Name}。");

@@ -100,6 +100,7 @@ public partial class App : Node
                 var inspector = new DeveloperInspector();
                 AddChild(inspector);
                 inspector.Configure(Development, WorldScenes);
+                ui.OpenDeveloperTools = inspector.Open;
                 developmentCommands = inspector.Execute;
                 simulationCommands = new SimulationConsoleCommands(Host, _logger, Development).Execute;
                 trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;

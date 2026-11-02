@@ -21,7 +21,7 @@ public sealed class EditorScenarioTests
         var session = (EditorSession)((SceneResult<IDesignEditSession>.Success)result).Value;
         Assert.AreSame(editors.Session, session);
         var old = session.Capture();
-        session.Change(draft with { Display = new("修改", "") });
+        Assert.IsInstanceOfType<SceneResult<EditState>.Success>(session.Apply(new EditOperation.Properties(new("修改", ""), draft.Specification)));
         Assert.IsFalse(session.MarkSaved(old));
         Assert.IsFalse(session.AcceptEvaluation(old.Stamp, evaluation));
         Assert.IsTrue(session.Read().IsDirty);

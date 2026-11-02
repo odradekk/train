@@ -240,9 +240,10 @@ internal sealed partial class MeasurementRun
         await SampleSoakView("editor", _app.Host!.GetStatus()!.Speed, setSpeed: false);
         var cell = editor.State!.Elements.First(element => element.Kind == EditElementKind.Cell && !element.Locked);
         editor.Select(new EditSelection.Elements([cell.Id]));
-        if (editor.Preview(new EditOperation.PaintSelection(new PaintColor("#c03030"))) is not SceneResult<IEditPreview>.Success preview)
+        var edit = new EditOperation.PaintSelection(new("#c03030"));
+        if (editor.Preview(edit) is not SceneResult<IEditPreview>.Success)
             throw new InvalidOperationException("长测编辑预览失败：" + editor.Message);
-        editor.Apply(preview.Value, false);
+        editor.Apply(edit);
         if (editor.State?.CanUndo != true) throw new InvalidOperationException("长测编辑没有生效：" + editor.Message);
         editor.Undo();
         editor.Redo();

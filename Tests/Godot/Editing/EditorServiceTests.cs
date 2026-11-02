@@ -15,7 +15,7 @@ using Train.Scenes.Contracts;
 namespace Train.Godot.Tests.Editing;
 
 [TestClass]
-public sealed class EditorServiceTests
+public sealed partial class EditorServiceTests
 {
     private static DesignDraft Draft(string name) => new(new(name, ""),
         new DesignSpecification.SceneModel(null), new([], [], []));
@@ -696,31 +696,6 @@ public sealed class EditorServiceTests
         Assert.AreEqual("user draft payload", File.ReadAllText(path));
         Assert.IsFalse(fixture.Editor.IsDirty);
         Assert.IsTrue(fixture.Coordinator.GetSaveStatus()!.Frozen);
-    }
-
-    [TestMethod]
-    public void Reading_cached_state_does_not_poll_session_or_publish_changes()
-    {
-        using var fixture = new EditingFixture();
-        fixture.Open();
-        var cached = fixture.Editor.State;
-        var reads = 0;
-        var changes = 0;
-        fixture.Editor.Changed += () => changes++;
-        fixture.Session.Change(Draft("external change"));
-        var updated = fixture.Session.Read();
-        fixture.Session.ReadCall = () => { reads++; return updated; };
-        for (var index = 0; index < 3; index++)
-        {
-            Assert.AreSame(cached, fixture.Editor.State);
-            Assert.IsFalse(fixture.Editor.IsDirty);
-        }
-        Assert.AreEqual(0, reads);
-        Assert.AreEqual(0, changes);
-        fixture.Editor.Process();
-        Assert.AreEqual(1, reads);
-        Assert.AreSame(updated, fixture.Editor.State);
-        Assert.IsTrue(fixture.Editor.IsDirty);
     }
 
     [TestMethod]

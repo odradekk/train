@@ -1,0 +1,166 @@
+// 原型假数据。名称取自 builtin 内容（聚居地类型、车辆、货物），地名为虚构。
+const GOODS = {
+  grain:     { name: '谷物',     color: '#d9b45a' },
+  produce:   { name: '果蔬',     color: '#7fbf4d' },
+  machinery: { name: '机械部件', color: '#8a96a3' },
+  concrete:  { name: '混凝土',   color: '#b9b4a8' },
+  glass:     { name: '玻璃',     color: '#8fd3e0' },
+  chemicals: { name: '化工原料', color: '#c27fd1' },
+  electronics:{ name: '电子部件', color: '#4fb39a' },
+  ironore:   { name: '铁矿石',   color: '#a0624a' },
+  textiles:  { name: '纺织品',   color: '#d78aa0' },
+};
+
+const VEHICLE_TYPES = {
+  locoS:  { name: '小型机车',   role: '机车', size: '小型', traction: 60,  capacity: 0,  mass: 18, length: 8,  price: 1500 },
+  locoM:  { name: '中型机车',   role: '机车', size: '中型', traction: 120, capacity: 0,  mass: 32, length: 12, price: 2400 },
+  locoL:  { name: '大型机车',   role: '机车', size: '大型', traction: 220, capacity: 0,  mass: 55, length: 16, price: 4200 },
+  wagonS: { name: '小型货车',   role: '货车', size: '小型', traction: 0,   capacity: 20, mass: 8,  length: 7,  price: 600 },
+  wagonM: { name: '中型货车',   role: '货车', size: '中型', traction: 0,   capacity: 40, mass: 14, length: 10, price: 1100 },
+  wagonL: { name: '大型货车',   role: '货车', size: '大型', traction: 0,   capacity: 80, mass: 26, length: 14, price: 1900 },
+};
+
+function makeWorld() {
+  return extendWorld({
+    day: 3, minute: 8 * 60 + 20,
+    funds: 12400,
+    nextVehicle: 20, nextTrain: 4,
+    nodes: {
+      n1: { name: '青川', x: 560, y: 420, kind: 'settlement', type: '工业城', relation: 'neutral', pop: 1240,
+            market: { grain: [120, 14, 11], machinery: [36, 58, 49], concrete: [210, 22, 18], glass: [0, null, 26], chemicals: [80, 31, 27], electronics: [12, 96, 84] },
+            forSale: ['v10', 'v11', 'v12', 'v13'], services: true, platforms: 3 },
+      n2: { name: '白石镇', x: 270, y: 640, kind: 'settlement', type: '农业镇', relation: 'owned', pop: 380,
+            stock: { grain: [146, 120], produce: [88, 60], machinery: [6, 20], concrete: [40, 40] }, platforms: 1 },
+      n3: { name: '赤岭', x: 900, y: 250, kind: 'settlement', type: '矿业镇', relation: 'neutral', pop: 620,
+            market: { ironore: [340, 9, 6], machinery: [4, 66, 61], grain: [15, 19, 17] }, forSale: [], services: true, platforms: 2 },
+      n4: { name: '北港', x: 1180, y: 430, kind: 'settlement', type: '核心城市', relation: 'neutral', pop: 3100,
+            market: { ironore: [20, 15, 13], electronics: [140, 72, 64], textiles: [90, 24, 20], grain: [30, 21, 19] }, forSale: [], services: true, platforms: 4 },
+      n5: { name: '松林', x: 720, y: 720, kind: 'settlement', type: '林业镇', relation: 'neutral', pop: 410,
+            market: { produce: [60, 12, 9], textiles: [10, 30, 25] }, forSale: [], services: false, platforms: 1 },
+      n6: { name: '黑沙', x: 1400, y: 720, kind: 'settlement', type: '油田镇', relation: 'hostile', pop: 700, platforms: 2 },
+      n7: { name: '南坡', x: 1010, y: 650, kind: 'empty', terrain: '平原', resources: ['硅砂', '灰岩'] },
+      n8: { name: '西岗', x: 410, y: 190, kind: 'empty', terrain: '丘陵', resources: ['铁矿石'] },
+      n9: { name: '骨刺巢', x: 1440, y: 220, kind: 'lair', threat: '大型巢群' },
+      n10:{ name: '东湾', x: 1230, y: 880, kind: 'empty', terrain: '荒漠', resources: ['导电金属矿'] },
+    },
+    lines: {
+      l1: { a: 'n2', b: 'n1', tracks: 2, max: 3, length: 42, breaks: 0 },
+      l2: { a: 'n1', b: 'n3', tracks: 1, max: 2, length: 55, breaks: 0 },
+      l3: { a: 'n1', b: 'n4', tracks: 2, max: 3, length: 68, breaks: 1 },
+      l4: { a: 'n3', b: 'n4', tracks: 1, max: 2, length: 50, breaks: 0 },
+      l5: { a: 'n1', b: 'n5', tracks: 1, max: 2, length: 38, breaks: 0 },
+      l6: { a: 'n5', b: 'n7', tracks: 0, max: 2, length: 34, breaks: 0 },
+      l7: { a: 'n7', b: 'n4', tracks: 1, max: 2, length: 40, breaks: 0 },
+      l8: { a: 'n4', b: 'n6', tracks: 1, max: 2, length: 44, breaks: 0 },
+      l9: { a: 'n3', b: 'n9', tracks: 0, max: 1, length: 58, breaks: 0 },
+      l10:{ a: 'n8', b: 'n1', tracks: 0, max: 2, length: 40, breaks: 0 },
+      l11:{ a: 'n8', b: 'n3', tracks: 0, max: 1, length: 52, breaks: 0 },
+      l12:{ a: 'n7', b: 'n10', tracks: 0, max: 1, length: 36, breaks: 0 },
+      l13:{ a: 'n6', b: 'n10', tracks: 0, max: 1, length: 30, breaks: 0 },
+      l14:{ a: 'n2', b: 'n5', tracks: 1, max: 2, length: 48, breaks: 0 },
+    },
+    vehicles: {
+      v1: { type: 'locoM', hp: 0.94 }, v2: { type: 'wagonM', hp: 0.88 }, v3: { type: 'wagonM', hp: 0.9 },
+      v4: { type: 'locoS', hp: 0.72 }, v5: { type: 'wagonS', hp: 0.6 },
+      v6: { type: 'locoM', hp: 1 }, v7: { type: 'wagonL', hp: 0.97 },
+      v10: { type: 'locoM', hp: 0.92, sale: true }, v11: { type: 'wagonM', hp: 1, sale: true },
+      v12: { type: 'wagonM', hp: 0.85, sale: true }, v13: { type: 'wagonL', hp: 0.7, sale: true },
+    },
+    trains: {
+      t1: { name: '列车 1', vehicles: ['v1', 'v2', 'v3'], running: true, status: 'moving', line: 'l1', from: 'n2', to: 'n1', progress: 0.35, stopIndex: 1,
+            cargo: { grain: 40 },
+            plan: { loop: true, stops: [
+              { node: 'n2', pass: false, dwell: 30, rules: [{ good: 'grain', action: 'load', target: 40, limit: null }] },
+              { node: 'n1', pass: false, dwell: 30, rules: [{ good: 'grain', action: 'sell', target: 0, limit: 10 }, { good: 'machinery', action: 'buy', target: 20, limit: 60 }] },
+            ] },
+            report: { lap: 2, cash: 340, load: 0.82, issue: null } },
+      t2: { name: '列车 2', vehicles: ['v4', 'v5'], running: true, status: 'loading', at: 'n3', stopIndex: 0, dwellLeft: 6,
+            cargo: { ironore: 12 },
+            plan: { loop: true, stops: [
+              { node: 'n3', pass: false, dwell: 30, rules: [{ good: 'ironore', action: 'buy', target: 20, limit: 10 }] },
+              { node: 'n4', pass: false, dwell: 30, rules: [{ good: 'ironore', action: 'sell', target: 0, limit: 12 }] },
+            ] },
+            report: { lap: 5, cash: 210, load: 0.95, issue: null } },
+      t3: { name: '列车 3', vehicles: ['v6', 'v7'], running: false, status: 'idle', at: 'n1', cargo: {}, plan: null, report: null },
+    },
+    parked: { n1: [] }, // 停在聚居地、未编入列车的玩家车辆
+    notifications: [
+      { id: 1, lvl: 'warning', text: '青川—北港 出现 1 处断点', when: '第 3 天 07:50', target: { kind: 'line', id: 'l3' }, unread: true },
+      { id: 2, lvl: 'complete', text: '列车 2 完成第 5 圈，净现金流 +210', when: '第 3 天 07:12', target: { kind: 'train', id: 't2' }, unread: true },
+      { id: 3, lvl: 'info', text: '自动存档完成', when: '第 3 天 06:00', target: null, unread: false },
+      { id: 4, lvl: 'warning', text: '列车 3 没有运行计划，停在青川', when: '第 2 天 22:40', target: { kind: 'train', id: 't3' }, unread: true },
+    ],
+  });
+}
+
+const STATUS = {
+  moving:  { label: '运行中', cls: 'success',   icon: 'play' },
+  loading: { label: '装卸中', cls: 'servicing', icon: 'swap' },
+  waiting: { label: '等待中', cls: 'info',      icon: 'clock' },
+  blocked: { label: '受阻',   cls: 'warning',   icon: 'alert' },
+  combat:  { label: '战斗中', cls: 'error',     icon: 'sword' },
+  idle:    { label: '已停车', cls: 'neutral',   icon: 'pause' },
+};
+const STATUS_COLOR = { moving: '#2f9e5c', loading: '#2aa3b3', waiting: '#7f8fa3', blocked: '#d8962a', combat: '#c9423a', idle: '#7f8893' };
+const RELATION = {
+  owned:   { label: '自有',   cls: 'owned',   color: '#2b77d0' },
+  neutral: { label: '非敌对', cls: 'neutral', color: '#d7d2c4' },
+  hostile: { label: '敌对',   cls: 'hostile', color: '#c9423a' },
+};
+const ACTIONS = {
+  buy:    { label: '买入', hint: '从市场买入，补到' },
+  sell:   { label: '卖出', hint: '卖给市场，降到' },
+  load:   { label: '装载', hint: '从库存装上车，补到' },
+  unload: { label: '卸载', hint: '从车上卸到库存，降到' },
+};
+
+// 单色线条图标，24×24
+const ICONS = {
+  train: '<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 21l-2-4M15 21l2-4"/><circle cx="9" cy="14" r=".6"/><circle cx="15" cy="14" r=".6"/>',
+  route: '<path d="M8 3 5 21M16 3l3 18M6.6 7.5h10.8M6 12.5h12M5.4 17.5h13.2"/>',
+  city: '<path d="M3 21h18M5 21V9l5-3v15M10 21V4l9 4v13"/><path d="M13 10h3M13 14h3"/>',
+  report: '<path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/>',
+  blueprint: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>',
+  sword: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/>',
+  bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  pause: '<path d="M9 5v14M15 5v14"/>',
+  play: '<path d="M7 4l13 8-13 8z"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  locate: '<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.5"/>',
+  scene: '<path d="M12 3 3 8v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
+  chevdown: '<path d="m6 9 6 6 6-6"/>',
+  back: '<path d="M15 6l-6 6 6 6"/>',
+  alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/>',
+  check: '<path d="m5 12 5 5 9-10"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  swap: '<path d="M4 8h14l-3-3M20 16H6l3 3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  drag: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  up: '<path d="m6 15 6-6 6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8M8 21v-7h8v7"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  exit: '<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/>',
+  folder: '<path d="M3 6h7l2 2h9v11H3z"/>',
+  flag: '<path d="M5 21V4h11l-2 4 2 4H5"/>',
+  wrench: '<path d="M14 6a4 4 0 0 0 5 5l-9 9-3-3 9-9z"/>',
+  hammer: '<path d="M14 4l6 6-3 3-6-6zM11 7 3 15l3 3 8-8"/>',
+  warehouse: '<path d="M3 10 12 4l9 6v10H3z"/><path d="M7 20v-6h10v6"/>',
+  coin: '<circle cx="12" cy="12" r="8"/><path d="M9.5 9.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4M12 7.5v1.5M12 15v1.5"/>',
+  lair: '<path d="M4 20 12 4l8 16z"/><path d="M9 20l3-6 3 6"/>',
+  empty: '<circle cx="12" cy="12" r="7" stroke-dasharray="3 3"/>',
+  pin: '<path d="M12 21s-6-6-6-11a6 6 0 0 1 12 0c0 5-6 11-6 11z"/><circle cx="12" cy="10" r="2"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="1"/>',
+};
+function icon(name, cls = '') { return `<svg class="icon ${cls}" viewBox="0 0 24 24">${ICONS[name] || ''}</svg>`; }

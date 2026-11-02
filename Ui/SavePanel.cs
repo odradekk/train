@@ -34,6 +34,7 @@ public partial class SavePanel : Window
     private string? _exportPath;
 
     internal IReadOnlyList<SaveEntry> Entries => _entries;
+    public override void _UnhandledInput(InputEvent input) => UiStyle.CloseOnEscape(this, input);
 
     public override void _Ready()
     {
