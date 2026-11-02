@@ -35,6 +35,8 @@ internal sealed partial class EditorService
         ReadDrafts(AuthoringPaths.PackageDraftsDirectory(_store.Root, package),
             target => target is DraftTarget.PackageDefinition value && value.Package == package);
 
+    internal DateTimeOffset DraftSavedAt(SavedContentDraft draft) => new(File.GetLastWriteTimeUtc(DraftPath(draft)));
+
     private ImmutableArray<SavedContentDraft> ReadDrafts(string path, Func<DraftTarget, bool> include)
     {
         if (!Directory.Exists(path)) return [];

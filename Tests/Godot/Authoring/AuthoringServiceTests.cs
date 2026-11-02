@@ -17,26 +17,8 @@ namespace Train.Godot.Tests.Authoring;
 
 [TestClass]
 [TestCategory("integration")]
-public sealed class AuthoringServiceTests
+public sealed partial class AuthoringServiceTests
 {
-    [TestMethod]
-    public void Development_requires_active_game_and_exported_core_is_read_only()
-    {
-        using var fixture = new AuthoringFixture(ready: false);
-        Assert.IsFalse(fixture.Service.CanUse);
-        fixture.Start();
-        Assert.IsTrue(fixture.Service.CanUse);
-        using var release = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, false, fixture.Mods, fixture.Core);
-        Assert.IsFalse(release.CanUse);
-        release.OpenCore();
-        Assert.IsNull(release.Target);
-        using var exported = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, true, fixture.Mods, null);
-        Assert.IsFalse(exported.CanWriteCore);
-        exported.OpenCore();
-        StringAssert.Contains(exported.Message!, "只读");
-        Assert.IsNull(exported.Target);
-    }
-
     [TestMethod]
     public void Grid_blueprint_draft_event_becomes_write_definition_and_reload_uses_disk()
     {
@@ -65,55 +47,7 @@ public sealed class AuthoringServiceTests
         Assert.AreEqual("written", File.ReadAllText(fixture.Output));
     }
 
-    [TestMethod]
-    public void External_source_change_refuses_all_writes_and_retains_draft()
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Open();
-        fixture.SaveForm();
-        File.WriteAllText(Path.Combine(fixture.Core, "source.txt"), "external");
-        fixture.ConfigureWrite();
-        fixture.Service.Publish();
-        fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsFalse(fixture.Service.LastWrite!.Success);
-        Assert.AreEqual(0, fixture.Service.LastWrite.Completed.Length);
-        Assert.IsFalse(File.Exists(fixture.Output));
-        Assert.AreEqual(1, fixture.LoadCalls);
-        Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
-        Assert.AreEqual(1, fixture.Service.Drafts().Length);
-        StringAssert.Contains(fixture.Service.Message!, "未写入任何文件");
-        StringAssert.Contains(fixture.Service.Message!, "草稿保留");
-        StringAssert.Contains(fixture.Service.Message!, "请重新载入");
-        Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
-        Assert.IsNull(fixture.LastOperation.FaultCode);
-        var diagnostic = fixture.LastOperation.Diagnostics.Single();
-        Assert.AreEqual("stale_basis", diagnostic.Code);
-        Assert.AreEqual("", diagnostic.Source!.Path);
-        StringAssert.Contains(diagnostic.Message, "未写入任何文件");
-        StringAssert.Contains(diagnostic.Message, "草稿保留");
-        StringAssert.Contains(diagnostic.Message, "请重新载入");
-        StringAssert.Contains(diagnostic.Message, "处理外部修改后重新校验");
-    }
 
-    [TestMethod]
-    public void Disk_write_survives_reload_rejection_while_old_content_and_draft_remain()
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Open();
-        fixture.SaveForm();
-        var savedDraft = fixture.Service.Drafts().Single();
-        fixture.ConfigureWrite(rejectReload: true);
-        fixture.Service.Publish();
-        fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsTrue(fixture.Service.LastWrite!.Success);
-        Assert.AreEqual("written", File.ReadAllText(fixture.Output));
-        Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
-        Assert.IsTrue(File.Exists(fixture.DraftPath(savedDraft.Id)));
-        Assert.IsNull(fixture.Service.Package);
-        StringAssert.Contains(fixture.Service.Message!, "内存内容未切换");
-        StringAssert.Contains(fixture.Service.Message!, "reload rejected");
-        Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
-    }
 
     [TestMethod]
     public void Excluded_target_is_rejected_with_its_diagnostics_and_candidate_is_disposed()
@@ -132,7 +66,7 @@ public sealed class AuthoringServiceTests
         Assert.AreEqual(1, fixture.LoadCalls);
         Assert.IsFalse(File.Exists(fixture.Output));
         Assert.IsNull(fixture.Service.LastWrite);
-        StringAssert.Contains(fixture.Service.Message!, diagnostic.Message);
+        CollectionAssert.AreEqual(new[] { diagnostic }, fixture.Service.PublishIssues.Select(issue => issue.Diagnostic).ToArray());
     }
 
     [TestMethod]
@@ -202,65 +136,6 @@ public sealed class AuthoringServiceTests
         else CollectionAssert.AreEqual(new[] { diagnostic }, fixture.LastOperation.Diagnostics.ToArray());
         Assert.IsFalse(File.Exists(fixture.Output));
         Assert.IsNull(fixture.Service.LastWrite);
-    }
-
-    [TestMethod]
-    public void A_written_package_requires_reload_and_saved_draft_can_explicitly_use_the_new_source()
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Open(); fixture.SaveForm();
-        var saved = fixture.Service.Drafts().Single();
-        var previous = ((DraftTarget.PackageDefinition)saved.Target).SourceVersion;
-        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsNull(fixture.Service.Package);
-        Assert.IsTrue(File.Exists(fixture.DraftPath(saved.Id)));
-        fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"));
-        Assert.IsFalse(fixture.Editor.IsOpen);
-        fixture.Open();
-        Assert.AreNotEqual(previous, fixture.Service.Package!.SourceVersion);
-        fixture.Service.OpenDraft(saved);
-        Assert.IsFalse(fixture.Editor.IsOpen);
-        StringAssert.Contains(fixture.Service.Message!, "不会自动合并");
-        fixture.Service.OpenDraft(saved, useCurrentSource: true);
-        fixture.Pump(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
-        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)fixture.Editor.Target!).SourceVersion);
-        Assert.AreEqual(((DefinitionDraft.Blueprint)((DraftPayload.Definition)saved.Payload).Value).Value, fixture.Editor.State!.Snapshot.Draft);
-        Assert.IsTrue(fixture.Editor.IsDirty);
-        fixture.Editor.RequestClose(() => { });
-        Assert.IsTrue(fixture.Editor.Leaving);
-        fixture.Editor.ResolveClose(LeaveChoice.Cancel);
-        fixture.Editor.SaveDraft(); fixture.Pump(() => !fixture.Editor.IsBusy);
-        Assert.IsFalse(fixture.Editor.IsDirty);
-        var resaved = fixture.Service.Drafts().Single();
-        Assert.AreEqual(saved.Id, resaved.Id);
-        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)resaved.Target).SourceVersion);
-        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsTrue(fixture.Service.LastWrite!.Success);
-    }
-
-    [TestMethod]
-    [OSCondition(OperatingSystems.Windows)]
-    public void Partial_write_invalidates_source_and_retains_the_actual_package_draft()
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Open(); fixture.SaveForm();
-        var saved = fixture.Service.Drafts().Single();
-        using var locked = new FileStream(Path.Combine(fixture.Core, "source.txt"), FileMode.Open, FileAccess.Read, FileShare.Read);
-        fixture.ConfigureWrite();
-        fixture.Host.Factory.PreparePackageWriteCall = (basis, _) => new ContentResult<PackageWritePlan>.Success(new(basis.Package, basis.SourceVersion,
-            [new("output.txt", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("written"))), new("source.txt", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("blocked")))], []));
-        fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsFalse(fixture.Service.LastWrite!.Success);
-        Assert.AreEqual("output.txt", fixture.Service.LastWrite.Completed.Single().RelativePath);
-        Assert.IsNull(fixture.Service.Package);
-        Assert.IsTrue(File.Exists(fixture.DraftPath(saved.Id)));
-        Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
-        StringAssert.Contains(fixture.Service.Message!, "请重新载入源包");
-        Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
-        var diagnostic = fixture.LastOperation.Diagnostics.Single();
-        Assert.AreEqual("package_write_failed", diagnostic.Code);
-        Assert.AreEqual("source.txt", diagnostic.Source!.Path);
-        StringAssert.Contains(fixture.Service.Message!, "写入已停止，已完成项保留");
     }
 
     [TestMethod]
@@ -489,7 +364,7 @@ public sealed class AuthoringServiceTests
             Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), grid: false);
             Service.MarkFormDirty(); Service.SaveForm(Blueprint("saved form")); Pump(() => !Service.IsBusy);
         }
-        internal void ConfigureWrite(bool rejectReload = false, ContentPreparationReport? report = null)
+        internal void ConfigureWrite(bool rejectReload = false, ContentPreparationReport? report = null, ContentPreparationReport? reloadReport = null)
         {
             LoadCalls = 0;
             var initialOutput = File.Exists(Output) ? File.ReadAllText(Output) : null;
@@ -510,7 +385,7 @@ public sealed class AuthoringServiceTests
                 Assert.AreEqual(0, CheckCandidate.Activations);
                 Assert.AreEqual("written", File.ReadAllText(Output));
                 if (rejectReload) return new ContentResult<IContentCandidate>.Failure([Diagnostic("reload-rejected", "reload rejected")]);
-                ReloadCandidate = new(new FixedContentView(Host.Content.Core, new(2)), Host.Content, ContentChange.Presentation);
+                ReloadCandidate = new(new FixedContentView(Host.Content.Core, new(2)), Host.Content, ContentChange.Presentation, reloadReport);
                 return new ContentResult<IContentCandidate>.Success(ReloadCandidate);
             };
         }

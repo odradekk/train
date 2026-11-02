@@ -20,17 +20,20 @@ public partial class MainMenu : Control
     public event Action? NewGameRequested;
     public event Action? ExampleRequested;
     public event Action? SettingsRequested;
+    public event Action? AuthoringRequested;
 
     internal void SetHostAvailable(bool available)
     {
         _newGame.Visible = available;
         _continue.Visible = available;
         _example.Visible = available && OS.IsDebugBuild();
+        GetNode<Button>("%OpenAuthoring").Visible = available && OS.IsDebugBuild();
     }
     internal void SetGameStartEnabled(bool enabled, IContentView? content, bool loading)
     {
         _newGame.Disabled = !enabled;
         _example.Disabled = !enabled;
+        GetNode<Button>("%OpenAuthoring").Disabled = !enabled;
         _continue.Disabled = !enabled || _recent is null;
         GetNode<ProgressBar>("%LoadingProgress").Visible = loading && content is null;
         GetNode<Label>("%LoadingStatus").Text = content is null
@@ -112,6 +115,8 @@ public partial class MainMenu : Control
         _example.Visible = OS.IsDebugBuild();
         _example.Pressed += () => ExampleRequested?.Invoke();
         GetNode<Button>("%Settings").Pressed += () => SettingsRequested?.Invoke();
+        GetNode<Button>("%OpenAuthoring").Visible = OS.IsDebugBuild();
+        GetNode<Button>("%OpenAuthoring").Pressed += () => AuthoringRequested?.Invoke();
         SetGameStartEnabled(false, null, true);
     }
 }
