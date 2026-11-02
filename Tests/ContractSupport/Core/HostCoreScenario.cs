@@ -188,12 +188,12 @@ public sealed class ScriptedCoreSession(ICoreReadView initial) : ICoreSession
     public SubmissionResult Submit(CoreCommand command, CommandSource source)
     {
         EnsureAlive();
+        SubmitCount++;
         if (!steps.TryPeek(out var next) || next is not SubmitStep submit
             || !Matches(submit.Command, command) || submit.Source != source)
             throw HostCoreScenario.Unconfigured(nameof(Submit));
         steps.Dequeue();
         CurrentView = submit.After;
-        SubmitCount++;
         SubmitThread = Environment.CurrentManagedThreadId;
         return submit.Result;
     }
