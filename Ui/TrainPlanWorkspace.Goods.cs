@@ -13,7 +13,7 @@ internal partial class TrainPlanWorkspace
         VBoxContainer PriceColumn, Label PriceLabel, Label Summary, Label Problems);
     private readonly List<RuleControls> _ruleControls = [];
 
-    private static GoodsRuleInput RuleInput(AutomaticGoodsRule rule) => new(rule.Action switch
+    internal static GoodsRuleInput RuleInput(AutomaticGoodsRule rule) => new(rule.Action switch
     {
         AutomaticGoodsAction.Buy => TradeAction.Buy, AutomaticGoodsAction.Sell => TradeAction.Sell,
         AutomaticGoodsAction.Load => TradeAction.Load, _ => TradeAction.Unload
@@ -170,10 +170,11 @@ internal partial class TrainPlanWorkspace
             controls.Problems.Visible = controls.Problems.Text.Length > 0;
         }
     }
-    private static string ActionName(TradeAction action) => action switch
+    internal static string ActionName(TradeAction action) => action switch
     { TradeAction.Buy => "买入", TradeAction.Sell => "卖出", TradeAction.Load => "装载", TradeAction.Unload => "卸载", _ => "动作已不可用" };
-    private string GoodName(GoodId? good) => good is null ? "请选择货物" :
-        _content.FindGood(good) is ContentLookup<GoodPresentation>.Found { Value.Missing: false } found
+    private string GoodName(GoodId? good) => GoodName(good, _content);
+    private static string GoodName(GoodId? good, IContentView content) => good is null ? "请选择货物" :
+        content.FindGood(good) is ContentLookup<GoodPresentation>.Found { Value.Missing: false } found
             ? found.Value.Display.Text.Name : "货物内容缺失";
     private string InventoryName(InventoryId id)
     {
@@ -182,11 +183,13 @@ internal partial class TrainPlanWorkspace
             return $"租用仓库（容量 {lease.Value.Capacity}，{(lease.Value.Expired ? "已到期" : UiInput.FormatTime(lease.Value.ExpiresAtStep) + " 到期")}）";
         return "聚居地库存";
     }
-    private string RuleSentence(GoodsRuleInput rule)
+    private string RuleSentence(GoodsRuleInput rule) => RuleSentence(rule, _view, _content);
+
+    internal static string RuleSentence(GoodsRuleInput rule, ICoreReadView view, IContentView content)
     {
         if (rule.Good is null) return "尚未选择货物。";
-        var good = GoodName(rule.Good); var quantity = rule.TargetQuantity;
-        var store = rule.Inventory is { } inventory && _view.FindInventory(inventory) is Lookup<InventoryView>.Found { Value.Owner: InventoryOwner.Lease }
+        var good = GoodName(rule.Good, content); var quantity = rule.TargetQuantity;
+        var store = rule.Inventory is { } inventory && view.FindInventory(inventory) is Lookup<InventoryView>.Found { Value.Owner: InventoryOwner.Lease }
             ? "租用仓库" : "库存";
         var text = rule.Action switch
         {

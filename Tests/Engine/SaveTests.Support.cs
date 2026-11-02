@@ -49,6 +49,7 @@ public partial class SaveTests
         internal ScriptedContentFactory? Content { get; private set; }
         internal ScriptedCoreFactory Core { get; private set; } = null!;
         internal bool MissingOnRestore { get; set; }
+        internal bool InCombat { get; init; }
 
         internal HostCoordinator Create(TrainLogger logger)
         {
@@ -61,7 +62,7 @@ public partial class SaveTests
                 PrepareRestoreCall = (_, projection, _) =>
                 {
                     Require(projection.Identity == HostCoreScenario.Input, "恢复时收到错误内容投影。");
-                    var view = UiWorldFixture.Save(projection.Identity);
+                    var view = UiWorldFixture.Save(projection.Identity, InCombat);
                     view.FormationPreviews = TrainFormationTestScenario.Vehicle1;
                     Session = new(view);
                     Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));

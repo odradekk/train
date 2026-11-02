@@ -134,6 +134,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
                 node => basis.FindLocation(new WorldLocation.Node(node.Id))),
             Instances = new InstanceId[] { new InstanceId.Vehicle(new(1)), new InstanceId.Vehicle(new(2)) }
                 .ToDictionary(id => id, basis.FindInstance),
+            Inventories = new Dictionary<InventoryId, Lookup<InventoryView>> { [new(1)] = basis.FindInventory(new(1)) },
             Trains = formed ? new Dictionary<TrainId, Lookup<TrainView>> { [new(7)] = basis.FindTrain(new(7)) }
                 : new Dictionary<TrainId, Lookup<TrainView>>()
         };

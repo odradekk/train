@@ -65,7 +65,7 @@ public partial class GameUi
         if (_host is not null)
         {
             _panels = new WorldPanels { Name = "WorldPanels" };
-            _panels.Initialize(_host, Submit, ReportUiError);
+            _panels.Initialize(_host, ReportUiError, SubmitInline);
             _world.AddChild(_panels);
             _formation = new TrainFormationWorkspace();
             _formation.Initialize(_host, SubmitInline);
@@ -75,6 +75,7 @@ public partial class GameUi
             _world.AddChild(_plan);
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
+            _panels.TrainFormationRequested += _formation.Open;
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, Submit, _icons, Submit, SubmitInline);
             _world.AddChild(_economy);
@@ -91,7 +92,6 @@ public partial class GameUi
             _railway.Initialize(_host, Submit);
             _world.AddChild(_railway);
             _panels.RailwayWorkRequested += (target, edge) => { _railway.Open(target, edge); _shell.ShowWorkspace(_railway.Content); };
-            _panels.InventoryRequested += _economy.OpenTrainInventory;
             _economy.FormationRequested += _formation.Open;
             _combat = new CombatPanel { Name = "CombatPanel" };
             _combat.Initialize(Submit, ReportUiError);
