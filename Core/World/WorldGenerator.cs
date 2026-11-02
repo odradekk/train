@@ -29,6 +29,9 @@ internal static class WorldGenerator
             var types = content.SettlementTypes.Where(t => content.SettlementTemplates.Any(p => p.Type == t.Id)).ToArray();
             if (types.Length == 0) Invalid("Content.SettlementTemplates");
             GenerationFailure? last = null;
+            var reachedOccupants = false;
+            // 第二轮只改生物聚落分配；未进入过占据者阶段时重跑只会重复失败并增加预算计数。
+            for (var pass = 0; pass < 2 && (pass == 0 || reachedOccupants); pass++)
             for (ulong world = 0; world <= (ulong)input.Configuration.Budget.MaximumWorldRetries; world++)
             {
                 budget.WorldRetry = world;
@@ -50,7 +53,8 @@ internal static class WorldGenerator
                 {
                     try
                     {
-                        var occupants = Occupants(nodes, input, content, budget, attempt);
+                        reachedOccupants = true;
+                        var occupants = WorldOccupants.Build(nodes, edges, input, content, budget, attempt, pass == 1);
                         var resources = Resources(nodes, input, budget);
                         var tracks = WorldRailway.Build(nodes, edges, occupants, input, budget);
                         var start = Start(nodes, edges, occupants, tracks, input, budget);
@@ -234,46 +238,6 @@ internal static class WorldGenerator
                 budget.WorldRetry, attempt, x, y));
         }
         return nodes.ToImmutable();
-    }
-
-    private static ImmutableArray<GeneratedOccupant> Occupants(ImmutableArray<CandidateNode> nodes,
-        WorldGenerationInput input, CoreContentProjection content, GenerationBudgetCounter budget, ulong attempt)
-    {
-        budget.Stage = "occupants";
-        var config = input.Configuration;
-        var settlements = (int)Math.Floor(nodes.Length * config.SettlementRatio);
-        var lairs = (int)Math.Floor(nodes.Length * config.LairRatio);
-        if (settlements == 0) throw new GenerationFailure("constraint_unsatisfied", "Configuration.SettlementRatio");
-        if (lairs > 0 && config.LairWeights.IsEmpty) Invalid("Configuration.LairWeights");
-        var result = Enumerable.Range(0, nodes.Length).Select(_ => (GeneratedOccupant)new GeneratedOccupant.Empty()).ToArray();
-        budget.Sort(nodes.Length);
-        var order = Enumerable.Range(0, nodes.Length).OrderBy(i => Random("occupant.rank", i)).ThenBy(i => i).ToArray();
-        var hostileCount = (int)Math.Floor(settlements * config.HostileSettlementRatio);
-        budget.Sort(settlements);
-        var hostile = order.Take(settlements).OrderBy(i => Random("settlement.relation", i)).ThenBy(i => i).Take(hostileCount).ToHashSet();
-        foreach (var index in order.Take(settlements))
-        {
-            budget.Candidate = nodes[index].Cell.ToString();
-            var (type, template) = SettlementSelection.Choose(content, nodes[index].Terrain.TypeId,
-                Random("settlement.type", index), type => Random("settlement.template", index, WorldRandom.Identity(type.Value)))!.Value;
-            var population = WorldRandom.Integer(Random("settlement.population", index, WorldRandom.Identity(type.Id.Value)),
-                type.MinimumInitialPopulation, type.MaximumInitialPopulation);
-            var platforms = template.Plots.Where(p => p.PrebuiltDesign is not null).Select(p => content.Designs.Single(d => d.Design == p.PrebuiltDesign))
-                .Where(d => d.Kind is DesignKind.Building { Type: BuildingKind.Station } && d.MaxStructureDurability > 0)
-                .Sum(d => d.Parts.Count(p => p.MaxDurability > 0 && p.Capabilities.Any(c => c is PartCapability.Platform)));
-            result[index] = new GeneratedOccupant.Settlement(type, template,
-                hostile.Contains(index) ? SettlementRelation.Hostile : SettlementRelation.NonHostile, population, platforms);
-        }
-        foreach (var index in order.Skip(settlements).Take(lairs))
-        {
-            budget.Candidate = nodes[index].Cell.ToString();
-            var lair = SettlementSelection.Weighted(config.LairWeights.ToArray(), l => l.Weight, Random("lair.type", index));
-            result[index] = new GeneratedOccupant.Lair(lair.Type);
-        }
-        return result.ToImmutableArray();
-
-        ulong Random(string purpose, int index, params ulong[] identity)
-            => WorldRandom.Sample(input.WorldSeed, purpose, 4, budget.WorldRetry, attempt, [nodes[index].Cell.X, nodes[index].Cell.Y, .. identity]);
     }
 
     private static ImmutableArray<ImmutableArray<NodeResourceView>> Resources(ImmutableArray<CandidateNode> nodes,

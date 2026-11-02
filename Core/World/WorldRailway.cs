@@ -13,10 +13,7 @@ internal static class WorldRailway
         var mandatory = Enumerable.Range(0, nodes.Length).Where(i => occupants[i] is GeneratedOccupant.Settlement).ToArray();
         if (mandatory.Length == 0) throw new GenerationFailure("constraint_unsatisfied", "Configuration.SettlementRatio");
         var minimumEmpty = input.Configuration.StartConstraints.MinimumReachableEmptyNodes;
-        budget.Work(edges.Length);
-        var usable = Enumerable.Range(0, edges.Length).Where(i => occupants[edges[i].A] is not GeneratedOccupant.Lair
-            && occupants[edges[i].B] is not GeneratedOccupant.Lair
-            && Math.Max(1, config.MinimumInitialTracks) <= Math.Min(2, Math.Min(config.MaximumInitialTracks, edges[i].TrackLimit))).ToArray();
+        var usable = UsableEdges(edges, occupants, config, budget);
         var traversal = WorldTraversal.Build(nodes.Length, usable.Select(i => (edges[i].A, edges[i].B)), budget);
         var component = traversal.Reachable(mandatory[0]);
         var selected = component.Nodes;
@@ -85,5 +82,14 @@ internal static class WorldRailway
             var b = nodes[edge.B].Cell;
             return WorldRandom.Sample(input.WorldSeed, purpose, 6, budget.WorldRetry, 0, a.X, a.Y, b.X, b.Y);
         }
+    }
+
+    internal static int[] UsableEdges(ImmutableArray<CandidateEdge> edges,
+        IReadOnlyList<GeneratedOccupant> occupants, InitialRailwayConfiguration config, GenerationBudgetCounter budget)
+    {
+        budget.Work(edges.Length);
+        return Enumerable.Range(0, edges.Length).Where(i => occupants[edges[i].A] is not GeneratedOccupant.Lair
+            && occupants[edges[i].B] is not GeneratedOccupant.Lair
+            && Math.Max(1, config.MinimumInitialTracks) <= Math.Min(2, Math.Min(config.MaximumInitialTracks, edges[i].TrackLimit))).ToArray();
     }
 }
