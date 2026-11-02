@@ -69,9 +69,9 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
             app = await Boot(fixture, (loaded, logger) => setup.Create(logger, loaded.Notifications.Decide));
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "设置");
-            var choice = Find<OptionButton>(ui, "Notify_encounter");
-            await _input.WaitUntil(() => choice.IsVisibleInTree());
-            await _input.Choose(choice, (int)NotificationAction.Pause);
+            await _input.Activate(Find<Button>(ui, "Notifications"));
+            await _input.Activate(Find<CheckBox>(ui, "Notify_encounter_Pause"));
+            await _input.PressKey(Key.Escape);
             Require(app.Notifications.Action(NotificationCategory.Encounter) == NotificationAction.Pause,
                 "设置面板没有把暂停写进共享策略。");
             Queue(setup.Session, 1, new CoreEvent.CombatJoined(new(1), new CombatUnitId.Instance(new InstanceId.Vehicle(new(7)))));
