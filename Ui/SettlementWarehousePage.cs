@@ -26,7 +26,7 @@ internal sealed class SettlementWarehousePage(Func<bool> canAct, GoodsRows goods
     private LeaseId? _leaseId;
     private bool _selectOnOpen;
     private LineEdit _capacity = null!;
-    private Label _capacityLabel = null!, _details = null!, _empty = null!, _duration = null!;
+    private Label _capacityLabel = null!, _details = null!, _empty = null!;
     private Label _termProblems = null!, _description = null!, _result = null!;
     private VBoxContainer _stock = null!;
     private GoodsRows.StockRows _stockRows = null!;
@@ -53,7 +53,6 @@ internal sealed class SettlementWarehousePage(Func<bool> canAct, GoodsRows goods
         _capacity = IntegerInput(body, "LeaseCapacity", "正整数容量");
         Text(body, "LeaseTermLabel", "本次租期");
         _termChoice = new OptionButton { Name = "LeaseMultiple" }; body.AddChild(_termChoice);
-        _duration = Text(body, "LeaseDuration", "");
         _termProblems = Text(body, "LeaseTermProblems", "");
         _description = Text(body, "LeaseQuote", "");
         _result = Text(body, "LeaseResult", "");
@@ -143,8 +142,6 @@ internal sealed class SettlementWarehousePage(Func<bool> canAct, GoodsRows goods
             return $"{group.Key.TrimEnd('。')}，{days}不可选。";
         }));
         _termProblems.Visible = problems.Count > 0;
-        _duration.Text = _rule is null ? "市场规则缺失，暂时不能租用或续租。" :
-            $"本次租期：{TermDays(_multiple)} 天";
     }
 
     private bool TermAvailable => _termChoice.Selected >= 0 && !_termChoice.IsItemDisabled(_termChoice.Selected);
@@ -211,9 +208,14 @@ internal sealed class SettlementWarehousePage(Func<bool> canAct, GoodsRows goods
         };
     }
 
-    private static string Acquired(ImmutableArray<EventEnvelope> events)
+    private string Acquired(ImmutableArray<EventEnvelope> events)
     {
         var acquired = events.Select(item => item.Event).OfType<CoreEvent.LeaseAcquired>().FirstOrDefault();
+        if (acquired is { Renewal: false })
+        {
+            _leaseId = acquired.Lease.Id;
+            Refresh();
+        }
         return acquired is null ? "租赁已受理。" :
             $"{(acquired.Renewal ? "已续租" : "已租用仓库")} · 实付 {acquired.ActualPayment.Value} · {UiInput.FormatTime(acquired.Lease.ExpiresAtStep)}到期";
     }
