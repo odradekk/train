@@ -90,7 +90,7 @@ public partial class OwnedSettlementInspectorUiTests(Node testScene) : TestClass
         {
             var tabs = Find<TabContainer>(panel, "Pages");
             Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
-                .SequenceEqual(new[] { "现车", "仓库租用", "建造与工地" }) && Find<Button>(panel, "OpenSettlementCombat").Visible,
+                .SequenceEqual(new[] { "现车", "仓库", "建造与工地" }) && Find<Button>(panel, "OpenSettlementCombat").Visible,
                 "敌对聚居地应保留战斗入口与剩余旧页，不提前提供概况。");
             return Task.CompletedTask;
         });

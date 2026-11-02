@@ -21,7 +21,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
     private PanelTarget _target = null!;
     private IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> _locals = [];
     private VBoxContainer _rows = null!, _editor = null!;
-    private Label _problems = null!, _empty = null!, _description = null!, _result = null!, _cargo = null!, _leaseLabel = null!;
+    private Label _problems = null!, _empty = null!, _description = null!, _result = null!, _cargo = null!, _warehouseCargo = null!, _leaseLabel = null!;
     private Label _storage = null!, _secondHeading = null!, _thirdHeading = null!, _dailyHeading = null!;
     private OptionButton _action = null!, _trainChoice = null!, _leaseChoice = null!;
     private LineEdit _quantity = null!;
@@ -61,6 +61,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
         _leaseLabel = Text(_editor, "LeaseLabel", "租用仓库");
         _leaseChoice = new OptionButton { Name = "TradeLease" }; _editor.AddChild(_leaseChoice);
         _cargo = Text(_editor, "TrainCargo", "");
+        _warehouseCargo = Text(_editor, "WarehouseCargo", "");
         var quantity = new HBoxContainer(); _editor.AddChild(quantity);
         Text(quantity, "QuantityLabel", "数量");
         _quantity = IntegerInput(quantity, "Quantity", "正整数", "10");
