@@ -4,6 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
+using Train.Godot.Tests.Host;
 using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;
 
@@ -11,6 +12,41 @@ namespace Train.Godot.Tests.Authoring;
 
 public sealed partial class AuthoringServiceTests
 {
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Opening_a_source_clears_previous_choices_before_its_query_returns(bool reopen)
+    {
+        using var fixture = new AuthoringFixture(); fixture.Open();
+        var old = new AuthoringReferenceChoice(AuthoringReferenceKind.SettlementType,
+            new ContentReference.Core(new CoreDefinitionReference.SettlementType(new("core:old-town"))), new("旧包城镇", ""));
+        fixture.Host.Factory.QueryAuthoringReferencesCall = (_, _, _) =>
+            new ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success([old]);
+        fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), false);
+        fixture.Pump(() => fixture.Service.ReferenceChoices.Contains(old));
+        var id = new PackageId("464a2c1b-7477-46fe-bf28-b6dc2b6c89fa");
+        var directory = DiscoverMod(fixture, id);
+        using var entered = new ManualResetEventSlim(); using var release = new ManualResetEventSlim();
+        var current = old with { Reference = new ContentReference.Core(
+            new CoreDefinitionReference.SettlementType(new("core:current-town"))) };
+        fixture.Host.Factory.QueryAuthoringReferencesCall = (_, _, _) =>
+        {
+            entered.Set(); HostFixture.WaitForSignal(release, "释放新源包的引用查询");
+            return new ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success([current]);
+        };
+        try
+        {
+            if (reopen) fixture.Service.OpenCore(); else fixture.Service.Open(directory, id);
+            fixture.Pump(() => !fixture.Service.IsBusy);
+            Assert.AreEqual(reopen ? new PackageId("core") : id, fixture.Service.Package!.Package);
+            fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), false);
+            fixture.Pump(() => entered.IsSet);
+            Assert.IsEmpty(fixture.Service.ReferenceChoices, "新源包查询完成前不能显示上次打开的候选。");
+        }
+        finally { release.Set(); }
+        fixture.Pump(() => fixture.Service.ReferenceChoices.Contains(current));
+    }
+
     private static DefinitionDraft.SettlementTemplate FeedbackTemplate() =>
         new(new("template", new("", ""), new("core:town"), null, null, [], [], [], []));
 
