@@ -36,7 +36,7 @@ public partial class GameUi : CanvasLayer
     private SceneStatusOverlay _status = null!;
     private NodeMinimap _minimap = null!;
     private WorldPanels? _panels;
-    private TrainFormationPanel? _formation;
+    private TrainFormationWorkspace? _formation;
     private TrainPlanWorkspace? _plan;
     private EconomyPanels? _economy;
     private CombatPanel? _combat;
