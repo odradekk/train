@@ -54,7 +54,7 @@ internal partial class AuthoringPanel
 
     private static string KindName(DefinitionKind kind) => kind switch
     {
-        DefinitionKind.Voxel => "体素", DefinitionKind.Blueprint => "蓝图", DefinitionKind.SettlementType => "聚居地类型",
+        DefinitionKind.Voxel => "体素", DefinitionKind.Blueprint => "设计", DefinitionKind.SettlementType => "聚居地类型",
         DefinitionKind.SettlementTemplate => "聚居地模板", DefinitionKind.LairType => "生物聚落类型", DefinitionKind.Process => "流程",
         DefinitionKind.PopulationRule => "人口规则", DefinitionKind.MarketRule => "市场规则", DefinitionKind.ConstructionRule => "施工规则",
         DefinitionKind.RailwayRule => "铁路规则", DefinitionKind.CombatRule => "交战规则", DefinitionKind.GenerationProfile => "生成配置",
