@@ -159,12 +159,7 @@ public partial class SaveTests
             await _input.Activate(UiTestInput.SaveButton(panel, "删除"));
             await _input.WaitUntil(() => UiTestInput.SavePromptVisible(panel, "删除存档"));
             await _input.Activate(UiTestInput.SavePromptButton(panel, "Confirm"));
-            try { await _input.WaitUntil(() => !app.Saves.HasPendingWork && list.ItemCount == 1); }
-            catch
-            {
-                GD.Print($"DELETE_DIAGNOSTIC pending={app.Saves.HasPendingWork} rows={list.ItemCount} manual={File.Exists(manual)} auto={File.Exists(automatic)} message={app.Saves.LastMessage}");
-                throw;
-            }
+            await _input.WaitUntil(() => !app.Saves.HasPendingWork && list.ItemCount == 1);
             Require(!File.Exists(automatic) && File.ReadAllBytes(manual).SequenceEqual(manualBytes) &&
                 list.GetItemText(0).StartsWith(name + " · ", StringComparison.Ordinal) && panel.IsVisibleInTree(),
                 "确认删除没有只删除选中的自动文件并在列表保留手动文件。");

@@ -127,6 +127,20 @@ public sealed partial class SaveServiceTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Deleting_selected_file_succeeds_while_a_list_header_reader_is_open()
+    {
+        using var run = new Run();
+        Assert.IsNull(run.Service.Save());
+        run.Drain();
+        var entry = run.Service.List().Single();
+        using var reader = FileSaveStore.OpenRead(entry.Path);
+        Assert.IsNull(run.Service.Delete(entry));
+        run.Drain();
+        Assert.IsFalse(File.Exists(entry.Path), run.Service.LastMessage);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Deleting_selected_file_preserves_siblings_and_marks_deleted_current_manual_save_unsaved(bool automatic)
