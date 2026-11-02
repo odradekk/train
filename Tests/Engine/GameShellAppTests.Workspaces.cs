@@ -18,7 +18,10 @@ public partial class GameShellAppTests
         await Run(async (ui, shell) =>
         {
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+            var rows = WorldListDrawer.Rows(WorldListKind.Nodes, ui.View!, ui.GetParent<Train.App.App>().Host!.Content!, "", 0);
+            var row = Enumerable.Range(0, rows.Count).Single(index => rows[index].Object == new WorldObjectId.Node(new(1)));
+            await _input.ClickItem(Find<Tree>(shell.ListContent!, "Objects"), row);
+            Require(shell.SelectedObject == new WorldObjectId.Node(new(1)), "建城检查必须选中原来的空节点。");
             await _input.Activate(Find<Button>(shell.InspectorContent!, "FoundSettlement"));
             await CheckNarrowWorkspaceContent(ui);
         }, setup);
@@ -31,7 +34,9 @@ public partial class GameShellAppTests
         await Run(async (ui, shell) =>
         {
             await _input.Activate(Find<Button>(ui, "Edges"));
-            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 2);
+            await _input.ClickItem(Find<Tree>(shell.ListContent!, "Objects"), 2);
+            Require(shell.SelectedObject == new WorldObjectId.Edge(new(RailwayWorkUiFixture.ActiveEdge)),
+                "铁路施工检查必须选中包含全部断点的线路。");
             await _input.Activate(Find<Button>(shell.InspectorContent!, "RailwayWork"));
             await CheckNarrowWorkspaceContent(ui);
         }, setup);
@@ -77,9 +82,11 @@ public partial class GameShellAppTests
                 await _input.Click(Find<Button>(ui, "Fleet").GetGlobalRect().GetCenter());
                 Require(shell.ListContent?.Name == "FleetList" && shell.WorkspaceContent == workspace,
                     "工作区打开时鼠标仍须能切换侧栏列表，保留当前工作区。");
-                var list = Find<ItemList>(shell.ListContent!, "Objects");
+                var list = Find<Tree>(shell.ListContent!, "Objects");
+                var item = TreeItems(list)[FirstSelectableItem(list)];
+                list.ScrollToItem(item);
                 await _input.Frames(3);
-                var row = list.GetItemRect(0);
+                var row = list.GetItemAreaRect(item);
                 row.Position += list.GlobalPosition;
                 await _input.Click(row.Intersection(shell.ListContent!.GetGlobalRect()).GetCenter());
                 Require(shell.SelectedObject == new WorldObjectId.Train(new(7)), "工作区不能挡住列表行的鼠标选择。");
@@ -117,7 +124,7 @@ public partial class GameShellAppTests
             {
                 window.Size = new(1920, 1080);
                 await _input.Activate(Find<Button>(ui, "Nodes"));
-                await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+                await _input.ClickItem(Find<Tree>(shell.ListContent!, "Objects"), FirstSelectableItem(Find<Tree>(shell.ListContent!, "Objects")));
                 var cases = new[] { (new Vector2I(1920, 1080), 1f), (new Vector2I(1280, 720), 2f) };
                 if (DisplayServer.GetName() != "headless" &&
                     !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR")))
@@ -139,7 +146,7 @@ public partial class GameShellAppTests
                         else if (entry == "Plan")
                         {
                             await _input.Activate(Find<Button>(ui, "Fleet"));
-                            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+                            await _input.ClickItem(Find<Tree>(shell.ListContent!, "Objects"), 0);
                             await _input.Activate(Find<Button>(shell.InspectorContent!, "EditPlan"));
                         }
                         else await _input.Activate(Find<Button>(ui, entry));
@@ -162,7 +169,7 @@ public partial class GameShellAppTests
                         await _input.PressKey(Key.Escape);
                     }
                     await _input.Activate(Find<Button>(ui, "Nodes"));
-                    await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+                    await _input.ClickItem(Find<Tree>(shell.ListContent!, "Objects"), FirstSelectableItem(Find<Tree>(shell.ListContent!, "Objects")));
                 }
             }
             finally { window.Size = size; }
