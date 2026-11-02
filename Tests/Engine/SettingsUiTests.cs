@@ -8,7 +8,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class SettingsUiTests(Node testScene) : TestClass(testScene)
+public partial class SettingsUiTests(Node testScene) : TestClass(testScene)
 {
     [Test]
     public async Task Saved_settings_apply_at_startup_and_focus_notifications_pause_the_host()
@@ -83,16 +83,15 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             await new UiTestInput(TestScene).WaitUntil(() => app.Host!.GetStatus() is not null);
             setup.AssertPrepared();
             var ui = app.GetNode<GameUi>("GameUi");
-            var panel = ui.GetNode<SettingsPanel>("Root/SettingsPanel");
+            var panel = ui.GetNode<SettingsOverlay>("Root/SettingsOverlay");
             var selectedMode = panel.FindChildren("WindowMode", "OptionButton", true, false)
                 .Cast<OptionButton>().Single().Selected;
             var expectedMode = invalid ? 0 : mode.AsInt32();
             var expectedEncounter = invalid || encounter is null ? (int)NotificationAction.SlowToOne : encounter.Value.AsInt32();
-            var encounterBox = panel.FindChildren("Notify_encounter", "OptionButton", true, false)
-                .Cast<OptionButton>().Single();
-            Require(encounterBox.Selected == expectedEncounter &&
+            var encounterBox = Find<CheckBox>(panel, $"Notify_encounter_{(NotificationAction)expectedEncounter}");
+            Require(encounterBox.ButtonPressed &&
                 app.Notifications.Action(NotificationCategory.Encounter) == (NotificationAction)expectedEncounter,
-                $"通知设置未与显示设置一起应用：selected={encounterBox.Selected}，expected={expectedEncounter}。");
+                $"通知设置未与显示设置一起应用：pressed={encounterBox.ButtonPressed}，expected={expectedEncounter}。");
             var expectedShake = !invalid && cameraShake is { } shakeValue ? shakeValue.AsBool() : true;
             var shakeBox = panel.FindChildren("CameraShake", "CheckButton", true, false).Cast<CheckButton>().Single();
             var shakeEnabled = app.WorldScenes!.View.CameraRig.ShakeEnabled;
@@ -110,7 +109,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             var statusBox = panel.FindChildren("AlwaysShowSceneStatus", "CheckButton", true, false)
                 .Cast<CheckButton>().Single();
             var status = ui.World.GetNode<SceneStatusOverlay>("SceneStatusOverlay");
-            Require(statusBox.Text == "一直显示血条和状态图标" && statusBox.ButtonPressed == expectedStatus &&
+            Require(statusBox.Text == "一直显示耐久条和状态图标" && statusBox.ButtonPressed == expectedStatus &&
                 status.Always == expectedStatus,
                 $"一直显示场景状态未按设置应用：勾选={statusBox.ButtonPressed}，覆盖层={status.Always}，期望={expectedStatus}。");
             if (changeThroughUi)
@@ -159,7 +158,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
         }
     }
 
-    private static void AssertQualityAndAutoSave(Train.App.App app, GameUi ui, SettingsPanel panel, bool high, int autoSaveMinutes)
+    private static void AssertQualityAndAutoSave(Train.App.App app, GameUi ui, SettingsOverlay panel, bool high, int autoSaveMinutes)
     {
         var views = new[] { app.WorldScenes?.View, app.TemplateScenes?.View, ui.GetNode<DesignEditorPanel>("Root/DesignEditor").Scene.View }
             .OfType<WorldSceneView>().ToArray();
@@ -183,10 +182,10 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             $"画质或自动存档的显示与生效值不一致：间隔={app.Saves!.AutoSaveInterval}，期望={expected}。");
     }
 
-    private static OptionButton Option(SettingsPanel panel, string name) =>
+    private static OptionButton Option(SettingsOverlay panel, string name) =>
         panel.FindChildren(name, "OptionButton", true, false).Cast<OptionButton>().Single();
 
-    private static void Select(SettingsPanel panel, string name, int index)
+    private static void Select(SettingsOverlay panel, string name, int index)
     {
         var option = Option(panel, name);
         option.Select(index);
