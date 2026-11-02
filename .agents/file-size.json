@@ -69,7 +69,7 @@
     "Core/Creatures/CreatureOperations.cs": 7054,
     "Core/Railway/TrainOperations.cs": 9099,
     "Core/Sessions/CoreCommandEncoding.cs": 16494,
-    "Core/World/WorldGenerator.cs": 6732,
+    "Core/World/WorldGenerator.cs": 6065,
     "Core/World/WorldInputs.cs": 8158,
     "Core/World/WorldState.cs": 5278,
     "Core/World/WorldStateValidation.cs": 19851,
