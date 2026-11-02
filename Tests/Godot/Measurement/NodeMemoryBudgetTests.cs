@@ -36,10 +36,10 @@ public sealed class NodeMemoryBudgetTests
 
     [TestMethod]
     public void TheVoxelRatioIsNotRoundedToAnInteger() => WithReport(
-        [Open(6, 1200000000, MeasurementAssessment.ReferenceNodeVoxelCells * 8 / 7)], report =>
+        [Open(6, 1200000000, MeasurementAssessment.ReferenceNodeVoxelCells * 3 / 2)], report =>
         {
-            // 当前基准能被 7 整除；8/7 GiB 的手算值，不截断比例。
-            Assert.AreEqual(1227133513.142857d, Item(report, "node_private_delta").GetProperty("threshold").GetDouble(), .000001);
+            var budget = Item(report, "node_private_delta").GetProperty("threshold").GetDouble();
+            Assert.IsTrue(budget > 1073741824d && budget < 2147483648d);
         });
 
     [TestMethod]

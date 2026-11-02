@@ -2,8 +2,6 @@
 
 Decision note: 2026-11-01-node-memory-remaining-gap
 
-节点私有字节增量预算为 **1 GiB × max(1, 节点格数 ÷ 71,407)**。缓冲区加纹理增量仍须 ≤512 MiB，整个游戏私有字节仍须 ≤4 GiB，两者不按规模放宽。
-
 ## 基准身份
 
 | 项 | 值 |
@@ -24,15 +22,9 @@ Decision note: 2026-11-01-node-memory-remaining-gap
 
 采集在节点点击前同步计数，随后才启动打开计时，中间没有等待。`LoadSceneInput` 默认解除暂停并等待地图绘制，因此一般情况下读档到点击之间可能推进。#926 的六轮 B 节点记录中，`load_at_click.position` 均与输入存档位置一致：标准世界为 `(125050,0)`，规模 1× 为 `(1,0)`。本次临时程序通过既有 `Tools/SceneScale/Composition.Prepare` 恢复同一输入，直接调用生产计数函数，无需推进模拟；没有新增 CLI 命令。
 
-## 报告与地图配对
+## 既有数据复判
 
-每条 open 记录的 `node_voxel_cells` 是点击时格数。判定条目的 `node_voxel_cells`、`reference_node_voxel_cells` 分别是所选打开和基准的格数，`threshold` 是算出的预算；逐次打开配对后，报告「增量−预算」最大的那次，`excess=max(0, 增量−预算)`。任一有效打开缺少非负整数格数或内存配对时为 unknown，不能只从其余样本判通过。旧旁车没有格数，也不会按 1 GiB 猜测。
-
-`scene-memory` 仍按 click 配对点击前最近的同进程地图：首次取 `initial-map` 末 1 秒各计数器中位数，之后取最近的 `natural-map.memory`。返回地图强制 GC 堆减 cycle 0 初始地图强制 GC。`steady` 只统计末 1 秒，须另核对稳定性；约 5 秒节点观察不作正式时延或稳态验收。其他场景缺同进程地图基线时，节点增量仍为 unknown。
-
-## 既有规模 1× 数据复判
-
-复用 [#926 完成报告](https://github.com/odradekk/train/issues/926#issuecomment-6561171974)及 [run 41322550312](https://github.com/odradekk/train/actions/runs/41322550312) 的材质共享后 B 数据，测量构建为 `31358a01a26fc555bd6290e9751804ad7bac1804`。它是 **节点首开与另一个地图进程配对**：各自稳定末 10 秒各计数器的 nearest-rank P50 作差，不是上述同进程 `scene-memory`；缓冲区和纹理各取 P50 后相加，不用 video_bytes。三轮节点／地图末窗均 stable，进程退出 0、无超时且清理成功。ExportRelease、Arch Linux、交流电／balanced、gamescope 3.17.0、真实 1920×1080 窗口及外部负载记录沿用原报告；本次没有新测量或速度、内存优化主张。
+复用 [#926 完成报告](https://github.com/odradekk/train/issues/926#issuecomment-6561171974)及 [run 41322550312](https://github.com/odradekk/train/actions/runs/41322550312) 的材质共享后 B 数据，测量构建为 `31358a01a26fc555bd6290e9751804ad7bac1804`。它是 **节点首开与另一个地图进程配对**：各自稳定末 10 秒各计数器的 nearest-rank P50 作差，不是同进程 `scene-memory`；缓冲区和纹理各取 P50 后相加，不用 video_bytes。三轮节点／地图末窗均 stable，进程退出 0、无超时且清理成功。ExportRelease、Arch Linux、交流电／balanced、gamescope 3.17.0、真实 1920×1080 窗口及外部负载记录沿用原报告；本次没有新测量或速度、内存优化主张。
 
 规模 1× 输入为原批次 `scale-inputs/saves/1x.save.json`，SHA256 为 `277d2f587fac8330452171f71651bcc00cbbfb7e6297d865368e6e472a94c157`，同一函数计得 **182,367 格**。比值为 **2.553909280603**，私有增量预算为 **2,742,239,209.284916 B（2615.203103 MiB）**。
 

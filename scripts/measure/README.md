@@ -74,17 +74,19 @@ Read-ExecutionState
 
 ## 逐项性能判定
 
-`report.json.assessment` 按[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)报告。`conclusion` 为“待验收”：缺目标配置实机与完整覆盖，原因见 `reason`。`items` 含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，可附 `observed_seconds`、`excess`。单轮阈值见 `MeasurementAssessment`，长测离线及合并阈值也见 `memory_assessment.py`。
+`report.json.assessment` 按[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 保持“待验收”，`reason` 说明缺目标配置实机与完整覆盖。`items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，可附 `observed_seconds`、`excess`。单轮阈值在 `MeasurementAssessment`，长测离线及合并阈值也在 `memory_assessment.py`。
 
-`status` 为 `passed`、`failed`、`unknown` 或 `recorded`。Linux 的 `game_working_set` 只记录，状态为 `recorded`，无阈值、超出量；3 GiB 留到 Windows 判定。C# 按测量进程系统、离线按 `identity.os` 区分。缺值、无效值、缺配对、截断或失败均为 `unknown`。capture/reference 不判定；`outcome` 只表示运行结果，逐项通过不代表整体验收。
+`status` 为 `passed`、`failed`、`unknown` 或 `recorded`。所有场景的 Linux `game_working_set` 只记录数值，状态为 `recorded`，不提供阈值和超出量；3 GiB 目标留到 Windows 判定。C# 按测量进程系统区分，离线脚本按 `identity.os` 区分。缺字段、无效值、缺配对、截断或运行失败仍为 `unknown`。capture/reference 不判定；`outcome` 只表示运行是否完成，逐项通过不能代替整体验收。
 
-路线帧耗时三项排除结束时刻≤`identity.scene_budget.route.startup.first_operable_at` 的帧；它与 `timing.frames[].elapsed_seconds` 同起点，首个可操作帧仍属打开。`window_start_seconds`／`excluded_frames` 记起点／排除数；缺时刻或后续帧为 `unknown`，缺时刻时两字段为 null。计入可操作后补齐及切换，实际倍速仍用全窗。保留原始 `timing`、旁车；准备耗时判定及汇总见[场景准备](scene-preparation.md)。
+路线帧耗时三项排除结束时刻≤`identity.scene_budget.route.startup.first_operable_at` 的帧；该字段与 `timing.frames[].elapsed_seconds` 同起点，首个可操作帧仍属打开。`window_start_seconds` 记录起点，`excluded_frames` 记录排除数；缺时刻或后续帧则 `unknown`，缺时刻时两字段为 null。计入可操作后补齐和途中切换；实际倍速仍用全窗。原始 `timing` 和旁车保留，[场景准备](scene-preparation.md)另记排除数。
 
-打开 p95 同类须≥30 个有效样本；最大值、补齐也仅用有效打开。补齐从可操作起检查 5 秒内 64 m 范围。`scene-memory` 节点约 5 秒，不作时延或稳态验收。
+打开 p95 同类至少 30 个有效样本；最大值和补齐也只用有效打开。补齐从可操作起检查 5 秒内的 64 m 范围。`scene-memory` 节点只观察约 5 秒，不作正式时延或稳态证据。节点按 `click` 配对最近地图读数：首次取初始地图末 1 秒中位数，之后取最近 `natural-map.memory`；缺基线则增量 unknown。返回地图强制 GC 堆减 `cycle 0` 初值。`steady` 仅为末 1 秒统计，须另核对稳定性。
 
-open 点击前记录非负整数 `node_voxel_cells`，逐实例累计复合体格数。私有增量预算为 1 GiB × max(1, 格数／标准世界基准格数)。条目取“增量−预算”最大者：`measured` 为其增量，`threshold` 为预算，`excess`=max(0, 增量−预算)，`node_voxel_cells`／`reference_node_voxel_cells` 记所选打开／基准的格数。任一有效打开缺格数则 unknown；其余上限不变。详见[节点基准与内存配对](baselines/2026-11-02-node-voxel-budget.md)。
+场景准备的判定、旁车与汇总见 [scene-preparation.md](scene-preparation.md)。
 
-`scene-soak` 绝对内存取记录稳态中位数的最大值，含打开的 `steady`、`natural-map.memory`、初始／最终／编辑器稳态，不取峰值。节点增量仍缺配对。`retired_heap_delta` 取 `soak.memory.reset_heaps` 中 `phase=reset` 的 `live_bytes`，各段减首段取最大，须≤100 MiB；`final` 状态不同，排除。须覆盖全部分段且时长≥7200 秒。`private_growth` 按下述第 2 小时 OLS，单轮≤200 MiB/h；`observed_seconds`、`window_start_seconds` 记实际窗口。工作集／渲染斜率只记录；`scene-memory` 不判定增长。
+`scene-soak` 的绝对内存取所有已记录稳态中位数的最大值，含打开的 `steady`、`natural-map.memory` 和初始／最终／编辑器稳态，不取峰值。节点增量仍缺配对。`retired_heap_delta` 只取内嵌 `soak.memory.reset_heaps` 中 `phase=reset` 的 `live_bytes`，各段减第 1 段，最大增量 ≤100 MiB；`final` 状态不同，不参与。须覆盖全部分段且时长≥7200 秒。`private_growth` 用下述第 2 小时 OLS，单轮 ≤200 MiB/h，`observed_seconds` 和 `window_start_seconds` 记录实际窗口。工作集／渲染斜率仅保留观测值；`scene-memory` 不生成增长判定。
+
+open 记录的 `node_voxel_cells` 保存节点点击前统计的格数（非负整数）：逐实例累计模板模型、建筑、车辆（含停放车辆）和生物的完整内容模型，不含程序地形、轨道和道床。节点私有字节增量沿用上文的地图配对要求：`scene-memory` 有配对，其余节点场景缺基线时仍为 `unknown`。每次有效节点打开的私有字节增量预算为 1 GiB × max(1, 节点格数 ÷ 标准世界基准格数)。`node_private_delta` 条目选取“增量−预算”最大的一次打开：`measured` 为该次增量，`threshold` 为其预算，`excess` 为 max(0, 增量−预算)；`node_voxel_cells` 是这次打开的格数，`reference_node_voxel_cells` 是标准世界基准格数。任一有效节点打开缺少有效格数或内存配对时，条目为 `unknown`。缓冲区加纹理增量 ≤512 MiB、整个游戏私有字节 ≤4 GiB，两项不按规模放宽。计数方法与基准身份见[节点体素基准](baselines/2026-11-02-node-voxel-budget.md)。
 
 ## 离线汇总
 
@@ -124,30 +126,7 @@ python scripts/measure/summarize.py <A输出目录> <B输出目录> --output <�
 
 ## 规模输入
 
-`scene-scale.py` 生成四档输入，再单独核对两档近景。生成和核对均要求源码干净。输出使用 `TestResults/` 或仓库外的新目录、空目录。
-
-```powershell
-python scripts/measure/scene-scale.py generate --output TestResults/scene-scale-inputs
-python scripts/measure/scene-scale.py verify --input TestResults/scene-scale-inputs --output TestResults/scene-scale-verification
-```
-
-`generate` 构建 CLI 和 `Tools/SceneScale/`，生成 1／10／30／100× 普通存档。倍率是远处建筑占用格数的目标，清单记录实际倍率。生成只运行 bounds（读取边界）、make（CLI 制作存档）、stats（计数），不运行 ready／local 近景核对。`examples/starting-trade/recipe.json` 的命令按顺序在模拟步 0 执行，模拟步 1 保存。仓库 builtin 只读，各档修改输出目录中的副本。存档包含布局和设计副本，探针用仓库 builtin 恢复核对；生成产物不提交。
-
-焦点为节点世界原点 `(0,0,0)`。远处建筑以 core-city-hub／bastion-fortress 组合镜像放置，两侧完整地块均须避开已有地块和焦点周围 192 格圆。100× 的追加位置也须通过这一筛选。10／30／100× 扩大地面的平坦范围（flatten），高度保持为 1 格。N／C／F 分别是圆外建筑的占用格数、包含它们的世界 32³ 区块数、六邻接暴露面数。模型地面另列，程序地形的占用 N／C／F 不可从公开投影取得。`navigation_center` 只记录真实导航范围中心。
-
-生成清单 `scale-manifest.json` 和核对清单 `scale-verification.json` 按 `input_identity` 绑定 `recipe_sha256`、`content_tree`、`save_sha256`。`content_tree.files` 记录相对 POSIX 路径及文件字节 SHA256；树哈希对排序后的“路径 + NUL + 小写文件 SHA256 + LF”UTF-8 字节再取 SHA256。跨平台优先比较配方和内容树；P2-R/F2 四档存档字节也与本机一致。verify 检查四档标识和源码身份，记录 `generation_manifest_sha256`，仅对 1／10× 运行 ready／local 近景核对。规模路径的 [P2-R/F2 分段耗时记录及使用限制](../../docs/ci.md#linux-夜间运行)已记录。
-
-近景核对覆盖五个相机位置：原点和 X／Z 各 ±64 格。各位置的 `firstGeometry.fully_inside` 对象集合须非空。跨档比较以节点原点为圆心、半径 192 格的圆内完整对象的非轨道三角形数、哈希及全部高度列，只排除 `RailSteel`／`Sleeper` 网格；失配即停止。`railCenterline` 将公开整条轨道的 XYZ 调试折线逐格采样，裁剪到 192 格圆，按 0.001 格量化、规范端点顺序、去重，独立于网格的 128 格分段。折线不含停车轨，须用首站地块侧向边界证明停车轨在圆外，否则记为 `unknown`。
-
-每个位置先满足帧 Ready、192 格圆不与雾区相交、每列均返回精确高度，再等待对象集合、三角形数和几何哈希连续 30 秒不变。每位置最多等待 300 秒，超时输出 `outcome=unknown` 并停止。1／10× 均隔十秒复核，期间变化即停止。这只证明观察窗口内稳定，后台地形没有公开完成状态。
-
-`stability_samples` 的 `firstGeometry`／`secondGeometry` 记录对象标识、位姿、范围、材质、三角形及非轨道摘要，按 `fully_inside` 和 `crossing_boundary` 汇总。组哈希使用世界坐标和材质，不含会话标识。同档稳定等待和复核检查完整网格；三角形相交检查使用半径 192.001 格的保守圆。原点不传相机参数，其余位置使用 192 格投影半径。
-
-跨界对象不参与跨档判定；`raw_mesh_comparison` 列出完整网格差异，`local_content_match` 表示近景通过。`crossing_geometry_observations` 按位姿和范围保留快照计数、哈希、首次观测及此前最后缺席时刻。首次观测仅为发布时间上界，受相机半径影响；无相交三角形的对象不入清单，缺席不证明未发布。游戏补齐仍以 `far_ready` 实测。
-
-失败时保留 JSON、日志和分项结果。`stage` 记录具体阶段，命令失败的 `RuntimeError` 消息写入 `failure`，`failed_observation` 指向已有失败观测 JSON。
-
-Linux 规模输入的生成档位、运行范围和产物布局见 [CI](../../docs/ci.md#linux-夜间运行)。开发机用待验收提交运行 `verify`，只打开 1／10×，两档均作十秒复核。
+规模输入的生成、近景核对和结果说明见[规模输入](scale-inputs.md)。
 
 ## 测试与手动验证
 
