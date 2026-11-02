@@ -464,7 +464,7 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         await Run(setup, async (ui, economy) =>
         {
             await _input.Activate(Find<Button>(ui, "Fleet"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             await _input.Activate(ui.FindChildren("VehicleServices", "Button", true, false).OfType<Button>().Single(button => button.Text.Contains("车辆 10")));
             var tabs = Find<TabContainer>(economy, "Pages");
             Require(tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地", "车辆入口没有打开建造与工地页。");
@@ -495,7 +495,7 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         {
             setup.ContentFactory!.PrepareEditCall = (_, _) => new ContentResult<IContentCandidate>.Success(candidate);
             await _input.Activate(Find<Button>(ui, "Fleet"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             var shell = Find<GameShell>(ui, "*");
             var train = shell.InspectorContent!;
             var stop = Find<Button>(train, "Stop");
@@ -576,7 +576,7 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
             };
             await Services(economy);
             await _input.Activate(Find<Button>(ui, "Fleet"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             var shell = Find<GameShell>(ui, "*");
             var train = shell.InspectorContent!;
             var host = ui.GetParent<Train.App.App>().Host!;
@@ -656,7 +656,7 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
             setup.Session.QueueAdvance(new(1, clear.Position, [], null, null), clear);
             var host = ui.GetParent<Train.App.App>().Host!;
             Require(host.Step(1).Problem is null, "无法发布可建造的读视图。");
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             economy = Find<PanelContainer>(ui, "Settlement");
             await Services(economy);
             await QuoteBuilding(economy);
@@ -947,7 +947,7 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             await body(ui, Find<PanelContainer>(ui, "Settlement"));
         }
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }

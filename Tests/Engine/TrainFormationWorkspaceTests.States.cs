@@ -147,7 +147,7 @@ public partial class TrainFormationWorkspaceTests
             await fixture.AddToRoot(app); await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
             var ui = app.GetNode<GameUi>("GameUi"); var input = new UiTestInput(TestScene);
             await input.Activate(Find<Button>(ui, "Nodes"));
-            await input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             var shell = (GameShell)ui.World;
             await input.Activate(Find<Button>(shell.InspectorContent!, "Form"));
             Require(shell.WorkspaceContent is TrainFormationWorkspace, "原入口没有打开编组工作区。");

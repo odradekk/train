@@ -85,9 +85,9 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var combat = Find<CombatPanel>(ui, "CombatPanel");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             await _input.Activate(Find<Button>(ui, "Fleet"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "OpenCombat"));
             await _input.Activate(Find<Button>(ui, "EconomyReports"));
             Require(ui.FindChildren("Description", "Label", true, false).Count == 1 && combat.Visible &&
@@ -131,8 +131,8 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            var nodes = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
-            await _input.ClickItem(nodes, 0);
+            var nodes = NodeObjects(ui);
+            await _input.ClickItem(nodes, FirstSelectableItem(nodes));
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "Form"));
             var formation = Find<TrainFormationWorkspace>(ui, "TrainFormationWorkspace");
             await _input.Activate(Find<CheckBox>(formation, "Vehicle1"));
@@ -142,7 +142,7 @@ public partial class SaveTests(Node testScene) : TestClass(testScene)
                 "未建立可提交的编组草稿。");
             await _input.PressKey(Key.Escape);
             await _input.Activate(Find<Button>(ui, "Fleet"));
-            var fleet = Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects");
+            var fleet = Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects");
             await _input.ClickItem(fleet, 0);
             await _input.Activate(Find<Button>(((GameShell)ui.World).InspectorContent!, "EditPlan"));
             var plan = Find<TrainPlanWorkspace>(ui, "TrainPlanWorkspace");
