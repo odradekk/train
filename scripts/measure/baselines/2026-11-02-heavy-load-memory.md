@@ -90,12 +90,12 @@ natural-map 是每次视图循环回到宏观地图、保持观察后取得的�
 | B | 9259.870（9257.131–9260.711） | 26，2083.500；26，2082.376；26，2083.137 |
 | L | 9078.610（8944.819–9212.486） | 24，2024.045；20，1750.318；23，1922.818 |
 
-下表均减去该轮 reset_heaps 列表首条（第 1 段刚重置后的 reset）存活堆。reset 是每段读入原保存点、暂停地图后强制 GC；final 是最后一段八次存读往返结束后的最终强制 GC。主列取报告 `soak.memory.reset_heaps` 全列表最大值，包含末尾 phase=final；另列仅 phase=reset 的最大值。未找到 #813 原始分析脚本，因此不宣称这一细节与旧报告完全相同。该统计与十分钟循环首次打开节点前的 cycle 0 初始地图基线不同。单位 MiB。
+下表沿用 [#813 报告](https://github.com/odradekk/train/issues/813#issuecomment-6477047742)“读档重置后比第 1 段高”的口径：只取 `soak.memory.reset_heaps` 中 phase=reset 的记录，减去该轮首条 reset 的存活堆，先取每进程最大增量，再取三轮中位数和范围。#863 验证归档的 `issue-863-analysis/issue-813-analyze-soak.py` 副本原样传递 reset_heaps，不另做统计。reset 是每段读入原保存点、暂停地图后强制 GC；final 是最后一段八次存读往返结束后的最终强制 GC，含 final 的全列表最大增量另列。该统计与十分钟循环首次打开节点前的 cycle 0 初始地图基线不同。单位 MiB。
 
-| 负载 | reset_heaps 全列表最大增量（含 final） | 仅 reset 最大增量 |
+| 负载 | 仅 reset 最大增量（与 #813 同口径） | 含 final 的全列表最大增量 |
 |---|---|---|
-| C | 453.284737（345.225174–474.436424） | 419.381989（345.225174–474.436424） |
-| B | 465.655334（452.712372–480.893867） | 408.679779（389.097939–452.712372） |
+| C | 419.381989（345.225174–474.436424） | 453.284737（345.225174–474.436424） |
+| B | 408.679779（389.097939–452.712372） | 465.655334（452.712372–480.893867） |
 | L | 379.443810（378.067810–449.733345） | 379.443810（378.067810–449.733345） |
 
 | 长测轮次 | 循环 s | 分段数 | 存读往返：尝试／成功／拒绝 | 自动存档写入／覆盖 | 输入录制裁剪／保留起点数 |
@@ -120,8 +120,14 @@ M 不足两小时；M 和 S 的“不得持续增长”均缺少数值判定规�
 
 ## 复算
 
-在仓库根目录运行 `python TestResults/issue-866-delivery/memory/summarize_memory.py`。脚本只读所列正式产物和现存分析，输出 `TestResults/issue-866-delivery/memory/` 下的 JSON/Markdown；未读取逐帧大文件。排除 reference、旧失败 M-C 和人工取消批次。
+原始数据保存在 **#866 验证归档（工作树 `TestResults/` 的副本）**，`<归档>` 指该副本根目录。在测量提交对应的源码根目录运行通用汇总器；`<job>`、`<artifact>`、`<measure>` 替换为归档中的对应目录名，M-C 使用 `M-C-retry/artifacts-verified/`：
+
+```powershell
+python scripts/measure/summarize.py "<归档>/issue-866-formal/<job>/artifacts/<artifact>/<measure>/scenarios" --output "<新汇总.json>"
+```
+
+通用汇总给出末窗、小时斜率与原始报告索引；节点／地图按同轮配对相减，存活堆按上文各自的 GC 基线计算。完整逐轮派生值、源文件哈希、验证记录及离线脚本保存在 `<归档>/issue-866-delivery/memory/`。排除 reference、旧失败 M-C 和人工取消批次。
 
 busy-combat 长测约 98.5% 采样帧低于配方，不能把这些内存结果当完整重负载达标证据；其他 full 帧、参考过期及线路 23 未知的范围见[帧基线](2026-11-02-heavy-load-frame-time.md)。三次 S-B2 和一次 S-L2 的人工取消记录不计轮数，编号亦列于该文件。standard-world 未重测，原因同该文件所述。
 
-原始数据在 `TestResults/issue-866-formal/H-*/artifacts/`、`M-*/artifacts/`（M-C 使用上述重跑目录）及 `S-*/artifacts/`；派生数据、完整逐轮值、源文件哈希和验证记录在 `TestResults/issue-866-delivery/memory/`。各原报告的 assessment 保留 failed／unknown；不因本次汇总或历史测量之后的产品修复而改判。
+归档中的原始数据为 `issue-866-formal/H-*/artifacts/`、`M-*/artifacts/`（M-C 使用上述重跑目录）及 `S-*/artifacts/`。各原报告的 assessment 保留 failed／unknown；不因本次汇总或历史测量之后的产品修复而改判。

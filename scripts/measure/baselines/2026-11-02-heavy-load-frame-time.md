@@ -83,16 +83,31 @@ full 表示计数满足全部配方期望，below-recipe 表示已知低于配�
 
 busy-combat 使用不晚于保存点的最近配方：期望步 343001、保存步 343060，原 node=2 阈值不变。要求生物恰好 40 只，恢复运行约 1 游戏秒降至 39；先采的 1× 窗口消耗 10 游戏秒，后续 8× 已低于配方。预演 CLI 首次不满足为保存后 61 步（1.016667 游戏秒），Linux 计数采样有滞后，不将滞后窗口断言为持续满足。三轮 below-recipe 帧占全部采样帧 98.517421%、98.542801%、98.605013%；不放宽阈值、不改顺序、不以低负载帧补全。
 
-busy-combat 的 full 帧跨各轮 11 段合计，仅对应第 1／2／3 轮采样墙钟 12.882045／12.860065／12.782254 秒、游戏时间 11.983333／11.883333／11.966667 秒，不能代表各段完整的 10 秒采样窗口。时长按所选原始帧间隔求和、游戏时间按相邻原始帧步差求和，逐段结果在 `TestResults/issue-866-delivery/busy-full-duration.json`。
+busy-combat 的 full 帧跨各轮 11 段合计，仅对应第 1／2／3 轮采样墙钟 12.882045／12.860065／12.782254 秒、游戏时间 11.983333／11.883333／11.966667 秒，不能代表各段完整的 10 秒采样窗口。时长按所选原始帧间隔求和、游戏时间按相邻原始帧步差求和，逐段结果在 #866 验证归档的 `issue-866-delivery/busy-full-duration.json`。
 
 三个存档保存点均无线路战斗；crowded-station、long-consist 无节点战斗，busy-combat 普通节点就是 node-battle，不重复采样。standard-world 本次未重测，默认视图、目标、顺序及结束条件保持原样：#813 的线路战斗在保存后约 25 游戏秒结束，随后主视图低于完整配方，原基线只有短段线路战斗 8× full；旧 [2026-10-28 基线](2026-10-28-frame-time.md)不改。
 
 long-consist 的跟随静态参考随列车移动而过期，按 #813 仅有效打开计入时延：三轮 follow 总数 104／99／102，有效 14／3／8，无效 90／96／94。无效原因 reference_missing 88／91／91，ready_snapshot_missing 2／5／3；缺时延的 63／72／73 条是无效记录的子集，已有数字但无效的 27／24／21 条仍排除。
 
-线路 23 的 reload-line 各 44 次，缺时延 9／15／12，读档按钮时延缺的是同批记录，引用 #881；node-to-line 104／99／102 次均有时延。打开未知不剔除独立有效 full 帧。
+对全部九轮长测的 3786 条打开记录按[打开基线](2026-11-02-heavy-load-scene-opening.md#打开时间)的 #881 判据逐操作核对；即使 sample_valid 为真且时延有数字，`first_operable` 前出现中心命中车辆、16/17 的记录也从三类时延剔除。long-consist 线路 23 的结果如下，每格按第 1／2／3 轮列出：
+
+| 操作 | 总数 | 有数字但受 #881 影响，新增剔除 | 原已缺时延，同类探针 | 剔除后有效时延 |
+|---|---|---|---|---|
+| node-to-line | 104／99／102 | 9／10／8 | 0／0／0 | 95／89／94 |
+| reload-line | 44／44／44 | 1／4／2 | 9／15／12 | 34／25／30 |
+
+因此 node-to-line 的 #881 unknown 为 9／10／8，reload-line 为 10／19／14；后者的原缺值记录没有 `first_operable`，只能确认操作窗口内有同类探针，不把它们与新增剔除重复相加。读档按钮时延缺失／剔除的是同批记录，不另算操作条数。
+
+未发现 #881 污染的操作也全数核对：crowded-station 每轮 reset-settlement 11 次、node-reopen／node-to-line／follow 各 110 次、reload-node／reload-line 各 44 次；busy-combat 相同，但重置首显为 reset-node-battle。long-consist 的 reset-follow／node-first 各 11 次，node-reopen 为 93／88／91 次，reload-node 各 44 次，follow 为上述 104／99／102 次；follow 的既有无效和缺值保持原分类。打开时延未知不剔除独立有效 full 帧，不改原始判定。
 
 ## 未计入轮数与复算
 
 任务代号 C／B／L 分别指 crowded-station／busy-combat／long-consist，S 后数字为长测轮序，H 为保持与路线，M 为十分钟内存循环。预演不计入。busy-combat 第 2 轮长测（S-B2）的 41278551691、41281153667、41286381736 及 long-consist 第 2 轮（S-L2）的 41307439056 均由协调者人工取消，不是代码或测量失败，不计轮数；有效重跑分别是 41294949475、41307669016。crowded-station 十分钟内存（M-C）首次 41172098645 因上传断连、数据不可取得作废，见[内存基线](2026-11-02-heavy-load-memory.md)。
 
-原始数据在 `TestResults/issue-866-formal/H-L/artifacts/` 与各 `S-*/artifacts/`。逐帧结果为各轮 `offline-frame-analysis.json`；最终汇总及复算脚本在 `soak-full-load/full-load.{json,md}`、`soak-full-load/summarize_full_load.py`。路线逐轮结果为 `TestResults/issue-866-delivery/route-frame-summary.json`；范围未知见 `H-L/route-unknown-analysis.json`。自然 GC、内存与其他 assessment 的状态保留在各轮 inspection 和 summary-analysis，不因本表 full 样本有效而改判。场景准备窗口定义及早于首次可操作的计数见[打开基线](2026-11-02-heavy-load-scene-opening.md#每帧场景准备窗口)。
+原始数据保存在 **#866 验证归档（工作树 `TestResults/` 的副本）**，`<归档>` 指该副本根目录。帧数据在 `<归档>/issue-866-formal/H-L/artifacts/` 与各 `S-*/artifacts/`，逐帧派生结果为各轮 `offline-frame-analysis.json`；最终汇总在 `issue-866-formal/soak-full-load/full-load.{json,md}`。复算三轮汇总：
+
+```powershell
+python "<归档>/issue-866-formal/soak-full-load/summarize_full_load.py" S-C1 S-B1 S-L1 S-C2 S-B2 S-L2 S-C3 S-B3 S-L3
+```
+
+脚本读取各轮已核对的逐帧结果，在同目录重写派生汇总，不改原始 artifact。路线逐轮结果为 `issue-866-delivery/route-frame-summary.json`，范围未知见 `issue-866-formal/H-L/route-unknown-analysis.json`；#881 打开核对在 `issue-866-delivery/r2-opening-audit/`。这些相对路径均以 `<归档>` 为根。自然 GC、内存与其他 assessment 的状态保留在各轮 inspection 和 summary-analysis，不因本表 full 样本有效而改判。场景准备窗口定义及早于首次可操作的计数见[打开基线](2026-11-02-heavy-load-scene-opening.md#每帧场景准备窗口)。

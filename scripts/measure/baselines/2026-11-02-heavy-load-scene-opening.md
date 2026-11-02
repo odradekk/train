@@ -30,9 +30,9 @@ runner `lan-linux-nightly`：Arch Linux，Intel Core Ultra 7 258V、8 逻辑处�
 | busy-combat | [41044422869](https://github.com/odradekk/train/actions/runs/41044422869) | scene-node／scene-edge／scene-follow 各 30 个独立进程 |
 | long-consist | [41100635187](https://github.com/odradekk/train/actions/runs/41100635187) | scene-node／scene-edge／scene-follow 各 30 个独立进程 |
 
-每类操作计划 30 次，参考和预演不计入。仅 `sample_valid=true` 且时延有值的记录入统计；nearest-rank 不插值，n=30 的 p50 为第 15 项、p95 为第 29 项。下表单位秒，每格为 **p50 [最小–最大]; p95**，范围上限就是最大值。N/A 表示该操作没有读档按钮起点。
+每类操作计划 30 次，参考和预演不计入。仅 `sample_valid=true`、时延有值且未受 [#881](https://github.com/odradekk/train/issues/881) 影响的记录入统计。离线逐操作匹配 `probe-state`：在 click—observation_ended 区间、`first_operable` 之前，若中心点命中车辆且 17 个探针只通过 16 个，三类时延都剔除，记 unknown（#881）。没有 `first_operable` 的记录保持未知，另核对操作窗口内的同类探针。nearest-rank 不插值，n=30 的 p50 为第 15 项、p95 为第 29 项。下表单位秒，每格为 **p50 [最小–最大]; p95**，范围上限就是最大值。N/A 表示该操作没有读档按钮起点。
 
-| 存档 | 操作 | 操作记录有效／无效 | 点击到可操作 | 可操作到 Ready | 读档按钮到可操作 |
+| 存档 | 操作 | 原始 sample_valid 真／假 | 点击到可操作 | 可操作到 Ready | 读档按钮到可操作 |
 |---|---|---:|---|---|---|
 | crowded-station | 地图首开节点 | 30／0 | 4.770986 [4.505242–5.170614]; 5.135957 | 2.890677 [2.372669–3.208804]; 3.198520 | N/A |
 | crowded-station | 节点重开 | 30／0 | 1.615389 [1.538020–1.855788]; 1.737172 | 0.339084 [0.180403–0.456895]; 0.455154 | N/A |
@@ -54,7 +54,7 @@ runner `lan-linux-nightly`：Arch Linux，Intel Core Ultra 7 258V、8 逻辑处�
 | busy-combat | 首次跟随 | 30／0 | 5.652882 [5.209861–6.542481]; 6.364050 | 2.266825 [1.576233–3.692413]; 3.682880 | N/A |
 | long-consist | 地图首开节点 | 30／0 | 5.082601 [4.895594–5.657961]; 5.455749 | 1.145397 [0.566132–1.627162]; 1.411085 | N/A |
 | long-consist | 节点重开 | 30／0 | 1.396789 [1.313310–1.481745]; 1.479854 | 0.255958 [0.166651–0.358546]; 0.306529 | N/A |
-| long-consist | 节点→线路 | 30／0 | 4.559583 [4.139450–5.315550]; 5.202857 | 0.000000 [0.000000–0.000000]; 0.000000 | N/A |
+| long-consist | 节点→线路 | 30／0 | unknown（30，#881） | unknown（30，#881） | N/A |
 | long-consist | 线路→节点 | 30／0 | 1.997739 [1.822059–2.331704]; 2.230654 | 0.249864 [0.183089–0.334998]; 0.326441 | N/A |
 | long-consist | 读档后首显节点 | 30／0 | 1.829208 [1.654369–2.106048]; 2.100499 | 0.293502 [0.151698–0.791126]; 0.654374 | 3.377318 [3.033273–3.690416]; 3.571527 |
 | long-consist | 地图首开线路 | 30／0 | unknown（30） | unknown（30） | N/A |
@@ -62,7 +62,9 @@ runner `lan-linux-nightly`：Arch Linux，Intel Core Ultra 7 258V、8 逻辑处�
 | long-consist | 读档后首显线路 | 30／0 | unknown（30） | unknown（30） | unknown（30） |
 | long-consist | 首次跟随 | 30／0 | 5.643647 [4.869107–6.527083]; 6.321448 | 0.670227 [0.000000–1.155313]; 0.952211 | N/A |
 
-“操作记录有效／无效”只统计 sample_valid 标记，时延还需字段有值，二者分开计数。crowded-station、busy-combat 的每类均 30 个有效时延、0 个无效、0 个未知。long-consist 的节点和跟随同样有效；线路 23 的地图首开、重开、读档后首显各 30 条，共 **90 条操作记录缺少时延**，即使 sample_valid 仍为真。其中读档按钮时延缺失的是同 30 条，不另加计。原因是 1280 米列车挡住中心探针，测量要求拾取到线路地形后才发右拖；这是 [#881](https://github.com/odradekk/train/issues/881) 的测量代码缺陷，保留未知、不重跑。
+系统核对 O-C／O-B／O-L 的全部 810 条打开记录，reference 不计入。crowded-station、busy-combat 各 9 类操作均未发现上述探针，每类仍为 30 个有效时延。long-consist 的节点→线路 30 次全部受影响：原始 `first_operable` 比 Ready 晚 1.673–2.840 秒，记下的是列车离开中心后的测量确认时间，不能当产品打开时延。该操作 30 条有数字的时延全部剔除。
+
+long-consist 线路 23 的地图首开、重开、读档后首显各 30 条原已缺时延，操作窗口内也都出现同类探针；这 90 条没有 `first_operable`，不能确定它之前的时间边界，保持既有 unknown，不另加计。读档按钮时延缺失的是同 30 条。连同节点→线路，共 120 条操作因 #881 无可用时延；其余 5 类每类 30 条，未受该判据影响。表中的 sample_valid 只是原始标记，不代替字段可用性和此次剔除；原始文件与判定未改。
 
 Ready 使用必要 64 m L0 的生成、接入、显示回执及非地形对象雾消退，不证明整个模板预取或远景已完成。long-consist 移动后参考过期的长测打开记录不与本表混算，详见[帧基线](2026-11-02-heavy-load-frame-time.md)。
 
@@ -95,4 +97,12 @@ scene-map、scene-memory、scene-soak 各存档各 3 份，共 27 份没有此�
 
 ## 复算与原始证据
 
-原始数据根目录为 `TestResults/issue-866-formal/`。子目录 C／B／L 分别对应 crowded-station／busy-combat／long-consist；O-* 为 30 轮打开，H-* 为 60 秒保持（H-L 另含路线），S-* 为长测。各 job 的 artifacts 内 `scenarios/summary.json` 索引主进程；reference 不计轮数。打开汇总为 `opening-summary/O-*.json`，脚本 `opening-summary/summarize_openings.py`；准备窗口逐报告结果与脚本在 `preparation-audit/`。对原始场景目录运行 `python scripts/measure/summarize.py <scenarios> --output <新文件>` 可复算打开分布；保留未知条数和上述窗口定义。
+原始数据保存在 **#866 验证归档（工作树 `TestResults/` 的副本）**，`<归档>` 指该副本根目录。`<归档>/issue-866-formal/` 中 C／B／L 分别对应 crowded-station／busy-combat／long-consist；O-* 为 30 轮打开，H-* 为 60 秒保持（H-L 另含路线），S-* 为长测。各 job 的 artifacts 内 `scenarios/summary.json` 索引主进程；reference 不计轮数。
+
+原始 sample_valid 汇总在 `issue-866-formal/opening-summary/`，准备窗口逐报告结果在 `issue-866-formal/preparation-audit/`；#881 离线剔除的逐操作证据、来源行号、交集计数及重算分布在 `issue-866-delivery/r2-opening-audit/`。以下命令扫描三份 O 和全部九轮 S，输出新文件，不修改原始判定：
+
+```powershell
+python "<归档>/issue-866-delivery/r2-opening-audit/audit.py" --archive "<归档>" --output "<新核对目录>"
+```
+
+每帧准备窗口仍按原始 `first_operable` 比较，保留上文计数；时延因 #881 被剔除不重判该窗口。
