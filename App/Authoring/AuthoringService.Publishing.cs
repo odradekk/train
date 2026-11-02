@@ -21,6 +21,7 @@ internal sealed partial class AuthoringService
         var changes = PendingChanges;
         written = null; LastWrite = null; LastPublishSucceeded = null; writeIssues = [];
         WriteStage = AuthoringWriteStage.None;
+        Volatile.Write(ref writePhase, (int)AuthoringWriteStage.None);
         var begun = host.BeginPackageWrite((request, files, assets) =>
         {
             Volatile.Write(ref writePhase, (int)AuthoringWriteStage.ValidateDrafts);
@@ -78,9 +79,9 @@ internal sealed partial class AuthoringService
         if (changedFiles) { package = null; snapshot = null; }
         if (changedFiles || written?.Success == true) { edits.Clear(); assetEdits.Clear(); }
         var outcome = result.Succeeded ? "文件已写入，内容重载成功；草稿保留。"
-            : !changedFiles ? "未写入任何文件，一个文件也没写。游戏里的内容保持原样，内存内容未切换；草稿保留。"
-            : written!.Success ? "文件已写入，但内容重载失败；游戏里的内容没有切换，内存内容未切换；草稿保留。"
-            : "写入已停止，已完成项保留；游戏里的内容没有切换，内存内容未切换；草稿保留。";
+            : written?.Success == true ? "文件已写入，但内容重载失败；游戏里的内容没有切换，内存内容未切换；草稿保留。"
+            : WriteStage == AuthoringWriteStage.WriteFiles ? "写入已停止，已完成项保留；游戏里的内容没有切换，内存内容未切换；草稿保留。"
+            : "未写入任何文件，一个文件也没写。游戏里的内容保持原样，内存内容未切换；草稿保留。";
         Report(outcome + (result.Succeeded ? "" : " " + result.Message + " "
                 + string.Join("；", result.Diagnostics.Select(item => $"{item.Code}: {item.Message} {item.Source?.Path} {item.Field}")
                     .Concat(result.Problems.Select(problem => CommandDiagnostics.Describe(problem, host.Content)))))

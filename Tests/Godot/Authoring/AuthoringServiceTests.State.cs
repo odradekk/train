@@ -1,4 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Collections.Immutable;
+using System.Text;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.App.Authoring;
@@ -9,6 +11,29 @@ namespace Train.Godot.Tests.Authoring;
 
 public sealed partial class AuthoringServiceTests
 {
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void First_file_failure_is_reported_as_stopped_writing_with_remaining_files()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm(); fixture.ConfigureWrite();
+        using var locked = new FileStream(Path.Combine(fixture.Core, "source.txt"), FileMode.Open, FileAccess.Read, FileShare.Read);
+        fixture.Host.Factory.PreparePackageWriteCall = (basis, _) => new ContentResult<PackageWritePlan>.Success(new(basis.Package, basis.SourceVersion,
+            [new("source.txt", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("blocked"))),
+                new("output.txt", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("written")))], []));
+        fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsFalse(fixture.Service.LastWrite!.Success);
+        Assert.AreEqual(0, fixture.Service.LastWrite.Completed.Length);
+        Assert.AreEqual("source.txt", fixture.Service.LastWrite.Failed!.RelativePath);
+        Assert.AreEqual("output.txt", fixture.Service.LastWrite.Remaining.Single().RelativePath);
+        StringAssert.Contains(fixture.Service.Message!, "写入已停止");
+        Assert.IsFalse(fixture.Service.Message!.Contains("一个文件也没写", StringComparison.Ordinal));
+        Assert.AreEqual("original", File.ReadAllText(Path.Combine(fixture.Core, "source.txt")));
+        Assert.IsFalse(File.Exists(fixture.Output));
+        Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
+        Assert.IsTrue(File.Exists(fixture.DraftPath(fixture.Service.Drafts().Single().Id)));
+    }
+
     [TestMethod]
     public void Discarding_invalid_form_input_clears_its_capture_problem()
     {
