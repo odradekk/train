@@ -167,6 +167,7 @@ internal sealed partial class SceneDisplay
     internal void CancelCandidate()
     {
         _cache.RequireMainThread();
+        if (_freshPreparation == (this, true)) _freshPreparation = null;
         CancelCandidatePacking();
         foreach (var visual in _candidateVisuals.Values) visual.Dispose();
         _candidateVisuals.Clear();

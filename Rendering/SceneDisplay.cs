@@ -210,6 +210,7 @@ internal sealed partial class SceneDisplay : IDisposable
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
+        if (_freshPreparation == (this, false)) _freshPreparation = null;
         var cancelled = _preparation?.Frame;
         _preparation?.Geometry?.Dispose();
         _preparation?.Packing.Dispose();
@@ -351,7 +352,6 @@ internal sealed partial class SceneDisplay : IDisposable
         _cache.RequireMainThread();
         if (_disposed) return;
         _disposed = true;
-        if (_freshPreparation?.Display == this) _freshPreparation = null;
         CancelPreparation();
         CancelCandidate();
         _retirement?.Dispose();
