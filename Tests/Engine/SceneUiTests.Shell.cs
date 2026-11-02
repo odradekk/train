@@ -39,12 +39,11 @@ public partial class SceneUiTests
             var focus = camera.Focus;
             var ray = setup.Frames[^1].LastPickRay;
             var resolutions = setup.Scenes[^1].ResolveCalls.Count;
-            var belowBar = new Vector2(ui.GetViewport().GetVisibleRect().Size.X / 2,
-                Find<Control>(ui, "Bar").GetGlobalRect().End.Y + 4);
+            var belowBar = new Vector2(shell.SceneArea.GetCenter().X, shell.SceneArea.Position.Y + 4);
             foreach (var covered in new[] { point, belowBar })
             {
                 Require(Find<Control>(shell, "WorkspaceMask").GetGlobalRect().HasPoint(covered) &&
-                    !workspace.GetGlobalRect().HasPoint(covered), "小地图边缘和紧贴顶栏下方都应由遮罩覆盖，且位于工作区内容之外。");
+                    !workspace.GetGlobalRect().HasPoint(covered), "小地图边缘和中心区域上沿都应由遮罩覆盖，且位于工作区内容之外。");
                 await _input.Click(covered);
                 Require(camera.Focus.DistanceTo(focus) < .001f && ReferenceEquals(setup.Frames[^1].LastPickRay, ray) &&
                     setup.Scenes[^1].ResolveCalls.Count == resolutions && shell.WorkspaceContent == workspace,

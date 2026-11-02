@@ -11,13 +11,23 @@ internal static class ShellGeometry
         var shell = (GameShell)ui.World;
         var scale = shell.GetTree().Root.ContentScaleFactor;
         var top = Find<Control>(ui, "TopBar");
-        var regions = new List<Control> { top };
-        if (shell.WorkspaceContent is { } workspace && workspace.IsVisibleInTree()) regions.Add(workspace);
+        var docks = new List<Control> { Find<Control>(shell, "Navigation") };
+        if (shell.ListContent is { } list && list.IsVisibleInTree()) docks.Add(list);
+        if (shell.InspectorContent is { } inspector && inspector.IsVisibleInTree()) docks.Add(inspector);
+        List<Control> regions = [top, .. docks];
+        if (shell.WorkspaceContent is { } workspace && workspace.IsVisibleInTree())
+        {
+            var panel = workspace as PanelContainer ?? workspace.GetChildren().OfType<PanelContainer>().Single();
+            regions.Add(panel);
+            var mask = Find<Control>(shell, "WorkspaceMask").GetGlobalRect();
+            Require(ui.GetViewport().GetVisibleRect().Encloses(mask) && mask.Encloses(panel.GetGlobalRect()),
+                $"工作区 {panel.Name} 必须留在遮罩内，遮罩不能越过窗口：panel={panel.GetGlobalRect()}，mask={mask}。");
+            foreach (var dock in docks)
+                Require(!mask.Intersects(dock.GetGlobalRect()),
+                    $"工作区遮罩 {mask} 不能覆盖 {dock.Name} {dock.GetGlobalRect()}。");
+        }
         else
         {
-            regions.Add(Find<Control>(shell, "Navigation"));
-            if (shell.ListContent is { } list && list.IsVisibleInTree()) regions.Add(list);
-            if (shell.InspectorContent is { } inspector && inspector.IsVisibleInTree()) regions.Add(inspector);
             var toasts = Find<Control>(ui, "Toasts");
             if (toasts.IsVisibleInTree() && toasts.GetChildCount() > 0) regions.Add(toasts);
             regions.AddRange(new[] { Find<Control>(ui, "InformationLayers"), Find<Control>(ui, "NodeMinimap") }

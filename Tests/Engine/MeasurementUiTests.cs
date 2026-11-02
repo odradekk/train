@@ -13,18 +13,18 @@ public class MeasurementUiTests(Node testScene) : TestClass(testScene)
     {
         var viewport = new SubViewport { Size = new(960, 540) };
         TestScene.AddChild(viewport);
-        var shell = new GameShell { Size = new(960, 540) };
+        var shell = new GameShell { Position = new(24, 16), Scale = new(.75f, .75f), Size = new(960, 540) };
         viewport.AddChild(shell);
         try
         {
             shell.ShowList(new Control());
             shell.Inspect(new Train.Core.Contracts.WorldObjectId.Node(new(1)), new Control());
             Require(MeasurementRun.ReadSceneUi(viewport).BlockingControls.Length == 0,
-                "透明的全屏外壳和停靠区不应算作全屏遮挡。");
+                "透明外壳和停靠区不应算作场景遮挡。");
             shell.ShowWorkspace(new Control());
             var blockers = MeasurementRun.ReadSceneUi(viewport).BlockingControls;
             Require(blockers.Length == 1 && blockers[0].EndsWith("/WorkspaceMask", StringComparison.Ordinal),
-                "工作区打开后的全屏遮罩仍须被测量识别。");
+                "打开工作区后，工作区遮罩仍须被测量识别。");
             shell.ShowWorkspace(null);
             Require(MeasurementRun.ReadSceneUi(viewport).BlockingControls.Length == 0,
                 "关闭工作区后应恢复场景可操作状态。");
@@ -58,6 +58,8 @@ public class MeasurementUiTests(Node testScene) : TestClass(testScene)
             root.AddChild(new Control { MouseFilter = Control.MouseFilterEnum.Ignore, Size = new(320, 240) });
             root.AddChild(new Control { Size = new(319, 240) });
             root.AddChild(new Control { Size = new(320, 239) });
+            root.AddChild(new Control { Position = new(1, 0), Size = new(320, 240) });
+            root.AddChild(new Control { Position = new(0, 1), Size = new(320, 240) });
             root.AddChild(new MacroMap { Size = new(320, 240) });
             var scene = new Node3D();
             root.AddChild(scene);
