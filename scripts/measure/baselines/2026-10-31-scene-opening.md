@@ -39,6 +39,8 @@ Arch Linux；Intel Core Ultra 7 258V，8 逻辑处理器；Intel Graphics（LNL�
 
 ## 打开时间
 
+本节两张时延表的 `map-edge`、`edge-reopen`、`reload-edge` 行及读档按钮到线路可操作数字使用旧中心采样规则，与 [#881](https://github.com/odradekk/train/issues/881) 修复后的线路打开数字不可直接比较。车辆遮住中心可能推迟或阻止旧规则确认可操作，历史数字和判定保留。
+
 共 120 个独立正式进程、180 个有效操作；下表每行有效 n=30、无效 n=0，退出及清理成功、probe 有效，输入和同构建内容身份已核对。nearest-rank 不插值：p50 为排序第 15 项，p95 为第 29 项；不平均各轮分位数。范围为最小–最大，单位秒。
 
 点击到可以操作；`map-node`、`map-edge` 分别为地图首次打开节点、线路，`edge-reopen` 为线路重开，`reload-edge` 为读档后首显线路。`reload-edge` 在本表从线路打开动作起算，从读档按钮起算的总等待另列于下文：

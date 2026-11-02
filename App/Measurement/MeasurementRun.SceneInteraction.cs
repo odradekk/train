@@ -168,7 +168,7 @@ internal sealed partial class MeasurementRun
                 var subject = inspection?.Resolution is SceneResult<PickSubject>.Success success
                     ? success.Value : null;
                 resolved = subject?.ToString();
-                hit &= subject is PickSubject.Terrain { Location: WorldLocation.Edge actualEdge } && actualEdge.Id == expectedEdge.Id;
+                hit &= ProbeCenterMatchesEdge(subject, location, expectedEdge.Id);
             }
             var passed = !fogged && hit && terrain is Lookup<double>.Found;
             if (passed) samplesPassed++;

@@ -30,7 +30,8 @@ internal sealed partial class MeasurementRun
         var scenes = _app.WorldScenes!;
         var frame = _resourceTimings.Draw(Engine.GetProcessFrames(), Seconds(),
             _routeSampling ? (_routeOperableGc is null ? "route-opening" : "route-follow") : _scenePhase,
-            _routeSampling ? "route" : _sceneOperation, scenes.View.Interactive, scenes.Display?.DisplayedFrame?.Update.Frame.Space);
+            _routeSampling ? "route" : _sceneOperation, _routeSampling && scenes.View.Interactive,
+            scenes.Display?.DisplayedFrame?.Update.Frame.Space, afterOperable: !_routeSampling && _sceneOperable > 0);
         if (frame is not null) _resourceFrames.Add(frame);
     }
 

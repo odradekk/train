@@ -226,6 +226,8 @@ internal sealed partial class MeasurementRun
         _sceneOpeningFrames.Clear();
         var before = SceneCacheState();
         var loadAtClick = SceneLoadCounts();
+        var nodeCells = target is WorldObjectId.Node n
+            ? NodeVoxelCount.Read(_app.Host!.GetStatus()!.View, _app.Host.Content!, n.Id) : null;
         _sceneTarget = target;
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
         if (target is WorldObjectId.Node node && _app.Host!.GetStatus()!.View.FindNode(node.Id) is not Lookup<NodeView>.Found)
@@ -261,15 +263,14 @@ internal sealed partial class MeasurementRun
                 Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = false, Position = point + new Vector2(8, 0) });
                 _sceneDragIssued = true;
             }
-            // The observation window ends after the same Ready hold used for memory.
-            // Missing interaction remains a null observation, never a successful signal.
+            // Ready 保持结束；缺失交互记 null。
             return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + observationSeconds;
         }, observationSeconds == 60 ? 180 : 120);
         var end = Seconds();
         if (_app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } readyFrame)
             RecordReadyGeometry(readyFrame, _sceneLastDraw);
         _sceneOperation = null;
-        // Validate the immutable Ready snapshot after the observation, without charging far-content evaluation to UI latency.
+        // 观察后校验快照，避免计入打开耗时。
         var validationStarted = Seconds();
         if (_scenario != "scene-reference") ValidateReadyReference();
         var validationSeconds = Seconds() - validationStarted;
@@ -277,7 +278,7 @@ internal sealed partial class MeasurementRun
         _sceneCompletedOperations++;
         var record = new
         {
-            kind = "open", name, target = target.ToString(), click = _sceneClick,
+            kind = "open", name, target = target.ToString(), click = _sceneClick, node_voxel_cells = nodeCells,
             first_visible = _sceneVisible > 0 ? (double?)_sceneVisible : null,
             first_operable = _sceneOperable > 0 ? (double?)_sceneOperable : null,
             ready = _sceneReady, observation_ended = end,
