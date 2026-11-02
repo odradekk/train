@@ -74,17 +74,17 @@ Read-ExecutionState
 
 ## 逐项性能判定
 
-`report.json.assessment` 按[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)逐项报告结果。`conclusion` 保持“待验收”，`reason` 说明缺目标配置实机与完整覆盖。`items` 包含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，可附 `observed_seconds`、`excess`。单轮阈值在 `MeasurementAssessment`，长测离线及合并阈值也在 `memory_assessment.py`。
+`report.json.assessment` 按[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)报告。`conclusion` 为“待验收”：缺目标配置实机与完整覆盖，原因见 `reason`。`items` 含 `metric`、`window`、`unit`、`rule`、`threshold`、`measured`、`status`、`reason`，可附 `observed_seconds`、`excess`。单轮阈值见 `MeasurementAssessment`，长测离线及合并阈值也见 `memory_assessment.py`。
 
-`status` 为 `passed`、`failed`、`unknown` 或 `recorded`。所有场景的 Linux `game_working_set` 只记录数值，状态为 `recorded`，不提供阈值和超出量；3 GiB 目标留到 Windows 判定。C# 按测量进程系统区分，离线脚本按 `identity.os` 区分。缺字段、无效值、缺配对、截断或运行失败仍为 `unknown`。capture/reference 不判定；`outcome` 只表示运行是否完成，逐项通过不能代替整体验收。
+`status` 为 `passed`、`failed`、`unknown` 或 `recorded`。Linux 的 `game_working_set` 只记录，状态为 `recorded`，无阈值、超出量；3 GiB 留到 Windows 判定。C# 按测量进程系统、离线按 `identity.os` 区分。缺值、无效值、缺配对、截断或失败均为 `unknown`。capture/reference 不判定；`outcome` 只表示运行结果，逐项通过不代表整体验收。
 
-路线帧耗时三项排除结束时刻≤`identity.scene_budget.route.startup.first_operable_at` 的帧；该字段与 `timing.frames[].elapsed_seconds` 同起点，首个可操作帧仍属打开。`window_start_seconds` 记录起点，`excluded_frames` 记录排除数；缺时刻或后续帧则 `unknown`，缺时刻时两字段为 null。计入可操作后补齐和途中切换；实际倍速仍用全窗。原始 `timing` 和旁车保留，[场景准备](scene-preparation.md)另记排除数。
+路线帧耗时三项排除结束时刻≤`identity.scene_budget.route.startup.first_operable_at` 的帧；它与 `timing.frames[].elapsed_seconds` 同起点，首个可操作帧仍属打开。`window_start_seconds`／`excluded_frames` 记起点／排除数；缺时刻或后续帧为 `unknown`，缺时刻时两字段为 null。计入可操作后补齐及切换，实际倍速仍用全窗。保留原始 `timing`、旁车；准备耗时判定及汇总见[场景准备](scene-preparation.md)。
 
-打开 p95 同类至少 30 个有效样本；最大值和补齐也只用有效打开。补齐从可操作起检查 5 秒内的 64 m 范围。`scene-memory` 节点只观察约 5 秒，不作正式时延或稳态证据。节点按 `click` 配对最近地图读数：首次取初始地图末 1 秒中位数，之后取最近 `natural-map.memory`；缺基线则增量 unknown。返回地图强制 GC 堆减 `cycle 0` 初值。`steady` 仅为末 1 秒统计，须另核对稳定性。
+打开 p95 同类须≥30 个有效样本；最大值、补齐也仅用有效打开。补齐从可操作起检查 5 秒内 64 m 范围。`scene-memory` 节点约 5 秒，不作时延或稳态验收。
 
-场景准备的判定、旁车与汇总见 [scene-preparation.md](scene-preparation.md)。
+open 点击前记录非负整数 `node_voxel_cells`，逐实例累计复合体格数。私有增量预算为 1 GiB × max(1, 格数／标准世界基准格数)。条目取“增量−预算”最大者：`measured` 为其增量，`threshold` 为预算，`excess`=max(0, 增量−预算)，`node_voxel_cells`／`reference_node_voxel_cells` 记所选打开／基准的格数。任一有效打开缺格数则 unknown；其余上限不变。详见[节点基准与内存配对](baselines/2026-11-02-node-voxel-budget.md)。
 
-`scene-soak` 的绝对内存取所有已记录稳态中位数的最大值，含打开的 `steady`、`natural-map.memory` 和初始／最终／编辑器稳态，不取峰值。节点增量仍缺配对。`retired_heap_delta` 只取内嵌 `soak.memory.reset_heaps` 中 `phase=reset` 的 `live_bytes`，各段减第 1 段，最大增量 ≤100 MiB；`final` 状态不同，不参与。须覆盖全部分段且时长≥7200 秒。`private_growth` 用下述第 2 小时 OLS，单轮 ≤200 MiB/h，`observed_seconds` 和 `window_start_seconds` 记录实际窗口。工作集／渲染斜率仅保留观测值；`scene-memory` 不生成增长判定。
+`scene-soak` 绝对内存取记录稳态中位数的最大值，含打开的 `steady`、`natural-map.memory`、初始／最终／编辑器稳态，不取峰值。节点增量仍缺配对。`retired_heap_delta` 取 `soak.memory.reset_heaps` 中 `phase=reset` 的 `live_bytes`，各段减首段取最大，须≤100 MiB；`final` 状态不同，排除。须覆盖全部分段且时长≥7200 秒。`private_growth` 按下述第 2 小时 OLS，单轮≤200 MiB/h；`observed_seconds`、`window_start_seconds` 记实际窗口。工作集／渲染斜率只记录；`scene-memory` 不判定增长。
 
 ## 离线汇总
 
