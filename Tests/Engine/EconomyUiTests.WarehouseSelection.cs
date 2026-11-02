@@ -65,6 +65,7 @@ public partial class EconomyUiTests
             await _input.Enter(Find<LineEdit>(panel, "LeaseCapacity"), "20");
             await _input.Activate(Find<Button>(panel, "ConfirmLease"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, rented));
+            await _input.Frames();
             var details = Find<Label>(panel, "LeaseDetails");
             var confirm = Find<Button>(panel, "ConfirmLease");
             var result = Find<Label>(panel, "LeaseResult").Text;
