@@ -6,6 +6,22 @@ namespace Train.App.Editing;
 
 internal sealed partial class EditorService
 {
+    internal void OpenBlueprint(BlueprintAddress address, bool fromLibrary = false)
+    {
+        if (Host.Content?.FindBlueprint(address) is ContentLookup<BlueprintRecord>.Found found)
+        {
+            DraftTarget target = address.Library == BlueprintLibrary.User
+                ? new DraftTarget.UserBlueprint(address.Id) : new DraftTarget.LocalBlueprint(
+                    address.Library == BlueprintLibrary.Local ? address.Id : null);
+            Open(found.Value.Definition, target, address.Library == BlueprintLibrary.Packages ? null : new BlueprintSaveTarget.Overwrite(address), fromLibrary: fromLibrary);
+        }
+        else
+        {
+            var name = Host.Content?.Blueprints.FirstOrDefault(blueprint => blueprint.Address == address)?.Display.Name;
+            Report(name is null ? "无法打开蓝图，内容缺失或不可用。" : $"无法打开蓝图「{name}」，内容缺失或不可用。");
+        }
+    }
+
     internal void LogDraftEvaluationFailure(Exception error) =>
         _logger.Warning("editor", "editor_draft_evaluation_failed", "草稿评估失败。", exception: error);
 
