@@ -1,13 +1,16 @@
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Train.App.Saves;
 
 internal sealed record SavePosition(ulong CompletedSteps, ulong Sequence);
 internal sealed record SavePackage(string Id, string Version);
+internal sealed record SaveWorld(string GenerationProfileId, ulong Seed);
 internal sealed record SaveHeader(int SaveFormatVersion, Guid Id, string Name, DateTimeOffset SavedAt,
-    SavePosition Position, ImmutableArray<SavePackage> Packages);
+    SavePosition Position, ImmutableArray<SavePackage> Packages,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SaveWorld? World = null);
 internal sealed record SaveDocument(SaveHeader Header, string CorePayload, string ContentPayload);
 internal sealed class SaveFormatException(string code, string message) : Exception(message)
 {
@@ -146,6 +149,12 @@ internal static class SaveContainer
         CheckObject(position);
         _ = position.GetProperty("CompletedSteps").GetUInt64();
         _ = position.GetProperty("Sequence").GetUInt64();
+        if (header.TryGetProperty("World", out var world) && world.ValueKind != JsonValueKind.Null)
+        {
+            CheckObject(world);
+            if (string.IsNullOrWhiteSpace(world.GetProperty("GenerationProfileId").GetString())) throw Invalid();
+            _ = world.GetProperty("Seed").GetUInt64();
+        }
         var result = header.Deserialize<SaveHeader>() ?? throw Invalid();
         if (result.Id == Guid.Empty || string.IsNullOrWhiteSpace(result.Name) || result.SavedAt == default || result.Packages.IsDefault)
             throw Invalid();

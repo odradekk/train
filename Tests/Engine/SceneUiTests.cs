@@ -100,9 +100,10 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
             var resources = map.GetNode<CheckBox>("InformationLayers/Body/Resources");
             await _input.Activate(resources);
-            var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            var oldCore = setup.Session;
+            var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
-            await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
+            await _input.Activate(UiTestInput.SaveButton(panel, "保存"));
             await _input.WaitUntil(() => !app.Saves!.HasPendingWork);
             var identity = app.Saves!.Status!.Identity;
             panel.Hide();
@@ -110,12 +111,11 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             var scene = setup.Scenes[^1];
             var minimap = ui.GetNode<NodeMinimap>("Root/World/NodeMinimap");
             await _input.WaitUntil(minimap.IsVisibleInTree);
-            var oldCore = setup.Session;
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
-            var list = panel.FindChildren("*", "ItemList", true, false).Cast<ItemList>().Single(item => item.GetWindow() == panel);
-            var row = Enumerable.Range(0, list.ItemCount).Single(index => list.GetItemText(index).StartsWith(identity.Name + " ·", StringComparison.Ordinal));
-            await _input.ClickItem(list, row, window: panel);
-            await _input.Activate(UiTestInput.SaveButton(panel, "读取选中存档"), panel);
+            var list = panel.FindChildren("*", "ItemList", true, false).Cast<ItemList>().Single(item => item.GetWindow() == panel.GetWindow());
+            var row = Enumerable.Range(0, list.ItemCount).Single(index => list.GetItemText(index).StartsWith(identity.Name + " · ", StringComparison.Ordinal));
+            await _input.ClickItem(list, row);
+            await _input.Activate(UiTestInput.SaveButton(panel, "读取"));
             await _input.WaitUntil(() => !app.Saves.HasPendingWork && map.IsVisibleInTree());
             Require(app.Host!.GetStatus() is { IsPaused: true, PlayerPaused: true } && scene.IsDisposed &&
                 oldCore.DisposeCount == 1 && !app.WorldScenes!.View.Visible && app.Saves.Status!.Identity == identity &&
@@ -152,13 +152,13 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             var scene = setup.Scenes[^1];
             var returned = 0;
             app.WorldScenes!.ReturnedToMap += _ => returned++;
-            var panel = menu.GetChildren().OfType<SavePanel>().Single();
+            var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
-            await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
-            await _input.WaitUntil(() => panel.GetChildren().OfType<ConfirmationDialog>().Any(dialog => dialog.Title == "未保存的更改" && dialog.Visible));
+            await _input.Activate(UiTestInput.SaveButton(panel, "关闭（Esc）"));
+            await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "返回主菜单");
+            await _input.WaitUntil(() => UiTestInput.SavePromptVisible(panel, "未保存的更改"));
             Require(!scene.IsDisposed && app.Host!.GetStatus() is not null, "未保存确认前离开了场景对局。");
-            var confirmation = panel.GetChildren().OfType<ConfirmationDialog>().Single(dialog => dialog.Title == "未保存的更改");
-            await _input.Activate(confirmation.FindChildren("*", "Button", true, false).Cast<Button>().Single(button => button.Text == "不保存"), confirmation);
+            await _input.Activate(UiTestInput.SavePromptButton(panel, "Discard"));
             await _input.WaitUntil(() => menu.IsVisibleInTree() && app.Host!.GetStatus() is null);
             Require(scene.IsDisposed && returned == 0 && !app.WorldScenes.View.Visible &&
                 !map.IsVisibleInTree() && !ui.GetNode<Control>("Root/World/Bar").IsVisibleInTree() &&
