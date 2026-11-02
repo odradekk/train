@@ -42,9 +42,9 @@ public partial class GameShellAppTests
                 finally { window.Size = originalSize; window.ContentScaleFactor = 1; dialog.PopupCentered(); }
             }
             await _input.Activate(dialog.GetCancelButton(), dialog);
-            Require(shell.WorkspaceContent == formation && Find<CheckBox>(formation, "Vehicle9").ButtonPressed &&
-                Find<VBoxContainer>(formation, "OrderedVehicles").GetChildCount() == 1,
-                "取消切换必须保留已选车辆和编组顺序。");
+            Require(shell.WorkspaceContent == formation && !Find<CheckBox>(formation, "Vehicle9").ButtonPressed &&
+                Find<VBoxContainer>(formation, "OrderedVehicles").GetChildCount() == 0,
+                "取消切换必须保留车辆勾选和编组顺序。");
             await _input.Activate(Find<Button>(ui, "EconomyReports"));
             await _input.Activate(SwitchConfirmation(shell).GetOkButton(), dialog);
             Require(shell.WorkspaceContent?.Name == "EconomyReports" && !formation.Visible && setup.Session.SubmitCount == 0,
@@ -210,7 +210,7 @@ public partial class GameShellAppTests
         var plan = new RunPlan(false, [new PlanStop.Station(new(1), 0,
             [new(new AutomaticGoodsAction.Buy(null), EconomyFixture.Food, new(10), 4)])]);
         var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Formed,
-            trainPlan: plan), EconomyFixture.Content(mapPresentation: true));
+            trainPlan: plan, purchasedPlan: plan), EconomyFixture.Content(mapPresentation: true));
         await Run(async (ui, shell) =>
         {
             await OpenPlan(ui, shell);
@@ -241,8 +241,10 @@ public partial class GameShellAppTests
         var list = Find<Tree>(shell.ListContent!, "Objects");
         await _input.ClickItem(list, FirstSelectableItem(list));
         await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent!, "Pages"), 2);
-        await _input.Activate(Find<Button>(shell.InspectorContent!, "FormPurchased"));
-        Require(shell.WorkspaceContent is TrainFormationWorkspace, "聚居地现车入口必须打开编组工作区。");
+        var parked = Find<CheckBox>(shell.InspectorContent!, "ParkedVehicle9");
+        if (!parked.ButtonPressed) await _input.Activate(parked);
+        await _input.Activate(Find<Button>(shell.InspectorContent!, "FormParked"));
+        Require(shell.WorkspaceContent is TrainFormationWorkspace, "聚居地车辆页必须打开编组工作区。");
     }
 
     private async Task OpenPlan(GameUi ui, GameShell shell, int row = 0)
