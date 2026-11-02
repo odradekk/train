@@ -16,7 +16,7 @@ internal partial class GoodsIconCache : Node
         internal Texture2D? Texture;
         internal IDisposable? Lease;
         internal string? Failure;
-        internal List<GoodIcon> Controls { get; } = [];
+        internal List<(GoodIcon Icon, bool Thumbnail)> Controls { get; } = [];
         internal Capture? Pending;
     }
     private sealed class Capture(IDesignPreview preview) : IDisposable
@@ -52,6 +52,28 @@ internal partial class GoodsIconCache : Node
     internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
     internal event Action<string>? Diagnostic;
 
+    internal GoodIcon CreateDesign(DesignHash design, int size)
+    {
+        _dispatcher.RequireMainThread();
+        Entry entry;
+        try { entry = _content is { } content ? DesignEntry(design, content) : Missing("没有活动内容。"); }
+        catch (Exception error) { entry = Missing(error.Message); }
+        return CreateControl(entry, null, size, false, true);
+    }
+    internal GoodIcon CreateDesign(DesignEvaluation evaluation, int size)
+    {
+        _dispatcher.RequireMainThread();
+        Entry entry;
+        try
+        {
+            var hash = evaluation switch
+            { DesignEvaluation.Complete complete => complete.Design, DesignEvaluation.Partial partial => partial.Scene.Design, _ => null };
+            entry = _content is { } content && hash is { } design ? DesignEntry(design, content, evaluation) : Missing("没有可显示的设计。");
+        }
+        catch (Exception error) { entry = Missing(error.Message); }
+        return CreateControl(entry, null, size, false, true);
+    }
+
     internal void Initialize(IScenesFactory factory, GodotMainThreadDispatcher dispatcher)
     {
         _factory = factory;
@@ -77,12 +99,20 @@ internal partial class GoodsIconCache : Node
             entry = Load(good);
             _goods.Add(good, entry);
         }
+        return CreateControl(entry, quantity, size, unavailable, false);
+    }
+
+    private static GoodIcon CreateControl(Entry entry, long? quantity, int size, bool unavailable, bool thumbnail)
+    {
         var control = new GoodIcon(size) { Quantity = quantity, Unavailable = unavailable };
-        entry.Controls.Add(control);
-        control.TreeExiting += () => entry.Controls.Remove(control);
-        control.SetTexture(entry.Texture, entry.Texture is not null ? null : entry.Failure ?? (entry.Pending is null ? "图标缺失" : "图标正在生成"));
+        entry.Controls.Add((control, thumbnail));
+        control.TreeExiting += () => entry.Controls.Remove((control, thumbnail));
+        control.SetTexture(entry.Texture, entry.Texture is not null ? null : FailureText(entry, thumbnail));
         return control;
     }
+    private static string FailureText(Entry entry, bool thumbnail) => thumbnail
+        ? entry.Pending is null ? "缩略图不可用" : "缩略图正在生成"
+        : entry.Failure ?? (entry.Pending is null ? "图标缺失" : "图标正在生成");
 
     private Entry Load(GoodId good)
     {
@@ -92,11 +122,7 @@ internal partial class GoodsIconCache : Node
             return Missing($"货物定义缺失：{good}。");
         if (found.Value.DisplayDesign is { } design)
         {
-            var key = (design, content.Generation);
-            if (_designs.TryGetValue(key, out var cached)) return cached;
-            var entry = Render(design, content);
-            _designs.Add(key, entry);
-            return entry;
+            return DesignEntry(design, content);
         }
         if (found.Value.Display.Icon is not { } revision ||
             content.FindAsset(revision) is not ContentLookup<ContentAsset>.Found asset)
@@ -105,11 +131,18 @@ internal partial class GoodsIconCache : Node
         return new() { Texture = lease.Value, Lease = lease };
     }
 
-    private Entry Render(DesignHash design, IContentView content)
+    private Entry DesignEntry(DesignHash design, IContentView content, DesignEvaluation? evaluation = null)
     {
-        if (content.FindDesign(design) is not ContentLookup<DesignEvaluation>.Found evaluation)
-            return Missing($"图标显示设计缺失：{design}。");
-        var opened = _factory.PreviewDesign(content, evaluation.Value);
+        var key = (design, content.Generation);
+        if (_designs.TryGetValue(key, out var cached)) return cached;
+        evaluation ??= (content.FindDesign(design) as ContentLookup<DesignEvaluation>.Found)?.Value;
+        var entry = evaluation is not null ? Render(evaluation, content) : Missing($"图标显示设计缺失：{design}。");
+        _designs.Add(key, entry);
+        return entry;
+    }
+    private Entry Render(DesignEvaluation evaluation, IContentView content)
+    {
+        var opened = _factory.PreviewDesign(content, evaluation);
         if (opened is not SceneResult<IDesignPreview>.Success success) return Missing(Describe(opened));
         var capture = new Capture(success.Value);
         var transferred = false;
@@ -222,7 +255,7 @@ internal partial class GoodsIconCache : Node
             }
             capture.Dispose();
             entry.Pending = null;
-            foreach (var control in entry.Controls) control.SetTexture(entry.Texture, entry.Failure);
+            foreach (var (control, thumbnail) in entry.Controls) control.SetTexture(entry.Texture, entry.Texture is null ? FailureText(entry, thumbnail) : null);
             if (entry.Failure is { } message) Diagnostic?.Invoke(message);
         }
     }
@@ -231,7 +264,7 @@ internal partial class GoodsIconCache : Node
     {
         foreach (var entry in _goods.Values.Concat(_designs.Values).Distinct())
         {
-            foreach (var control in entry.Controls) control.SetTexture(null, "图标绑定已失效");
+            foreach (var (control, _) in entry.Controls) control.SetTexture(null, "图标绑定已失效");
             entry.Controls.Clear();
             entry.Pending?.Dispose();
             if (entry.Lease is { } lease) lease.Dispose();
