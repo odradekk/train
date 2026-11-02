@@ -80,7 +80,7 @@ public partial class GameUi
         if (OS.IsDebugBuild())
         {
             MenuAction("开发工具", () => OpenDeveloperTools?.Invoke());
-            if (_authoringPanel is not null) _authoringMenuIndex = MenuAction("创作模式", _authoringPanel.Open);
+            if (_authoringPanel is not null) _authoringMenuIndex = MenuAction("创作模式", OpenAuthoring);
         }
         _shell.LayoutChanged += () => PanelAreaChanged?.Invoke();
     }
@@ -120,6 +120,14 @@ public partial class GameUi
         else _shell.ShowWorkspace(_library);
     }
 
+    private void OpenAuthoring()
+    {
+        if (_authoringPanel is null || _authoring?.CanOpen != true) return;
+        _focusBeforeAuthoring = GetViewport().GuiGetFocusOwner();
+        _errorPanel.Hide();
+        _authoringPanel.Open();
+    }
+
     private bool CloseOverlay()
     {
         if (_menu.CloseSavesOnEscape()) return true;
@@ -155,8 +163,8 @@ public partial class GameUi
         _noticeButton.Text = _notices?.UnreadCount > 0 ? $"通知 {_notices.UnreadCount}" : "通知";
         if (_authoringMenuIndex >= 0)
         {
-            _gameMenu.GetPopup().SetItemDisabled(_authoringMenuIndex, !_authoring!.CanUse || _authoring.IsBusy || _host!.IsBusy);
-            _gameMenu.GetPopup().SetItemTooltip(_authoringMenuIndex, "制作内容；需要可编辑的对局且当前没有其他操作。");
+            _gameMenu.GetPopup().SetItemDisabled(_authoringMenuIndex, !_authoring!.CanOpen);
+            _gameMenu.GetPopup().SetItemTooltip(_authoringMenuIndex, _authoring.CanOpen ? "编辑源包和本地模组" : "请等待当前操作结束。");
         }
     }
 

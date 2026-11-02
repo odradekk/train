@@ -17,6 +17,10 @@ internal sealed class ContentFilesSnapshot : IContentFiles
         ImmutableDictionary<ContentPath, ImmutableArray<byte>> files)
         => (this.root, this.directories, this.files) = (root, directories, files);
 
+    internal static ContentFilesSnapshot Empty(ContentRoot root) => new(root,
+        ImmutableDictionary<ContentPath, ImmutableArray<ContentFileEntry>>.Empty.Add(new(root, ""), []),
+        ImmutableDictionary<ContentPath, ImmutableArray<byte>>.Empty);
+
     public static ContentFilesSnapshot Capture(IContentFiles source, ContentRoot root)
     {
         var directories = ImmutableDictionary.CreateBuilder<ContentPath, ImmutableArray<ContentFileEntry>>();
@@ -140,7 +144,7 @@ internal sealed record PackageWriteResult(bool Success, ImmutableArray<PackageFi
 internal static class PackageWriter
 {
     public static PackageWriteResult Execute(PackageSnapshot basis, PackageWritePlan plan, bool keepFiles,
-        Action<PackageFileChange>? completed = null)
+        Action<PackageFileChange>? completed = null, Action? sourceChecked = null)
     {
         var changes = ImmutableArray.CreateBuilder<PackageFileChange>();
         var done = ImmutableArray.CreateBuilder<PackageFileChange>();
@@ -170,7 +174,8 @@ internal static class PackageWriter
             currentIndex = -1;
             if (plan.SourceVersion != basis.Version || !basis.MatchesDisk())
                 return new(false, [], changes.ToImmutable(), null,
-                    "源包已发生外部修改，未写入任何文件，草稿保留；请重新载入该包，处理外部修改后重新校验。");
+                    "源包已发生外部修改；请重新载入该包，处理外部修改后重新校验。");
+            sourceChecked?.Invoke();
             writing = true;
             for (currentIndex = 0; currentIndex < changes.Count; currentIndex++)
             {
@@ -197,7 +202,8 @@ internal static class PackageWriter
         {
             var remaining = writing ? changes.Skip(currentIndex + 1)
                 : changes.Where((_, index) => index != currentIndex);
-            return new(false, done.ToImmutable(), remaining.ToImmutableArray(), current, error.Message, CleanupMessage());
+            return new(false, done.ToImmutable(), remaining.ToImmutableArray(), current,
+                (writing ? "文件写入失败：" : "包写入准备失败：") + error.Message, CleanupMessage());
         }
         string? CleanupMessage() => cleanupMessages.Count == 0 ? null : string.Join("\n", cleanupMessages);
     }
