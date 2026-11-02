@@ -49,7 +49,9 @@ internal sealed class ConstructionJobRows(Func<bool> canAct, Func<CoreCommand, S
             }
             var summary = vehicles ? DescribeVehicleJob(view, content, job)
                 : $"正在{(job.Kind == ConstructionKind.Construction ? "建造" : ServiceKind(job.Kind))}{TargetName(job.Target)} · 进度 {job.Progress:P0} · {ServiceRemainingTime(job, view)}";
-            row.Description.Text = summary + $"\n状态：{ServiceState(job.State)}\n投入：{Goods(job.InvestedGoods)}\n{Reservations(job.Id)}" +
+            row.Description.Text = summary + (vehicles && job.State != ConstructionState.Working ? "" : $"\n状态：{ServiceState(job.State)}") +
+                (job.Limits.IsEmpty ? "" : "\n受限因素：" + string.Join("、", job.Limits.Select(limit => limit switch
+                { WorkLimit.Power => "电力", WorkLimit.Labor => "劳动力", _ => "施工能力" }))) + $"\n投入：{Goods(job.InvestedGoods)}\n{Reservations(job.Id)}" +
                 (job.Blockers.IsEmpty ? "" : "\n受阻：" + Describe(job.Blockers));
             if (settlement.OwnedJobs.Contains(job.Id) && job.Kind == ConstructionKind.Deconstruction)
             {
@@ -115,8 +117,6 @@ internal sealed class ConstructionJobRows(Func<bool> canAct, Func<CoreCommand, S
         return lines.Count == 0 ? "返还库存预留：无" : "返还库存预留：" + string.Join("；", lines);
     }
 
-    private string Goods(ImmutableArray<GoodsQuantity> goods) => goods.IsEmpty ? "无" :
-        string.Join("、", goods.Select(item => $"{SettlementOverviewPage.GoodName(item.Good, _content)} × {item.Quantity}"));
-    private string Describe(ImmutableArray<CoreProblem> problems) =>
-        string.Join("\n", problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, _content)));
+    private string Goods(ImmutableArray<GoodsQuantity> goods) => DescribeGoods(goods, _content);
+    private string Describe(ImmutableArray<CoreProblem> problems) => DescribeProblems(problems, _content);
 }

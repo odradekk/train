@@ -53,7 +53,10 @@ public sealed class JobQuoteTests
             : new[] { new GoodsQuantity(first, 1), new GoodsQuantity(last, 1) }), quote.Shortages.ToArray());
         Assert.AreEqual(Cargo, quote.SourceConsumption.Single().Inventory);
         if (funding == JobFunding.NpcCommission)
+        {
             Assert.IsTrue(quote.NpcPurchases.Any(p => p.Good == Material && p.Quantity == 1));
+            Assert.IsNull(quote.ServicePayment);
+        }
         else
         {
             Assert.IsEmpty(quote.NpcPurchases);
@@ -88,6 +91,7 @@ public sealed class JobQuoteTests
         {
             CollectionAssert.AreEqual(new[] { new JobPurchaseView(Material, 1, new(100)) }, quote.NpcPurchases.ToArray());
             Assert.IsNull(quote.MaterialPayment);
+            Assert.IsNull(quote.ServicePayment);
         }
         else Assert.AreEqual(new Money(0), quote.MaterialPayment);
         Assert.IsNull(quote.TotalPayment);
@@ -103,17 +107,51 @@ public sealed class JobQuoteTests
     [DataRow(JobFunding.NpcCommission, true)]
     public void Quote_reports_only_intact_construction_work_rate(JobFunding funding, bool destroyed)
     {
-        var content = CommissionFixture.Content(rate: 37);
+        var baseline = CommissionFixture.Content(rate: 37);
+        var content = baseline with
+        {
+            Designs = baseline.Designs.Select(design => design.Design != WorldFixture.Station ? design : design with
+            { Parts = [design.Parts[0], design.Parts[0] with { Id = new(1) }] }).ToImmutableArray()
+        };
         using var original = funding == JobFunding.OwnInventory ? Session(content) : CommissionFixture.Session(content);
         using var session = new CoreSession(original.State with { World = original.State.World with
         {
             Instances = original.State.World.Instances.Select(i => i.Id is not InstanceId.Building || !destroyed ? i
-                : i with { Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray() }).ToImmutableArray()
+                : i with { Parts = i.Parts.Select(p => p.Id == new PartId(1) ? p with { Current = 0 } : p).ToImmutableArray() }).ToImmutableArray()
         } });
         var request = CommissionFixture.BuildRequest(content, funding == JobFunding.OwnInventory ? [Local] : []);
         var quote = WorldFixture.Success(session.Read().GetJobQuote(request, funding));
-        Assert.AreEqual(destroyed ? 0d : 37d, quote.CapabilityWorkPerSecond);
-        if (destroyed) Assert.AreEqual("capability_zero", quote.Blockers.Single().Code);
+        Assert.AreEqual(destroyed ? 37d : 74d, quote.CapabilityWorkPerSecond);
+        Assert.IsEmpty(quote.Blockers);
+    }
+
+    [TestMethod]
+    public void Too_small_plot_quote_and_command_reject_with_plot_condition_without_mutation()
+    {
+        var baseline = Content();
+        var target = baseline.Designs.Single(design => design.Design == WorldFixture.Vehicle) with
+        { Design = new(new string('7', 64)), Kind = new DesignKind.Building(PlotSize.Medium, BuildingKind.Production, []) };
+        var content = baseline with
+        {
+            Designs = baseline.Designs.Select(design => design with
+            { Parts = design.Parts.Select(part => part with
+                { Capabilities = part.Capabilities.Select(capability => capability is PartCapability.Construction construction
+                    ? construction with { MaximumBuildingPlotSize = PlotSize.Giant } : capability).ToImmutableArray() }).ToImmutableArray() }).Append(target).ToImmutableArray(),
+            SettlementTemplates = [baseline.SettlementTemplates[0] with
+                { Plots = [..baseline.SettlementTemplates[0].Plots, new(2, PlotSize.Small, null)] }]
+        };
+        using var session = Session(content);
+        var plot = session.State.World.Settlements.Single().Plots.Single(plot => plot.Building is null);
+        var request = new JobRequest.BuildBuilding(Facility, plot.Id, new(content.Identity, target, []), [Local], 0);
+        var before = session.State;
+
+        var quote = WorldFixture.Success(session.Read().GetJobQuote(request, JobFunding.OwnInventory));
+
+        Assert.AreEqual(before, session.State);
+        var problem = quote.Blockers.Single();
+        Assert.AreEqual("conditions_not_met", problem.Code);
+        Assert.AreEqual("Plot", problem.Field);
+        Reject(session, new CoreCommand.StartOwnedJob(request), "Plot", "conditions_not_met");
     }
 
     [TestMethod]

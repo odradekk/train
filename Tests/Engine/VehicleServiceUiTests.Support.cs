@@ -51,7 +51,7 @@ public partial class VehicleServiceUiTests
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private sealed partial class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false, bool facilityBlocked = false, bool activeTrain = false, bool healthyParkedVehicle = false, bool secondFacility = false, bool damagedBuilding = false, bool damagedBuildingPart = false) : ICoreReadView
+    private sealed partial class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false, bool facilityBlocked = false, bool activeTrain = false, bool healthyParkedVehicle = false, bool secondFacility = false, bool damagedBuilding = false, bool damagedBuildingPart = false, bool plotTooSmall = false, bool trainAtPlatform = true) : ICoreReadView
     {
         internal bool DamagedParkedVehicle { get; init; }
         private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned,
@@ -105,7 +105,7 @@ public partial class VehicleServiceUiTests
             var sources = request switch
             {
                 JobRequest.Repair repair when (repair.Facility == Facility || secondFacility && repair.Facility == new FacilityKey(new(22), CapabilityKind.Construction)) && repair.Instance is InstanceId.Vehicle { Id.Value: 9 or 10 } => repair.Sources,
-                JobRequest.Repair repair when owned && repair.Facility == Facility && repair.Instance is InstanceId.Building { Id.Value: 21 } => repair.Sources,
+                JobRequest.Repair repair when owned && (repair.Facility == Facility || secondFacility && repair.Facility.Building.Value == 22) && repair.Instance is InstanceId.Building { Id.Value: 21 } => repair.Sources,
                 JobRequest.Dismantle dismantle when owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Vehicle { Id.Value: 9 or 12 } => [],
                 JobRequest.Dismantle dismantle when buildingWork && owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Building { Id.Value: 21 } => [],
                 JobRequest.Refit refit when refit.Facility == Facility && expectedDesign is not null && ReferenceEquals(refit.Change.Target, expectedDesign) => refit.Sources,
@@ -124,15 +124,18 @@ public partial class VehicleServiceUiTests
             {
                 if (request is not JobRequest.Repair { Priority: 0 } || !sources.SequenceEqual(_buildingRepair.Sources))
                     throw new InvalidOperationException("UNCONFIGURED: building repair request");
-                request = _buildingRepair;
+                request = _buildingRepair with { Facility = ((JobRequest.Repair)request).Facility };
             }
             QuoteCount++;
             ImmutableArray<CoreProblem> problems = blocked
                 ? [.. Missing, new("insufficient_capacity", "queue", null, ["fixture:capacity"])] : [];
+            if (plotTooSmall && request is JobRequest.BuildBuilding) problems = problems.Add(new("conditions_not_met", "Plot", null, []));
             if (blocked && request is JobRequest.BuildBuilding) problems = problems.Add(new("plot_occupied", "Plot", null, []));
-            if (secondFacility && request is JobRequest.Repair { Facility.Building.Value: 20 })
+            if (secondFacility && !facilityBlocked && request is JobRequest.Repair { Facility.Building.Value: 20 })
                 problems = problems.Add(new("insufficient_capacity", "Facility", null, []));
-            if (facilityBlocked) problems = problems.Add(new("conditions_not_met", "Facility", new WorldObjectId.Instance(new InstanceId.Building(Facility.Building)), []));
+            if (facilityBlocked) problems = problems.Add(request is JobRequest.Repair { Facility.Building.Value: 22 }
+                ? new("insufficient_capacity", "Facility", null, [])
+                : new("conditions_not_met", "Facility", new WorldObjectId.Instance(new InstanceId.Building(Facility.Building)), []));
             LastQuote = new(request, funding, Revision, 100, 2, [new(EconomyFixture.Food, 7)],
                 [.. sources.Select(id => new JobMaterialSourceView(id, [new(EconomyFixture.Food, owned ? blocked ? 5 : 7 : blocked ? 1 : 2)]))],
                 owned ? [] : [new(EconomyFixture.Food, blocked ? 3 : sources.Length switch { 0 => 7, 1 => 5, _ => 3 }, new(500))],
@@ -149,7 +152,12 @@ public partial class VehicleServiceUiTests
         public Lookup<NodeView> FindNode(NodeId id) => basis.FindNode(id);
         public Lookup<EdgeView> FindEdge(EdgeId id) => basis.FindEdge(id);
         public Lookup<LocationView> FindLocation(WorldLocation location) => basis.FindLocation(location);
-        public Lookup<TrainView> FindTrain(TrainId id) => basis.FindTrain(id);
+        public Lookup<TrainView> FindTrain(TrainId id)
+        {
+            if (trainAtPlatform && !activeTrain && basis.FindTrain(id) is Lookup<TrainView>.Found found && found.Value.Position is TrainPosition.Node node)
+                return new Lookup<TrainView>.Found(found.Value with { Activity = TrainActivity.Servicing, Position = node with { Phase = NodeTravelPhase.Docked } });
+            return basis.FindTrain(id);
+        }
         public Lookup<InstanceView> FindInstance(InstanceId id)
         {
             if (DamagedParkedVehicle && id is InstanceId.Vehicle { Id.Value: 9 } && basis.FindInstance(id) is Lookup<InstanceView>.Found damaged)

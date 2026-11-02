@@ -14,6 +14,34 @@ namespace Train.Engine.Tests;
 public partial class VehicleServiceUiTests
 {
     [Test]
+    public async Task Core_plot_size_block_disables_blueprint_and_explains_required_plot()
+    {
+        var draft = new DesignDraft(new("需要大地块的建筑", ""),
+            new DesignSpecification.Building(PlotSize.Large, BuildingKind.Production, []), new([], [], []));
+        var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
+            new(new("large-building"), new("large-composition"), new DesignKind.Building(PlotSize.Large, BuildingKind.Production, []),
+                [], 10, 1, 1, new(1), [], [], 0, [], true, []), []);
+        var evaluation = new DesignEvaluation.Complete(design.Design.Design, design.Design.Composition, draft, design,
+            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
+        var blueprint = new BlueprintRecord(new(BlueprintLibrary.Local, new("large-blueprint")), draft, [], evaluation);
+        var view = new ServiceView(owned: true, emptyPlot: true, expectedDesign: design, plotTooSmall: true);
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehicleBlueprint: blueprint));
+        await Run(setup, async (ui, panel) =>
+        {
+            await Buildings(panel);
+            await _input.Activate(Find<Button>(panel, "BuildPlot_3"));
+            var work = Find<Control>(ui, "ConstructionWorkspace");
+            var choice = Find<Button>(work, "Blueprint_0");
+            Require(view.LastQuote!.Blockers.Any(problem => problem.Code == "conditions_not_met" && problem.Field == "Plot") &&
+                choice.Disabled && choice.Text.Contains("需要大地块"),
+                "核心判定地块放不下时应禁用蓝图并说明需要的地块尺寸。");
+            Require(Find<Button>(work, "ConfirmWork").Disabled && setup.Session.SubmitCount == 0,
+                "不适用地块的蓝图仍可开工。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
     public async Task Building_blueprint_quotes_sources_and_submits_build_building_on_owned_settlement()
     {
         var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
@@ -49,6 +77,9 @@ public partial class VehicleServiceUiTests
                 ReferenceEquals(build.Design, design) && build.Sources.SequenceEqual(new InventoryId[] { new(10) }),
                 "建筑报价必须固定当前地块且仅用当地库存。");
             Require(!work.FindChildren("Source_*", "CheckBox", true, false).Any(), "自有施工不应出现来源选择。");
+            Require(!work.FindChildren("MaterialPurchase_*", "Label", true, false).Cast<Label>().Any(label => label.IsVisibleInTree()) &&
+                !work.FindChildren("MaterialPayment_*", "Label", true, false).Cast<Label>().Any(label => label.IsVisibleInTree()),
+                "自有施工材料表不应显示当地购买和费用列。");
             Require(Find<Label>(work, "WorkReason").Text.Contains("地块已被占用") && Find<Button>(work, "ConfirmWork").Disabled,
                 "必须展示核心返回的地块阻塞，不得本地改写为可建。");
             Require(candidate.Activations == 0, "阻塞报价不得激活内容候选。");
@@ -83,10 +114,10 @@ public partial class VehicleServiceUiTests
             Require(buildings.Length == 2 && buildings.Any(item => item.Text.Contains("施工建筑")) &&
                 buildings.Any(item => item.Text.Contains("普通建筑")) && buildings.All(item => item.Text.Contains("小地块")),
                 "建筑页应使用显示名列出各建筑及地块尺寸。");
-            var text = Find<Label>(economy, "OtherPlots").Text;
-            Require(text.Contains("中 1 块") && text.Contains("20%") && text.Contains("资源受阻") &&
-                !text.Contains("任务 4") && buildings.All(item => !item.Text.Contains("建筑 2")),
-                "建筑页应汇总空地和工地，不展示内部编号。");
+            Require(economy.FindChildren("BuildPlot_3", "Button", true, false).Count == 1 &&
+                economy.FindChildren("ConstructionJob_4", "", true, false).Count == 1 &&
+                !economy.FindChildren("OtherPlots", "Label", true, false).Cast<Label>().Any(label => label.IsVisibleInTree() && label.Text.Length > 0),
+                "空地和工地应各显示一次，不再重复汇总。");
             Require(setup.Session.SubmitCount == 0, "浏览建筑页不应提交命令。");
             HideCaptureChrome(ui);
             await UiCapture.Capture(TestScene, "plots");
@@ -171,15 +202,15 @@ public partial class VehicleServiceUiTests
     [Test]
     public async Task Building_repair_displays_core_facility_block_without_submitting()
     {
-        var view = new ServiceView(owned: true, damagedBuilding: true, facilityBlocked: true, buildingLock: InstanceLock.UnderRepair);
+        var view = new ServiceView(owned: true, damagedBuilding: true, facilityBlocked: true, secondFacility: true, buildingLock: InstanceLock.UnderRepair);
         var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
         await Run(setup, async (_, panel) =>
         {
             await Buildings(panel);
             await _input.Activate(Find<Button>(panel, "SelectBuilding_21"));
             var row = Find<Control>(panel, "Building_21");
-            Require(Find<Button>(row, "RepairBuilding").Disabled && Find<Label>(row, "RepairReason").Text.Length > 0 &&
-                !Find<Label>(row, "RepairReason").Text.Contains("conditions_not_met"), "设施锁定未显示中文阻塞或仍可修理。");
+            Require(Find<Button>(row, "RepairBuilding").Disabled && Find<Label>(row, "RepairReason").Text == "条件未满足。",
+                "设施锁定未显示中文阻塞或仍可修理。");
             Require(setup.Session.SubmitCount == 0, "设施受阻仍创建修理任务。");
         });
         setup.Session.AssertComplete();

@@ -56,7 +56,7 @@ internal sealed partial class SettlementVehiclesPage(
         _repair = UiStyle.Button("RepairVehicles", "修理", () => Execute(_repairBatch, false), true); actions.AddChild(_repair);
         _sell = UiStyle.Button("SellVehicles", "出售", () => Confirm(_sellBatch), true); actions.AddChild(_sell);
         _dismantle = UiStyle.Button("DismantleVehicles", "拆解…", () => Confirm(_dismantleBatch), true); actions.AddChild(_dismantle);
-        _work = UiStyle.Button("OpenSelectedVehicleWork", "修理材料与改装草稿…", () =>
+        _work = UiStyle.Button("OpenSelectedVehicleWork", "修理与改装…", () =>
         { if (canAct() && _parkedSelection.Count == 1) workRequested(new InstanceId.Vehicle(_parkedSelection[0])); }); actions.AddChild(_work);
         _sell.Visible = !owned; _dismantle.Visible = owned;
         _repairReason = Text(body, "RepairReason", "请勾选停放车辆。");

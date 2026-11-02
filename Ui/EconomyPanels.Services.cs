@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using Train.App;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -5,6 +7,38 @@ namespace Train.Ui;
 
 internal partial class EconomyPanels
 {
+    internal static JobQuote? FindConstructionQuote(ICoreReadView view, IContentView content,
+        IEnumerable<BuildingId> buildings, JobFunding funding, Func<FacilityKey, JobRequest> request, out string? error)
+    {
+        JobQuote? first = null;
+        error = null;
+        foreach (var building in buildings)
+        {
+            switch (view.GetJobQuote(request(new(building, CapabilityKind.Construction)), funding))
+            {
+                case CoreResult<JobQuote>.Success { Value: var quote }:
+                    if (quote.Blockers.IsEmpty) return quote;
+                    first ??= quote;
+                    error ??= DescribeProblems(quote.Blockers, content);
+                    break;
+                case CoreResult<JobQuote>.Failure failure:
+                    error ??= DescribeProblems(failure.Problems, content);
+                    break;
+                case CoreResult<JobQuote>.Faulted:
+                    error = "核心模拟发生故障，无法获取报价。";
+                    return null;
+            }
+        }
+        error ??= "这里没有可用的施工设施。";
+        return first;
+    }
+
+    internal static string DescribeProblems(ImmutableArray<CoreProblem> problems, IContentView content) =>
+        string.Join("\n", problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, content)));
+
+    internal static string DescribeGoods(ImmutableArray<GoodsQuantity> goods, IContentView content) => goods.IsEmpty ? "无" :
+        string.Join("、", goods.Select(item => $"{SettlementOverviewPage.GoodName(item.Good, content)} × {item.Quantity}"));
+
     internal static bool IsConstructionFacility(ICoreReadView view, IContentView content, BuildingId building) =>
         view.FindInstance(new InstanceId.Building(building)) is Lookup<InstanceView>.Found instance &&
         content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found

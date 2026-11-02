@@ -63,7 +63,7 @@ public partial class VehicleServiceUiTests
     }
 
     [Test]
-    public async Task Changed_vehicle_design_disables_confirm_until_requote()
+    public async Task Changed_vehicle_design_reprepares_difference_from_current_design()
     {
         var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
             new(new("refit-target"), new("refit-composition"), new DesignKind.Vehicle(SizeClass.Medium, 2),
@@ -74,21 +74,43 @@ public partial class VehicleServiceUiTests
         var change = new DesignChangeProjection(new("fixture-vehicle"), new("fixture-composition"), design, [],
             [new(EconomyFixture.Food, 5)], [new(EconomyFixture.Equipment, 7, [], [], [])], 3);
         var before = new ServiceView(expectedDesign: design);
-        var content = EconomyFixture.Content(drafts: [saved]);
+        var currentDesign = design with { Design = design.Design with { Design = new("changed-vehicle"), Composition = new("fixture-composition") } };
+        var currentEvaluation = new DesignEvaluation.Complete(currentDesign.Design.Design, currentDesign.Design.Composition, draft, currentDesign,
+            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
+        var content = EconomyFixture.Content(drafts: [saved], additionalDesigns:
+            new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [currentDesign.Design.Design] = new ContentLookup<DesignEvaluation>.Found(currentEvaluation) });
         var setup = new HostSimulationTests.HostSetup(before, content);
         using var candidate = new ScriptedContentCandidate(EconomyFixture.Content(generation: 2, drafts: [saved]), content,
             ContentChange.Persistent, edit: new PreparedContentEdit.InstanceTarget(new(change, [], false, [])));
+        var nextChange = change with { Before = new("changed-vehicle") };
+        using var nextCandidate = new ScriptedContentCandidate(EconomyFixture.Content(generation: 2, drafts: [saved]), content,
+            ContentChange.Persistent, edit: new PreparedContentEdit.InstanceTarget(new(nextChange, [], false, [])));
+        var preparations = 0;
         await Run(setup, async (ui, economy) =>
         {
-            setup.ContentFactory!.PrepareEditCall = (_, _) => new ContentResult<IContentCandidate>.Success(candidate);
+            setup.ContentFactory!.PrepareEditCall = (_, edit) =>
+            {
+                Require(edit is ContentEdit.InstanceTarget, "改装应从当前实例设计准备差量。");
+                var request = (ContentEdit.InstanceTarget)edit;
+                preparations++;
+                Require(request.Current == new DesignHash(preparations == 1 ? "fixture-vehicle" : "changed-vehicle"),
+                    "实例设计变化后仍按旧设计准备改装差量。");
+                return new ContentResult<IContentCandidate>.Success(preparations == 1 ? candidate : nextCandidate);
+            };
             Find<EconomyPanels>(ui, "EconomyPanels").OpenVehicleServices(new InstanceId.Vehicle(new(9)));
             await _input.Frames(2);
             var work = Find<Control>(ui, "ConstructionWorkspace");
             Require(!Find<Button>(work, "ConfirmWork").Disabled, "设计未变化时应可确认改装。");
             var host = ui.GetParent<Train.App.App>().Host!;
-            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, new ServiceView(expectedDesign: design, changedDesign: true), host.Content!);
-            Require(Find<Label>(work, "WorkReason").Text.Contains("设计已变化") && Find<Button>(work, "ConfirmWork").Disabled,
-                "车辆设计变化后仍可确认或未说明原因。");
+            var next = new ServiceView(2, expectedDesign: design, changedDesign: true);
+            setup.Session.QueueAdvance(new(1, next.Position, [], null, null), next);
+            Require(host.Step(1).Problem is null, "无法发布实例设计变化。");
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, next, host.Content!);
+            Require(preparations == 2 && next.LastQuote?.Request is JobRequest.Refit refit &&
+                ReferenceEquals(refit.Change, nextChange) && !Find<Button>(work, "ConfirmWork").Disabled &&
+                candidate.Disposals == 1 && candidate.Activations == 0 && nextCandidate.Activations == 0,
+                "实例设计变化后应释放旧候选，并按当前设计重新准备可确认报价。");
         });
         setup.Session.AssertComplete();
     }

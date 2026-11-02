@@ -29,6 +29,8 @@ internal partial class ConstructionWorkspace : Control
     private IContentView _content = null!;
     private ICoreReadView? _shownView;
     private IContentView? _shownContent;
+    private PlotSize? _shownPlotSize;
+    private DesignHash? _shownInstanceDesign;
     private IContentCandidate? _candidate;
     private DesignInput? _design;
     private DesignChangeEvaluation? _difference;
@@ -92,6 +94,11 @@ internal partial class ConstructionWorkspace : Control
         _consequence = Text(footer, "WorkConsequence", "委托和开工后不能取消，材料和费用立即扣除。");
         _confirm = UiStyle.Button("ConfirmWork", "请选择目标", Confirm, true); footer.AddChild(_confirm);
         _confirm.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+        VisibilityChanged += () =>
+        {
+            if (IsVisibleInTree()) return;
+            ClearDesign(); _shownView = null;
+        };
         Hide();
     }
 
@@ -144,13 +151,19 @@ internal partial class ConstructionWorkspace : Control
         _refreshing = true;
         try
         {
-            var contentChanged = !ReferenceEquals(_content, content);
+            var contentChanged = !ReferenceEquals(_shownContent, content);
+            var plotSize = found.Value.Plots.FirstOrDefault(plot => plot.Id == _plot)?.Size;
+            var instanceDesign = _instance is { } id && view.FindInstance(id) is Lookup<InstanceView>.Found current
+                ? current.Value.Design : (DesignHash?)null;
+            var choicesChanged = contentChanged || _shownPlotSize != plotSize || _shownInstanceDesign != instanceDesign;
             _view = view; _content = content; _settlement = found.Value;
-            _shownView = view; _shownContent = content; _submitted = false;
-            if (contentChanged || _instance is { } id && _difference is { } difference &&
-                view.FindInstance(id) is Lookup<InstanceView>.Found current && current.Value.Design != difference.Core.Before) ClearDesign();
+            _shownView = view; _shownContent = content;
+            _shownPlotSize = plotSize; _shownInstanceDesign = instanceDesign;
+            if (contentChanged || _difference is { } difference && instanceDesign != difference.Core.Before) ClearDesign();
             _title.Text = $"{(_instance is not null ? "修理与改装" : _plot is not null ? "建造建筑" : "制造车辆")} · {PlaceName()}";
-            RefreshSources(); BuildChoices(); Evaluate();
+            RefreshSources();
+            if (choicesChanged) BuildChoices();
+            if (_submitted) UpdateConfirm(); else Evaluate();
         }
         finally { _refreshing = false; }
     }
@@ -174,6 +187,5 @@ internal partial class ConstructionWorkspace : Control
     internal void Close() { ClearDesign(); Hide(); }
     public override void _ExitTree() => ClearDesign();
     private string PlaceName() => WorldPanels.NodeName(_settlement.Node, _view, _content);
-    private string Describe(ImmutableArray<CoreProblem> problems) => string.Join("\n",
-        problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, _content)));
+    private string Describe(ImmutableArray<CoreProblem> problems) => DescribeProblems(problems, _content);
 }

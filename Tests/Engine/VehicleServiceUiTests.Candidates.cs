@@ -14,6 +14,39 @@ namespace Train.Engine.Tests;
 public partial class VehicleServiceUiTests
 {
     [Test]
+    public async Task Closing_confirmable_manufacture_releases_candidate_without_activation_or_submission()
+    {
+        foreach (var closeButton in new[] { true, false })
+        {
+            var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
+                new(new("close-design"), new("close-composition"), new DesignKind.Vehicle(SizeClass.Small, 2),
+                    [], 10, 1, 1, new(1), [], [], 0, [], true, []), []);
+            var draft = new DesignDraft(new("可制造蓝图", ""), new DesignSpecification.Vehicle(SizeClass.Small), new([], [], []));
+            var evaluation = new DesignEvaluation.Complete(design.Design.Design, design.Design.Composition, draft, design,
+                new(null, null, null, true, null, null, [], [], [], [], []), true, []);
+            var blueprint = new BlueprintRecord(new(BlueprintLibrary.Local, new("close-blueprint")), draft, [], evaluation);
+            var content = EconomyFixture.Content(vehicleBlueprint: blueprint);
+            var view = new ServiceView(expectedDesign: design);
+            var setup = new HostSimulationTests.HostSetup(view, content);
+            using var candidate = new ScriptedContentCandidate(content, content, ContentChange.Persistent,
+                edit: new PreparedContentEdit.ConstructionTarget(design));
+            await Run(setup, async (ui, panel) =>
+            {
+                setup.ContentFactory!.PrepareEditCall = (_, _) => new ContentResult<IContentCandidate>.Success(candidate);
+                var work = await OpenManufacture(ui, panel);
+                await _input.Activate(Find<Button>(work, "Blueprint_0"));
+                Require(view.QuoteCount > 0 && !Find<Button>(work, "ConfirmWork").Disabled, "关闭测试必须先有可确认报价。");
+                if (closeButton) await _input.Activate(Find<Button>(work, "CloseWork"));
+                else work.Hide();
+                await _input.Frames(2);
+                Require(!work.IsVisibleInTree() && candidate.Disposals == 1 && candidate.Activations == 0 && setup.Session.SubmitCount == 0,
+                    "关闭或隐藏可确认工作区应释放候选，不得提交或激活。");
+            });
+            setup.Session.AssertComplete();
+        }
+    }
+
+    [Test]
     public async Task Build_from_local_blueprint_submits_content_candidate_design_and_activates_only_after_acceptance()
     {
         var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
@@ -93,8 +126,8 @@ public partial class VehicleServiceUiTests
                 "UI未使用内容候选提供的DesignInput。");
             setup.Session.QueueSubmit(new CoreCommand.CommissionVehicleWork(quote.Request, new(999)), CommandSource.UserInterface,
                 Completed(1, before, before, new CommandDecision.Rejected([new("price_changed", "MaximumPayment", null, [])])), before);
-            await _input.Activate(Find<Button>(work, "ConfirmWork"));
             var quotes = before.QuoteCount;
+            await _input.Activate(Find<Button>(work, "ConfirmWork"));
             await _input.Frames(3);
             Require(setup.Session.SubmitCount == 1 && candidate.Activations == 0 && before.QuoteCount == quotes &&
                 ReferenceEquals(ui.GetParent<Train.App.App>().Host!.Content, content) && Find<Button>(work, "ConfirmWork").Disabled,

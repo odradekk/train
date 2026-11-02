@@ -13,7 +13,8 @@ internal static partial class EconomyFixture
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
         ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
-        string? equipmentName = null, long? leaseDurationTicks = null, bool vehiclePresentation = false)
+        string? equipmentName = null, long? leaseDurationTicks = null, bool vehiclePresentation = false,
+        IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? additionalDesigns = null)
     {
         mapPresentation |= vehiclePresentation;
         var icon = new AssetRevision("fixture-food-png");
@@ -86,7 +87,7 @@ internal static partial class EconomyFixture
                 [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
                 [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding(armedBuilding)),
                 [new("fixture-food-building")] = new ContentLookup<DesignEvaluation>.Found(FoodBuilding())
-            }
+            }.Concat(additionalDesigns ?? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>()).ToDictionary(item => item.Key, item => item.Value)
         };
     }
 

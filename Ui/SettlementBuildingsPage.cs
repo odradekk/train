@@ -14,7 +14,7 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
     private IContentView _content = null!;
     private SettlementView _settlement = null!;
     private VBoxContainer _body = null!;
-    private Label _empty = null!, _plots = null!;
+    private Label _empty = null!;
     private BuildingId? _expanded;
     private readonly Dictionary<BuildingId, BuildingRow> _buildings = [];
     private readonly Dictionary<FacilityKey, PlanRow> _plans = [];
@@ -25,7 +25,6 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
     {
         _body = body;
         _empty = Text(body, "Empty", "没有建筑。");
-        _plots = Text(body, "OtherPlots", "");
         BuildWork(body);
         BuildDemolition(body);
     }
@@ -75,13 +74,6 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
                 RefreshPlan(plan, facility);
             }
         }
-        var emptyPlots = settlement.Plots.Where(plot => plot.Occupant is PlotOccupant.Empty).ToArray();
-        var otherPlots = ConstructionSites(view, content, settlement).ToList();
-        if (emptyPlots.Length > 0) otherPlots.Add("空地块：" + string.Join("、", emptyPlots.GroupBy(plot => plot.Size)
-            .Select(group => $"{EconomyPanels.PlotSizeName(group.Key)} {group.Count()} 块")));
-        _plots.Text = string.Join("\n", otherPlots);
-        _plots.Visible = _plots.Text.Length > 0;
-        _body.MoveChild(_plots, _body.GetChildCount() - 1);
         RefreshWork();
         UpdateActions();
         if (_dismantle.Visible) RefreshDemolition();

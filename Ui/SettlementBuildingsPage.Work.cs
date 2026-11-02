@@ -41,24 +41,14 @@ internal sealed partial class SettlementBuildingsPage
             { row.RepairReason.Text = "建筑已不存在。"; continue; }
             if (!VehicleRepairs.NeedsRepair(instance.Value))
             { row.RepairReason.Text = "没有损伤，不需要修理"; continue; }
-            var reason = "这里没有能执行修理的施工建筑。";
-            foreach (var building in _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>())
-            {
-                if (!IsConstructionFacility(_view, _content, building.Id)) continue;
-                var request = new JobRequest.Repair(new(building.Id, CapabilityKind.Construction), new InstanceId.Building(id), [_settlement.Inventory], 0);
-                switch (_view.GetJobQuote(request, JobFunding.OwnInventory))
-                {
-                    case CoreResult<JobQuote>.Success { Value: var quote }:
-                        if (quote.Blockers.IsEmpty) _repairQuotes.Add(id, quote);
-                        else reason = Describe(quote.Blockers);
-                        break;
-                    case CoreResult<JobQuote>.Failure failure: reason = Describe(failure.Problems); break;
-                    case CoreResult<JobQuote>.Faulted: reason = "无法查询修理条件，请查看错误报告。"; break;
-                }
-                if (_repairQuotes.ContainsKey(id)) break;
-            }
-            row.RepairReason.Text = _repairQuotes.TryGetValue(id, out var available)
-                ? $"材料只取本聚居地库存。需要：{Goods(available.RequiredGoods)}" : reason;
+            var available = FindConstructionQuote(_view, _content,
+                _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>()
+                    .Where(building => IsConstructionFacility(_view, _content, building.Id)).Select(building => building.Id),
+                JobFunding.OwnInventory,
+                facility => new JobRequest.Repair(facility, new InstanceId.Building(id), [_settlement.Inventory], 0), out var reason);
+            if (available is { Blockers.IsEmpty: true }) _repairQuotes.Add(id, available);
+            row.RepairReason.Text = _repairQuotes.TryGetValue(id, out var quote)
+                ? $"材料只取本聚居地库存。需要：{Goods(quote.RequiredGoods)}" : reason;
         }
         _jobs.Refresh(_view, _content, _settlement, false);
     }

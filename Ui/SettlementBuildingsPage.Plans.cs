@@ -4,6 +4,7 @@ using Train.App;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using static Train.Ui.EconomyPanelControls;
+using static Train.Ui.EconomyPanels;
 
 namespace Train.Ui;
 
@@ -158,9 +159,8 @@ internal sealed partial class SettlementBuildingsPage
         var consumption = process.Details is ProcessDetails.Extraction extraction ? "节点资源 " + Goods([extraction.Extracts]) : Goods(inputs);
         return $"{ProcessName(reference)} · 产出 {Goods(outputs)} · 消耗 {consumption}";
     }
-    private string Goods(ImmutableArray<GoodsQuantity> goods) => goods.IsEmpty ? "无" :
-        string.Join("、", goods.Select(item => $"{SettlementOverviewPage.GoodName(item.Good, _content)} × {item.Quantity}"));
-    private string Describe(ImmutableArray<CoreProblem> problems) => string.Join("\n", problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, _content)));
+    private string Goods(ImmutableArray<GoodsQuantity> goods) => DescribeGoods(goods, _content);
+    private string Describe(ImmutableArray<CoreProblem> problems) => DescribeProblems(problems, _content);
     private string Result(SubmissionResult result, string success) => result switch
     {
         SubmissionResult.NotAccepted rejected => Describe([rejected.Reason]),

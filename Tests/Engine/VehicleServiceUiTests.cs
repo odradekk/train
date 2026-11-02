@@ -16,6 +16,27 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
     private readonly UiTestInput _input = new(testScene);
 
     [Test]
+    public async Task Workspace_refreshed_with_stale_host_binding_cannot_submit()
+    {
+        var view = new ServiceView();
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
+        await Run(setup, async (ui, _) =>
+        {
+            var work = await OpenRepair(ui, new InstanceId.Vehicle(new(9)));
+            Require(!Find<Button>(work, "ConfirmWork").Disabled, "陈旧绑定测试必须先可确认。");
+            var host = ui.GetParent<Train.App.App>().Host!;
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(new(Guid.NewGuid()), view, host.Content!);
+            await _input.Frames(2);
+            var position = Find<Button>(work, "ConfirmWork").GetGlobalRect().GetCenter();
+            await _input.MouseButton(position, Godot.MouseButton.Left, true);
+            await _input.MouseButton(position, Godot.MouseButton.Left, false);
+            Require(Find<Button>(work, "ConfirmWork").Disabled && setup.Session.SubmitCount == 0,
+                "陈旧会话绑定仍允许确认施工命令。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
     public async Task Work_automatically_chooses_first_unblocked_facility()
     {
         var view = new ServiceView(secondFacility: true);
@@ -41,10 +62,6 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
         await Run(setup, async (ui, panel) =>
         {
-            var tabs = Find<TabContainer>(panel, "Pages");
-            var titles = Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle).ToArray();
-            Require(titles.SequenceEqual(new[] { "概况", "市场", "车辆", "仓库" }),
-                "非敌对聚居地应显示概况、市场、车辆和仓库四页，实际：" + string.Join("、", titles));
             var work = await OpenManufacture(ui, panel);
             Require(work.IsVisibleInTree(), "制造入口未打开施工工作区。");
             Require(view.QuoteCount == 0, "尚未选择蓝图就获取了报价。");
@@ -78,7 +95,7 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
             await _input.Frames(4);
             Require(view.QuoteCount == quotes, "同一输入逐帧重复报价。");
             var quote = view.LastQuote;
-            Require(Find<Label>(work, "WorkSummary").Text.Contains("999") && Find<Label>(work, "WorkSummary").Text.Contains("50"),
+            Require(Find<Label>(work, "WorkSummary").Text.Contains("999") && Find<Label>(work, "WorkSummary").Text.Split('\n').Contains("工期：约 50 秒"),
                 "合计应使用核心精确付款，预计工期应为100工作量÷2能力=50秒。");
             setup.Session.QueueSubmit(new CoreCommand.CommissionVehicleWork(quote.Request, new(999)), CommandSource.UserInterface,
                 Completed(1, view, view, new CommandDecision.Rejected([new("price_changed", "MaximumPayment", null, [])])), view);
@@ -132,10 +149,13 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         await Run(setup, async (ui, _) =>
         {
             var work = await OpenRepair(ui, new InstanceId.Vehicle(new(9)));
-            var material = string.Join("\n", Find<Control>(work, "Materials").FindChildren("*", "Label", true, false)
-                .Cast<Label>().Where(label => label.IsVisibleInTree()).Select(label => label.Text));
-            Require(material.Contains("3") && material.Contains("500") && material.Contains("2"),
-                "材料行应同时展示当地可购数量、金额与缺口。");
+            Require(Find<Label>(work, "MaterialPurchase_0").Text == "3" &&
+                Find<Label>(work, "MaterialPayment_0").Text == "500" &&
+                Find<Label>(work, "MaterialSources_0").Text.Contains("还缺 2"),
+                "材料行应分别展示当地可购数量、金额与缺口。");
+            var reason = Find<Label>(work, "WorkReason").Text;
+            Require(reason.Contains("货物不足") && reason.Contains("可用容量不足") && !reason.Contains("fixture:"),
+                "应展示全部核心阻断，隐藏内部编号。");
             Require(Find<Label>(work, "WorkReason").Text.Contains("2"), "缺口应展示核心返回的2件材料。");
             Require(Find<Button>(work, "ConfirmWork").Disabled && view.LastQuote!.TotalPayment is null,
                 "部分可购仍缺料时不得确认。");

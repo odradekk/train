@@ -50,6 +50,9 @@ public partial class VehicleServiceUiTests
         await Run(setup, async (_, economy) =>
         {
             await Buildings(economy);
+            Require(!economy.FindChildren("*", "Button", true, false).Cast<Button>().Any(button =>
+                button.IsVisibleInTree() && (button.Text.Contains("取消") || button.Text.Contains("退款"))),
+                "施工任务不应提供取消或退款入口。");
             var dismantle = Find<Label>(Find<Control>(economy, "ConstructionJob_6"), "JobDescription").Text;
             Require(dismantle.Contains("拆解") && dismantle.Contains("普通建筑") && dismantle.Contains("聚居地库存") && dismantle.Contains("容量 40") &&
                 Find<Label>(Find<Control>(economy, "ConstructionJob_7"), "JobDescription").Text.Contains("预留：无") &&
