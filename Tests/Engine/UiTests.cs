@@ -271,7 +271,7 @@ public partial class UiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(ui, "Notices"));
             Require(notices.IsVisibleInTree() && fleet.IsVisibleInTree(), "打开通知记录关闭了停靠列表。");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "设置");
-            var settings = (Control)ui.GetNode("Root/SettingsPanel").FindChild("Settings", true, false);
+            var settings = (Control)ui.GetNode("Root/SettingsOverlay").FindChild("Settings", true, false);
             var minimap = ui.World.GetChildren().OfType<NodeMinimap>().Single();
             Require(Above(settings, notices) && Above(settings, fleet) && Above(settings, toasts) &&
                 Above(ui.GetNode("Root/ErrorPanel"), toasts), "业务面板或通知提示盖过了设置或错误界面。");
@@ -381,7 +381,7 @@ public partial class UiTests(Node testScene) : TestClass(testScene)
             var settings = app.GetNode<MainMenu>("MainMenu").GetNode<Button>("%Settings");
             settings.GrabFocus();
             await _input.PressKey(Key.Space);
-            Require(ui.GetNode<SettingsPanel>("Root/SettingsPanel").Visible, "实际按键没有打开设置。");
+            Require(ui.GetNode<SettingsOverlay>("Root/SettingsOverlay").Visible, "按键未打开设置。");
             var font = settings.GetThemeFont("font");
             Require(font.ResourcePath == "res://Ui/Fonts/NotoSansSC-Regular.otf" && font.GetFontName() == "Noto Sans SC",
                 "正文未使用随包的官方 SC 地区子集字体。");

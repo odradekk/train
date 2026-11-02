@@ -107,12 +107,6 @@ internal sealed partial class HostCoordinator : IDisposable
     }
 
     internal void SetFocused(bool focused) { EnsureOwner(); _focused = focused; UpdateFocusPause(); }
-    internal void SetOverlayPaused(bool paused)
-    {
-        EnsureOwner();
-        _active?.Driver.SetOverlayPaused(paused);
-        _skipNextFrame = true;
-    }
     private void UpdateFocusPause() => _active?.Driver.SetFocusPaused(_autoPauseOnFocusLoss && !_focused);
 
     internal CoreProblem? SetPaused(bool paused)
@@ -581,6 +575,7 @@ internal sealed partial class HostCoordinator : IDisposable
                 _active = group; _content = group.Content;
                 activatedCore = null;
                 UpdateFocusPause();
+                group.Driver.SetOverlayPaused(_openOverlays != 0);
                 var adaptations = prepared.CoreCandidate?.AdaptationReport ?? [];
                 foreach (var problem in adaptations)
                     _logger.Log(LogLevel.Info, "application", "host_state_adapted", problem.Code,

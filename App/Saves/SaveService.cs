@@ -41,7 +41,7 @@ internal sealed partial class SaveService : IDisposable
     internal event Action? Changed;
     internal SaveStatus? Status => _host.GetSaveStatus();
     internal bool IsReplay => _host.GetStatus() is { IsReplay: true };
-    internal void SetOverlayOpen(bool open) => _host.SetOverlayPaused(open);
+    internal void SetOverlayOpen(bool open) => _host.SetOverlayPaused(OverlayPauseSource.Saves, open);
     internal ImmutableArray<(string Kind, string Path)> PendingWrites =>
         _writes.Select(write => (write.Kind.ToString(), write.Path)).ToImmutableArray();
     private string? _lastMessage;
