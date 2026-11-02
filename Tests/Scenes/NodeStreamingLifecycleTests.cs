@@ -100,6 +100,9 @@ public sealed class NodeStreamingLifecycleTests
         var observer = new Observer();
         await using var reopened = Open(snapshot, vehicles, observer, cache);
         await reopened.BuildWork!;
+        reopened.Pump();
+        reopened.SetBuildAllowed(false);
+        await SceneFixtures.AwaitPendingWork(reopened.PendingWork);
         reopened.Pump(allowBuild: false);
         var changes = observer.Changes;
         var admitted = changes.First(item => item.Stage == SceneStreamingStage.Admitted &&

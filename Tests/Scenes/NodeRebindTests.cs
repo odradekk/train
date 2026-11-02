@@ -88,9 +88,7 @@ public sealed class NodeRebindTests
         var atNode = NodeFixtures.Train(enteredFrom: new(1), nextEdge: new(2));
         var middle = Snapshot(atNode, 1);
         session.Observe(middle, []);
-        var node = await RailwayFixtures.Settled(session, Request, first);
-        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
-        node = await RailwayFixtures.Settled(session, Request, node);
+        var node = await SettlePrebuilds(first);
         Assert.AreEqual(new WorldLocation.Edge(new(2), 4), session.PrebuiltLocation);
         Assert.IsNotNull(nodeCache.Read(new(1)));
         Assert.IsNull(railwayCache.Find(middle, new(middle, new(1)), 0));
@@ -100,9 +98,7 @@ public sealed class NodeRebindTests
         { Position = new TrainPosition.Edge(new(2), 1, TravelDirection.Reverse, .5) };
         var last = Snapshot(onSecondEdge, 2);
         session.Observe(last, []);
-        var second = await RailwayFixtures.Settled(session, Request, node);
-        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
-        second = await RailwayFixtures.Settled(session, Request, second);
+        var second = await SettlePrebuilds(node);
         Assert.AreEqual(new WorldLocation.Node(new(3)), session.PrebuiltLocation);
         Assert.IsNull(nodeCache.Read(new(1)), "This fixture has no reusable node parts.");
         Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);
@@ -112,22 +108,29 @@ public sealed class NodeRebindTests
 
         var stopped = Snapshot(onSecondEdge with { SpeedMetersPerSecond = 0 }, 3);
         session.Observe(stopped, []);
-        await RailwayFixtures.Settled(session, Request, second);
-        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
-        await RailwayFixtures.Settled(session, Request, second);
+        await SettlePrebuilds(second);
         Assert.AreEqual(new WorldLocation.Node(new(3)), session.PrebuiltLocation);
         Assert.IsNotNull(nodeCache.Read(new(3)), "Stopping keeps the same next-node candidate and its cache.");
         var reversed = Snapshot(onSecondEdge with
         { SpeedMetersPerSecond = 0, Position = ((TrainPosition.Edge)onSecondEdge.Position) with { Direction = TravelDirection.Forward } }, 4);
         session.Observe(reversed, []);
-        await RailwayFixtures.Settled(session, Request, second);
-        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
-        await RailwayFixtures.Settled(session, Request, second);
+        await SettlePrebuilds(second);
         Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation,
             "Reversal prepares the newly known front node even while stopped.");
         Assert.IsNull(nodeCache.Read(new(3)), "An empty candidate leaves no idle cache entry.");
         Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);
         Assert.IsNotNull(railwayCache.Find(stopped, new(stopped, new(2)), 0));
+
+        async Task<SceneFrame> SettlePrebuilds(SceneFrame displayed)
+        {
+            var frame = await RailwayFixtures.Settled(session, Request, displayed);
+            do
+            {
+                await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+                frame = await RailwayFixtures.Settled(session, Request, frame);
+            } while (session.PendingPrebuilds.Length > 0);
+            return frame;
+        }
     }
 
     private static SceneMesh Mesh(SceneFrame frame, ulong vehicle) => frame.Objects

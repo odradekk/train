@@ -54,22 +54,23 @@ public partial class GameUi
 
     private void OpenScene(WorldObjectId id)
     {
-        SelectObject(id);
-        if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is null ||
-            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
+        if (_scenes is not null && _content is not null && _host?.GetStatus() is { } status && _host.Content is not null &&
+            new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
                 _host.PanelGenerationCurrent(_binding, _content.Generation)))
-            return;
-        WorldSceneTarget? target = id switch
         {
-            WorldObjectId.Node node => new WorldSceneTarget.Location(new WorldLocation.Node(node.Id)),
-            WorldObjectId.Edge edge when status.View.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
-                new WorldSceneTarget.Location(new WorldLocation.Edge(edge.Id, found.Value.Map.LengthMeters / 2)),
-            WorldObjectId.Train train when status.View.FindTrain(train.Id) is Lookup<TrainView>.Found found &&
-                !found.Value.Vehicles.IsEmpty => new WorldSceneTarget.Follow(train.Id, FollowedVehicle.Of(found.Value, status.View, _host.Content)),
-            _ => null
-        };
-        if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }
-        _scenes.Open(target);
+            WorldSceneTarget? target = id switch
+            {
+                WorldObjectId.Node node => new WorldSceneTarget.Location(new WorldLocation.Node(node.Id)),
+                WorldObjectId.Edge edge when status.View.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
+                    new WorldSceneTarget.Location(new WorldLocation.Edge(edge.Id, found.Value.Map.LengthMeters / 2)),
+                WorldObjectId.Train train when status.View.FindTrain(train.Id) is Lookup<TrainView>.Found found &&
+                    !found.Value.Vehicles.IsEmpty => new WorldSceneTarget.Follow(train.Id, FollowedVehicle.Of(found.Value, status.View, _host.Content)),
+                _ => null
+            };
+            if (target is null) ReportUiError("对象没有可观察的场景目标。");
+            else _scenes.Open(target);
+        }
+        SelectObject(id);
     }
 
     private void OpenCombat(CombatId id)
