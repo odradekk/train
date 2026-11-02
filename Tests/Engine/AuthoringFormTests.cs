@@ -125,7 +125,25 @@ public class AuthoringFormTests(Node testScene) : TestClass(testScene)
             Require(form.TryCapture(out var captured) && captured is DefinitionDraft.SettlementType settlement
                 && settlement.Value.PreferredTerrain.Single().Value == "core:old-terrain", "候选中缺失的偏好地形仍须捕获旧值。");
             Require(form.FindChildren("*", "Label", true, false).OfType<Label>().Any(label => label.Visible && label.Text.Contains("引用不可用")), "缺失多选引用必须显示字段错误。");
-            Require(!form.FindChildren("*", "Label", true, false).OfType<Label>().Any(label => label.Text.Contains("逗号分隔")), "多选字段提示不能要求逗号分隔输入。");
+        }
+        finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
+    }
+
+    [Test]
+    public async Task Content_reference_diagnostic_replaces_local_warning_and_removal_restores_it()
+    {
+        var form = Mount(new DefinitionDraft.LairType(new("den", new("巢穴", ""), new("core:old-scene"), null, [], null, null, null, null, null, null, null)));
+        try
+        {
+            const string diagnostic = "引用不可用：core:old-scene";
+            form.SetDiagnostics([new("missing_reference", ContentDiagnosticSeverity.Error, "authoring", null, null, "/scene_model", null, diagnostic)]);
+            var errors = form.FindChildren("*", "Label", true, false).OfType<Label>()
+                .Where(label => label.Visible && label.Text.Contains("引用不可用")).ToArray();
+            Require(errors.Length == 1 && errors[0].Text == diagnostic, "内容诊断已报告同一引用时，字段只能显示内容诊断，不能叠加本地引用提示。");
+            form.SetDiagnostics([]);
+            Require(form.FindChildren("*", "Label", true, false).OfType<Label>()
+                .Any(label => label.Visible && label.Text == "引用不可用，请重新选择。"), "移除内容诊断后必须恢复缺失引用的本地提示。");
+            Require(form.TryCapture(out var captured) && captured is DefinitionDraft.LairType { Value.SceneModel.Value: "core:old-scene" }, "引用提示恢复后仍须捕获原引用。");
         }
         finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
     }
@@ -177,7 +195,8 @@ public class AuthoringFormTests(Node testScene) : TestClass(testScene)
         {
             var labels = form.FindChildren("*", "Label", true, false).OfType<Label>().Select(c => c.Text).ToArray();
             Require(labels.Contains("牵引力（千牛）") && labels.Contains("额定速度（米/秒）")
-                && labels.Contains("质量（可空）（吨）") && labels.Contains("武器间隔（秒）"), "物理量字段必须显示统一的中文单位。");
+                && labels.Contains("质量（可空）（吨）") && labels.Contains("武器间隔（秒）")
+                && labels.Contains("基础价值（最小货币单位，可空）"), "物理量字段必须显示统一的中文单位，基础价值的单位和可空说明应放在同一括号内。");
         }
         finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
     }

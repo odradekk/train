@@ -56,7 +56,7 @@ internal partial class AuthoringDefinitionForm
     {
         var id = Identity(v.LocalId); var display = Display(v.Display); var icon = AssetField(this, "图标资产路径", "/display/icon", v.Icon?.Value);
         var section = Section("模拟层", "/simulation"); var simulation = OptionalFields(section, "启用模拟层", "/simulation", v.Simulation != null, out var enabled);
-        var price = LongField(simulation, "基础价值（可空）", "/simulation/value", v.Simulation?.BaseValue, optional: true, unit: "最小货币单位"); var mass = NumberField(simulation, "质量（可空）", "/simulation/mass", v.Simulation?.MassTons, optional: true, unit: "吨");
+        var price = LongField(simulation, "基础价值（最小货币单位，可空）", "/simulation/value", v.Simulation?.BaseValue, optional: true); var mass = NumberField(simulation, "质量（可空）", "/simulation/mass", v.Simulation?.MassTons, optional: true, unit: "吨");
         var durability = LongField(simulation, "最大耐久（可空）", "/simulation/max_durability", v.Simulation?.MaxDurability, optional: true); var raw = Flag(simulation, "原材料", "/simulation/tags", v.Simulation?.RawGood ?? false); var fuel = NumberField(simulation, "单位燃料能量（可空）", "/simulation/fuel_energy", v.Simulation?.FuelEnergyPerUnit, optional: true);
         var behaviors = Behaviors(simulation, v.Simulation?.Behaviors ?? []);
         var orientations = Choice<AllowedVoxelOrientations>(this, "允许朝向", "/appearance/allowed_orientations", v.Orientations);

@@ -76,6 +76,7 @@ internal partial class AuthoringPanel : Control
         {
             _service.MarkFormDirty();
             if (_form.TryCapture(out var value) && value is not null) _service.UpdateForm(value);
+            else _service.CaptureFailed("表单存在错误，请修正后重试。");
         };
         _form.GridRequested += () => Capture(_service.OpenGrid);
         BuildAssets();
@@ -141,6 +142,9 @@ internal partial class AuthoringPanel : Control
         _mode.Visible = _opened && !_editor.IsOpen;
         _background.Visible = _mode.Visible;
         _previewHint.Visible = _service.TemplatePreview is null;
+        _previewHint.Text = _service.FormDiagnostics.Any(diagnostic => diagnostic.Severity == ContentDiagnosticSeverity.Error)
+            || _service.DirtyDefinition is { } dirty && _service.Issues.Any(issue => issue.Definition == dirty && issue.Diagnostic.Severity == ContentDiagnosticSeverity.Error)
+            ? "表单存在错误，请先修正。" : "聚居地模板会自动预览。其他定义请在表单或设计编辑器中编辑。";
         if (_previewViewport is not null) _previewViewport.Visible = !_previewHint.Visible;
         var busy = _service.IsBusy || _editor.IsBusy;
         if (!ReferenceEquals(_loaded, _service.Form))

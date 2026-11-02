@@ -122,14 +122,20 @@ public sealed partial class AuthoringServiceTests
     }
 
     [TestMethod]
-    public void Asset_in_shared_directory_keeps_its_shared_reference()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void An_asset_added_after_opening_is_staged_with_its_definition_or_shared_path(bool shared)
     {
         using var fixture = new AuthoringFixture(); fixture.Open();
         fixture.Service.NewDefinition(new DefinitionDraft.SettlementType(new("town", new("", ""), null, false, null, [], null, null)));
-        var directory = Path.Combine(fixture.Core, "resources", "settlement-types", "shared", "icons"); Directory.CreateDirectory(directory);
+        var relative = "resources/settlement-types/" + (shared ? "shared/icons" : "town") + "/map.png";
+        var directory = Path.GetDirectoryName(Path.Combine(fixture.Core, relative))!; Directory.CreateDirectory(directory);
         var source = Path.Combine(directory, "map.png"); File.WriteAllBytes(source, [9]);
-        Assert.AreEqual("shared/icons/map.png", fixture.Service.SelectAsset(source));
-        Assert.IsTrue(fixture.Service.PendingChanges.IsEmpty, "已在共享目录里的资产不必再次暂存。");
+        Assert.AreEqual(shared ? "shared/icons/map.png" : "map.png", fixture.Service.SelectAsset(source));
+        Assert.HasCount(1, fixture.Service.PendingChanges, "打开源包后才放入的资产必须暂存到固定候选。");
+        var asset = (PackageEdit.WriteAsset)fixture.Service.PendingChanges.Single();
+        Assert.AreEqual(relative, asset.PackageRelativePath);
+        CollectionAssert.AreEqual(new byte[] { 9 }, asset.Bytes.ToArray());
     }
 
     [TestMethod]

@@ -78,6 +78,15 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
             Require(camera.Focus.IsEqualApprox(focus) && camera.Camera.Transform.IsEqualApprox(transform),
                 "表单修改后的真实预览刷新必须保留焦点、距离和观察角度。");
             await UiCapture.Capture(TestScene, "authoring-real-template-refreshed-camera");
+
+            await input.Enter(fields.Single(field => field.TooltipText == "权重（可空）"), "overflow");
+            var hint = previewArea.GetChildren().OfType<Label>().Single(label => label.Text != "预览");
+            Require(fixture.Service.TemplatePreview is null && hint.Visible && hint.Text.Contains("表单存在错误"),
+                "本地数字格式错误隐藏预览时，提示必须说明表单错误。");
+            await input.Enter(fields.Single(field => field.TooltipText == "权重（可空）"), "3");
+            Require(!hint.Visible || !hint.Text.Contains("表单存在错误"), "修正本地格式后，等待新预览不能继续报告表单错误。");
+            await fixture.Pump(() => { controller.Process(0); return controller.View.Interactive; });
+            Require(!hint.Visible, "恢复真实预览后必须隐藏错误提示。");
         }
         finally
         {

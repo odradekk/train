@@ -86,13 +86,13 @@ internal sealed partial class AuthoringService
                 var target = created.GetAwaiter().GetResult();
                 StartOpen(target); RefreshSources();
             }
-            catch (Exception error) { Report(Unexpected(error)); }
+            catch (Exception error) { Report(Unexpected(error, "新建模组失败，详情见日志。")); }
         }
         if (discovering is { IsCompleted: true } discovered)
         {
             discovering = null;
             try { Sources = discovered.GetAwaiter().GetResult(); Changed?.Invoke(); }
-            catch (Exception error) { Report(Unexpected(error)); }
+            catch (Exception error) { Report(Unexpected(error, "读取本地模组列表失败，详情见日志。")); }
         }
         if (opening is { IsCompleted: true } opened)
         {
@@ -117,7 +117,7 @@ internal sealed partial class AuthoringService
                     else ReportOpenFailure(Describe(value.Result));
                 }
             }
-            catch (Exception error) { ReportOpenFailure(Unexpected(error)); }
+            catch (Exception error) { ReportOpenFailure(Unexpected(error, "读取源包失败，详情见日志。")); }
         }
     }
 

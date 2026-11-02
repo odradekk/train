@@ -121,14 +121,17 @@ public sealed partial class AuthoringServiceTests
     }
 
     [TestMethod]
-    public void Choosing_an_existing_definition_asset_does_not_create_a_pending_write()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Choosing_an_asset_already_in_the_snapshot_does_not_create_a_pending_write(bool shared)
     {
-        using var fixture = new AuthoringFixture(); fixture.Open();
-        fixture.Service.NewDefinition(new DefinitionDraft.SettlementType(new("town", new("", ""), null, false, null, [], null, null)));
-        var directory = Path.Combine(fixture.Core, "resources", "settlement-types", "town");
+        using var fixture = new AuthoringFixture();
+        var directory = Path.Combine(fixture.Core, "resources", "settlement-types", shared ? "shared" : "town");
         Directory.CreateDirectory(directory); var path = Path.Combine(directory, "map.png"); File.WriteAllBytes(path, [9]);
-        Assert.AreEqual("map.png", fixture.Service.SelectAsset(path));
-        Assert.AreEqual(0, fixture.Service.PendingChanges.Length, "包内自身目录已有资产不应暂存重复字节。");
+        fixture.Open();
+        fixture.Service.NewDefinition(new DefinitionDraft.SettlementType(new("town", new("", ""), null, false, null, [], null, null)));
+        Assert.AreEqual(shared ? "shared/map.png" : "map.png", fixture.Service.SelectAsset(path));
+        Assert.AreEqual(0, fixture.Service.PendingChanges.Length, "固定快照里同路径、同字节的资产不应重复暂存。");
     }
 
     [TestMethod]
@@ -138,7 +141,7 @@ public sealed partial class AuthoringServiceTests
         fixture.Service.NewDefinition(new DefinitionDraft.SettlementType(new("town", new("", ""), null, false, null, [], null, null)));
         var path = Path.Combine(fixture.Mods, "missing-asset-917.png");
         Assert.IsNull(fixture.Service.SelectAsset(path));
-        Assert.IsTrue(!fixture.Service.Message!.Contains("missing-asset-917") && fixture.Service.Message.Contains("日志")
+        Assert.IsTrue(fixture.Service.Message!.StartsWith("读取资产失败") && !fixture.Service.Message.Contains("missing-asset-917") && fixture.Service.Message.Contains("日志")
             && fixture.Host.Logs.Any(log => log.Message.Contains("missing-asset-917")), "读取异常原文只写日志。");
     }
 
@@ -180,8 +183,33 @@ public sealed partial class AuthoringServiceTests
         fixture.Service.OpenCore();
         fixture.Pump(() => !fixture.Service.IsBusy);
         Assert.IsNull(fixture.Service.Package);
-        Assert.IsTrue(fixture.Service.Message!.Contains("日志") && !fixture.Service.Message.Contains("native authoring unavailable")
+        Assert.IsTrue(fixture.Service.Message!.StartsWith("读取源包失败") && fixture.Service.Message.Contains("日志") && !fixture.Service.Message.Contains("native authoring unavailable")
             && fixture.Host.Logs.Any(log => log.Message.Contains("native authoring unavailable")));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Creating_or_discovering_a_mod_keeps_its_operation_in_the_error(bool create)
+    {
+        using var fixture = new AuthoringFixture();
+        const string detail = "PRIVATE MOD OPERATION DETAIL";
+        var id = new PackageId("cb970878-701a-4e87-95e4-769cc99bdf51");
+        if (create)
+        {
+            fixture.Host.Factory.OpenAuthoringPackageCall = (_, _, _, _) => throw new IOException(detail);
+            fixture.Service.CreateMod(new(id, "测试", "0.1.0", [], []));
+        }
+        else
+        {
+            Directory.CreateDirectory(Path.Combine(fixture.Mods, id.Value));
+            fixture.Host.Factory.DiscoverCall = (_, _) => throw new IOException(detail);
+            fixture.Service.RefreshSources();
+        }
+        fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsTrue(fixture.Service.Message!.StartsWith(create ? "新建模组失败" : "读取本地模组列表失败")
+            && fixture.Service.Message.Contains("日志") && !fixture.Service.Message.Contains(detail)
+            && fixture.Host.Logs.Any(log => log.Message.Contains(detail)), "失败提示须保留操作名，内部详情只写日志。");
     }
 
     [TestMethod]

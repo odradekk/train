@@ -46,6 +46,7 @@ internal partial class AuthoringDefinitionForm
                 if (group is not null) { _groupErrors[group].Text = diagnostic.Message; _groupErrors[group].Visible = true; }
                 continue;
             }
+            if (field.Validate?.Invoke() is null && field.ErrorText == field.ReferenceError?.Invoke()) field.ErrorText = "";
             field.ErrorText = string.Join('\n', new[] { field.ErrorText, diagnostic.Message }.Where(s => s.Length > 0));
         }
     }

@@ -9,10 +9,10 @@ internal sealed partial class AuthoringService
 {
     private const string InternalError = "操作失败，详情见日志。";
 
-    private string Unexpected(Exception error)
+    private string Unexpected(Exception error, string message = InternalError)
     {
         logger.Error("authoring", "authoring_operation_failed", error.Message, exception: error);
-        return InternalError;
+        return message;
     }
 
     private string Describe<T>(ContentResult<T> result) where T : notnull
