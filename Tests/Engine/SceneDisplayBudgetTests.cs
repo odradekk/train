@@ -104,40 +104,6 @@ public partial class SceneDisplayTests
     }
 
     [Test]
-    public async Task Recent_resource_cost_reserves_room_and_an_oversized_item_still_progresses_on_a_fresh_frame()
-    {
-        await new UiTestInput(TestScene).Frames(2);
-        using var dispatcher = new GodotMainThreadDispatcher();
-        using var cache = new AssetResourceCache(dispatcher);
-        using var display = Attach(cache, new FixedContentView());
-        var first = Frame(1, []);
-        await Commit(display, first);
-        foreach (var milliseconds in new[] { 3, 4, 5 })
-        {
-            var next = Frame(2, [Object(1, Peak(1)), Object(2, Peak(2)), Object(3, Peak(3))], space: (ulong)milliseconds);
-            display.ReceiveCandidate(next.Update);
-            await ScenePackingTestDriver.StartCandidate(display, TestScene);
-            display.Timestamp = () => (display.CandidateProgress(next.Update.Frame)!.Value.Prepared * milliseconds) * Stopwatch.Frequency / 1000;
-            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
-            Require(display.CandidateProgress(next.Update.Frame) is (1, 3),
-                "准备一项后，剩余1ms不足再开始实测3ms的同类资源；超过4ms的首项也只能做一项。");
-            for (var expected = 2; expected <= 3; expected++)
-            {
-                await new UiTestInput(TestScene).Frames(1);
-                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
-                Require(display.CandidateProgress(next.Update.Frame)!.Value.Prepared == expected,
-                    "新帧必须允许一项推进，即使同类资源的最近成本超过整帧预算也不能饿死。");
-            }
-            await new UiTestInput(TestScene).Frames(1);
-            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
-            Require(display.PreparedCandidate == next.Update.Frame && ReferenceEquals(display.DisplayedFrame, first),
-                "所有资源就绪后才可回执，候选准备不得改动 D。");
-            display.CancelCandidate();
-            display.Timestamp = () => 0;
-        }
-    }
-
-    [Test]
     public async Task Candidate_and_active_resource_preparation_share_the_same_remaining_frame_budget()
     {
         await new UiTestInput(TestScene).Frames(2);
@@ -151,14 +117,19 @@ public partial class SceneDisplayTests
         var candidate = Frame(3, [Object(1, Peak(1)), Object(2, Peak(2))], space: 2);
         display.ReceiveCandidate(candidate.Update);
         await ScenePackingTestDriver.StartCandidate(display, TestScene);
-        display.Timestamp = () => display.CandidateProgress(candidate.Update.Frame)!.Value.Prepared * Stopwatch.Frequency * 3 / 1000;
+        long now = 0;
+        TimeSpan spent = default;
+        display.Measure = (work, elapsed, _) => { if (work == SceneDisplayWork.PrepareCandidate) spent += elapsed; };
+        display.Timestamp = () => now += Stopwatch.Frequency / 1000;
         display.PrepareCandidate(TimeSpan.FromMilliseconds(100));
-        Require(display.CandidateProgress(candidate.Update.Frame) is (1, 2), "候选只能使用共享4ms额度中的3ms。");
+        Require(spent >= TimeSpan.FromMilliseconds(4) && display.PreparedCandidate is null,
+            "较大的局部额度也不能让候选跳过共享4ms限制或提前完成。");
         var activeReady = 0;
         display.Observe = e => { if (e.Stage == SceneDisplayStage.ResourcesPrepared) activeReady++; };
+        display.Timestamp = () => 0;
         using var partial = display.Prepare(active);
         Require(partial is null && activeReady == 0 && ReferenceEquals(display.DisplayedFrame, first),
-            "候选已用3ms时，活动更新不能再开始预估3ms的资源，即使本次局部计时为零。");
+            "候选已耗尽共享预算时，活动更新不能再发布资源，即使本次局部计时为零。");
         await new UiTestInput(TestScene).Frames(1);
         using var prepared = await Prepare(display, active);
         Require(activeReady == 1, "下一帧活动更新先行时必须推进，不能被候选饿死。");

@@ -289,7 +289,7 @@ public partial class SceneMaterialPixelTests(Node testScene) : TestClass(testSce
             ExposedFaceEdges edges, float textureRepeats = 1, float vertexDamage = 0,
             float surfaceDamage = 0, bool scorched = false)
         {
-            using var visual = _resources.Prepare(new SceneVisual.Geometry(Quad(
+            using var visual = SceneDisplayTestDriver.PrepareVisual(_resources, _cache, new SceneVisual.Geometry(Quad(
                 new SceneMaterial.Voxel(_png, category, paint), edges, textureRepeats, vertexDamage),
                 new(wear, 17, surfaceDamage, scorched)));
             var mesh = visual.Node.GetChildren().OfType<MeshInstance3D>().Single();

@@ -30,7 +30,7 @@ public partial class SceneDisplayTests
                 new(display, 0, TimeSpan.FromMilliseconds(4), false)), "首项收集必须完成并记录实测成本。");
         using var packing = new ScenePackingPreparation(resources, costs);
         var rejectedSource = Object(2, Peak(2)).Visuals[0];
-        using var rejected = resources.Prepare(rejectedSource);
+        using var rejected = SceneDisplayTestDriver.PrepareVisual(resources, cache, rejectedSource);
         var rejectedMesh = rejected.Node.GetChild<MeshInstance3D>(0).Mesh;
         await new UiTestInput(TestScene).Frames(1);
         SpendPreparationTime(burner, baseline, 2);
@@ -44,7 +44,7 @@ public partial class SceneDisplayTests
         await new UiTestInput(TestScene).Frames(1);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         var acceptedSource = rejectedSource;
-        using var accepted = resources.Prepare(acceptedSource);
+        using var accepted = SceneDisplayTestDriver.PrepareVisual(resources, cache, acceptedSource);
         var acceptedMesh = accepted.Node.GetChild<MeshInstance3D>(0).Mesh;
         Require(packing.Collect(acceptedSource, slice), "下一帧第一项必须允许收集并取得缓存租约。");
         accepted.Dispose();

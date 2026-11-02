@@ -11,10 +11,12 @@ internal sealed partial class SceneDisplay
     {
         _cache.RequireMainThread();
         ResetPreparationBudget();
+        _formalPreparationFrame = _budgetFrame;
         var started = Timestamp();
         var pauseStarted = GC.GetTotalPauseDuration();
         try
         {
+            AdvanceRetirement(started, budget, singleStep: true);
             if (_candidatePromoted && !HasCandidateFor(frame.Update.Frame))
             {
                 _budgetAdvanced = true;
@@ -36,13 +38,16 @@ internal sealed partial class SceneDisplay
                 _budgetAdvanced = true;
                 CancelPreparation();
             }
+            var spaceChanged = ChangesSpace(frame.Update.Frame);
+            if (spaceChanged)
+            {
+                _retirement?.Dispose();
+                _retirement = null;
+            }
             if (_preparation is null) { _preparation = new(frame, _resources, _packingCosts); _candidate++; }
             var preparation = _preparation;
             frame = preparation.Frame;
             var update = frame.Update;
-            var spaceChanged = DisplayedFrame is { } displayed
-                ? displayed.Update.Frame.Session != update.Frame.Session || displayed.Update.Frame.Space != update.Frame.Space
-                : _completeInitialFrame;
             // 新空间正式首帧仍一次准备并原子提交，后续调用共享每进程帧的额度。
             var slice = new PreparationSlice(this, started, budget, spaceChanged);
             if (!InitializePreparation(preparation, slice, spaceChanged)) return null;
@@ -66,20 +71,30 @@ internal sealed partial class SceneDisplay
                     var i = preparation.Visual;
                     var candidateVisual = reusedVisuals[i] is null
                         ? CandidateVisual(update.Frame, (source.Id, i), source.Visuals[i]) : null;
-                    if (!slice.Start(estimate: reusedVisuals[i] is null && candidateVisual is null
-                        ? VisualCost(source.Visuals[i]) : default)) return null;
+                    if ((reusedVisuals[i] is not null || candidateVisual is not null ||
+                        source.Visuals[i] is not SceneVisual.Geometry) &&
+                        !slice.Start(estimate: reusedVisuals[i] is null && candidateVisual is null
+                            ? VisualCost(source.Visuals[i]) : default)) return null;
                     if (reusedVisuals[i] is { } reused) visuals[i] = reused;
                     else
                     {
                         preparation.NeedsResources = true;
                         var visual = candidateVisual;
-                        if (visual is not null) _candidateVisuals.Remove((source.Id, i));
+                        if (visual is not null)
+                        {
+                            preparation.Geometry?.Dispose();
+                            preparation.Geometry = null;
+                            _candidateVisuals.Remove((source.Id, i));
+                        }
+                        else if (source.Visuals[i] is SceneVisual.Geometry geometry)
+                            visual = _resources.TryPrepare(geometry, spaceChanged ? null : preparation.Packing.Job,
+                                slice, ref preparation.Geometry);
                         else if (spaceChanged) visual = _resources.Prepare(source.Visuals[i]);
                         else
                         {
                             var resourceStarted = Timestamp();
-                            visual = _resources.TryPrepare(source.Visuals[i], preparation.Packing.Job);
-                            if (visual is not null) RecordVisualCost(source.Visuals[i], resourceStarted);
+                            visual = _resources.Prepare(source.Visuals[i]);
+                            RecordVisualCost(source.Visuals[i], resourceStarted);
                         }
                         if (visual is null) return null;
                         _pendingVisuals.Add(visual);
@@ -156,6 +171,7 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
+            FinishRetirement(started);
             var pause = GC.GetTotalPauseDuration() - pauseStarted;
             var ended = Timestamp();
             var elapsed = Stopwatch.GetElapsedTime(started, ended);
@@ -177,6 +193,7 @@ internal sealed partial class SceneDisplay
         internal bool FogChecked, FogChanged, LinesChecked, LinesChanged;
         internal int FogComparison, LineComparison;
         internal ScenePackingPreparation Packing { get; } = new(resources, costs);
+        internal SceneResources.GeometryPreparation? Geometry;
         internal Dictionary<SceneObjectId, PreparedVisual?[]> ReusedVisuals { get; } = [];
     }
 
@@ -314,6 +331,8 @@ internal sealed partial class SceneDisplay
     }
 
     private static bool _budgetAdvanced;
+    private static (SceneDisplay Display, bool Candidate)? _freshPreparation;
+    private static ulong _freshPreparationFrame;
 
     private static void ResetPreparationBudget()
     {
@@ -322,32 +341,47 @@ internal sealed partial class SceneDisplay
         _budgetFrame = processFrame;
         _preparationTime = TimeSpan.Zero;
         _budgetAdvanced = false;
+        if (_freshPreparationFrame < processFrame) _freshPreparation = null;
     }
 
-    internal readonly struct PreparationSlice(SceneDisplay owner, long started, TimeSpan? budget, bool unlimited)
+    internal readonly struct PreparationSlice(SceneDisplay owner, long started, TimeSpan? budget, bool unlimited,
+        bool candidate = false)
     {
         internal long Timestamp() => owner.Timestamp();
         internal bool Unlimited => unlimited;
 
-        internal bool Start(TimeSpan estimate = default)
+        internal bool Start(TimeSpan estimate = default, bool requireFresh = false)
         {
             if (unlimited) { _budgetAdvanced = true; return true; }
+            if (_freshPreparation is { } reserved && _freshPreparationFrame == _budgetFrame &&
+                (reserved.Display != owner || reserved.Candidate != candidate)) return false;
             var elapsed = Stopwatch.GetElapsedTime(started, owner.Timestamp());
             var allowance = budget ?? PreparationBudget;
             var remaining = TimeSpan.FromTicks(Math.Min((allowance - elapsed).Ticks,
                 (PreparationBudget - _preparationTime - elapsed).Ticks));
             // 本帧预算尚未耗尽时，第一步总能开始，避免大项成本超过4ms后永久饿死。
+            if (requireFresh && _budgetAdvanced)
+            {
+                // 为后处理的显示预约下一帧首项，不在本帧已有工作后强行试跑未知成本。
+                if (_freshPreparation is null || _freshPreparationFrame <= _budgetFrame)
+                {
+                    _freshPreparation = (owner, candidate);
+                    _freshPreparationFrame = _budgetFrame + 1;
+                }
+                return false;
+            }
             if (_preparationTime >= PreparationBudget ||
                 _budgetAdvanced && (remaining <= TimeSpan.Zero || estimate > remaining)) return false;
             _budgetAdvanced = true;
+            if (_freshPreparation == (owner, candidate) && _freshPreparationFrame == _budgetFrame)
+                _freshPreparation = null;
             return true;
         }
     }
-    private TimeSpan _geometryCost, _modelCost, _wheelsetCost, _missingCost, _finalizationCost;
+    private TimeSpan _modelCost, _wheelsetCost, _missingCost, _finalizationCost;
 
     private TimeSpan VisualCost(SceneVisual visual) => visual switch
     {
-        SceneVisual.Geometry => _geometryCost,
         SceneVisual.Model => _modelCost,
         SceneVisual.Wheelset => _wheelsetCost,
         SceneVisual.Missing => _missingCost,
@@ -359,7 +393,6 @@ internal sealed partial class SceneDisplay
         var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
         switch (visual)
         {
-            case SceneVisual.Geometry: _geometryCost = elapsed; break;
             case SceneVisual.Model: _modelCost = elapsed; break;
             case SceneVisual.Wheelset: _wheelsetCost = elapsed; break;
             case SceneVisual.Missing: _missingCost = elapsed; break;

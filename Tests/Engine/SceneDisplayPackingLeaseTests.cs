@@ -68,14 +68,10 @@ public partial class SceneDisplayTests
                 }
                 finally { release.Set(); }
                 packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
-                using var prepared = display.Prepare(formal);
-                if (prepared is null) failures.Add($"正式打包依赖的{(sameKey ? "同键" : "不同键")}候选A租约在取消候选后丢失");
-                else
-                {
-                    prepared.Commit();
-                    Require(display.Objects.Count == 2 && display.Objects[new(formalId)].Visuals.Length == 1 &&
-                        GodotObject.IsInstanceValid(MeshOf(display.Objects[new(formalId)])), "正式帧必须持有有效A资源。");
-                }
+                using var prepared = await Prepare(display, formal);
+                prepared.Commit();
+                Require(display.Objects.Count == 2 && display.Objects[new(formalId)].Visuals.Length == 1 &&
+                    GodotObject.IsInstanceValid(MeshOf(display.Objects[new(formalId)])), "正式帧必须持有有效A资源。");
             }
             else
             {
@@ -87,7 +83,7 @@ public partial class SceneDisplayTests
                 try
                 {
                     Require(entered.Wait(TimeSpan.FromSeconds(30)), "正式打包必须先发布A并停在B。");
-                    Require(display.Prepare(formal) is null, "正式帧必须持有A视觉并等待B。");
+                    await UntilResource(display, formal, 1);
                     display.ReceiveCandidate(candidate.Update);
                     display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
                     candidatePacking = display.CandidatePacking;
@@ -98,7 +94,7 @@ public partial class SceneDisplayTests
                 finally { candidateRelease.Set(); release.Set(); }
                 candidatePacking?.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
                 formalPacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
-                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+                await CompleteCandidate(display);
                 if (display.PreparedCandidate != candidate.Update.Frame)
                     failures.Add("候选打包依赖的正式A租约在取消正式准备后丢失");
                 else

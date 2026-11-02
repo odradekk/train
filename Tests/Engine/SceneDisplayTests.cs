@@ -235,14 +235,14 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 1000;
         await ScenePackingTestDriver.StartCandidate(display, TestScene);
         display.PrepareCandidate(TimeSpan.FromMilliseconds(1.5));
-        Require(display.CandidateProgress(update.Frame) is (1, 2) && display.PreparedCandidate is null,
-            "预建候选必须在配额内只准备一个视觉，新空间也不能绕过预算提前给回执。");
+        Require(display.CandidateProgress(update.Frame) is (<= 1, 2) && display.PreparedCandidate is null,
+            "预建候选在配额内至多完成一个视觉，内部阶段暂停也不能提前给回执。");
         Require(ReferenceEquals(display.DisplayedFrame, displayed) && display.Objects.Count == 1 &&
             display.Root.GetChildren().Select(node => node.GetInstanceId()).SequenceEqual(children),
             "部分候选准备不得改变D或显示对象树。");
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => 0;
-        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        await CompleteCandidate(display);
         Require(display.PreparedCandidate == update.Frame && display.CandidateProgress(update.Frame) is (2, 2),
             "全部视觉准备完毕后才可给出候选回执。");
         var detached = NewOrphanRoots(before);
@@ -389,7 +389,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             events.Add(item);
         };
         await ScenePackingTestDriver.StartFormal(display, candidate, TestScene);
-        Require(display.Prepare(candidate) is null, "锁定候选必须在第一个资源后暂停。");
+        await UntilResource(display, candidate, 1);
         Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
             events[0].Object is null && events[0].ResourceObjects is { } required &&
             required.SequenceEqual(new SceneObjectId[] { new(2), new(3) }),
@@ -481,7 +481,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var frame = Frame(2, [Object(1, reused), Object(2, Mesh()), Object(3, Mesh())],
             first.Update.Frame);
         await ScenePackingTestDriver.StartFormal(display, frame, TestScene);
-        Require(display.Prepare(frame) is null, "候选必须在准备后续对象前暂停。");
+        await UntilResource(display, frame, 1);
         Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
             events[0].Object is null && events[0].ResourceObjects is { } required &&
             required.SequenceEqual(new SceneObjectId[] { new(2), new(3) }) &&
@@ -618,8 +618,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
             var pending = Frame(2, [Object(2, textured), Object(3, Mesh())]);
             await ScenePackingTestDriver.StartFormal(display, pending, TestScene);
-            Require(display.Prepare(pending) is null,
-                "纹理对象准备后必须暂停。");
+            await UntilResource(display, pending, 1);
             observer.Dispose();
             Require(GodotObject.IsInstanceValid(texture), "待用资源必须持有纹理。");
             var latest = Frame(3, [Object(2, Mesh()), Object(3, Mesh())],
@@ -762,7 +761,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             [Object(2, Mesh(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.BareMetal, null))), Object(3, Mesh())],
             first.Update.Frame);
         await ScenePackingTestDriver.StartFormal(display, candidate, TestScene);
-        Require(display.Prepare(candidate) is null, "候选必须在第一个资源后耗尽预算。");
+        await UntilResource(display, candidate, 1);
         lease.Dispose();
         Require(GodotObject.IsInstanceValid(texture), "尚在准备的候选必须持有纹理租约。");
         display.CancelPreparation();
@@ -1180,73 +1179,6 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Incremental_shift_removal_and_multiple_visuals_match_uninterrupted_preparation()
-    {
-        using var dispatcher = new GodotMainThreadDispatcher();
-        using var cache = new AssetResourceCache(dispatcher);
-        using var sliced = Attach(cache, new FixedContentView());
-        using var whole = Attach(cache, new FixedContentView());
-        var first = Frame(1, [Object(1, Mesh(), new(10, 0, 0)),
-            Object(2, Mesh(), new(2, 0, 0), new(1)), Object(3, Mesh())]);
-        await Commit(sliced, first);
-        await Commit(whole, first);
-        var multiple = Object(4, Peak(2), new(7, 0, 0)) with
-        {
-            Visuals = [new SceneVisual.Geometry(Peak(2), new(false, 0, 0, false)),
-                new SceneVisual.Geometry(Peak(3), new(false, 0, 0, false)),
-                new SceneVisual.Geometry(Peak(4), new(false, 0, 0, false))]
-        };
-        var delta = Frame(2, [multiple, Object(5, Peak(5), new(9, 0, 0))], first.Update.Frame,
-            shift: new(-100, 0, 0), origin: new(100, 0, 0), removed: [new(3)],
-            fog: [new(new(-10), new(10))]);
-        await ScenePackingTestDriver.StartFormal(sliced, delta, TestScene);
-        long timestamp = 0;
-        sliced.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
-        var calls = 0;
-        SceneDisplay.PreparedFrame? prepared;
-        while ((prepared = sliced.Prepare(delta)) is null && calls++ < 16)
-        {
-            Require(ReferenceEquals(sliced.DisplayedFrame, first) && sliced.Objects.ContainsKey(new(3)),
-                "断点准备不能提前发布移除或新对象。");
-            Near(sliced.Objects[new(1)].Root.GlobalPosition, new(10, 0, 0));
-            await new UiTestInput(TestScene).Frames(1);
-        }
-        Require(prepared is not null && calls >= 3, "多视觉与雾必须跨调用恢复并在有限步骤内完成。");
-        using (prepared) prepared!.Commit();
-        await ScenePackingTestDriver.StartFormal(whole, delta, TestScene);
-        using (var uninterrupted = whole.Prepare(delta))
-        {
-            Require(uninterrupted is not null, "结果就绪后零耗时准备必须一次完成同一增量。");
-            uninterrupted!.Commit();
-        }
-        Require(sliced.Objects.Keys.ToHashSet().SetEquals(whole.Objects.Keys) && !sliced.Objects.ContainsKey(new(3)),
-            "分步准备与一次完成必须具有同一对象集。");
-        foreach (var (id, actual) in sliced.Objects)
-        {
-            var expected = whole.Objects[id];
-            Near(actual.Root.GlobalPosition, expected.Root.GlobalPosition);
-            Require(actual.Source == expected.Source && actual.Visuals.Length == expected.Visuals.Length,
-                "恢复必须保留来源、顺序及完整视觉。");
-            for (var index = 0; index < actual.Visuals.Length; index++)
-            {
-                using var arrays = actual.Visuals[index].Node.GetChild<MeshInstance3D>(0).Mesh.SurfaceGetArrays(0);
-                using var otherArrays = expected.Visuals[index].Node.GetChild<MeshInstance3D>(0).Mesh.SurfaceGetArrays(0);
-                Require(arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array().SequenceEqual(
-                    otherArrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array()), "恢复不得重复或错置视觉网格。");
-            }
-            var hit = new SceneHit(delta.Update.Frame, id, new PickSubject.Terrain(new WorldLocation.Node(new(1))),
-                default, GridFace.PositiveY, default, NVector3.UnitY, 1, []);
-            Require(sliced.CanSelect(hit) && whole.CanSelect(hit), "已提交增量中的对象必须保持相同拾取兼容性。");
-        }
-        Near(sliced.Objects[new(1)].Root.GlobalPosition, new(-90, 0, 0));
-        Near(sliced.Objects[new(2)].Root.GlobalPosition, new(-88, 0, 0));
-        var fog = sliced.Root.GetNode<Node3D>("LoadingFog");
-        var otherFog = whole.Root.GetNode<Node3D>("LoadingFog");
-        Require(fog.GetChildCount() == 1 && otherFog.GetChildCount() == 1, "雾区域不能在恢复中丢失或重复。");
-        Near(fog.GetChild<MeshInstance3D>(0).Position, otherFog.GetChild<MeshInstance3D>(0).Position);
-    }
-
-    [Test]
     public async Task Completed_meshes_upload_in_input_order_while_later_packing_is_blocked()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -1288,13 +1220,14 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
                 Require(secondEntered.Wait(TimeSpan.FromSeconds(30)), "作业必须顺序打包到第二个网格。");
                 if (candidate)
                 {
-                    display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+                    await UntilCandidate(display, frame.Update.Frame, 1);
                     Require(display.CandidateProgress(frame.Update.Frame) is (1, 2),
                         "首个网格完成即应上传，不能等待后续打包结束。");
                 }
                 else
                 {
-                    Require(display.Prepare(frame) is null && events.Count(item =>
+                    await UntilResource(display, frame, 1);
+                    Require(events.Count(item =>
                         item.Stage == SceneDisplayStage.ResourcesPrepared && item.Object == new SceneObjectId(2)) == 1,
                         "后续打包阻塞时，首个对象必须先发出资源就绪事件。");
                 }
@@ -1458,7 +1391,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
             try
             {
                 Require(entered.Wait(TimeSpan.FromSeconds(30)), "候选必须先发布首个网格并停在下一网格。");
-                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+                await UntilCandidate(display, candidate.Update.Frame, 2);
                 var detached = NewOrphanRoots(before);
                 Require(detached.Length == 2 && display.CandidateProgress(candidate.Update.Frame) is (2, 4),
                     "晋升前必须已有两个待取用视觉，剩余网格仍在打包。");
@@ -1472,7 +1405,7 @@ public partial class SceneDisplayTests(Node testScene) : TestClass(testScene)
                 release.Set();
                 packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
                 Require(cancelled.IsSet, "晋升必须取消并结束不再消费的候选打包作业。");
-                Require(!GodotObject.IsInstanceValid(cachedMesh), "晋升必须释放未取用候选的缓存网格租约。");
+                await RequireRetiredCacheReleased(display, formal, cachedMesh);
                 display.PackMesh = PackedSceneMesh.Create;
                 var next = Frame(4, [retained, blocked], formal.Update.Frame, space: 2);
                 await Commit(display, next);

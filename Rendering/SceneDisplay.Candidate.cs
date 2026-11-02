@@ -14,6 +14,7 @@ internal sealed partial class SceneDisplay
     private readonly Dictionary<(SceneObjectId Object, int Index), LinkedListNode<(SceneObjectId Object, int Index)>> _candidatePendingNodes = [];
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _candidateVisuals = [];
     private ScenePackingPreparation? _candidatePacking;
+    private SceneResources.GeometryPreparation? _candidateGeometry;
     private Task? _candidatePackingTail;
     private bool _candidatePackingCursorInitialized;
     private LinkedListNode<(SceneObjectId Object, int Index)>? _candidatePackingCursor;
@@ -22,7 +23,7 @@ internal sealed partial class SceneDisplay
     internal SceneFrameStamp? CandidateScope => _candidateScope;
     internal bool IsPreparingCandidate => _candidateUpdate is not null;
     internal int PendingCandidateVisuals => _candidatePending.Count;
-    internal bool IsPreparationIdle => !IsPreparing && !IsPreparingCandidate &&
+    internal bool IsPreparationIdle => _retirement is null && !IsPreparing && !IsPreparingCandidate &&
         _preparationPackingTail?.IsCompleted != false && _candidatePackingTail?.IsCompleted != false;
 
     internal bool HasCandidateFor(SceneFrameStamp frame) => _candidateScope is { } candidate &&
@@ -79,12 +80,13 @@ internal sealed partial class SceneDisplay
     {
         _cache.RequireMainThread();
         ResetPreparationBudget();
+        _candidatePreparationFrame = _budgetFrame;
         var started = Timestamp();
         var pauseStarted = GC.GetTotalPauseDuration();
         try
         {
             if (_candidateUpdate is not { } update) return;
-            var slice = new PreparationSlice(this, started, budget, false);
+            var slice = new PreparationSlice(this, started, budget, false, candidate: true);
             if (_candidatePacking is null)
             {
                 if (!slice.Start()) return;
@@ -110,14 +112,20 @@ internal sealed partial class SceneDisplay
             {
                 var key = pending.Value;
                 var source = _candidateSources[key];
-                if (!slice.Start(estimate: VisualCost(source))) return;
-                var resourceStarted = Timestamp();
-                var visual = _resources.TryPrepare(source, _candidatePacking.Job);
+                PreparedVisual? visual;
+                if (source is SceneVisual.Geometry geometry)
+                    visual = _resources.TryPrepare(geometry, _candidatePacking.Job, slice, ref _candidateGeometry);
+                else
+                {
+                    if (!slice.Start(estimate: VisualCost(source))) return;
+                    var resourceStarted = Timestamp();
+                    visual = _resources.Prepare(source);
+                    RecordVisualCost(source, resourceStarted);
+                }
                 if (visual is null) return;
                 _candidateVisuals.Add(key, visual);
                 _candidatePending.Remove(pending);
                 _candidatePendingNodes.Remove(key);
-                RecordVisualCost(source, resourceStarted);
             }
             if (!_candidatePacking.Release(slice)) return;
             if (!slice.Start()) return;
@@ -127,6 +135,7 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
+            FinishRetirement(started);
             var pause = GC.GetTotalPauseDuration() - pauseStarted;
             var ended = Timestamp();
             var elapsed = Stopwatch.GetElapsedTime(started, ended);
@@ -158,6 +167,7 @@ internal sealed partial class SceneDisplay
     internal void CancelCandidate()
     {
         _cache.RequireMainThread();
+        if (_freshPreparation == (this, true)) _freshPreparation = null;
         CancelCandidatePacking();
         foreach (var visual in _candidateVisuals.Values) visual.Dispose();
         _candidateVisuals.Clear();
@@ -173,6 +183,8 @@ internal sealed partial class SceneDisplay
 
     private void CancelCandidatePacking()
     {
+        _candidateGeometry?.Dispose();
+        _candidateGeometry = null;
         _candidatePacking?.Dispose();
         _candidatePacking = null;
         _candidatePackingCursorInitialized = false;
