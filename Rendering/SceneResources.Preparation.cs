@@ -7,7 +7,7 @@ namespace Train.Rendering;
 
 internal sealed partial class SceneResources
 {
-    private readonly TimeSpan?[] _geometryCosts = new TimeSpan?[5];
+    private readonly TimeSpan?[] _geometryCosts = new TimeSpan?[4];
     private TimeSpan? _cachedGeometryCost;
 
     internal PreparedVisual? TryPrepare(SceneVisual.Geometry source, SceneMeshPacking? packing,
@@ -61,8 +61,7 @@ internal sealed partial class SceneResources
                             _data = null;
                             break;
                         case 2: _material = owner.GeometryMaterial(_visual!, source); break;
-                        case 3: SetSurface(_material!, source.Surface); break;
-                        case 4:
+                        case 3:
                             _visual!.Node.AddChild(new MeshInstance3D { Mesh = _mesh!.Value, MaterialOverride = _material });
                             break;
                     }
