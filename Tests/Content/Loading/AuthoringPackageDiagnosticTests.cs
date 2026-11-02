@@ -57,4 +57,27 @@ public sealed class AuthoringPackageDiagnosticTests
         Assert.AreEqual(new C.ContentSourceLocation(new("core"), path), diagnostic.Source);
         Assert.AreEqual(subject, diagnostic.Subject);
     }
+
+    [TestMethod]
+    public void Nonfinite_definition_after_valid_edit_reports_its_source_and_identity_without_a_patch()
+    {
+        var factory = ContentFactory.Create();
+        var opened = factory.OpenAuthoringPackage(ContentFixture.BuiltIn, new("core"), new("snapshot"), DesignFixtures.Content());
+        Assert.IsInstanceOfType<C.ContentResult<C.IAuthoringPackage>.Success>(opened);
+        var package = ((C.ContentResult<C.IAuthoringPackage>.Success)opened).Value;
+        var voxel = (C.DefinitionDraft.Voxel)((C.ContentLookup<C.DefinitionDraft>.Found)package.Read(new(C.DefinitionKind.Voxel, "block"))).Value;
+        var valid = (C.DefinitionDraft.Voxel)((C.ContentLookup<C.DefinitionDraft>.Found)package.Read(new(C.DefinitionKind.Voxel, "machine"))).Value;
+        var invalid = voxel with { Value = voxel.Value with { Simulation = voxel.Value.Simulation! with { MassTons = double.NaN } } };
+
+        var result = factory.PreparePackageWrite(package,
+            [new C.PackageEdit.WriteDefinition(valid with { Value = valid.Value with { Display = new("有效修改", "") } }),
+                new C.PackageEdit.WriteDefinition(invalid)]);
+
+        Assert.IsInstanceOfType<C.ContentResult<C.PackageWritePlan>.Failure>(result);
+        var diagnostic = ((C.ContentResult<C.PackageWritePlan>.Failure)result).Diagnostics.Single();
+        Assert.AreEqual("invalid_field", diagnostic.Code);
+        Assert.AreEqual("/value", diagnostic.Field);
+        Assert.AreEqual(new C.ContentSourceLocation(new("core"), "resources/voxels/block.voxel.json"), diagnostic.Source);
+        Assert.AreEqual(new C.ContentReference.Core(new K.CoreDefinitionReference.Voxel(new("core:block"))), diagnostic.Subject);
+    }
 }

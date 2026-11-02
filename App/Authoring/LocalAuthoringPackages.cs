@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Train.App.Assets;
 using Train.App.Saves;
@@ -27,9 +28,8 @@ internal static class LocalAuthoringPackages
                     : string.Join("；", ((ContentResult<ImmutableArray<PackageStatus>>.Failure)result).Diagnostics.Select(item => item.Message)));
             var status = success.Value.Single(item => item.Root == root);
             var active = status.Metadata is null ? null : loaded.FirstOrDefault(item => item.Metadata?.Id == status.Metadata.Id);
-            var diagnostics = status.Diagnostics.Concat(active?.Diagnostics ?? []).Distinct().ToImmutableArray();
             sources.Add(new(Path.Combine(directory, entry.Name), status.Metadata?.Id, status.Metadata?.Name is { Length: > 0 } name ? name : entry.Name,
-                status.State == PackageState.Invalid ? status.State : active?.State ?? status.State, diagnostics));
+                status.State == PackageState.Invalid ? status.State : active?.State ?? status.State, status.Diagnostics));
         }
         return sources.ToImmutable();
     }
@@ -42,7 +42,7 @@ internal static class LocalAuthoringPackages
             schema_version = 2, id = metadata.Id.Value, name = metadata.Name, version = metadata.Version,
             authors = metadata.Authors,
             dependencies = metadata.Dependencies.Select(dependency => new { id = dependency.Package.Value, min_version = dependency.MinimumVersion })
-        }) + "\n";
+        }, new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) + "\n";
         var root = new ContentRoot("new-authoring-package");
         var bytes = Encoding.UTF8.GetBytes(json).ToImmutableArray();
         var source = ContentFilesSnapshot.Empty(root).WithChanges([new("mod.json", bytes)]);

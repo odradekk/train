@@ -36,7 +36,7 @@ internal sealed partial class AuthoringService : IDisposable
     internal bool IsBusy => opening is not null || creating is not null || saving is not null || operation != 0;
     internal IAuthoringPackage? Package => package;
     internal ImmutableArray<AuthoringDefinitionAddress> Definitions => package is null ? []
-        : package.EditableDefinitions.Concat(edits.Keys).Distinct().ToImmutableArray();
+        : package.EditableDefinitions.Concat(edits.Keys).Concat(DirtyDefinition is { } dirty ? [dirty] : []).Distinct().ToImmutableArray();
     internal AuthoringTarget? Target { get; private set; }
     internal DefinitionDraft? Form { get; private set; }
     internal bool Leaving => afterFormClose is not null;
@@ -188,14 +188,6 @@ internal sealed partial class AuthoringService : IDisposable
         if (!CanUse || IsBusy || package is null) return;
         if (editor.RequestClose(() => { edits[address] = new PackageEdit.DeleteDefinition(address); Report("已标记删除，写包前仍须校验。"); }) is { } failure) Report(failure.Message);
     }
-
-    internal void AddAsset(string relativePath, string source)
-    {
-        if (!CanUse || IsBusy || package is null) return;
-        try { assetEdits.Add(new PackageEdit.WriteAsset(relativePath, [.. File.ReadAllBytes(source)])); Report("资产已加入待写入修改。"); }
-        catch (Exception error) { Report(error.Message); }
-    }
-    private readonly List<PackageEdit> assetEdits = [];
 
     internal Task PreviewTemplate(DefinitionDraft value)
     {

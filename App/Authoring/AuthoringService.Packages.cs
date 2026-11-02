@@ -54,18 +54,26 @@ internal sealed partial class AuthoringService
 
     private void StartOpen(AuthoringTarget target)
     {
-        Target = target; binding = host.GetStatus()?.Binding;
-        package = null; snapshot = null; edits.Clear(); assetEdits.Clear();
+        Target = target;
+        if (!target.IsCore) host.EnableAuthoringPackage(target.Package);
+        edits.Clear(); assetEdits.Clear();
         captureIssue = null; writeIssues = []; LastWrite = null; LastPublishSucceeded = null; WriteStage = AuthoringWriteStage.None;
-        var diagnostics = Sources.FirstOrDefault(source => SamePath(source.Directory, target.Directory))?.Diagnostics
-            ?? host.Content!.Packages.FirstOrDefault(status => status.Metadata?.Id == target.Package)?.Diagnostics ?? [];
-        sourceIssues = diagnostics.Select(item => Issue(item)).ToImmutableArray();
+        ReadSource(target);
+        Report("正在读取源包…");
+    }
+
+    private void ReadSource(AuthoringTarget target)
+    {
+        binding = host.GetStatus()?.Binding;
+        package = null; snapshot = null;
+        var manifestDiagnostics = Sources.FirstOrDefault(source => SamePath(source.Directory, target.Directory))?.Diagnostics ?? [];
+        var loadedDiagnostics = host.Content!.Packages.FirstOrDefault(status => status.Metadata?.Id == target.Package)?.Diagnostics ?? [];
+        sourceIssues = manifestDiagnostics.Concat(loadedDiagnostics).Distinct().Select(item => Issue(item)).ToImmutableArray();
         opening = Task.Run(() =>
         {
             var source = PackageSnapshot.Capture(target.Directory);
             return (source, host.ContentFactory.OpenAuthoringPackage(new("authoring"), target.Package, source.Version, source));
         });
-        Report("正在读取源包…");
     }
 
     private void ProcessPackages()
@@ -76,7 +84,6 @@ internal sealed partial class AuthoringService
             try
             {
                 var target = created.GetAwaiter().GetResult();
-                host.EnableAuthoringPackage(target.Package);
                 StartOpen(target); RefreshSources();
             }
             catch (Exception error) { Report("新建模组失败：" + error.Message); }
@@ -97,16 +104,23 @@ internal sealed partial class AuthoringService
                 if (value.Result is ContentResult<IAuthoringPackage>.Success success)
                 {
                     snapshot = value.Snapshot; package = success.Value;
-                    Report("源包已载入。最终复核到写入结束期间，请确保此包只有一个写入者。");
+                    if (LastPublishSucceeded is null) Report("源包已载入。最终复核到写入结束期间，请确保此包只有一个写入者。");
+                    else Changed?.Invoke();
                 }
                 else
                 {
                     if (value.Result is ContentResult<IAuthoringPackage>.Failure failure)
+                    {
                         sourceIssues = sourceIssues.Concat(failure.Diagnostics.Select(item => Issue(item))).Distinct().ToImmutableArray();
-                    Report(Describe(value.Result));
+                        ReportOpenFailure(LastPublishSucceeded is null ? Describe(value.Result) : "源包无法读取，请检查源包问题。");
+                    }
+                    else ReportOpenFailure(Describe(value.Result));
                 }
             }
-            catch (Exception error) { Report(error.Message); }
+            catch (Exception error) { ReportOpenFailure(error.Message); }
         }
     }
+
+    private void ReportOpenFailure(string message) =>
+        Report(LastPublishSucceeded is null ? message : Message + " 自动重新读取源包失败：" + message);
 }

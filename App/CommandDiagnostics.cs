@@ -89,6 +89,7 @@ internal static class CommandDiagnostics
         "no_route" => "没有可达路径。",
         "object_missing" => "对象已不存在。",
         "content_missing" => "所需内容缺失。",
+        "content_unavailable" => "当前没有已载入的内容，无法执行此操作。",
         "invalid_state" => "状态不符合操作要求。",
         "invalid_design" => "设计不能用于此操作。",
         "node_occupied" => "节点已被占据。",

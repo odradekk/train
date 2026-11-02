@@ -131,7 +131,7 @@
     "Tests/Engine/WorldCameraTests.cs": 7503,
     "Tests/Engine/WorldScenePreview.cs": 5341,
     "Tests/Engine/WorldSceneTests.cs": 17518,
-    "Tests/Godot/Authoring/AuthoringServiceTests.cs": 7270,
+    "Tests/Godot/Authoring/AuthoringServiceTests.cs": 6162,
     "Tests/Godot/Editing/EditorServiceTests.cs": 10105,
     "Tests/Godot/Host/HostCoordinatorTests.cs": 11635,
     "Tests/Godot/Logging/StructuredLoggingTests.cs": 7017,

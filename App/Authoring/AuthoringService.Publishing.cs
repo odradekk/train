@@ -42,9 +42,10 @@ internal sealed partial class AuthoringService
             {
                 var status = check.Report.Packages.FirstOrDefault(p => p.Metadata?.Id == target.Package);
                 if (status?.State != PackageState.Available)
-                    return new ContentResult<IContentCandidate>.Failure(status?.Diagnostics ?? [new("authoring_package_unavailable",
+                    return new ContentResult<IContentCandidate>.Failure(status is not null && !status.Diagnostics.IsDefaultOrEmpty
+                        ? status.Diagnostics : [new("authoring_package_unavailable",
                         ContentDiagnosticSeverity.Error, "authoring", null, new(target.Package, ""), "package", null,
-                        "校验结果中没有目标源包，未写入文件。")]);
+                        "目标源包未能载入。请检查模组是否已启用及其依赖。")]);
             }
             Volatile.Write(ref writePhase, (int)AuthoringWriteStage.CheckSource);
             Volatile.Write(ref written, PackageWriter.Execute(fixedSource, plan, target.IsCore,
@@ -76,16 +77,16 @@ internal sealed partial class AuthoringService
         else WriteStage = (AuthoringWriteStage)Volatile.Read(ref writePhase);
         writeIssues = result.Diagnostics.Select(item => Issue(item)).ToImmutableArray();
         var changedFiles = written is { Completed.IsEmpty: false };
-        if (changedFiles) { package = null; snapshot = null; }
         if (changedFiles || written?.Success == true) { edits.Clear(); assetEdits.Clear(); }
+        if (changedFiles) { ReadSource(Target!); RefreshSources(); }
         var outcome = result.Succeeded ? "文件已写入，内容重载成功；草稿还在。"
             : written?.Success == true ? "文件已写入，但内容重载失败。游戏里的内容没有切换，草稿还在。"
             : WriteStage == AuthoringWriteStage.WriteFiles ? "写入已停止，已完成项保留。游戏里的内容没有切换，草稿还在。"
             : "一个文件也没写，游戏里的内容保持原样，草稿还在。";
-        Report(outcome + (result.Succeeded ? "" : " " + result.Message + " "
-                + string.Join("；", result.Diagnostics.Select(item => $"{item.Code}: {item.Message} {item.Source?.Path} {item.Field}")
-                    .Concat(result.Problems.Select(problem => CommandDiagnostics.Describe(problem, host.Content)))))
-            + (changedFiles ? "请重新载入源包后继续创作。" : ""));
+        var hostMessage = result.Succeeded ? "" : string.Join("；", result.Problems
+            .Select(problem => CommandDiagnostics.Describe(problem, host.Content)).Prepend(result.Message)
+            .Where(message => !string.IsNullOrWhiteSpace(message)));
+        Report(outcome + (hostMessage.Length == 0 ? "" : " " + hostMessage));
     }
 
     private void ProcessWriteProgress()
