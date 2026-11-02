@@ -45,7 +45,7 @@ public partial class SettlementInspectorPreview : Node
                 wallet: blocked ? 250 : multiple ? 1000 : 1234567,
                 vehicle: multiple ? EconomyFixture.VehicleState.Formed : EconomyFixture.VehicleState.ForSale,
                 tradeQuotes: multiple ? MultipleTrainQuotes() : null, leaseCount: multiple ? 0 : 1);
-            if (owned) before = OwnedSettlementInspectorUiTests.View();
+            if (owned) before = OwnedSettlementInspectorUiTests.View(stoppedState: ProductionState.Locked);
             if (scenario == "OwnedNoTrain") before = EconomyFixture.Create(relation: SettlementRelation.PlayerOwned, trainAtNode: false, leaseCount: 0);
             if (scenario == "OwnedDemolition") before = OwnedSettlementDemolitionUiTests.Preview();
             var after = EconomyFixture.Create(2, foodQuantity: 14, wallet: 1233867);

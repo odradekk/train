@@ -17,17 +17,19 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
             InventoryAccess.ReadWrite, 137, 17, 3, 117, 1.25,
             [new(EconomyFixture.Food, 0, false), new(EconomyFixture.Equipment, 1, false)], []);
         var setup = new HostSimulationTests.HostSetup(
-            EconomyFixture.Create(relation: SettlementRelation.PlayerOwned, leaseCount: 2, settlementInventory: inventory), EconomyFixture.Content());
+            EconomyFixture.Create(relation: SettlementRelation.PlayerOwned, leaseCount: 2, settlementInventory: inventory,
+                foodExpectedNetChangePerSecond: 2.5 / 86400, equipmentExpectedNetChangePerSecond: -1.5 / 86400), EconomyFixture.Content());
         await Run(setup, async (_, panel) =>
         {
             var stock = await OwnedStock(panel);
             var text = string.Join("\n", stock.FindChildren("*", "Label", true, false).Cast<Label>().Select(label => label.Text));
-            Require(text.Contains("补货目标") && text.Contains("50") && Find<Label>(stock, "StockStorage").Text.Contains("17/137") &&
+            Require(text.Contains("预计每天") && text.Contains("补货目标") && text.Contains("50") && Find<Label>(stock, "StockStorage").Text.Contains("17/137") &&
                 Find<Label>(stock, "StockStorage").Text.Contains("预留 3") && Find<Label>(stock, "StockStorage").Text.Contains("可用 117"),
                 "库存页应显示仓储用量和补货目标。");
             var row = stock.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First();
             var values = row.FindChildren("*", "Label", true, false).Cast<Label>().Select(label => label.Text).ToArray();
-            Require(values.Contains("0") && values.Contains("50"), "零库存但有补货目标的主食必须保留，并使用本地库存数量而非市场库存42。");
+            Require(values.Contains("0") && values.Contains("50") && values.Contains("+3"), "零库存但有补货目标的主食必须保留，并使用本地库存数量而非市场库存42。");
+            Require(RowValues(stock, 1).Contains("-2"), "负向每天变化应在半整数处远离零取整，并保留负号。");
             await _input.Activate(row);
             var action = Find<OptionButton>(stock, "Action");
             Require(action.ItemCount == 2 && action.GetItemText(0) == "装上列车" && action.GetItemText(1) == "卸到库存",
@@ -97,8 +99,9 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Owned_stock_refresh_keeps_expanded_good_action_and_quantity()
     {
-        var before = EconomyFixture.Create(relation: SettlementRelation.PlayerOwned);
-        var after = EconomyFixture.Create(2, relation: SettlementRelation.PlayerOwned, foodQuantity: 37);
+        var before = EconomyFixture.Create(relation: SettlementRelation.PlayerOwned, foodExpectedNetChangePerSecond: 3.0 / 86400);
+        var after = EconomyFixture.Create(2, relation: SettlementRelation.PlayerOwned, foodQuantity: 37,
+            foodExpectedNetChangePerSecond: -5.0 / 86400);
         var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
         setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
         await Run(setup, async (ui, panel) =>
@@ -108,15 +111,55 @@ public class OwnedSettlementStockUiTests(Node testScene) : TestClass(testScene)
             await _input.Choose(Find<OptionButton>(stock, "Action"), 1);
             await _input.Enter(Find<LineEdit>(stock, "Quantity"), "1");
             Require(!Find<Label>(stock, "TrainCargo").Text.Contains("车上主食：37"), "旧修订不能已经显示刷新后的货物数量。");
+            Require(RowValues(stock, 0).Contains("+3"), "旧修订应显示旧的预计每天变化。");
             var host = ui.GetParent<Train.App.App>().Host!;
             Require(host.Step(1).Problem is null, "测试必须发布新修订。");
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, after, host.Content!);
             Require(Find<VBoxContainer>(stock, "Trade").Visible && Find<LineEdit>(stock, "Quantity").Text == "1" &&
                 Find<OptionButton>(stock, "Action").GetItemText(Find<OptionButton>(stock, "Action").Selected) == "卸到库存" &&
-                Find<Label>(stock, "TrainCargo").Text.Contains("车上主食：37"), "刷新应保留展开货物、动作和数量，并更新货物数据。");
+                Find<Label>(stock, "TrainCargo").Text.Contains("车上主食：37") && RowValues(stock, 0).Contains("-5"), "刷新应更新预计每天变化并保留展开货物、动作和数量，并更新货物数据。");
         });
         setup.Session.AssertComplete();
     }
+
+    [Test]
+    public async Task Owned_daily_change_rounds_to_nearest_integer_and_has_no_negative_zero()
+    {
+        foreach (var (daily, positive, negative) in new[] { (0.49, "0", "0"), (1.49, "+1", "-1"), (1.51, "+2", "-2") })
+        {
+            var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(
+                relation: SettlementRelation.PlayerOwned, foodExpectedNetChangePerSecond: daily / 86400,
+                equipmentExpectedNetChangePerSecond: -daily / 86400), EconomyFixture.Content());
+            await Run(setup, async (_, panel) =>
+            {
+                var stock = await OwnedStock(panel);
+                Require(RowValues(stock, 0).Last() == positive && RowValues(stock, 1).Last() == negative,
+                    $"每天变化 ±{daily} 应分别显示 {positive} 和 {negative}，取整后零不带符号。");
+            });
+            setup.Session.AssertComplete();
+        }
+    }
+
+    [Test]
+    public async Task Non_owned_market_keeps_trade_columns_without_daily_change()
+    {
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(
+            foodExpectedNetChangePerSecond: 3.0 / 86400), EconomyFixture.Content());
+        await Run(setup, async (_, panel) =>
+        {
+            var tabs = Find<TabContainer>(panel, "Pages");
+            await _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "市场"));
+            var labels = panel.FindChildren("*", "Label", true, false).Cast<Label>()
+                .Where(label => label.IsVisibleInTree()).Select(label => label.Text).ToArray();
+            Require(labels.Contains("可买") && labels.Contains("可卖") && !labels.Contains("预计每天") && !labels.Contains("+3"),
+                "非自有市场应保留买卖列，不显示预计每天列。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    private static string[] RowValues(Control stock, int index) => stock.FindChildren("SelectGood", "Button", true, false)
+        .Cast<Button>().ElementAt(index).FindChildren("*", "Label", true, false).Cast<Label>()
+        .Where(label => label.IsVisibleInTree()).Select(label => label.Text).ToArray();
 
     private async Task<Control> OwnedStock(Control panel)
     {

@@ -22,7 +22,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
     private IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> _locals = [];
     private VBoxContainer _rows = null!, _editor = null!;
     private Label _problems = null!, _empty = null!, _description = null!, _result = null!, _cargo = null!, _leaseLabel = null!;
-    private Label _storage = null!, _secondHeading = null!, _thirdHeading = null!;
+    private Label _storage = null!, _secondHeading = null!, _thirdHeading = null!, _dailyHeading = null!;
     private OptionButton _action = null!, _trainChoice = null!, _leaseChoice = null!;
     private LineEdit _quantity = null!;
     private Button _confirm = null!, _maximum = null!;
@@ -34,7 +34,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
     private LeaseId? _lease;
     private GoodId? _good;
     private TradeQuote? _quote, _pressedQuote;
-    private sealed record MarketRow(VBoxContainer Container, Button Select, GoodsRows.GoodsRow Good, Label Stock, Label Buy, Label Sell);
+    private sealed record MarketRow(VBoxContainer Container, Button Select, GoodsRows.GoodsRow Good, Label Stock, Label Buy, Label Sell, Label DailyChange);
 
     internal void Bind(ICoreReadView view, IContentView content, SettlementView settlement,
         IReadOnlyList<(InventoryView Inventory, LeaseView? Lease)> locals, PanelTarget target)
@@ -46,6 +46,9 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
         Text(header, "GoodsHeading", "货物");
         AmountCell(header, "库存");
         _secondHeading = AmountCell(header, "可买"); _thirdHeading = AmountCell(header, "可卖");
+        _dailyHeading = AmountCell(header, "预计每天");
+        _dailyHeading.CustomMinimumSize = new(RestockTargetWidth, 0);
+        _dailyHeading.TooltipText = "按当前生产与居民消耗预计，不含交易和装卸。";
         _storage = Text(body, "StockStorage", "");
         _problems = Text(body, "MarketProblems", "");
         _empty = Text(body, "Empty", "没有可显示的货物。");
@@ -82,6 +85,7 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
     internal void Refresh()
     {
         _secondHeading.Text = Owned ? "补货目标" : "可买"; _thirdHeading.Visible = !Owned;
+        _dailyHeading.Visible = Owned;
         _secondHeading.CustomMinimumSize = new(Owned ? RestockTargetWidth : AmountWidth, 0);
         _storage.Visible = Owned;
         _storage.Text = Owned && Local is { } stock
@@ -124,7 +128,8 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
                 var display = goods.CreateGoodRow(cells, good); display.Control.MouseFilter = Control.MouseFilterEnum.Ignore;
                 display.Icon.MouseFilter = Control.MouseFilterEnum.Ignore;
                 display.Control.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-                row = new(container, select, display, AmountCell(cells, ""), AmountCell(cells, ""), AmountCell(cells, ""));
+                row = new(container, select, display, AmountCell(cells, ""), AmountCell(cells, ""), AmountCell(cells, ""), AmountCell(cells, ""));
+                row.DailyChange.CustomMinimumSize = _dailyHeading.CustomMinimumSize;
                 _items.Add(good, row);
             }
             var item = _settlement.Market.Goods.FirstOrDefault(item => item.Good == good);
@@ -135,6 +140,10 @@ internal sealed partial class SettlementMarketTable(Func<bool> canAct, GoodsRows
             row.Buy.CustomMinimumSize = _secondHeading.CustomMinimumSize;
             row.Sell.Text = item?.ReceivableQuantity.ToString() ?? "—";
             row.Sell.Visible = !Owned;
+            var dailyChange = Math.Round((item?.ExpectedNetChangePerSecond ?? 0) *
+                (UiInput.StepsPerDay / (double)SimulationTime.StepsPerSecond), MidpointRounding.AwayFromZero);
+            row.DailyChange.Text = dailyChange.ToString("+0;-0;0");
+            row.DailyChange.Visible = Owned;
         }
         if (!_confirm.IsPressed()) RequestQuote();
         UpdateActions();

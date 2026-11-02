@@ -22,7 +22,8 @@ internal static class EconomyFixture
         bool trainAtNode = true, long wallet = 1234567,
         IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>? tradeQuotes = null,
         SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1, InventoryView? settlementInventory = null,
-        IReadOnlyList<ConstructionJobView>? commissionJobs = null)
+        IReadOnlyList<ConstructionJobView>? commissionJobs = null,
+        double foodExpectedNetChangePerSecond = 0, double equipmentExpectedNetChangePerSecond = 0)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -57,7 +58,8 @@ internal static class EconomyFixture
                     new("content_missing", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:missing-market"]),
                     new("invalid_state", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:invalid-market"])] } : rule,
                 new(100, 5, 2, 20, 0, 75, 50),
-                [new(Food, 42, 50, 2, 40, 20, []), new(Equipment, 3, 5, 0, 3, 2, [])]));
+                [new(Food, 42, 50, 2, 40, 20, foodExpectedNetChangePerSecond, []),
+                 new(Equipment, 3, 5, 0, 3, 2, equipmentExpectedNetChangePerSecond, [])]));
         if (commissionJobs is not null) settlement = settlement with { CommissionJobs = [.. commissionJobs.Select(job => job.Id)] };
         InventoryView Inventory(ulong id, InventoryOwner owner) => new(new(id), owner, location, InventoryAccess.ReadWrite,
             100, 5, 2, 93, 1.25, [new(Food, foodQuantity, false), new(Equipment, 1, false)], []);
