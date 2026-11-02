@@ -6,6 +6,9 @@ namespace Train.App.Editing;
 
 internal sealed partial class EditorService
 {
+    internal void LogDraftEvaluationFailure(Exception error) =>
+        _logger.Warning("editor", "editor_draft_evaluation_failed", "草稿评估失败。", exception: error);
+
     internal ImmutableArray<SavedContentDraft> UserDrafts()
     {
         _userDraftFiles.Clear();

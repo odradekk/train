@@ -43,7 +43,6 @@ internal partial class GoodsIconCache : Node
     }
     private readonly Dictionary<(DesignHash, ContentGeneration), Entry> _designs = [];
     private readonly Dictionary<GoodId, Entry> _goods = [];
-    private readonly Dictionary<DesignEvaluation, Entry> _drafts = new(ReferenceEqualityComparer.Instance);
     private IScenesFactory _factory = null!;
     private GodotMainThreadDispatcher _dispatcher = null!;
     private AssetResourceCache _assets = null!;
@@ -64,19 +63,15 @@ internal partial class GoodsIconCache : Node
     internal GoodIcon CreateDesign(DesignEvaluation evaluation, int size)
     {
         _dispatcher.RequireMainThread();
-        if (!_drafts.TryGetValue(evaluation, out var entry))
+        Entry entry;
+        try
         {
-            try { entry = _content is { } content ? Render(evaluation, content) : Missing("没有活动内容。"); }
-            catch (Exception error) { entry = Missing(error.Message); }
-            _drafts.Add(evaluation, entry);
+            var hash = evaluation switch
+            { DesignEvaluation.Complete complete => complete.Design, DesignEvaluation.Partial partial => partial.Scene.Design, _ => null };
+            entry = _content is { } content && hash is { } design ? DesignEntry(design, content, evaluation) : Missing("没有可显示的设计。");
         }
-        var control = CreateControl(entry, null, size, false, true);
-        control.TreeExiting += () =>
-        {
-            if (entry.Controls.Count != 0 || !_drafts.Remove(evaluation)) return;
-            entry.Pending?.Dispose(); entry.Texture?.Dispose();
-        };
-        return control;
+        catch (Exception error) { entry = Missing(error.Message); }
+        return CreateControl(entry, null, size, false, true);
     }
 
     internal void Initialize(IScenesFactory factory, GodotMainThreadDispatcher dispatcher)
@@ -136,12 +131,12 @@ internal partial class GoodsIconCache : Node
         return new() { Texture = lease.Value, Lease = lease };
     }
 
-    private Entry DesignEntry(DesignHash design, IContentView content)
+    private Entry DesignEntry(DesignHash design, IContentView content, DesignEvaluation? evaluation = null)
     {
         var key = (design, content.Generation);
         if (_designs.TryGetValue(key, out var cached)) return cached;
-        var entry = content.FindDesign(design) is ContentLookup<DesignEvaluation>.Found evaluation
-            ? Render(evaluation.Value, content) : Missing($"图标显示设计缺失：{design}。");
+        evaluation ??= (content.FindDesign(design) as ContentLookup<DesignEvaluation>.Found)?.Value;
+        var entry = evaluation is not null ? Render(evaluation, content) : Missing($"图标显示设计缺失：{design}。");
         _designs.Add(key, entry);
         return entry;
     }
@@ -239,7 +234,7 @@ internal partial class GoodsIconCache : Node
     {
         var drawn = _drawn;
         _drawn = false;
-        foreach (var entry in _designs.Values.Concat(_drafts.Values))
+        foreach (var entry in _designs.Values)
         {
             if (entry.Pending is not { } capture) continue;
             if (capture.Viewport is null)
@@ -267,7 +262,7 @@ internal partial class GoodsIconCache : Node
 
     private void Clear()
     {
-        foreach (var entry in _goods.Values.Concat(_designs.Values).Concat(_drafts.Values).Distinct())
+        foreach (var entry in _goods.Values.Concat(_designs.Values).Distinct())
         {
             foreach (var (control, _) in entry.Controls) control.SetTexture(null, "图标绑定已失效");
             entry.Controls.Clear();
@@ -275,7 +270,7 @@ internal partial class GoodsIconCache : Node
             if (entry.Lease is { } lease) lease.Dispose();
             else entry.Texture?.Dispose();
         }
-        _goods.Clear(); _designs.Clear(); _drafts.Clear();
+        _goods.Clear(); _designs.Clear();
         _drawn = false;
     }
 

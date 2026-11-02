@@ -13,26 +13,64 @@ public partial class GoodsIconTests
     private static Texture2D? Texture(GoodIcon icon) => icon.GetChildren().OfType<TextureRect>().Single().Texture;
 
     [Test]
-    public async Task Draft_thumbnail_releases_its_capture_when_the_last_card_leaves()
+    public async Task Draft_thumbnails_keep_the_pending_capture_until_the_content_binding_changes()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         var previews = new List<Preview>();
-        var cache = new GoodsIconCache(); cache.Initialize(Factory(previews), dispatcher); TestScene.AddChild(cache);
+        var factory = Factory(previews);
+        var cache = new GoodsIconCache(); cache.Initialize(factory, dispatcher); TestScene.AddChild(cache);
         var content = Content(1); cache.Bind(new(Guid.NewGuid()), content);
-        var evaluation = ((ContentLookup<DesignEvaluation>.Found)content.FindDesign(Design)).Value;
-        GoodIcon? first = null, second = null;
+        var evaluation = (DesignEvaluation.Complete)((ContentLookup<DesignEvaluation>.Found)content.FindDesign(Design)).Value;
+        GoodIcon? first = null, reopened = null;
         try
         {
-            first = cache.CreateDesign(evaluation, 96); second = cache.CreateDesign(evaluation, 160);
-            TestScene.AddChild(first); TestScene.AddChild(second);
-            await FramesUntil(TestScene, () => cache.GetChildCount() != 0);
+            first = cache.CreateDesign(evaluation, 96); TestScene.AddChild(first);
+            await FramesUntil(TestScene, () => cache.GetChildren().OfType<SubViewport>().Any());
+            var viewport = cache.GetChildren().OfType<SubViewport>().Single();
+            var mesh = viewport.FindChildren("*", "MeshInstance3D", true, false).Cast<MeshInstance3D>().Single().Mesh;
+            Require(previews.Single().PresentCalls == 1 && previews.Single().DisposeCalls == 0,
+                "此情景应已提交完整截图视口，仍保留等待绘制的预览。");
             first.Free(); first = null;
-            Require(previews.Single().DisposeCalls == 0, "同一草稿仍有卡片显示时不能提前释放预览。");
-            second.Free(); second = null;
-            Require(previews.Single().DisposeCalls == 1 && cache.GetChildCount() == 0,
-                "草稿快照不在内容目录里，最后一张卡片移除后应释放它的预览，不能每次开库都积累。");
+            reopened = cache.CreateDesign(evaluation with { }, 160); TestScene.AddChild(reopened);
+            Require(factory.PreviewCalls.Count == 1 && GodotObject.IsInstanceValid(viewport) && cache.GetChildCount() == 1,
+                "卡片全部移除后，重新评估得到的同哈希设计必须继续使用原捕获。");
+            cache.Bind(new(Guid.NewGuid()), Content(2));
+            Require(!GodotObject.IsInstanceValid(viewport) && !GodotObject.IsInstanceValid(mesh) &&
+                previews.Single().DisposeCalls == 1 && reopened.TooltipText == "图标绑定已失效",
+                "内容绑定切换必须释放等待中的预览、视口及网格，并清除卡片绑定。");
         }
-        finally { first?.Free(); second?.Free(); cache.Free(); }
+        finally { first?.Free(); reopened?.Free(); cache.Free(); }
+    }
+
+    [Test]
+    public async Task Complete_and_partial_thumbnails_share_the_design_capture_with_goods()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var previews = new List<Preview>(); var factory = Factory(previews);
+        var cache = new GoodsIconCache(); cache.Initialize(factory, dispatcher); TestScene.AddChild(cache);
+        var content = Content(1); cache.Bind(new(Guid.NewGuid()), content);
+        var complete = (DesignEvaluation.Complete)((ContentLookup<DesignEvaluation>.Found)content.FindDesign(Design)).Value;
+        var partial = new DesignEvaluation.Partial(complete.Definition,
+            new(new ComputedValue<double>.Unknown([]), new ComputedValue<Money>.Unknown([]),
+                new ComputedValue<long>.Unknown([]), new ComputedValue<System.Collections.Immutable.ImmutableArray<PartProjection>>.Unknown([]),
+                new ComputedValue<System.Collections.Immutable.ImmutableArray<GoodsQuantity>>.Unknown([]), new ComputedValue<int>.Unknown([])),
+            new(0, new(0), 0, [], []), null, complete.Scene, []);
+        var controls = new List<GoodIcon>();
+        try
+        {
+            controls.Add(cache.CreateDesign(complete with { Scene = complete.Scene with { Design = null } }, 96));
+            controls.Add(cache.CreateDesign(partial, 96));
+            controls.Add(cache.Create(First, null));
+            foreach (var icon in controls) TestScene.AddChild(icon);
+            await FramesUntil(TestScene, () => cache.GetChildren().OfType<SubViewport>().Any());
+            Require(factory.PreviewCalls.Count == 1 && cache.GetChildCount() == 1 && previews.Single().PresentCalls == 1 &&
+                controls.All(icon => icon.TooltipText == "缩略图正在生成"),
+                "完整评估采用 Design，部分评估采用 Scene.Design；相同哈希与世代必须和货物共享一次捕获。");
+            cache.Bind(new(Guid.NewGuid()), Content(2));
+            Require(previews.Single().DisposeCalls == 1 && cache.GetChildCount() == 0 &&
+                controls.All(icon => icon.TooltipText == "图标绑定已失效"), "切换绑定必须同步释放共享捕获并清除所有控件绑定。");
+        }
+        finally { foreach (var icon in controls) icon.Free(); cache.Free(); }
     }
 
     [Test]

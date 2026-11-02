@@ -7,13 +7,11 @@ namespace Train.Ui;
 
 internal partial class BlueprintLibraryPanel
 {
-    private Label? _vehicleCount;
-    private DesignHash? _countDesign;
-    private ICoreReadView? _countView;
+    private readonly Dictionary<DesignHash, int> _vehicleCounts = [];
 
     private void ShowDetails(LibraryItem? item)
     {
-        Clear(_details); Clear(_actions); _vehicleCount = null; _countView = null; _countDesign = null;
+        Clear(_details); Clear(_actions);
         if (item is null) { Text(_details, "选择一份设计查看详情。"); return; }
         _details.AddChild(Thumbnail(item, 160));
         Text(_details, item.Name).ThemeTypeVariation = "Title";
@@ -53,7 +51,8 @@ internal partial class BlueprintLibraryPanel
         {
             if (item.Design?.Specification is DesignSpecification.Vehicle)
             {
-                _countDesign = blueprint.Design; _vehicleCount = Text(_details, ""); UpdateVehicleCount();
+                var count = blueprint.Design is { } hash ? _vehicleCounts.GetValueOrDefault(hash) : 0;
+                Text(_details, $"本局有 {count} 辆车使用这个设计。");
                 Text(_details, "修改蓝图不会影响已建成的车辆。");
             }
             if (blueprint.Address.Library == BlueprintLibrary.Packages)
@@ -66,7 +65,7 @@ internal partial class BlueprintLibraryPanel
                 Action("OpenBlueprint", "编辑", () => Edit(() => _service.OpenBlueprint(blueprint.Address, fromLibrary: true)), true);
                 if (blueprint.Address.Library == BlueprintLibrary.User)
                     Action("CopyLocalBlueprint", "复制到本局蓝图库并编辑", () => Copy(item, BlueprintLibrary.Local));
-                Action("DeleteBlueprint", "删除…", () => Confirm("删除蓝图", $"删除「{item.Name}」？已建成的车辆不受影响。", "删除", () => _service.DeleteBlueprint(blueprint.Address)));
+                Action("DeleteBlueprint", "删除…", () => Confirm("删除蓝图", $"删除「{item.Name}」？已建成的车辆和建筑不受影响。", "删除", () => _service.DeleteBlueprint(blueprint.Address)));
             }
             if (blueprint.Address.Library != BlueprintLibrary.User)
                 Action("CopyUserBlueprint", "复制到用户内容库并编辑", () => Copy(item, BlueprintLibrary.User));
@@ -90,17 +89,17 @@ internal partial class BlueprintLibraryPanel
         }
     }
 
-    private void UpdateVehicleCount()
+    private void RefreshVehicleCounts()
     {
-        if (_vehicleCount is null || _service.Host.GetStatus()?.View is not { } view || ReferenceEquals(view, _countView)) return;
-        _countView = view;
+        _vehicleCounts.Clear();
+        if (_service.Host.GetStatus()?.View is not { } view) return;
         var locations = view.World.Nodes.Select(node => (WorldLocation)new WorldLocation.Node(node.Id))
             .Concat(view.World.Edges.Select(edge => new WorldLocation.Edge(edge.Id, 0)));
         var ids = locations.Select(view.FindLocation).OfType<Lookup<LocationView>.Found>()
             .SelectMany(location => location.Value.Instances).OfType<InstanceId.Vehicle>().Distinct();
-        var count = ids.Select(view.FindInstance).OfType<Lookup<InstanceView>.Found>()
-            .Count(instance => instance.Value.Ownership == SettlementRelation.PlayerOwned && instance.Value.Design == _countDesign);
-        _vehicleCount.Text = $"本局有 {count} 辆车使用这个设计。";
+        foreach (var id in ids)
+            if (view.FindInstance(id) is Lookup<InstanceView>.Found instance && instance.Value.Ownership == SettlementRelation.PlayerOwned)
+                _vehicleCounts[instance.Value.Design] = _vehicleCounts.GetValueOrDefault(instance.Value.Design) + 1;
     }
 
     private string DraftDescription(SavedContentDraft draft)

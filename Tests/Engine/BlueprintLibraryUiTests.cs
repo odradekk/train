@@ -123,7 +123,7 @@ public partial class BlueprintLibraryUiTests(Node testScene) : TestClass(testSce
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
 
-    private async Task<EditorPreview> Ready(FixedCoreReadView? view = null,
+    private async Task<EditorPreview> Ready(ICoreReadView? view = null,
         System.Collections.Immutable.ImmutableArray<SavedContentDraft> drafts = default,
         System.Action<ScriptedContentFactory>? configure = null)
     {

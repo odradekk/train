@@ -98,7 +98,7 @@ internal partial class BlueprintLibraryPanel : Control
         _refreshing = true;
         try
         {
-            _observedContent = _service.Host.Content; _items.Clear(); _evaluations.Clear();
+            _observedContent = _service.Host.Content; _items.Clear(); _evaluations.Clear(); RefreshVehicleCounts();
             if (_observedContent is { } content)
             {
                 foreach (var summary in content.Blueprints)
@@ -113,7 +113,11 @@ internal partial class BlueprintLibraryPanel : Control
                     _evaluations[item] = Task.Run(() =>
                     {
                         try { return _service.Host.ContentFactory.EvaluateDesign(content, design.Value); }
-                        catch { return new ContentResult<DesignEvaluation>.Faulted("preview_failed", "草稿评估失败。", null); }
+                        catch (Exception error)
+                        {
+                            _service.LogDraftEvaluationFailure(error);
+                            return new ContentResult<DesignEvaluation>.Faulted("preview_failed", "草稿评估失败。", null);
+                        }
                     });
                 }
             }
@@ -133,7 +137,7 @@ internal partial class BlueprintLibraryPanel : Control
             _evaluations.Remove(item); updated = true;
         }
         if (updated) RenderCards();
-        UpdateVehicleCount(); _feedback.Text = _service.Message ?? "";
+        _feedback.Text = _service.Message ?? "";
     }
     private void RenderCards()
     {
