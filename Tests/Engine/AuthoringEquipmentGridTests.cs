@@ -32,7 +32,7 @@ public class AuthoringEquipmentGridTests(Node testScene) : TestClass(testScene)
             await fixture.Pump(() => !fixture.Service.IsBusy);
             var form = Find<AuthoringDefinitionForm>(panel, "DefinitionForm");
             var traction = form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>()
-                .Single(field => field.TooltipText == "牵引力 kN");
+                .Single(field => field.TooltipText == "牵引力");
             await input.Enter(traction, "42");
             await input.Activate(form.FindChildren("*", "Button", true, false).OfType<Button>().Single(button => button.Text == "编辑体素网格"));
             Require(fixture.Service.Leaving, "有修改的设备表单进入网格前必须询问保存、放弃或取消。");

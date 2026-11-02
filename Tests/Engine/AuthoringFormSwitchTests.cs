@@ -16,7 +16,7 @@ public class AuthoringFormSwitchTests(Node testScene) : TestClass(testScene)
         TestScene.AddChild(form);
         form.Load(new DefinitionDraft.Voxel(new("voxel", new("体素", ""), null,
             new(null, 1, null, false, null, []), AllowedVoxelOrientations.None,
-            new VoxelCollision.None(), null, new(false, null))));
+            new VoxelCollision.None(), null, new(false, null))), new("fixture"), []);
         try
         {
             Require(form.TryCapture(out _), "初始模拟层表单必须有效。");
@@ -28,7 +28,7 @@ public class AuthoringFormSwitchTests(Node testScene) : TestClass(testScene)
                 if (form.TryCapture(out var value) && value is not null) updated = value;
             };
             var mass = form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>()
-                .Single(edit => edit.TooltipText == "质量吨（可空）");
+                .Single(edit => edit.TooltipText == "质量（可空）");
             mass.Text = "invalid";
             mass.EmitSignal(LineEdit.SignalName.TextChanged, mass.Text);
             Require(edits > 0 && updated is null && !form.TryCapture(out _), "启用模拟层时非法质量必须阻止捕获。");
@@ -51,7 +51,7 @@ public class AuthoringFormSwitchTests(Node testScene) : TestClass(testScene)
         TestScene.AddChild(form);
         form.Load(new DefinitionDraft.Voxel(new("voxel", new("体素", ""), null, null,
             AllowedVoxelOrientations.None, new VoxelCollision.LocalBox(new(0, 0, 0), new(1, 1, 1)),
-            null, new(false, null))));
+            null, new(false, null))), new("fixture"), []);
         try
         {
             Require(form.TryCapture(out _), "初始局部碰撞表单必须有效。");
@@ -70,7 +70,7 @@ public class AuthoringFormSwitchTests(Node testScene) : TestClass(testScene)
             Require(edits > 0 && updated is null && !form.TryCapture(out _), "非法偏移必须触发编辑并阻止捕获。");
             var beforeSwitch = edits;
             var collision = form.FindChildren("*", "OptionButton", true, false).OfType<OptionButton>()
-                .Single(control => control.TooltipText == "碰撞 None/FullBox/LocalBox");
+                .Single(control => control.TooltipText == "碰撞类型");
             var none = Enumerable.Range(0, collision.ItemCount).Single(index => collision.GetItemText(index) == "无碰撞");
             collision.Select(none);
             collision.EmitSignal(OptionButton.SignalName.ItemSelected, (long)none);

@@ -18,8 +18,6 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
     private readonly List<FormField> _fields = [];
     private readonly Dictionary<string, Label> _groupErrors = [];
 
-    internal void Load(DefinitionDraft draft) => Load(draft, new("core"), []);
-
     internal void Load(DefinitionDraft draft, PackageId package, ImmutableArray<AuthoringReferenceChoice> choices)
     {
         _package = package; _choices = choices; _fields.Clear(); _groupErrors.Clear();
@@ -97,7 +95,7 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
     {
         var id = Identity(v.LocalId); var display = Display(v.Display);
         var symbol = AssetField(this, "地图标记资产", "/display/map_symbol", v.MapSymbol?.Value); var major = Flag(this, "主要聚居地", "/display/major", v.Major);
-        var weight = IntegerField(this, "权重（可空）", "/simulation/weight", v.Weight, optional: true); var terrain = MultipleChoice(this, "偏好地形 ID（逗号分隔）", "/simulation/preferred_terrain", string.Join(',', v.PreferredTerrain.Select(x => x.Value)), () => _choices.Where(c => c.Kind == AuthoringReferenceKind.TerrainType).Select(c => (ReferenceId(c.Reference), c.Display.Name + " · " + ReferenceId(c.Reference))).ToArray(), references: true, caption: "偏好地形");
+        var weight = IntegerField(this, "权重（可空）", "/simulation/weight", v.Weight, optional: true); var terrain = MultipleChoice(this, "偏好地形", "/simulation/preferred_terrain", string.Join(',', v.PreferredTerrain.Select(x => x.Value)), () => _choices.Where(c => c.Kind == AuthoringReferenceKind.TerrainType).Select(c => (ReferenceId(c.Reference), c.Display.Name + " · " + ReferenceId(c.Reference))).ToArray(), references: true);
         var minimum = LongField(this, "最少人口（可空）", "/simulation/population_min", v.MinimumPopulation, optional: true, unit: "人"); var maximum = LongField(this, "最多人口（可空）", "/simulation/population_max", v.MaximumPopulation, optional: true, unit: "人");
         return () => new DefinitionDraft.SettlementType(new(id.Text, display(), Asset(symbol), major.ButtonPressed, OptionalInt(weight), Items(terrain).Select(x => new TerrainTypeId(x)).ToImmutableArray(), OptionalLong(minimum), OptionalLong(maximum)));
     }
@@ -116,8 +114,8 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
             case DesignSpecification.Creature x:
                 var creature = OptionalFields(this, "生物行为", "/simulation/behaviors/creature", x.Behavior != null, out var creatureEnabled);
                 var hp = LongField(creature, "生命", "/simulation/behaviors/creature/hp", x.Behavior?.HitPoints ?? 1); var speed = NumberField(creature, "移动速度", "/simulation/behaviors/creature/speed", x.Behavior?.SpeedMetersPerSecond ?? 1, unit: "米/秒");
-                var retreat = NumberField(creature, "撤退阈值", "/simulation/behaviors/creature/retreat_threshold", x.Behavior?.RetreatThreshold ?? 0); var raid = NumberField(creature, "袭击持续秒数", "/simulation/behaviors/creature/raid_duration", x.Behavior?.RaidDurationSeconds ?? 1);
-                var weapon = OptionalFields(this, "生物武器", "/simulation/behaviors/weapon", x.Weapon != null, out var weaponEnabled); var damage = LongField(weapon, "伤害", "/simulation/behaviors/weapon/damage", x.Weapon?.Damage ?? 1); var interval = NumberField(weapon, "攻击间隔秒数", "/simulation/behaviors/weapon/interval", x.Weapon?.IntervalSeconds ?? 1);
+                var retreat = NumberField(creature, "撤退阈值", "/simulation/behaviors/creature/retreat_threshold", x.Behavior?.RetreatThreshold ?? 0); var raid = NumberField(creature, "袭击持续时间", "/simulation/behaviors/creature/raid_duration", x.Behavior?.RaidDurationSeconds ?? 1, unit: "秒");
+                var weapon = OptionalFields(this, "生物武器", "/simulation/behaviors/weapon", x.Weapon != null, out var weaponEnabled); var damage = LongField(weapon, "伤害", "/simulation/behaviors/weapon/damage", x.Weapon?.Damage ?? 1); var interval = NumberField(weapon, "攻击间隔", "/simulation/behaviors/weapon/interval", x.Weapon?.IntervalSeconds ?? 1, unit: "秒");
                 specification = () => new DesignSpecification.Creature(creatureEnabled.ButtonPressed ? new(Long(hp), Number(speed), Number(retreat), Number(raid)) : null, weaponEnabled.ButtonPressed ? new(Long(damage), Number(interval)) : null); break;
             default: specification = () => v.Value.Specification; break;
         }

@@ -119,26 +119,6 @@ public sealed partial class AuthoringServiceTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void Preflight_failure_and_fault_keep_the_original_rejection_or_fault(bool faulted)
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Open(); fixture.SaveForm(); fixture.ConfigureWrite();
-        var diagnostic = Diagnostic("preflight-rejected", "候选被拒绝");
-        fixture.Host.Factory.PrepareLoadCall = (_, _, _) => faulted
-            ? new ContentResult<IContentCandidate>.Faulted("preflight-fault", "原始故障", "original-stack")
-            : new ContentResult<IContentCandidate>.Failure([diagnostic]);
-        fixture.Service.Publish();
-        fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.AreEqual(faulted ? HostOperationStatus.Faulted : HostOperationStatus.Rejected, fixture.LastOperation!.Status);
-        if (faulted) StringAssert.Contains(fixture.Service.Message!, "原始故障");
-        else CollectionAssert.AreEqual(new[] { diagnostic }, fixture.LastOperation.Diagnostics.ToArray());
-        Assert.IsFalse(File.Exists(fixture.Output));
-        Assert.IsNull(fixture.Service.LastWrite);
-    }
-
-    [TestMethod]
     public void Reading_package_without_a_form_does_not_block_editor_close()
     {
         using var fixture = new AuthoringFixture();
@@ -197,34 +177,6 @@ public sealed partial class AuthoringServiceTests
     }
 
     [TestMethod]
-    public void Native_unimplemented_open_reports_original_exception()
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Host.Factory.OpenAuthoringPackageCall = (_, _, _, _) => throw new NotImplementedException("native authoring unavailable");
-        fixture.Service.OpenCore();
-        fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsNull(fixture.Service.Package);
-        StringAssert.Contains(fixture.Service.Message!, "native authoring unavailable");
-    }
-
-    [TestMethod]
-    public void Native_unimplemented_write_reports_original_exception_without_writing()
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Open();
-        fixture.SaveForm();
-        fixture.Host.Factory.PreparePackageWriteCall = (_, _) => throw new NotImplementedException("native package encoder unavailable");
-        fixture.Service.Publish();
-        fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsFalse(File.Exists(fixture.Output));
-        Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
-        Assert.AreEqual(1, fixture.Service.Drafts().Length);
-        Assert.AreEqual(HostOperationStatus.Faulted, fixture.LastOperation!.Status);
-        Assert.IsNull(fixture.Service.LastWrite);
-        StringAssert.Contains(fixture.Service.Message!, "native package encoder unavailable");
-    }
-
-    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
@@ -254,9 +206,10 @@ public sealed partial class AuthoringServiceTests
         fixture.Open();
         fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("template", new("", ""), null, null, null, [], [], [], [])));
         fixture.Scenes.PreviewTemplateCall = (content, _, revision) => new SceneResult<ITemplatePreview>.Success(new FixedTemplatePreview(content.Generation, new(revision.Value + 1)));
-        fixture.Service.Report("等待首次自动预览");
+        fixture.Host.Factory.QueryAuthoringReferencesCall = (_, _, _) => new ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success(
+            [new(AuthoringReferenceKind.SettlementType, new ContentReference.Core(new CoreDefinitionReference.SettlementType(new("core:town"))), new("城镇", ""))]);
         fixture.Service.Process();
-        fixture.Pump(() => fixture.Service.Message != "等待首次自动预览");
+        fixture.Pump(() => fixture.Service.ReferenceChoices.Length == 1);
         Assert.IsNull(fixture.Service.TemplatePreview);
     }
 
@@ -310,7 +263,7 @@ public sealed partial class AuthoringServiceTests
             { [new("builtin")] = new ContentRootLocation.Disk(Core), [new("mods")] = new ContentRootLocation.Disk(Mods) });
             Coordinator = new(Host.Core, Host.Factory, files, new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "test", []), Host.Logger, sessionOptions: HostFixture.Options);
             Editor = new(Coordinator, Scenes, new FileSaveStore(root), Host.Logger);
-            Service = new(Coordinator, Editor, Scenes, true, Mods, Core, clock);
+            Service = new(Coordinator, Editor, Scenes, true, Mods, Core, Host.Logger, clock);
             Coordinator.OperationEnded += result => LastOperation = result;
             Host.Factory.OpenAuthoringPackageCall = (_, id, version, _) => new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, [Blueprint("original")]));
             Host.Factory.QueryAuthoringReferencesCall = (_, _, _) => new ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success([]);

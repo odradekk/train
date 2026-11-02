@@ -64,7 +64,7 @@ public partial class App : Node
             var scenesFactory = createScenes();
             Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
             Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), AuthoringPaths.ModsDirectory(userData),
-                OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null);
+                OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null, _logger);
             Saves = new SaveService(Host, new FileSaveStore(userData), Editor);
             WorldScenes = new(Host, createScenes, _logger);
             Editor.Changed += () =>

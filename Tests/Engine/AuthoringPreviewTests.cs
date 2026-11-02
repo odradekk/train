@@ -22,8 +22,8 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
         await fixture.Open();
         var controller = new TemplateSceneController(fixture.Service, fixture.Editor);
         TestScene.AddChild(controller.View);
-        var form = new AuthoringDefinitionForm { Name = "RealTemplateForm", Position = new(12, 12), CustomMinimumSize = new(320, 0) };
-        var overlay = new CanvasLayer(); TestScene.AddChild(overlay); overlay.AddChild(form);
+        var panel = new AuthoringPanel(); panel.Initialize(fixture.Service, fixture.Editor, controller); TestScene.AddChild(panel);
+        controller.PlotSelected += panel.SelectPlot;
         try
         {
             var draft = new DefinitionDraft.SettlementTemplate(new("repeated-plots", new("", ""), new("core:agricultural-town"), 1,
@@ -31,11 +31,13 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
                 [new(7, PlotSize.Small, new(-32, 1, 0), VoxelOrientation.PxPy, null),
                  new(7, PlotSize.Small, new(32, 1, 0), VoxelOrientation.PxPy, null)], [], [], []));
             fixture.Service.NewDefinition(draft);
-            var choices = AuthoringIntegrationTests.Success(fixture.Host.ContentFactory.QueryAuthoringReferences(
-                fixture.Service.Package!, fixture.Host.Content!, []));
-            form.Load(draft, fixture.PackageId, choices);
-            form.Edited += () => { fixture.Service.MarkFormDirty(); if (form.TryCapture(out var value) && value is not null) fixture.Service.UpdateForm(value); };
-            controller.PlotSelected += form.SelectPlot;
+            Require(fixture.Service.Form == draft, "预览夹具必须先打开模板表单。");
+            panel.Open();
+            var form = Find<AuthoringDefinitionForm>(panel, "DefinitionForm");
+            var input = new UiTestInput(TestScene);
+            var previewArea = Find<Control>(panel, "AuthoringPreview");
+            if (!previewArea.IsVisibleInTree()) await input.Activate(Find<Button>(panel, "TogglePreview"));
+            var container = previewArea.GetChildren().OfType<SubViewportContainer>().Single();
             await fixture.Pump(() => { controller.Process(0); return controller.View.Interactive; });
             var preview = fixture.Service.TemplatePreview!;
             Require(preview.Frame.Readiness == SceneReadiness.Ready &&
@@ -54,11 +56,11 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
 
             var camera = controller.View.CameraRig;
             camera.PlaceAbsolute(new(12, 1, 0), 150, 0.12f, 0.8f);
-            var input = new UiTestInput(TestScene);
             await input.Frames(3);
             await UiCapture.Capture(TestScene, "authoring-real-template-ground-outlines");
             var second = preview.Plots[1].Pose.Position;
             var screen = camera.Camera.UnprojectPosition(new(second.X, second.Y, second.Z));
+            screen += container.GetGlobalRect().Position;
             await input.MouseButton(screen, MouseButton.Left, true);
             await input.MouseButton(screen, MouseButton.Left, false);
             var fields = form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().ToArray();
@@ -79,7 +81,7 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
         }
         finally
         {
-            controller.Dispose(); controller.View.QueueFree(); overlay.QueueFree();
+            controller.Dispose(); panel.QueueFree();
             await new UiTestInput(TestScene).Frames(3);
         }
     }

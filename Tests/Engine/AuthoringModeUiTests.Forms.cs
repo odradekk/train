@@ -25,7 +25,8 @@ public partial class AuthoringModeUiTests
             var id = Find<LineEdit>(dialog, "NewDefinitionId");
             var kind = Find<OptionButton>(dialog, "NewDefinitionKind");
             var create = Find<Button>(dialog, "CreateDefinition");
-            kind.Select(6); kind.EmitSignal(OptionButton.SignalName.ItemSelected, 6);
+            var voxel = Enumerable.Range(0, kind.ItemCount).Single(index => kind.GetItemText(index) == "体素");
+            kind.Select(voxel); kind.EmitSignal(OptionButton.SignalName.ItemSelected, (long)voxel);
             await input.Enter(id, "bad id");
             Require(create.Disabled && Find<Label>(dialog, "NewDefinitionProblem").Text.Length > 0, "内容层拒绝的 ID 必须立即显示错误并禁用创建。");
             await input.Enter(id, "engine-food");

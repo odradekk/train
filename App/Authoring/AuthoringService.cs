@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.App.Editing;
+using Train.App.Logging;
 using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -14,6 +15,7 @@ internal sealed partial class AuthoringService : IDisposable
     private readonly HostCoordinator host;
     private readonly EditorService editor;
     private readonly IScenesFactory scenes;
+    private readonly TrainLogger logger;
     private readonly bool development;
     private readonly string? coreDirectory;
     private readonly Dictionary<AuthoringDefinitionAddress, PackageEdit> edits = [];
@@ -46,10 +48,11 @@ internal sealed partial class AuthoringService : IDisposable
     internal event Action? Changed;
 
     internal AuthoringService(HostCoordinator host, EditorService editor, IScenesFactory scenes,
-        bool development, string modsDirectory, string? coreDirectory, TimeProvider? timeProvider = null)
+        bool development, string modsDirectory, string? coreDirectory, TrainLogger logger, TimeProvider? timeProvider = null)
     {
         clock = timeProvider ?? TimeProvider.System;
         this.host = host; this.editor = editor; this.scenes = scenes;
+        this.logger = logger;
         this.development = development;
         ModsDirectory = Path.GetFullPath(modsDirectory).TrimEnd(Path.DirectorySeparatorChar);
         this.coreDirectory = coreDirectory is null ? null : Path.GetFullPath(coreDirectory).TrimEnd(Path.DirectorySeparatorChar);
@@ -80,7 +83,7 @@ internal sealed partial class AuthoringService : IDisposable
                 }
                 ShowDefinition(definition, new(Guid.NewGuid()), grid);
             }
-            catch (Exception error) { Report(error.Message); }
+            catch (Exception error) { Report(Unexpected(error)); }
         }) is { } failure) Report(failure.Message);
     }
 
@@ -137,7 +140,7 @@ internal sealed partial class AuthoringService : IDisposable
             saving = Task.Run(() => (saved, editor.WriteExternalDraft(saved)));
             Report("正在保存包草稿…");
         }
-        catch (Exception error) { afterFormClose = null; Report(error.Message); }
+        catch (Exception error) { afterFormClose = null; Report(Unexpected(error)); }
     }
 
     private DraftTarget.PackageDefinition CreateDraftTarget(DefinitionDraft definition) =>
@@ -208,7 +211,7 @@ internal sealed partial class AuthoringService : IDisposable
                     else Report("包草稿已保存，尚未写入有效包。");
                 }
             }
-            catch (Exception error) { afterFormClose = null; Report(error.Message); }
+            catch (Exception error) { afterFormClose = null; Report(Unexpected(error)); }
         }
         ProcessFeedback();
     }
@@ -216,10 +219,6 @@ internal sealed partial class AuthoringService : IDisposable
     internal void Report(string message) { Message = message; Changed?.Invoke(); }
     private void Reject(CoreProblem problem) =>
         Report(editor.LogRejected("authoring", "authoring_operation_failed", problem));
-    private static string Describe<T>(ContentResult<T> result) where T : notnull => result switch
-    { ContentResult<T>.Failure failure => string.Join("；", failure.Diagnostics.Select(d => EditorService.Describe(d))),
-        ContentResult<T>.Faulted failure => failure.Message, _ => "操作成功。" };
-
     public void Dispose()
     {
         if (disposed) return; disposed = true;

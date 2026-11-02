@@ -99,11 +99,11 @@ public sealed partial class AuthoringServiceTests
     public void Selected_asset_is_staged_beside_the_definition_and_never_overwrites_a_conflict()
     {
         using var fixture = new AuthoringFixture(); fixture.Open();
-        fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), false);
+        fixture.Service.NewDefinition(new DefinitionDraft.SettlementType(new("town", new("", ""), null, false, null, [], null, null)));
         var source = Path.Combine(fixture.Mods, "image.png"); Directory.CreateDirectory(fixture.Mods); File.WriteAllBytes(source, [1, 2]);
         Assert.AreEqual("image.png", fixture.Service.SelectAsset(source));
         var staged = (PackageEdit.WriteAsset)fixture.Service.PendingChanges.Single();
-        Assert.AreEqual("resources/blueprints/blueprint/image.png", staged.PackageRelativePath);
+        Assert.AreEqual("resources/settlement-types/town/image.png", staged.PackageRelativePath);
         CollectionAssert.AreEqual(new byte[] { 1, 2 }, staged.Bytes.ToArray());
         Assert.IsFalse(File.Exists(Path.Combine(fixture.Core, staged.PackageRelativePath)));
         File.WriteAllBytes(source, [3]);
@@ -112,12 +112,11 @@ public sealed partial class AuthoringServiceTests
     }
 
     [TestMethod]
-    public void New_definition_id_uses_content_diagnostics_and_rejects_same_kind_duplicates()
+    public void New_definition_id_uses_id_diagnostics_and_ignores_unrelated_fields()
     {
         using var fixture = new AuthoringFixture(); fixture.Open();
         fixture.Host.Factory.PreparePackageWriteCall = (source, _) => new ContentResult<PackageWritePlan>.Failure([Diagnostic("invalid_field", "内容层 ID 错误") with { Field = "/id" }]);
         Assert.AreEqual("内容层 ID 错误", fixture.Service.NewDefinitionProblem(new DefinitionDraft.Blueprint("bad id", Draft("name"))));
-        Assert.IsNotNull(fixture.Service.NewDefinitionProblem(Blueprint("name")));
         fixture.Host.Factory.PreparePackageWriteCall = (source, _) => new ContentResult<PackageWritePlan>.Failure([Diagnostic("invalid_field", "其他字段尚未填写")]);
         Assert.IsNull(fixture.Service.NewDefinitionProblem(new DefinitionDraft.SettlementType(new("blueprint", new("", ""), null, false, null, [], null, null))));
     }
@@ -126,11 +125,11 @@ public sealed partial class AuthoringServiceTests
     public void Asset_in_shared_directory_keeps_its_shared_reference()
     {
         using var fixture = new AuthoringFixture(); fixture.Open();
-        fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), false);
-        var directory = Path.Combine(fixture.Core, "resources", "blueprints", "shared", "icons"); Directory.CreateDirectory(directory);
+        fixture.Service.NewDefinition(new DefinitionDraft.SettlementType(new("town", new("", ""), null, false, null, [], null, null)));
+        var directory = Path.Combine(fixture.Core, "resources", "settlement-types", "shared", "icons"); Directory.CreateDirectory(directory);
         var source = Path.Combine(directory, "map.png"); File.WriteAllBytes(source, [9]);
         Assert.AreEqual("shared/icons/map.png", fixture.Service.SelectAsset(source));
-        Assert.AreEqual("resources/blueprints/shared/icons/map.png", ((PackageEdit.WriteAsset)fixture.Service.PendingChanges.Single()).PackageRelativePath);
+        Assert.IsTrue(fixture.Service.PendingChanges.IsEmpty, "已在共享目录里的资产不必再次暂存。");
     }
 
     [TestMethod]

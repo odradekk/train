@@ -49,13 +49,6 @@ internal sealed partial class AuthoringService
         Report(message);
     }
 
-    internal void AddAsset(string relativePath, string source)
-    {
-        if (!CanUse || IsBusy || package is null) return;
-        try { assetEdits.Add(new PackageEdit.WriteAsset(relativePath, [.. File.ReadAllBytes(source)])); Report("资产已加入待写入修改。"); }
-        catch (Exception error) { Report(error.Message); }
-    }
-
     private AuthoringIssue Issue(ContentDiagnostic diagnostic, AuthoringDefinitionAddress? known = null)
     {
         if (known is not null) return new(diagnostic, known);

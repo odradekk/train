@@ -16,12 +16,14 @@ internal partial class AuthoringDefinitionForm
         internal string Path { get; set; } = path;
         internal string ErrorText { get => error.Text; set { error.Text = value; error.Visible = value.Length > 0; } }
         internal Func<string?>? Validate { get; set; }
+        internal Func<string?>? ReferenceError { get; set; }
+        internal string? Error => Validate?.Invoke() ?? ReferenceError?.Invoke();
         internal Action? RefreshChoices { get; set; }
         internal event Action? TextChanged;
         internal void Changed()
         {
             TextChanged?.Invoke();
-            ErrorText = Validate?.Invoke() ?? "";
+            ErrorText = Error ?? "";
             edited();
         }
     }
@@ -76,7 +78,13 @@ internal partial class AuthoringDefinitionForm
     }
 
     private FormField Choice<T>(VBoxContainer parent, string title, string path, T? value, bool optional = false, string? caption = null) where T : struct, Enum =>
-        Choice(parent, title, path, value?.ToString() ?? "", Enum.GetValues<T>().Select(v => (v.ToString(), Chinese(v.ToString()))).ToArray(), optional ? "使用默认值" : null, caption);
+        Choice(parent, title, path, value?.ToString() ?? "", Enum.GetValues<T>().Select(v => (v.ToString(), v switch
+        {
+            SizeClass size => EconomyPanels.SizeName(size),
+            PlotSize plot => EconomyPanels.PlotSizeName(plot),
+            VoxelOrientation orientation => DesignEditorPanel.OrientationText(orientation),
+            _ => Chinese(v.ToString())
+        })).ToArray(), optional ? "使用默认值" : null, caption);
 
     private FormField Choice(VBoxContainer parent, string title, string path, string value,
         (string Value, string Caption)[] choices, string? empty = null, string? caption = null, Func<(string Value, string Caption)[]>? getChoices = null)
@@ -104,10 +112,11 @@ internal partial class AuthoringDefinitionForm
     {
         (string, string)[] Choices() => _choices.Where(c => c.Kind == kind()).Select(c => (ReferenceId(c.Reference), c.Display.Name + " · " + ReferenceId(c.Reference))).ToArray();
         var field = Choice(parent, title, path, value ?? "", [], optional ? "（不指定）" : null, caption, Choices);
-        field.Validate = () => field.Text.Length == 0 ? optional ? null : "请选择引用。" : !Choices().Any(choice => choice.Item1 == field.Text) ? "引用不可用，请重新选择。" : null;
+        field.Validate = () => field.Text.Length == 0 && !optional ? "请选择引用。" : null;
+        field.ReferenceError = () => field.Text.Length > 0 && !Choices().Any(choice => choice.Item1 == field.Text) ? "引用不可用，请重新选择。" : null;
         var refresh = field.RefreshChoices!;
-        field.RefreshChoices = () => { refresh(); field.ErrorText = field.Validate() ?? ""; };
-        field.ErrorText = field.Validate() ?? "";
+        field.RefreshChoices = () => { refresh(); field.ErrorText = field.Error ?? ""; };
+        field.ErrorText = field.Error ?? "";
         return field;
     }
 
@@ -118,7 +127,7 @@ internal partial class AuthoringDefinitionForm
         var box = new VBoxContainer(); parent.AddChild(box);
         var selected = value.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
         var field = Register(parent, box, title, path, () => string.Join(',', selected), _ => { });
-        if (references) field.Validate = () => selected.Any(id => !choices().Any(entry => entry.Value == id)) ? "引用不可用，请重新选择。" : null;
+        if (references) field.ReferenceError = () => selected.Any(id => !choices().Any(entry => entry.Value == id)) ? "引用不可用，请重新选择。" : null;
         void Populate()
         {
             foreach (var child in box.GetChildren()) { box.RemoveChild(child); child.QueueFree(); }
@@ -129,7 +138,7 @@ internal partial class AuthoringDefinitionForm
                 var check = new CheckBox { Text = label, ButtonPressed = selected.Contains(id) }; box.AddChild(check);
                 check.Toggled += on => { if (on) selected.Add(id); else selected.Remove(id); field.Changed(); };
             }
-            field.ErrorText = field.Validate?.Invoke() ?? "";
+            field.ErrorText = field.Error ?? "";
         }
         Populate(); if (references) field.RefreshChoices = Populate;
         return field;
@@ -164,10 +173,10 @@ internal partial class AuthoringDefinitionForm
     };
     private static string Chinese(string value) => value switch
     {
-        "None" => "无", "FourWay" => "水平四向", "All24" => "全部 24 向", "Small" => "小型", "Medium" => "中型", "Large" => "大型", "Giant" => "巨型", "ExtraLarge" => "特大型", "Titan" => "泰坦型",
-        "SmallStation" => "小型站台", "LargeStation" => "大型站台", "Production" => "生产", "Extraction" => "开采", "Construction" => "施工",
+        "None" => "无", "FourWay" => "水平四向", "All24" => "全部 24 向",
+        "Production" => "生产", "Extraction" => "开采", "Construction" => "施工",
         "PaintedMetal" => "涂漆金属", "BareMetal" => "裸露金属", "Concrete" => "混凝土", "StoneSoil" => "石土", "Glass" => "玻璃", "PolymerRubber" => "聚合物与橡胶", "Organic" => "有机物",
         "X" => "X 轴", "Y" => "Y 轴", "Z" => "Z 轴",
-        _ => value.Replace("Px", "右").Replace("Nx", "左").Replace("Py", "上").Replace("Ny", "下").Replace("Pz", "前").Replace("Nz", "后")
+        _ => value
     };
 }

@@ -31,8 +31,8 @@ internal partial class AuthoringDefinitionForm
             var creature = Reference(box, "生物定义 ID", "creature", member.Creature.Value, () => AuthoringReferenceKind.Creature, caption: "生物定义"); var memberWeight = IntegerField(box, "成员权重", "weight", member.Weight);
             return () => new(new(creature.Text), Int(memberWeight));
         });
-        var maximum = IntegerField(this, "最大成员数（可空）", "/maximum_members", v.MaximumMembers, optional: true, unit: "只"); var spawn = NumberField(this, "生成间隔秒数（可空）", "/spawn_interval_seconds", v.SpawnIntervalSeconds, optional: true); var raid = NumberField(this, "袭击间隔秒数（可空）", "/raid_interval_seconds", v.RaidIntervalSeconds, optional: true);
-        var roaming = IntegerField(this, "游荡半径跳数（可空）", "/roaming_radius_hops", v.RoamingRadiusHops, optional: true); var radius = IntegerField(this, "袭击半径跳数（可空）", "/raid_radius_hops", v.RaidRadiusHops, optional: true); var damage = NumberField(this, "破坏铁轨工作秒数（可空）", "/rail_damage_work_seconds", v.RailDamageWorkSeconds, optional: true); var reward = LongField(this, "清除奖励（可空）", "/clearance_reward", v.ClearanceReward, optional: true, unit: "最小货币单位");
+        var maximum = IntegerField(this, "最大成员数（可空）", "/maximum_members", v.MaximumMembers, optional: true, unit: "只"); var spawn = NumberField(this, "生成间隔（可空）", "/spawn_interval_seconds", v.SpawnIntervalSeconds, optional: true, unit: "秒"); var raid = NumberField(this, "袭击间隔（可空）", "/raid_interval_seconds", v.RaidIntervalSeconds, optional: true, unit: "秒");
+        var roaming = IntegerField(this, "游荡半径（可空）", "/roaming_radius_hops", v.RoamingRadiusHops, optional: true, unit: "跳"); var radius = IntegerField(this, "袭击半径（可空）", "/raid_radius_hops", v.RaidRadiusHops, optional: true, unit: "跳"); var damage = NumberField(this, "破坏铁轨工作时间（可空）", "/rail_damage_work_seconds", v.RailDamageWorkSeconds, optional: true, unit: "秒"); var reward = LongField(this, "清除奖励（可空）", "/clearance_reward", v.ClearanceReward, optional: true, unit: "最小货币单位");
         return () => new DefinitionDraft.LairType(new(id.Text, display(), BlueprintReference(scene), OptionalInt(weight), members(), OptionalInt(maximum), OptionalNumber(spawn), OptionalNumber(raid), OptionalInt(roaming), OptionalInt(radius), OptionalNumber(damage), OptionalLong(reward)));
     }
     private Func<DefinitionDraft> Template(SettlementTemplateDraft v)
@@ -52,7 +52,7 @@ internal partial class AuthoringDefinitionForm
         });
         var inventory = Rows("初始库存", "/inventory", v.Inventory, () => new TemplateInventoryDraft.Voxel(new(""), 1), (box, item) =>
         {
-            var kind = Choice(box, "引用类型 voxel/blueprint", "kind", item is TemplateInventoryDraft.Blueprint ? "blueprint" : "voxel", [("voxel", "体素"), ("blueprint", "蓝图")], caption: "库存类型");
+            var kind = Choice(box, "库存类型", "kind", item is TemplateInventoryDraft.Blueprint ? "blueprint" : "voxel", [("voxel", "体素"), ("blueprint", "蓝图")]);
             var reference = Reference(box, "引用 ID", kind.Text, item switch
             {
                 TemplateInventoryDraft.Voxel voxel => voxel.Id.Value,
@@ -75,8 +75,8 @@ internal partial class AuthoringDefinitionForm
         });
         var plans = Rows("生产计划", "/production_plans", v.ProductionPlans, () => new TemplateProductionPlan(1, CapabilityKind.Production, new ProcessRef.Production(new("")), true, 0), (box, plan) =>
         {
-            var plot = IntegerField(box, "地块编号", "plot", plan.PlotNumber); var capability = Choice<CapabilityKind>(box, "能力 Production/Extraction/Construction", "capability", plan.Capability, caption: "能力");
-            var kind = Choice(box, "工序类型 Production/Recovery", "process_kind", plan.Process is ProcessRef.Production ? "Production" : "Recovery", [("Production", "生产工序"), ("Recovery", "回收工序")], caption: "工序类型");
+            var plot = IntegerField(box, "地块编号", "plot", plan.PlotNumber); var capability = Choice<CapabilityKind>(box, "能力", "capability", plan.Capability);
+            var kind = Choice(box, "工序类型", "process_kind", plan.Process is ProcessRef.Production ? "Production" : "Recovery", [("Production", "生产工序"), ("Recovery", "回收工序")]);
             var process = Reference(box, "工序 ID", "process", plan.Process switch { ProcessRef.Production p => p.Definition.Value, ProcessRef.Recovery p => p.Definition.Value, _ => "" }, () => kind.Text == "Production" ? AuthoringReferenceKind.ProductionProcess : AuthoringReferenceKind.RecoveryProcess);
             kind.TextChanged += () => process.RefreshChoices?.Invoke();
             var enabled = Flag(box, "启用计划", "enabled", plan.Enabled); var priority = IntegerField(box, "优先级", "priority", plan.Priority);

@@ -19,6 +19,7 @@ internal sealed partial class AuthoringService
         SceneResult<ITemplatePreview>? Preview);
     private FeedbackRequest? pendingFeedback, lastFeedback, runningFeedback, displayedFeedback;
     private Task<FeedbackResult>? feedback;
+    private string? feedbackMessage;
     internal ImmutableArray<ContentDiagnostic> FormDiagnostics { get; private set; } = [];
     internal ImmutableArray<AuthoringReferenceChoice> ReferenceChoices { get; private set; } = [];
 
@@ -32,9 +33,6 @@ internal sealed partial class AuthoringService
     {
         if (package is null || host.Content is not { } content || currentForm is null) return;
         var pending = PendingChanges;
-        if (lastFeedback is null || !ReferenceEquals(lastFeedback.Package, package)
-            || !ReferenceEquals(lastFeedback.Content, content) || !lastFeedback.Pending.SequenceEqual(pending))
-            ReferenceChoices = [];
         FormDiagnostics = [];
         var address = Address(currentForm);
         var changes = pending.Where(edit => edit switch
@@ -87,26 +85,43 @@ internal sealed partial class AuthoringService
                         ReferenceChoices = choices.Value;
                     else
                     {
-                        ReferenceChoices = []; messages.Add(Describe(value.Choices));
+                        messages.Add(Describe(value.Choices));
                         if (value.Choices is ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Failure failure)
                             FormDiagnostics = FormDiagnostics.Concat(failure.Diagnostics).Distinct().ToImmutableArray();
                     }
-                    if (value.Diagnostics is ContentResult<ImmutableArray<ContentDiagnostic>>.Faulted fault) messages.Add(fault.Message);
+                    if (value.Diagnostics is ContentResult<ImmutableArray<ContentDiagnostic>>.Faulted) messages.Add(Describe(value.Diagnostics));
                     if (value.Preview is SceneResult<ITemplatePreview>.Success preview
                         && preview.Value.Revision == revision && preview.Value.Content == value.Request.Content.Generation)
                     {
                         TemplatePreview = preview.Value; displayedFeedback = value.Request;
-                        messages.AddRange(preview.Value.Diagnostics.Select(EditorService.Describe));
+                        if (!preview.Value.Diagnostics.IsEmpty) messages.Add(SceneMessages(preview.Value.Diagnostics));
                     }
                     else if (value.Preview is not null)
-                    { TemplatePreview = null; displayedFeedback = null; messages.Add(value.Preview.ToString() ?? "模板预览失败。"); }
+                    {
+                        TemplatePreview = null; displayedFeedback = null;
+                        if (value.Preview is SceneResult<ITemplatePreview>.Failure failed) messages.Add(SceneMessages(failed.Problems));
+                        else if (value.Preview is SceneResult<ITemplatePreview>.Faulted fault)
+                        {
+                            logger.Error("authoring", "authoring_preview_failed", EditorService.Describe(fault.Problem));
+                            messages.Add(InternalError);
+                        }
+                    }
                     if (value.Choices is not ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success)
                     { TemplatePreview = null; displayedFeedback = null; }
-                    if (value.Preview is not null || messages.Count > 0) Report(string.Join("；", messages));
-                    else Changed?.Invoke();
+                    if (messages.Count > 0) { feedbackMessage = string.Join("；", messages); Report(feedbackMessage); }
+                    else
+                    {
+                        if (feedbackMessage is not null && Message == feedbackMessage) Report("");
+                        else Changed?.Invoke();
+                        feedbackMessage = null;
+                    }
                 }
             }
-            catch (Exception error) { if (request is not null && IsCurrent(request)) Report(error.Message); }
+            catch (Exception error)
+            {
+                var message = Unexpected(error);
+                if (request is not null && IsCurrent(request)) { feedbackMessage = message; Report(message); }
+            }
         }
         StartFeedback();
     }
@@ -132,7 +147,7 @@ internal sealed partial class AuthoringService
         return result switch
         {
             ContentResult<PackageWritePlan>.Failure failure => failure.Diagnostics.FirstOrDefault(d => d.Field == "/id")?.Message,
-            ContentResult<PackageWritePlan>.Faulted fault => fault.Message,
+            ContentResult<PackageWritePlan>.Faulted => Describe(result),
             _ => null
         };
     }

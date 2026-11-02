@@ -13,9 +13,7 @@ internal sealed partial class AuthoringService
             var address = Address(Form);
             var directory = address.Kind switch
             {
-                DefinitionKind.Voxel => "voxels", DefinitionKind.Blueprint => "blueprints",
-                DefinitionKind.SettlementType => "settlement-types", DefinitionKind.LairType => "lair-types",
-                DefinitionKind.SettlementTemplate => "settlement-templates",
+                DefinitionKind.Voxel => "voxels", DefinitionKind.SettlementType => "settlement-types",
                 _ => throw new InvalidOperationException("此定义不支持资产。")
             };
             var prefix = "resources/" + directory + "/";
@@ -37,11 +35,12 @@ internal sealed partial class AuthoringService
                 || staged is null && original is ContentIoResult<ImmutableArray<byte>>.Success existing
                     && !existing.Value.AsSpan().SequenceEqual(bytes.AsSpan()))
             { Report("包内已有同名的不同资产，请先重命名所选文件。"); return null; }
+            if (inDefinition || inShared) return field;
             if (staged is null) assetEdits.Add(new PackageEdit.WriteAsset(relative, bytes));
             Report("资产已加入待写入修改。");
             return field;
         }
-        catch (Exception error) { Report(error.Message); return null; }
+        catch (Exception error) { Report(Unexpected(error)); return null; }
     }
 
     private static bool IsWithin(string file, string directory) => file.StartsWith(directory.TrimEnd(Path.DirectorySeparatorChar)

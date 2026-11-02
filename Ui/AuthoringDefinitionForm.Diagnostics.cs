@@ -9,7 +9,7 @@ internal partial class AuthoringDefinitionForm
     internal bool TryCapture(out DefinitionDraft? draft)
     {
         draft = null;
-        foreach (var field in _fields.Where(f => GodotObject.IsInstanceValid(f.Control))) field.ErrorText = "";
+        foreach (var field in _fields.Where(f => GodotObject.IsInstanceValid(f.Control))) field.ErrorText = field.Error ?? "";
         var valid = true;
         foreach (var field in _fields.Where(f => GodotObject.IsInstanceValid(f.Control) && f.Control.IsInsideTree() && f.Control.IsVisibleInTree()))
         {
@@ -29,7 +29,7 @@ internal partial class AuthoringDefinitionForm
 
     internal void SetDiagnostics(ImmutableArray<ContentDiagnostic> diagnostics)
     {
-        foreach (var field in _fields.Where(f => GodotObject.IsInstanceValid(f.Control))) field.ErrorText = field.Validate?.Invoke() ?? "";
+        foreach (var field in _fields.Where(f => GodotObject.IsInstanceValid(f.Control))) field.ErrorText = field.Error ?? "";
         foreach (var error in _groupErrors.Values) { error.Text = ""; error.Visible = false; }
         foreach (var diagnostic in diagnostics)
         {
