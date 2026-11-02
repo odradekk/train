@@ -6,6 +6,16 @@ namespace Train.App;
 
 internal sealed partial class HostCoordinator
 {
+    internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
+        ulong seed, string generatorVersion, CoreSessionOptions options, SaveIdentity? save = null)
+        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, save, options: options);
+
+    internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
+        string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true,
+        SaveWorld? world = null)
+        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options) with { World = world },
+            CommandSource.UserInterface, save, unsaved, options);
+
     internal SaveStatus? GetSaveStatus()
     {
         EnsureOwner();
@@ -37,7 +47,7 @@ internal sealed partial class HostCoordinator
             var fixedContent = ((ContentResult<IContentCapture>.Success)content).Value;
             var identity = group.Replay is null ? group.Save : new SaveIdentity(Guid.NewGuid(), "重放边界副本");
             return (new(group.Binding, identity,
-                new(fixedCore.Revision, fixedContent.Revision, identity.Name), fixedCore, fixedContent), null);
+                new(fixedCore.Revision, fixedContent.Revision, identity.Name), fixedCore, fixedContent, group.World), null);
         }
         finally { _insideBoundary = false; }
     }

@@ -4,6 +4,14 @@ internal sealed partial class SaveService
 {
     private PendingFileOperation? _fileOperation;
 
+    internal string WorldTitle(SaveWorld? world)
+    {
+        if (world is null) return "未记录世界";
+        var name = _host.Content?.GenerationProfiles.FirstOrDefault(profile => profile.Id.Value == world.GenerationProfileId)?.Display.Name
+            ?? "未安装的生成配置";
+        return FormattableString.Invariant($"{name} · 种子 {world.Seed}");
+    }
+
     internal SaveFailure? Rename(SaveEntry entry, string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return Fail("invalid-name", "存档名称不能为空。");

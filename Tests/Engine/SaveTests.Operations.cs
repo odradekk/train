@@ -62,9 +62,9 @@ public partial class SaveTests
             await UiCapture.Capture(TestScene, "saves-search-no-match");
             await _input.Enter(search, name);
             RequireNoSaveIdentity(panel, app.Saves.Status!.Identity.Id);
-            Require(list.ItemCount == 1 && list.GetItemText(0).StartsWith(name + " · ", StringComparison.Ordinal),
+            Require(SaveRows(list).Length == 1 && list.GetItemText(SaveRow(list, name)).StartsWith(name + " · ", StringComparison.Ordinal),
                 "搜索没有只保留匹配的手动存档。");
-            await _input.ClickItem(list, 0);
+            await _input.ClickItem(list, SaveRow(list, name));
             var map = Find<SaveMapPreview>(panel, "MapPreview");
             await _input.WaitUntil(() => app.Saves.Details is not null && map.Visible && map.World is not null);
             Require(map.IsVisibleInTree() && map.World is { WidthMeters: 1000, HeightMeters: 600 } world &&
@@ -81,7 +81,7 @@ public partial class SaveTests
                 "仅选择和预读详情替换了活动会话。");
             await UiCapture.Capture(TestScene, "saves-selected-details");
             Require(app.Host.RenameSave("unsaved search fixture") is null, "无法准备未保存读档情景。");
-            await _input.DoubleClickItem(list, 0);
+            await _input.DoubleClickItem(list, SaveRow(list, name));
             await _input.WaitUntil(() => UiTestInput.SavePromptVisible(panel, "未保存的更改"));
             Require(UiTestInput.SavePromptButton(panel, "Confirm").Text == "保存后读取" &&
                 UiTestInput.SavePromptButton(panel, "Discard").Text == "不保存，直接读取" &&
@@ -135,7 +135,7 @@ public partial class SaveTests
             await _input.Activate(menu.GetNode<Button>("%Saves"));
             await _input.Enter(Find<LineEdit>(panel, "Search"), name);
             var list = Find<ItemList>(panel, "Saves");
-            Require(list.ItemCount == 2, "列表没有同时显示同一对局的手动和自动存档。");
+            Require(SaveRows(list).Length == 2, "列表没有同时显示同一对局的手动和自动存档。");
             var row = Enumerable.Range(0, list.ItemCount).Single(index =>
                 list.GetItemText(index).StartsWith(name + " · 自动 · ", StringComparison.Ordinal));
             await _input.ClickItem(list, row);
@@ -159,9 +159,9 @@ public partial class SaveTests
             await _input.Activate(UiTestInput.SaveButton(panel, "删除"));
             await _input.WaitUntil(() => UiTestInput.SavePromptVisible(panel, "删除存档"));
             await _input.Activate(UiTestInput.SavePromptButton(panel, "Confirm"));
-            await _input.WaitUntil(() => !app.Saves.HasPendingWork && list.ItemCount == 1);
+            await _input.WaitUntil(() => !app.Saves.HasPendingWork && SaveRows(list).Length == 1);
             Require(!File.Exists(automatic) && File.ReadAllBytes(manual).SequenceEqual(manualBytes) &&
-                list.GetItemText(0).StartsWith(name + " · ", StringComparison.Ordinal) && panel.IsVisibleInTree(),
+                list.GetItemText(SaveRow(list, name)).StartsWith(name + " · ", StringComparison.Ordinal) && panel.IsVisibleInTree(),
                 "确认删除没有只删除选中的自动文件并在列表保留手动文件。");
         }
         finally { await Cleanup(fixture, app, owned); }
@@ -210,7 +210,7 @@ public partial class SaveTests
                 !panel.GetNode<Control>("PromptMask").Visible && panel.IsVisibleInTree(),
                 "重命名没有同步真实文件、当前名称和顶部输入框，或改变了身份和活动会话。");
             await _input.Enter(Find<LineEdit>(panel, "Search"), name);
-            Require(list.ItemCount == 1 && list.GetItemText(0).StartsWith(name + " · ", StringComparison.Ordinal),
+            Require(SaveRows(list).Length == 1 && list.GetItemText(SaveRow(list, name)).StartsWith(name + " · ", StringComparison.Ordinal),
                 "改名后的存档不能通过新名称搜索。");
         }
         finally { await Cleanup(fixture, app, owned); }

@@ -326,14 +326,6 @@ internal sealed partial class HostCoordinator : IDisposable
         finally { _insideBoundary = false; }
     }
 
-    internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
-        ulong seed, string generatorVersion, CoreSessionOptions options, SaveIdentity? save = null)
-        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, save, options: options);
-
-    internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
-        string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true)
-        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved, options);
-
     internal (long Operation, CoreProblem? Problem) BeginReplay(string path, Func<string, RecordingPackage>? read = null)
     {
         EnsureOwner();
@@ -586,6 +578,7 @@ internal sealed partial class HostCoordinator : IDisposable
                     if (!operation.Unsaved && prepared.Saved is { } saved)
                         group.Saved = saved with { Name = group.Save.Name };
                 }
+                group.World = prepared.World;
                 if (group.View.Fault is not null) group.Driver.Freeze();
                 _active = group; _content = group.Content;
                 activatedCore = null;
@@ -842,6 +835,7 @@ internal sealed partial class HostCoordinator : IDisposable
         internal ICoreReadView View { get; set; }
         internal SimulationFrameDriver Driver { get; }
         internal SaveIdentity Save { get; set; } = new(Guid.NewGuid(), "未命名存档");
+        internal SaveWorld? World { get; set; }
         internal SaveRevision? Saved { get; set; }
         internal RuntimeIdentity Runtime { get; }
         internal List<IContentView> History { get; } = [];
@@ -874,6 +868,7 @@ internal sealed partial class HostCoordinator : IDisposable
     internal sealed record PreparedOperation(ContentResult<IContentCandidate>? Content,
         CoreResult<ICoreSessionCandidate>? Core, IContentView? Paired) : IDisposable
     {
+        internal SaveWorld? World { get; init; }
         internal SaveRevision? Saved { get; init; }
         internal ImmutableArray<PackageMetadata> SavedPackages { get; init; } = [];
         internal ICoreReplay? Replay { get; set; }

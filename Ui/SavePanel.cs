@@ -11,7 +11,7 @@ public partial class SavePanel : Control
     private readonly Label _title = UiStyle.Label("读取存档", true);
     private readonly Label _message = UiStyle.Label("");
     private readonly Label _listMessage = UiStyle.Label("");
-    private readonly LineEdit _search = new() { Name = "Search", PlaceholderText = "搜索存档", TooltipText = "搜索存档名称" };
+    private readonly LineEdit _search = new() { Name = "Search", PlaceholderText = "搜索存档或世界", TooltipText = "搜索存档名称或世界" };
     private readonly ItemList _list = new() { Name = "Saves", SizeFlagsVertical = SizeFlags.ExpandFill };
     private readonly HFlowContainer _current = new() { Name = "CurrentGame" };
     private readonly LineEdit _name = new() { Name = "SaveName", CustomMinimumSize = new(240, 0), SizeFlagsHorizontal = SizeFlags.ExpandFill };
@@ -105,7 +105,7 @@ public partial class SavePanel : Control
         _export.FileSelected += ExportTo;
         _search.TextChanged += _ => RebuildList();
         _list.ItemSelected += _ => { if (!_rebuilding) SelectRow(); };
-        _list.ItemActivated += _ => LoadSelected();
+        _list.ItemActivated += row => { if (_rows.TryGetValue((int)row, out var entry)) ShowFailure(_service!.Load(entry)); };
         Resized += Arrange;
         VisibilityChanged += VisibilityUpdated;
         Arrange();
@@ -199,13 +199,24 @@ public partial class SavePanel : Control
         if (focus) _list.ReleaseFocus();
         _rebuilding = true;
         _list.Clear(); _rows.Clear();
-        foreach (var entry in _entries.Where(entry => entry.Header.Name.Contains(_search.Text.Trim(), StringComparison.OrdinalIgnoreCase)))
+        var search = _search.Text.Trim();
+        // 存档列表已按保存时间降序，分组保留这个顺序。
+        foreach (var group in _entries.GroupBy(entry => entry.Header.World))
         {
-            var row = _list.AddItem($"{entry.Header.Name}{(entry.Automatic ? " · 自动" : "")} · {UiInput.FormatTime(entry.Header.Position.CompletedSteps)} · {MainMenu.SavedAt(entry.Header.SavedAt)}");
-            _rows[row] = entry;
-            if (entry.Path == selectedPath) _list.Select(row);
+            var title = _service!.WorldTitle(group.Key);
+            var entries = group.Where(entry => title.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                entry.Header.Name.Contains(search, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (entries.Length == 0) continue;
+            var heading = _list.AddItem(title);
+            _list.SetItemSelectable(heading, false);
+            foreach (var entry in entries)
+            {
+                var row = _list.AddItem($"{entry.Header.Name}{(entry.Automatic ? " · 自动" : "")} · {UiInput.FormatTime(entry.Header.Position.CompletedSteps)} · {MainMenu.SavedAt(entry.Header.SavedAt)}");
+                _rows[row] = entry;
+                if (entry.Path == selectedPath) _list.Select(row);
+            }
         }
-        if (_list.GetSelectedItems().Length == 0 && _rows.Count > 0) _list.Select(0);
+        if (_list.GetSelectedItems().Length == 0 && _rows.Count > 0) _list.Select(_rows.Keys.Min());
         _rebuilding = false;
         _listMessage.Text = _service?.ListMessage is not null
             ? "部分存档无法读取，请检查文件和访问权限。"
@@ -217,7 +228,7 @@ public partial class SavePanel : Control
     private void SelectRow()
     {
         var rows = _list.GetSelectedItems();
-        var selected = rows.Length > 0 ? _rows[rows[0]] : null;
+        var selected = rows.Length > 0 && _rows.TryGetValue(rows[0], out var entry) ? entry : null;
         if (_selected?.Path != selected?.Path || _selected?.Header.SavedAt != selected?.Header.SavedAt)
             _service?.CancelDetails();
         _selected = selected;

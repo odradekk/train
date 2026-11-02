@@ -77,7 +77,7 @@ internal sealed partial class HostCoordinator
             candidate = (core as CoreResult<ICoreSessionCandidate>.Success)?.Value;
             var paired = candidate is not null && candidate.References.Templates.Length > 0
                 ? _contentFactory.WithSettlementCopies(loaded.Value.View, candidate.References.Templates) : loaded.Value.View;
-            return new(content, core, paired);
+            return new(content, core, paired) { World = new(profile.Value, seed) };
         }
         catch { candidate?.Dispose(); loaded.Value.Dispose(); throw; }
     }

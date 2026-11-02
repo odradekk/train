@@ -2,6 +2,19 @@ namespace Train.App.Saves;
 
 internal sealed partial class SaveService
 {
+    private void OnOperationEnded(HostOperationResult result)
+    {
+        if (_restore != result.Operation || result.Kind != OperationKind.Restore)
+        {
+            if (result.Succeeded && result.Kind is OperationKind.NewGame or OperationKind.Reload or OperationKind.Authoring)
+                Changed?.Invoke();
+            return;
+        }
+        _restore = null;
+        LastMessage = result.Succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
+        Changed?.Invoke();
+    }
+
     private SaveFailure? StartWrite(WriteKind kind, SaveIdentity? target = null, string? path = null,
         bool overwrite = true, bool leaving = false)
     {

@@ -219,7 +219,7 @@ internal sealed partial class SaveService : IDisposable
     {
         if (_host.SessionOptions is not { } options)
         { Fail("session-options-unavailable", "宿主尚未配置会话环境。"); return; }
-        var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, options, identity, unsaved);
+        var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, options, identity, unsaved, document.Header.World);
         if (begun.Problem is { } problem) Fail(problem.Code, "无法开始读档。");
         else
         {
@@ -258,14 +258,6 @@ internal sealed partial class SaveService : IDisposable
         import.Prepared = prepared;
         if (MissingFor(prepared.Prepared) is null) PublishImport(prepared);
         else Changed?.Invoke();
-    }
-
-    private void OnOperationEnded(HostOperationResult result)
-    {
-        if (_restore != result.Operation || result.Kind != OperationKind.Restore) return;
-        _restore = null;
-        LastMessage = result.Succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
-        Changed?.Invoke();
     }
 
     private void ScheduleAutomatic()

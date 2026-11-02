@@ -104,7 +104,7 @@ public class MainMenuUiTests(Node testScene) : TestClass(testScene)
         try
         {
             Require(store.Write(store.PathFor(id), new(new(SaveContainer.FormatVersion, id, "加载期间选中的存档",
-                DateTimeOffset.Now, new(view.Position.CompletedSteps, view.Position.Sequence), []), "loading core", "loading content"), false).Published,
+                DateTimeOffset.Now, new(view.Position.CompletedSteps, view.Position.Sequence), [], new("fixture:world", 42)), "loading core", "loading content"), false).Published,
                 "无法准备加载期间选中的存档。");
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => new(core, content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
@@ -114,17 +114,20 @@ public class MainMenuUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(app.GetNode<MainMenu>("MainMenu").GetNode<Button>("%Saves"));
             var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             var list = Find<ItemList>(panel, "Saves");
-            await _input.ClickItem(list, 0);
+            var selectedRow = Enumerable.Range(0, list.ItemCount).Single(row => list.IsItemSelectable(row) &&
+                list.GetItemText(row).StartsWith("加载期间选中的存档 · ", StringComparison.Ordinal));
+            await _input.ClickItem(list, selectedRow);
             release.Set();
             await _input.WaitUntil(() => !app.Host!.IsBusy);
             await _input.Frames(2);
             var settled = app.Host!.BackgroundWork.Enqueue(() => true);
             await _input.WaitUntil(() => settled.IsCompleted);
             await _input.Frames(2);
-            Require(panel.IsVisibleInTree() && list.GetSelectedItems().SequenceEqual(new[] { 0 }) &&
+            Require(panel.IsVisibleInTree() && list.GetSelectedItems().SequenceEqual(new[] { selectedRow }) &&
                 app.Saves!.Details?.World == view.World && Find<SaveMapPreview>(panel, "MapPreview").World == view.World &&
                 app.Host.GetStatus() is null,
                 "内容加载完成后应自动读取原选中存档的详情和地图，且不能激活会话。");
+            Require(list.GetItemText(0) == "测试世界 · 种子 42", "内容加载完成后应自动更新世界标题，且不能泄露配置 ID。");
         }
         finally { release.Set(); await fixture.Cleanup(); UiTestInput.DeleteSaves([id]); }
     }

@@ -52,7 +52,7 @@
     "App/ArtCapture/ArtCaptureEntry.cs": 5226,
     "App/Authoring/AuthoringService.cs": 5290,
     "App/Editing/EditorService.cs": 8292,
-    "App/HostCoordinator.cs": 11954,
+    "App/HostCoordinator.cs": 11815,
     "App/Measurement/FollowRouteAnalysis.cs": 6034,
     "App/Measurement/MeasurementRun.SceneBudget.cs": 10650,
     "App/Measurement/MeasurementRun.SceneInteraction.cs": 7308,
