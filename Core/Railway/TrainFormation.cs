@@ -35,7 +35,7 @@ internal static class TrainFormation
             capabilities.DepartureProblem(id, TrainOperations.Rule(world, content).MinimumAcceleration)));
     }
 
-    internal static CoreProblem? CheckTrain(WorldState world, TrainId id,
+    private static CoreProblem? CheckTrain(WorldState world, TrainId id,
         out TrainState? train, out SettlementState? settlement)
     {
         train = world.Trains.FirstOrDefault(t => t.Id == id);
@@ -104,7 +104,7 @@ internal static class TrainFormation
         => world.Next.Train == ulong.MaxValue || world.Next.Inventory == ulong.MaxValue
             ? new("identity_exhausted", "World.Next", null, []) : null;
 
-    internal static CoreProblem? CapacityProblem(TrainState train, InventoryState inventory, long capacity)
+    private static CoreProblem? CapacityProblem(TrainState train, InventoryState inventory, long capacity)
         => capacity < checked(InventoryStorage.Used(inventory) + InventoryStorage.Reserved(inventory))
             ? new("insufficient_capacity", "Train.Inventory.Capacity", new WorldObjectId.Train(train.Id), []) : null;
 }

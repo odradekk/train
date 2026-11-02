@@ -70,19 +70,41 @@ public partial class TrainFormationWorkspaceTests
         }, LongWorld(1));
     }
 
-    private static FixedCoreReadView LongWorld(ulong revision)
+    [Test]
+    public async Task Selected_vehicles_leaving_the_node_block_the_draft_until_removed()
+    {
+        await WithWorkspace([], async (panel, binding, current, content) =>
+        {
+            Open(panel, binding, current, content);
+            var input = new UiTestInput(TestScene);
+            await input.Activate(Find<CheckBox>(panel, "Vehicle1"));
+            panel.Refresh(binding, LongWorld(2, moved: true), content);
+            Require(Find<CheckBox>(panel, "Vehicle1").Disabled && Find<CheckBox>(panel, "Vehicle1").ButtonPressed &&
+                Find<Button>(panel, "Form").Disabled && Find<Button>(panel, "FormOnly").Disabled &&
+                Find<Label>(panel, "Reason").Text.Contains("不可用"), "离开当前地点的车辆仍可提交，或失效草稿没有保留。");
+            await input.Activate(Find<Button>(Find<VBoxContainer>(panel, "OrderedVehicles").GetChild(0), "Remove"));
+            Require(Find<VBoxContainer>(panel, "OrderedVehicles").GetChildCount() == 0,
+                "失效车辆不能从草稿移出。");
+            panel.Refresh(binding, LongWorld(3), content);
+            await input.Activate(Find<CheckBox>(panel, "Vehicle1"));
+            Require(!Find<Button>(panel, "Form").Disabled, "重新选择当地车辆后仍被失效草稿阻止。");
+        }, LongWorld(1));
+    }
+
+    private static FixedCoreReadView LongWorld(ulong revision, bool moved = false)
     {
         var basis = World();
         var first = ((Lookup<InstanceView>.Found)basis.FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         var ids = Enumerable.Range(1, 50).Select(id => new InstanceId.Vehicle(new((ulong)id))).ToArray();
+        var location = new WorldLocation.Node(new(moved ? 2UL : 1UL));
         return new(basis.Position, basis.InputIdentity, revision: new(revision))
         {
             World = basis.World, Economy = basis.Economy,
             Nodes = basis.World.Nodes.ToDictionary(node => node.Id, node => basis.FindNode(node.Id)),
-            Instances = ids.ToDictionary(id => (InstanceId)id, id => (Lookup<InstanceView>)new Lookup<InstanceView>.Found(first with { Id = id })),
+            Instances = ids.ToDictionary(id => (InstanceId)id, id => (Lookup<InstanceView>)new Lookup<InstanceView>.Found(first with { Id = id, Location = location })),
             Locations = basis.World.Nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
                 (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [],
-                    node.Id.Value == 1 ? ids.Cast<InstanceId>().ToImmutableArray() : [], [], [], node.Occupant))),
+                    node.Id == location.Id ? ids.Cast<InstanceId>().ToImmutableArray() : [], [], [], node.Occupant))),
             FormationPreviews = [(null, [], new CoreResult<TrainFormationPreview>.Failure([new("composition_empty", "OrderedVehicles", null, [])])),
                 (null, [new(1)], new CoreResult<TrainFormationPreview>.Success(new(12, 34, 56, 78, [], null)))]
         };

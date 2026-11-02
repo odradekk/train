@@ -56,7 +56,6 @@ public partial class TrainFormationWorkspaceTests(Node testScene) : TestClass(te
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
-            var parent = fixture.AutoFree(new Control { Size = TestScene.GetViewport().GetVisibleRect().Size });
             var panel = shell ? Find<TrainFormationWorkspace>(app, "TrainFormationWorkspace") : new TrainFormationWorkspace();
             if (!shell) panel.Initialize(app.Host!, (_, command) =>
             {
@@ -64,7 +63,11 @@ public partial class TrainFormationWorkspaceTests(Node testScene) : TestClass(te
                 return decide?.Invoke(command) ?? new SubmissionResult.Completed(new(1, view.Position, view.Position,
                     new CommandDecision.Accepted([new WorldObjectId.Train(new(8))], [])), [], null);
             });
-            if (!shell) { parent.AddChild(panel); app.GetNode<GameUi>("GameUi").AddChild(parent); }
+            if (!shell)
+            {
+                var parent = fixture.AutoFree(new Control { Size = TestScene.GetViewport().GetVisibleRect().Size });
+                parent.AddChild(panel); app.GetNode<GameUi>("GameUi").AddChild(parent);
+            }
             await new UiTestInput(TestScene).Frames(2);
             await run(panel, app.Host!.GetStatus()!.Binding, view, content);
         }

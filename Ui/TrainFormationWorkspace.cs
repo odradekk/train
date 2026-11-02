@@ -82,11 +82,6 @@ internal partial class TrainFormationWorkspace : Control
     }
     private static Label Wrap(string text) => new() { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart,
         SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore };
-    private static void Clear(Node parent)
-    {
-        foreach (var child in parent.GetChildren()) { parent.RemoveChild(child); child.QueueFree(); }
-    }
-
     internal void Open(PanelTarget target, NodeId node, ICoreReadView view, IContentView content)
         => Open(target, node, null, [], view, content);
     internal void Open(PanelTarget target, TrainView train, ICoreReadView view, IContentView content)
@@ -95,7 +90,8 @@ internal partial class TrainFormationWorkspace : Control
         ICoreReadView view, IContentView content)
     {
         _target = target; _node = node; _train = train; _view = view; _content = content; _revision = null;
-        _selection.Clear(); _selection.AddRange(vehicles); _checks.Clear(); _rows.Clear(); Clear(_available); Clear(_ordered);
+        _selection.Clear(); _selection.AddRange(vehicles); _checks.Clear(); _rows.Clear();
+        EconomyPanelControls.Clear(_available); EconomyPanelControls.Clear(_ordered);
         _submissionError = null;
         _form.Text = train is null ? "编组并编辑计划" : "保存编组"; _formOnly.Visible = train is null;
         Show(); Opened?.Invoke(); RefreshState(target.Binding, view, content);
@@ -209,7 +205,9 @@ internal partial class TrainFormationWorkspace : Control
     private void Footer()
     {
         var unavailable = !_current ? "已不存在：编组草稿所属对象或对局已失效，请重新打开。"
-            : _host.IsBusy ? "正在处理其他操作，请稍后再试。" : _view.Fault is not null ? CommandDiagnostics.DescribeFrozen(_view.Fault) : null;
+            : _host.IsBusy ? "正在处理其他操作，请稍后再试。" : _view.Fault is not null ? CommandDiagnostics.DescribeFrozen(_view.Fault)
+            : _selection.Any(id => !_checks.TryGetValue(id, out var check) || check.Disabled)
+                ? "所选车辆已不可用，请移出后重新选择。" : null;
         _form.Disabled = _formOnly.Disabled = unavailable is not null || _preview is null || !_preview.Blockers.IsEmpty ||
             _preview.DepartureProblem?.Code is "control_missing" or "traction_missing";
         _reason.Text = unavailable ?? _submissionError ?? (_checks.Count == 0 ? "这里没有可编组的玩家车辆。"
