@@ -20,7 +20,7 @@ internal sealed partial class AuthoringService
     internal AuthoringDefinitionAddress? DirtyDefinition => formDirty && Form is { } form ? Address(form)
         : editor.IsDirty && editor.Target is DraftTarget.PackageDefinition target && target.Package == Target?.Package
             ? new(target.Kind, target.LocalId) : null;
-    internal ImmutableArray<AuthoringIssue> Issues => sourceIssues.Concat(writeIssues)
+    internal ImmutableArray<AuthoringIssue> Issues => sourceIssues.Concat(writeIssues).Concat(FormDiagnostics.Select(d => Issue(d, Form is null ? null : Address(Form))))
         .Concat(captureIssue is null ? [] : new[] { captureIssue })
         .Where(issue => issue.Diagnostic.Severity != ContentDiagnosticSeverity.Information).Distinct().ToImmutableArray();
     internal AuthoringWriteStage WriteStage { get; private set; }

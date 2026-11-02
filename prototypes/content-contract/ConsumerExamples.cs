@@ -193,6 +193,16 @@ public static class ConsumerExamples
     public static ContentLookup<ContentAsset> ReadAsset(IContentView view, AssetRevision revision)
         => view.FindAsset(revision);
 
+    public static ContentResult<ImmutableArray<AuthoringReferenceChoice>> ReadAuthoringChoices(
+        IContentFactory factory, IAuthoringPackage source, IContentView content,
+        ImmutableArray<PackageEdit> pending) => factory.QueryAuthoringReferences(source, content, pending);
+
+    public static ContentResult<ImmutableArray<ContentDiagnostic>> ValidateCapturedDefinition(
+        IContentFactory factory, IAuthoringPackage source, IContentView content,
+        ImmutableArray<PackageEdit> otherChanges, AuthoringDefinitionAddress definition, DefinitionDraft captured)
+        => factory.ValidateAuthoringDefinition(source, content,
+            otherChanges.Add(new PackageEdit.WriteDefinition(captured)), definition);
+
     public static ContentResult<PackageWritePlan> EncodeAuthoringChange(IContentFactory factory,
         IAuthoringPackage source, DefinitionDraft draft) => factory.PreparePackageWrite(source,
             [new PackageEdit.WriteDefinition(draft)]);

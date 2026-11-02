@@ -146,6 +146,12 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 
 打开时只固定 `mod.json` 与 `resources/` 的文件和目录，不读取包根下的 `.git`、模型源文件或其他资料；资源文件沿用加载器的大小上限。之后 `Read` 与 `PreparePackageWrite` 只使用固定字节，不再访问文件端口，也不要求依赖包已安装。`SourceVersion` 是宿主提供的不透明字符串，原样回显。Mod 元数据来自固定 `mod.json`；没有 manifest 的 core 使用只读的创作元数据（ID／名称为 `core`，版本为 `0.0.0`，作者和依赖为空），这个版本不表示游戏版本或来源身份。
 
+`QueryAuthoringReferences(source, content, edits)` 一次返回全部可引用类别：库存体素、库存蓝图、建筑、场景模型、生物、地貌、聚居地类型、生产流程与回收流程。每项 `AuthoringReferenceChoice` 带 `Kind`、强类型的完整 `Reference` 和 `Display`，供界面按字段筛选并显示名称与完整 ID。候选只来自本包、直接依赖和 core；本包尚未激活也可查询，不包含间接依赖或无关包。
+
+两个创作查询都用 `source` 的固定字节叠加 `edits` 读取本包，用 `content` 读取依赖与 core；`source` 和 `content` 必须由同一内容实现产生。依赖未载入、不可用或版本不足时，整体返回 `Failure`，沿用 `dependency_missing`、`dependency_version`，不以空候选冒充成功。调用不写文件、不发布候选，也不改变输入视图。
+
+`ValidateAuthoringDefinition(source, content, edits, definition)` 只校验目标定义的正文、引用及模板跨字段关系。宿主须把当前捕获的表单作为 `WriteDefinition` 放入 `edits`，并用 `AuthoringDefinitionAddress` 指定目标。正文合法时 `Success` 返回空诊断或警告；预期错误返回 `Failure` 及字段诊断，内部故障返回 `Faulted`。解析器在首个正文错误处停止，不保证一次列出全部错误。此入口不解码 PNG／GLB，不执行整包级联或发布准入检查；字段校验通过不能替代写包前的候选加载。
+
 模板草稿包含显示文本，按 `display` 的 `name` 与 `description` 读写。库存项保存体素定义引用或蓝图引用及数量，草稿不判断该蓝图是功能复合体还是组装体。缺少 `display` 的模板草稿在 `/display` 返回 `invalid_field`。
 
 `PreparePackageWrite` 把指定草稿、资产和 manifest 变更编码成确定的文件补丁。包 ID 不可通过这次操作修改；删除定义自己的目录时明确列出关联文件，不顺手删除 shared。补丁不包含未编辑文件的重写，也不表示整包已经合法。

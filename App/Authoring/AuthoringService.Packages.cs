@@ -65,7 +65,7 @@ internal sealed partial class AuthoringService
     private void ReadSource(AuthoringTarget target)
     {
         binding = host.GetStatus()?.Binding;
-        package = null; snapshot = null;
+        package = null; snapshot = null; ReferenceChoices = []; FormDiagnostics = []; pendingFeedback = null; lastFeedback = null;
         var manifestDiagnostics = Sources.FirstOrDefault(source => SamePath(source.Directory, target.Directory))?.Diagnostics ?? [];
         var loadedDiagnostics = host.Content!.Packages.FirstOrDefault(status => status.Metadata?.Id == target.Package)?.Diagnostics ?? [];
         sourceIssues = manifestDiagnostics.Concat(loadedDiagnostics).Distinct().Select(item => Issue(item)).ToImmutableArray();

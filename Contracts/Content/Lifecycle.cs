@@ -27,6 +27,11 @@ public interface IContentFactory
         PackageId package, PackageSourceVersion sourceVersion, IContentFiles files);
     ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis,
         ImmutableArray<PackageEdit> edits);
+    ContentResult<ImmutableArray<AuthoringReferenceChoice>> QueryAuthoringReferences(
+        IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits);
+    ContentResult<ImmutableArray<ContentDiagnostic>> ValidateAuthoringDefinition(
+        IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits,
+        AuthoringDefinitionAddress definition);
 }
 
 public abstract record ContentLoadPurpose

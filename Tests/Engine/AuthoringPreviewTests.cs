@@ -30,10 +30,12 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
                 new(fixture.PackageId.Value + ":preview-ground"),
                 [new(7, PlotSize.Small, new(-32, 1, 0), VoxelOrientation.PxPy, null),
                  new(7, PlotSize.Small, new(32, 1, 0), VoxelOrientation.PxPy, null)], [], [], []));
-            fixture.Service.NewDefinition(draft); form.Load(draft);
-            form.Edited += fixture.Service.MarkFormDirty;
+            fixture.Service.NewDefinition(draft);
+            var choices = AuthoringIntegrationTests.Success(fixture.Host.ContentFactory.QueryAuthoringReferences(
+                fixture.Service.Package!, fixture.Host.Content!, []));
+            form.Load(draft, fixture.PackageId, choices);
+            form.Edited += () => { fixture.Service.MarkFormDirty(); if (form.TryCapture(out var value) && value is not null) fixture.Service.UpdateForm(value); };
             controller.PlotSelected += form.SelectPlot;
-            await fixture.Service.PreviewTemplate(form.Capture());
             await fixture.Pump(() => { controller.Process(0); return controller.View.Interactive; });
             var preview = fixture.Service.TemplatePreview!;
             Require(preview.Frame.Readiness == SceneReadiness.Ready &&
@@ -69,7 +71,6 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
             Require(fixture.Service.TemplatePreview is null && !controller.View.Interactive,
                 "表单修改必须立即阻止旧真实帧拾取。");
             controller.Process(0);
-            await fixture.Service.PreviewTemplate(form.Capture());
             await fixture.Pump(() => { controller.Process(0); return controller.View.Interactive; });
             Require(!ReferenceEquals(preview, fixture.Service.TemplatePreview), "刷新必须生成新的真实预览。");
             Require(camera.Focus.IsEqualApprox(focus) && camera.Camera.Transform.IsEqualApprox(transform),

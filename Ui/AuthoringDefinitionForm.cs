@@ -12,10 +12,17 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
     private readonly List<Control> _plots = [];
     internal event Action? Edited;
     internal event Action? GridRequested;
-    internal event Action? PreviewRequested;
+    internal event Action<Action<string>>? AssetRequested;
+    private PackageId _package = new("core");
+    private ImmutableArray<AuthoringReferenceChoice> _choices = [];
+    private readonly List<FormField> _fields = [];
+    private readonly Dictionary<string, Label> _groupErrors = [];
 
-    internal void Load(DefinitionDraft draft)
+    internal void Load(DefinitionDraft draft) => Load(draft, new("core"), []);
+
+    internal void Load(DefinitionDraft draft, PackageId package, ImmutableArray<AuthoringReferenceChoice> choices)
     {
+        _package = package; _choices = choices; _fields.Clear(); _groupErrors.Clear();
         foreach (var child in GetChildren()) { RemoveChild(child); child.QueueFree(); }
         _plots.Clear();
         _capture = draft switch
@@ -27,8 +34,6 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
             DefinitionDraft.SettlementTemplate t => Template(t.Value),
             _ => throw new ArgumentOutOfRangeException(nameof(draft))
         };
-        if (draft is DefinitionDraft.SettlementTemplate)
-            Button(this, "更新预览", () => PreviewRequested?.Invoke());
     }
 
     internal DefinitionDraft Capture() => _capture?.Invoke() ?? throw new InvalidOperationException("尚未加载定义。");
@@ -37,66 +42,69 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
         if (index >= 0 && index < _plots.Count) _plots[index].GrabFocus();
     }
 
-    private LineEdit Field(VBoxContainer parent, string title, object? value)
-    {
-        parent.AddChild(new Label { Text = title });
-        var field = new LineEdit { TooltipText = title, Text = value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value?.ToString() ?? "" };
-        parent.AddChild(field);
-        field.TextChanged += _ => Edited?.Invoke();
-        return field;
-    }
-    private CheckBox Flag(VBoxContainer parent, string title, bool value)
+    private CheckBox Flag(VBoxContainer parent, string title, string path, bool value, Action<bool>? changed = null)
     {
         var field = new CheckBox { Text = title, ButtonPressed = value };
         parent.AddChild(field);
-        field.Toggled += _ => Edited?.Invoke();
+        var binding = Register(parent, field, title, path, () => field.ButtonPressed.ToString(), _ => { });
+        field.Toggled += on => { changed?.Invoke(on); binding.Changed(); };
         return field;
+    }
+    private VBoxContainer OptionalFields(VBoxContainer parent, string title, string path, bool value, out CheckBox enabled)
+    {
+        var fields = new VBoxContainer { Visible = value };
+        enabled = Flag(parent, title, path, value, on => fields.Visible = on);
+        parent.AddChild(fields);
+        return fields;
     }
     private static void Button(VBoxContainer parent, string title, Action action)
     {
         parent.AddChild(UiStyle.Button("Action", title, action));
     }
-    private VBoxContainer Section(string title)
+    private VBoxContainer Section(string title, string path)
     {
         AddChild(new Label { Text = title });
-        var box = new VBoxContainer(); AddChild(box); return box;
+        var box = new VBoxContainer(); AddChild(box);
+        box.SetMeta("field_path", path);
+        var error = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart, Visible = false }; AddChild(error); _groupErrors[path] = error;
+        return box;
     }
     private Func<DisplayText> Display(DisplayText value)
     {
-        var name = Field(this, "名称", value.Name); var description = Field(this, "说明", value.Description);
+        var name = TextField(this, "名称", "/display/name", value.Name); var description = TextField(this, "说明", "/display/description", value.Description);
         return () => new(name.Text, description.Text);
     }
-    private static int Int(LineEdit f) => Parse(f, s => int.Parse(s, CultureInfo.InvariantCulture));
-    private static long Long(LineEdit f) => Parse(f, s => long.Parse(s, CultureInfo.InvariantCulture));
-    private static double Number(LineEdit f) => Parse(f, s => double.Parse(s, CultureInfo.InvariantCulture));
-    private static int? OptionalInt(LineEdit f) => string.IsNullOrWhiteSpace(f.Text) ? null : Int(f);
-    private static long? OptionalLong(LineEdit f) => string.IsNullOrWhiteSpace(f.Text) ? null : Long(f);
-    private static double? OptionalNumber(LineEdit f) => string.IsNullOrWhiteSpace(f.Text) ? null : Number(f);
-    private static T Parse<T>(LineEdit field, Func<string, T> parse)
+    private static int Int(FormField f) => Parse(f, s => int.Parse(s, CultureInfo.InvariantCulture));
+    private static long Long(FormField f) => Parse(f, s => long.Parse(s, CultureInfo.InvariantCulture));
+    private static double Number(FormField f) => Parse(f, s => double.TryParse(s, CultureInfo.InvariantCulture, out var value) && double.IsFinite(value) ? value : throw new FormatException());
+    private static int? OptionalInt(FormField f) => string.IsNullOrWhiteSpace(f.Text) ? null : Int(f);
+    private static long? OptionalLong(FormField f) => string.IsNullOrWhiteSpace(f.Text) ? null : Long(f);
+    private static double? OptionalNumber(FormField f) => string.IsNullOrWhiteSpace(f.Text) ? null : Number(f);
+    private static T Parse<T>(FormField field, Func<string, T> parse)
     {
         try { return parse(field.Text); }
         catch (Exception ex) when (ex is FormatException or OverflowException)
         { throw new FormatException($"{field.TooltipText}：{field.Text} 格式无效。", ex); }
     }
     private static T EnumText<T>(string text, string title) where T : struct, Enum => Enum.TryParse<T>(text, out var value) && Enum.IsDefined(value) ? value : throw new FormatException($"{title}：{text} 无效。");
-    private static T EnumValue<T>(LineEdit f) where T : struct, Enum => EnumText<T>(f.Text, f.TooltipText);
-    private static T? OptionalEnum<T>(LineEdit f) where T : struct, Enum => string.IsNullOrWhiteSpace(f.Text) ? null : EnumValue<T>(f);
-    private static string[] Items(LineEdit f) => f.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    private static AuthoringAssetPath? Asset(LineEdit f) => string.IsNullOrWhiteSpace(f.Text) ? null : new(f.Text);
-    private static BlueprintId? BlueprintReference(LineEdit f) => string.IsNullOrWhiteSpace(f.Text) ? null : new(f.Text);
+    private static T EnumValue<T>(FormField f) where T : struct, Enum => EnumText<T>(f.Text, f.TooltipText);
+    private static T? OptionalEnum<T>(FormField f) where T : struct, Enum => string.IsNullOrWhiteSpace(f.Text) ? null : EnumValue<T>(f);
+    private static string[] Items(FormField f) => f.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static AuthoringAssetPath? Asset(FormField f) => string.IsNullOrWhiteSpace(f.Text) ? null : new(f.Text);
+    private static BlueprintId? BlueprintReference(FormField f) => string.IsNullOrWhiteSpace(f.Text) ? null : new(f.Text);
 
     private Func<DefinitionDraft> SettlementType(SettlementTypeDraft v)
     {
-        var id = Field(this, "本地 ID", v.LocalId); var display = Display(v.Display);
-        var symbol = Field(this, "地图标记资产", v.MapSymbol?.Value); var major = Flag(this, "主要聚居地", v.Major);
-        var weight = Field(this, "权重（可空）", v.Weight); var terrain = Field(this, "偏好地形 ID（逗号分隔）", string.Join(',', v.PreferredTerrain.Select(x => x.Value)));
-        var minimum = Field(this, "最少人口（可空）", v.MinimumPopulation); var maximum = Field(this, "最多人口（可空）", v.MaximumPopulation);
+        var id = Identity(v.LocalId); var display = Display(v.Display);
+        var symbol = AssetField(this, "地图标记资产", "/display/map_symbol", v.MapSymbol?.Value); var major = Flag(this, "主要聚居地", "/display/major", v.Major);
+        var weight = IntegerField(this, "权重（可空）", "/simulation/weight", v.Weight, optional: true); var terrain = MultipleChoice(this, "偏好地形 ID（逗号分隔）", "/simulation/preferred_terrain", string.Join(',', v.PreferredTerrain.Select(x => x.Value)), () => _choices.Where(c => c.Kind == AuthoringReferenceKind.TerrainType).Select(c => (ReferenceId(c.Reference), c.Display.Name + " · " + ReferenceId(c.Reference))).ToArray(), references: true, caption: "偏好地形");
+        var minimum = LongField(this, "最少人口（可空）", "/simulation/population_min", v.MinimumPopulation, optional: true, unit: "人"); var maximum = LongField(this, "最多人口（可空）", "/simulation/population_max", v.MaximumPopulation, optional: true, unit: "人");
         return () => new DefinitionDraft.SettlementType(new(id.Text, display(), Asset(symbol), major.ButtonPressed, OptionalInt(weight), Items(terrain).Select(x => new TerrainTypeId(x)).ToImmutableArray(), OptionalLong(minimum), OptionalLong(maximum)));
     }
 
     private Func<DefinitionDraft> Blueprint(DefinitionDraft.Blueprint v)
     {
-        var id = Field(this, "本地 ID", v.LocalId);
+        var id = Identity(v.LocalId);
         Func<DesignSpecification> specification;
         switch (v.Value.Specification)
         {
@@ -106,10 +114,10 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
                 var behaviors = Behaviors(this, x.Behaviors); var compositeRotation = BuildRotation(x.Rotation);
                 specification = () => new DesignSpecification.FunctionalComposite(behaviors(), compositeRotation()); break;
             case DesignSpecification.Creature x:
-                var creatureEnabled = Flag(this, "生物行为", x.Behavior != null);
-                var hp = Field(this, "生命", x.Behavior?.HitPoints ?? 1); var speed = Field(this, "移动速度", x.Behavior?.SpeedMetersPerSecond ?? 1);
-                var retreat = Field(this, "撤退阈值", x.Behavior?.RetreatThreshold ?? 0); var raid = Field(this, "袭击持续秒数", x.Behavior?.RaidDurationSeconds ?? 1);
-                var weaponEnabled = Flag(this, "生物武器", x.Weapon != null); var damage = Field(this, "伤害", x.Weapon?.Damage ?? 1); var interval = Field(this, "攻击间隔秒数", x.Weapon?.IntervalSeconds ?? 1);
+                var creature = OptionalFields(this, "生物行为", "/simulation/behaviors/creature", x.Behavior != null, out var creatureEnabled);
+                var hp = LongField(creature, "生命", "/simulation/behaviors/creature/hp", x.Behavior?.HitPoints ?? 1); var speed = NumberField(creature, "移动速度", "/simulation/behaviors/creature/speed", x.Behavior?.SpeedMetersPerSecond ?? 1, unit: "米/秒");
+                var retreat = NumberField(creature, "撤退阈值", "/simulation/behaviors/creature/retreat_threshold", x.Behavior?.RetreatThreshold ?? 0); var raid = NumberField(creature, "袭击持续秒数", "/simulation/behaviors/creature/raid_duration", x.Behavior?.RaidDurationSeconds ?? 1);
+                var weapon = OptionalFields(this, "生物武器", "/simulation/behaviors/weapon", x.Weapon != null, out var weaponEnabled); var damage = LongField(weapon, "伤害", "/simulation/behaviors/weapon/damage", x.Weapon?.Damage ?? 1); var interval = NumberField(weapon, "攻击间隔秒数", "/simulation/behaviors/weapon/interval", x.Weapon?.IntervalSeconds ?? 1);
                 specification = () => new DesignSpecification.Creature(creatureEnabled.ButtonPressed ? new(Long(hp), Number(speed), Number(retreat), Number(raid)) : null, weaponEnabled.ButtonPressed ? new(Long(damage), Number(interval)) : null); break;
             default: specification = () => v.Value.Specification; break;
         }
@@ -118,9 +126,9 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
     }
     private Func<RotationAppearance?> BuildRotation(RotationAppearance? v)
     {
-        var enabled = Flag(this, "转动表现", v != null); var axis = Field(this, "转轴 X/Y/Z", v?.Axis ?? RotationAxis.Y);
-        var x = Field(this, "支点 X", v?.Pivot.X ?? 0); var y = Field(this, "支点 Y", v?.Pivot.Y ?? 0); var z = Field(this, "支点 Z", v?.Pivot.Z ?? 0);
-        var min = Field(this, "最小角度", v?.MinimumDegrees ?? 0); var max = Field(this, "最大角度", v?.MaximumDegrees ?? 0); var speed = Field(this, "角速度", v?.SpeedDegreesPerSecond ?? 0);
+        var rotation = OptionalFields(this, "转动表现", "/appearance/behaviors/rotation", v != null, out var enabled); var axis = Choice<RotationAxis>(rotation, "转轴 X/Y/Z", "/appearance/behaviors/rotation/axis", v?.Axis ?? RotationAxis.Y, caption: "转轴");
+        var x = IntegerField(rotation, "支点 X", "/appearance/behaviors/rotation/pivot/0", v?.Pivot.X ?? 0, unit: "格"); var y = IntegerField(rotation, "支点 Y", "/appearance/behaviors/rotation/pivot/1", v?.Pivot.Y ?? 0, unit: "格"); var z = IntegerField(rotation, "支点 Z", "/appearance/behaviors/rotation/pivot/2", v?.Pivot.Z ?? 0, unit: "格");
+        var min = NumberField(rotation, "最小角度", "/appearance/behaviors/rotation/range/0", v?.MinimumDegrees ?? 0, unit: "度"); var max = NumberField(rotation, "最大角度", "/appearance/behaviors/rotation/range/1", v?.MaximumDegrees ?? 0, unit: "度"); var speed = NumberField(rotation, "角速度", "/appearance/behaviors/rotation/speed", v?.SpeedDegreesPerSecond ?? 0, unit: "度/秒");
         return () => enabled.ButtonPressed ? new(EnumValue<RotationAxis>(axis), new(Int(x), Int(y), Int(z)), Number(min), Number(max), Number(speed)) : null;
     }
 }

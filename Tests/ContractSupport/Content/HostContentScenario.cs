@@ -36,6 +36,8 @@ public sealed class ScriptedContentFactory : IContentFactory
     public Func<string, ContentResult<SavedContentDraft>>? DecodeDraftCall { get; set; }
     public Func<ContentRoot, PackageId, PackageSourceVersion, IContentFiles, ContentResult<IAuthoringPackage>>? OpenAuthoringPackageCall { get; set; }
     public Func<IAuthoringPackage, ImmutableArray<PackageEdit>, ContentResult<PackageWritePlan>>? PreparePackageWriteCall { get; set; }
+    public Func<IAuthoringPackage, IContentView, ImmutableArray<PackageEdit>, ContentResult<ImmutableArray<AuthoringReferenceChoice>>>? QueryAuthoringReferencesCall { get; set; }
+    public Func<IAuthoringPackage, IContentView, ImmutableArray<PackageEdit>, AuthoringDefinitionAddress, ContentResult<ImmutableArray<ContentDiagnostic>>>? ValidateAuthoringDefinitionCall { get; set; }
     public int CaptureCount { get; private set; }
     public Func<IContentView, ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? WithSettlementCopiesCall { get; init; }
 
@@ -70,6 +72,10 @@ public sealed class ScriptedContentFactory : IContentFactory
     public ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package,
         PackageSourceVersion sourceVersion, IContentFiles files) => (OpenAuthoringPackageCall ?? throw Unconfigured())(source, package, sourceVersion, files);
     public ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits) => (PreparePackageWriteCall ?? throw Unconfigured())(basis, edits);
+    public ContentResult<ImmutableArray<AuthoringReferenceChoice>> QueryAuthoringReferences(IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits) =>
+        (QueryAuthoringReferencesCall ?? throw Unconfigured())(source, content, edits);
+    public ContentResult<ImmutableArray<ContentDiagnostic>> ValidateAuthoringDefinition(IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits, AuthoringDefinitionAddress definition) =>
+        (ValidateAuthoringDefinitionCall ?? throw Unconfigured())(source, content, edits, definition);
 
     private static InvalidOperationException Unconfigured() => new("UNCONFIGURED: 内容工厂入口未配置。");
 }

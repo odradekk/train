@@ -14,7 +14,7 @@ public static class ContentFactory
     public static C.IContentFactory Create() => new InitialContentFactory();
 }
 
-internal sealed class InitialContentFactory : C.IContentFactory
+internal sealed partial class InitialContentFactory : C.IContentFactory
 {
     public C.ContentResult<ImmutableArray<C.PackageStatus>> Discover(C.ContentInstallation installation, C.IContentFiles files)
     {

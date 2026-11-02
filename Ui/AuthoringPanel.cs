@@ -72,14 +72,17 @@ internal partial class AuthoringPanel : Control
         _empty = UiStyle.Label("选择源包，再从左侧选择定义。没有表单的种类请直接修改源文件。");
         _empty.AutowrapMode = TextServer.AutowrapMode.WordSmart; fields.AddChild(_empty);
         _form = new AuthoringDefinitionForm { Name = "DefinitionForm" }; fields.AddChild(_form);
-        _form.Edited += _service.MarkFormDirty;
-        _form.PreviewRequested += () => Capture(value => _service.PreviewTemplate(value));
-        _form.GridRequested += () => Capture(value => _service.OpenDefinition(AuthoringService.Address(value)));
-        BuildAssets(fields);
+        _form.Edited += () =>
+        {
+            _service.MarkFormDirty();
+            if (_form.TryCapture(out var value) && value is not null) _service.UpdateForm(value);
+        };
+        _form.GridRequested += () => Capture(_service.OpenGrid);
+        BuildAssets();
         _message = new Label { Name = "AuthoringResult", AutowrapMode = TextServer.AutowrapMode.WordSmart }; fields.AddChild(_message);
         _preview = new VBoxContainer { Name = "AuthoringPreview", SizeFlagsHorizontal = SizeFlags.ExpandFill }; _body.AddChild(_preview);
         _preview.AddChild(UiStyle.Label("预览", true));
-        _previewHint = Text(_preview, "选择聚居地模板后点「更新预览」。其他定义请在表单或设计编辑器中编辑。");
+        _previewHint = Text(_preview, "聚居地模板会自动预览。其他定义请在表单或设计编辑器中编辑。");
         if (_templates is not null)
         {
             _previewViewport = new SubViewportContainer { Stretch = true, SizeFlagsVertical = SizeFlags.ExpandFill };
@@ -110,7 +113,8 @@ internal partial class AuthoringPanel : Control
     {
         if (!_opened) return false;
         if (_editor.IsOpen) return false;
-        if (_confirm.Visible) _confirm.Hide();
+        if (_assetDialog.Visible) { _assetSelected = null; _assetDialog.Hide(); }
+        else if (_confirm.Visible) _confirm.Hide();
         else if (_problemDialog.Visible) _problemDialog.Hide();
         else if (_writeDialog.Visible && !_service.IsBusy) { _writeDialog.Hide(); _showWrite = false; }
         else if (_newMod.Visible) _newMod.Hide();
@@ -142,8 +146,10 @@ internal partial class AuthoringPanel : Control
         if (!ReferenceEquals(_loaded, _service.Form))
         {
             _loaded = _service.Form;
-            if (_loaded is not null) _form.Load(_loaded);
+            if (_loaded is not null) _form.Load(_loaded, _service.Package!.Package, _service.ReferenceChoices);
         }
+        _form.SetReferenceChoices(_service.ReferenceChoices);
+        _form.SetDiagnostics(_service.FormDiagnostics);
         _form.Visible = _loaded is not null; _empty.Visible = _loaded is null;
         _source.Disabled = busy; _reload.Disabled = busy || _service.Target is null;
         _save.Disabled = busy || _service.DirtyDefinition is null;

@@ -34,9 +34,7 @@ public class AuthoringPackageCreationTests(Node testScene) : TestClass(testScene
             [new(2, PlotSize.SmallStation, new(104, 1, -176), VoxelOrientation.PxPy, null)], [], [], []));
         fixture.Service.NewDefinition(definition);
         Require(fixture.Service.Form is DefinitionDraft.SettlementTemplate, "菜单创作必须能够打开新定义表单。");
-        var preview = fixture.Service.PreviewTemplate(definition);
-        await fixture.Pump(() => preview.IsCompleted, ContentPreparationTimeout);
-        fixture.Service.Process();
+        await fixture.Pump(() => fixture.Service.TemplatePreview is not null, ContentPreparationTimeout);
         Require(fixture.Service.TemplatePreview?.Content == fixture.Host.Content!.Generation,
             "没有世界时也必须能够预览当前内容版本中的模板：" + fixture.Service.Message);
         fixture.Service.SaveForm(fixture.Service.Form!);

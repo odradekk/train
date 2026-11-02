@@ -216,6 +216,10 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             service = new(fixture.Editor.Host, fixture.Editor, scenes, true, Path.Combine(temporary, "mods"), coreDirectory);
             ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).OpenAuthoringPackageCall = (_, id, version, _) =>
                 new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, []));
+            ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).QueryAuthoringReferencesCall = (_, _, _) =>
+                new ContentResult<System.Collections.Immutable.ImmutableArray<AuthoringReferenceChoice>>.Success([]);
+            ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).ValidateAuthoringDefinitionCall = (_, _, _, _) =>
+                new ContentResult<System.Collections.Immutable.ImmutableArray<ContentDiagnostic>>.Success([]);
             controller = new(service, fixture.Editor); TestScene.AddChild(controller.View);
             panel = new AuthoringPanel { Name = "TemplatePickingPanel" }; panel.Initialize(service, fixture.Editor, controller); TestScene.AddChild(panel);
             controller.PlotSelected += panel.SelectPlot;
@@ -225,7 +229,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
                 [new(5, PlotSize.Small, new(0, 0, 0), VoxelOrientation.PxPy, null), new(5, PlotSize.Large, new(8, 0, 0), VoxelOrientation.PxPy, null)], [], [], [])));
             panel.Open();
             await FramesUntil(TestScene, () => { service.Process(); return !service.IsBusy; });
-            _ = service.PreviewTemplate(service.Form!);
+            service.Process();
             await FramesUntil(TestScene, () => { service.Process(); controller.Process(0); return controller.View.Interactive; });
             Require(preview is not null, "模板预览入口必须创建配置的预览。");
             Require(ReferenceEquals(service.TemplatePreview, preview), "显示与拾取必须使用同一份服务预览。");

@@ -254,8 +254,9 @@ public sealed partial class AuthoringServiceTests
         fixture.Open();
         fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("template", new("", ""), null, null, null, [], [], [], [])));
         fixture.Scenes.PreviewTemplateCall = (content, _, revision) => new SceneResult<ITemplatePreview>.Success(new FixedTemplatePreview(content.Generation, new(revision.Value + 1)));
-        fixture.Service.PreviewTemplate(fixture.Service.Form!).GetAwaiter().GetResult();
-        fixture.Pump(() => fixture.Service.Message != "正在准备模板预览…");
+        fixture.Service.Report("等待首次自动预览");
+        fixture.Service.Process();
+        fixture.Pump(() => fixture.Service.Message != "等待首次自动预览");
         Assert.IsNull(fixture.Service.TemplatePreview);
     }
 
@@ -281,41 +282,6 @@ public sealed partial class AuthoringServiceTests
             Assert.AreEqual(changed, fixture.Service.Form);
     }
 
-    [TestMethod]
-    public void Delayed_preview_for_closed_draft_is_rejected_when_new_draft_has_same_revision()
-    {
-        using var fixture = new AuthoringFixture();
-        using var started = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        fixture.Open();
-        fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("old-template", new("", ""), null, null, null, [], [], [], [])));
-        fixture.Scenes.PreviewTemplateCall = (content, draft, revision) =>
-        {
-            Assert.AreEqual("old-template", draft.LocalId);
-            Assert.AreEqual(new EditRevision(0), revision);
-            started.Set();
-            Assert.IsTrue(release.Wait(HostFixture.HangTimeout), "旧模板预览未获释放。");
-            return new SceneResult<ITemplatePreview>.Success(new FixedTemplatePreview(content.Generation, revision));
-        };
-        Task? preview = null;
-        try
-        {
-            preview = fixture.Service.PreviewTemplate(fixture.Service.Form!);
-            HostFixture.WaitForSignal(started, "旧模板预览已开始");
-            var closed = false;
-            Assert.IsNull(fixture.Editor.RequestClose(() => closed = true));
-            fixture.Service.ResolveClose(LeaveChoice.Discard, null);
-            Assert.IsTrue(closed);
-            var next = new DefinitionDraft.SettlementTemplate(new("new-template", new("", ""), null, null, null, [], [], [], []));
-            fixture.Service.NewDefinition(next);
-            Assert.AreEqual(next, fixture.Service.Form);
-        }
-        finally { release.Set(); }
-        Assert.IsTrue(preview!.Wait(HostFixture.HangTimeout), "旧模板预览未完成。");
-        fixture.Service.Process();
-        Assert.IsNull(fixture.Service.TemplatePreview);
-    }
-
     private static DesignDraft Draft(string name) => new(new(name, ""), new DesignSpecification.SceneModel(null), new([], [], []));
     private static DefinitionDraft.Blueprint Blueprint(string name) => new("blueprint", Draft(name));
     private sealed class AuthoringFixture : IDisposable
@@ -336,7 +302,7 @@ public sealed partial class AuthoringServiceTests
         internal int LoadCalls { get; private set; }
         internal HostOperationResult? LastOperation { get; private set; }
         internal string DraftPath(DraftId id) => Path.Combine(AuthoringPaths.PackageDraftsDirectory(root, new("core")), id.Value.ToString("D") + ".json");
-        internal AuthoringFixture(bool ready = true)
+        internal AuthoringFixture(bool ready = true, TimeProvider? clock = null)
         {
             Directory.CreateDirectory(Core);
             File.WriteAllText(Path.Combine(Core, "source.txt"), "original");
@@ -344,9 +310,11 @@ public sealed partial class AuthoringServiceTests
             { [new("builtin")] = new ContentRootLocation.Disk(Core), [new("mods")] = new ContentRootLocation.Disk(Mods) });
             Coordinator = new(Host.Core, Host.Factory, files, new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "test", []), Host.Logger, sessionOptions: HostFixture.Options);
             Editor = new(Coordinator, Scenes, new FileSaveStore(root), Host.Logger);
-            Service = new(Coordinator, Editor, Scenes, true, Mods, Core);
+            Service = new(Coordinator, Editor, Scenes, true, Mods, Core, clock);
             Coordinator.OperationEnded += result => LastOperation = result;
             Host.Factory.OpenAuthoringPackageCall = (_, id, version, _) => new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, [Blueprint("original")]));
+            Host.Factory.QueryAuthoringReferencesCall = (_, _, _) => new ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success([]);
+            Host.Factory.ValidateAuthoringDefinitionCall = (_, _, _, _) => new ContentResult<ImmutableArray<ContentDiagnostic>>.Success([]);
             Host.Factory.EvaluateDesignCall = (_, draft) => new ContentResult<DesignEvaluation>.Success(new DesignEvaluation.Complete(new("design"), new("composition"), draft, null, new(null, null, null, true, null, null, [], [], [], [], []), true, []));
             SavedContentDraft? encoded = null;
             Host.Factory.EncodeDraftCall = draft => { encoded = draft; return new ContentResult<string>.Success("opaque draft"); };

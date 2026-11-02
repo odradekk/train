@@ -199,7 +199,7 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
         }
     }
 
-    private static int CompareVersions(string left, string right)
+    internal static int CompareVersions(string left, string right)
     {
         var a = left.Split('+')[0].Split('-', 2);
         var b = right.Split('+')[0].Split('-', 2);

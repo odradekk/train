@@ -18,7 +18,7 @@ internal sealed partial class AuthoringService : IDisposable
     private readonly string? coreDirectory;
     private readonly Dictionary<AuthoringDefinitionAddress, PackageEdit> edits = [];
     private Task<(SavedContentDraft Draft, FileWriteResult Result)>? saving;
-    private Task<(DraftId Draft, EditRevision Revision, IContentView Content, SceneResult<ITemplatePreview> Result)>? previewing;
+
     private PackageSnapshot? snapshot;
     private IAuthoringPackage? package;
     private HostBinding? binding;
@@ -46,8 +46,9 @@ internal sealed partial class AuthoringService : IDisposable
     internal event Action? Changed;
 
     internal AuthoringService(HostCoordinator host, EditorService editor, IScenesFactory scenes,
-        bool development, string modsDirectory, string? coreDirectory)
+        bool development, string modsDirectory, string? coreDirectory, TimeProvider? timeProvider = null)
     {
+        clock = timeProvider ?? TimeProvider.System;
         this.host = host; this.editor = editor; this.scenes = scenes;
         this.development = development;
         ModsDirectory = Path.GetFullPath(modsDirectory).TrimEnd(Path.DirectorySeparatorChar);
@@ -99,7 +100,7 @@ internal sealed partial class AuthoringService : IDisposable
         {
             if (host.BeginEditing() is { } problem) { Reject(problem); return; }
             Form = definition; draftId = id; revision = new(0); formDirty = unsaved;
-            TemplatePreview = null; Changed?.Invoke();
+            currentForm = definition; TemplatePreview = null; QueueFeedback(immediate: true); Changed?.Invoke();
         }
     }
 
@@ -125,7 +126,7 @@ internal sealed partial class AuthoringService : IDisposable
         if (CanUse && !IsBusy && package is not null) OpenDefinition(definition, new(Guid.NewGuid()), definition is DefinitionDraft.Blueprint, unsaved: true);
     }
 
-    internal void MarkFormDirty() { captureIssue = null; formDirty = true; revision = new(checked(revision.Value + 1)); TemplatePreview = null; Changed?.Invoke(); }
+    internal void MarkFormDirty() { currentForm = null; TemplatePreview = null; captureIssue = null; formDirty = true; revision = new(checked(revision.Value + 1)); pendingFeedback = null; FormDiagnostics = []; Changed?.Invoke(); }
 
     internal void SaveForm(DefinitionDraft value)
     {
@@ -171,6 +172,7 @@ internal sealed partial class AuthoringService : IDisposable
 
     private void CloseForm()
     {
+        currentForm = null; pendingFeedback = null; FormDiagnostics = [];
         Form = null; afterFormClose = null; formDirty = false; captureIssue = null;
         TemplatePreview = null; host.EndEditing(); Changed?.Invoke();
     }
@@ -181,22 +183,8 @@ internal sealed partial class AuthoringService : IDisposable
         if (editor.RequestClose(() => { edits[address] = new PackageEdit.DeleteDefinition(address); Report("已标记删除，写包前仍须校验。"); }) is { } failure) Report(failure.Message);
     }
 
-    internal Task PreviewTemplate(DefinitionDraft value)
-    {
-        if (!CanUse || Form is null || IsBusy) return Task.CompletedTask;
-        try
-        {
-            if (value is not DefinitionDraft.SettlementTemplate template) return Task.CompletedTask;
-            var fixedRevision = revision; var content = host.Content!; var fixedDraft = draftId;
-            previewing = Task.Run(() => (fixedDraft, fixedRevision, content, scenes.PreviewTemplate(content, template.Value, fixedRevision)));
-            Report("正在准备模板预览…");
-            return previewing;
-        }
-        catch (Exception error) { Report(error.Message); }
-        return Task.CompletedTask;
-    }
-
-    internal Lookup<int> PickPlot(SceneRay ray) => TemplatePreview is { } preview && preview.Revision == revision
+    internal Lookup<int> PickPlot(SceneRay ray) => displayedFeedback is { } displayed && IsCurrent(displayed)
+        && TemplatePreview is { } preview && preview.Revision == revision
         && preview.Content == host.Content?.Generation ? preview.PickPlot(ray) : new Lookup<int>.Missing();
 
     internal void Process()
@@ -222,19 +210,7 @@ internal sealed partial class AuthoringService : IDisposable
             }
             catch (Exception error) { afterFormClose = null; Report(error.Message); }
         }
-        if (previewing is { IsCompleted: true } preview)
-        {
-            previewing = null;
-            try
-            {
-                var value = preview.GetAwaiter().GetResult();
-                if (Form is not DefinitionDraft.SettlementTemplate || value.Draft != draftId || value.Revision != revision || !ReferenceEquals(value.Content, host.Content)) return;
-                if (value.Result is SceneResult<ITemplatePreview>.Success success && success.Value.Revision == revision && success.Value.Content == value.Content.Generation)
-                { TemplatePreview = success.Value; Report(string.Join("；", success.Value.Diagnostics.Select(EditorService.Describe))); }
-                else Report(value.Result.ToString() ?? "模板预览失败。");
-            }
-            catch (Exception error) { Report(error.Message); }
-        }
+        ProcessFeedback();
     }
 
     internal void Report(string message) { Message = message; Changed?.Invoke(); }
