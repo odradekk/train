@@ -34,7 +34,8 @@ internal sealed partial class TrainInspector
                         break;
                     case PlanStop.Station station:
                         text.AppendLine($"{index + 1}. {Place(station.Node)} · 停留 {station.DwellSteps / (decimal)SimulationTime.StepsPerSecond:0.###} 秒");
-                        foreach (var rule in station.GoodsRules) text.AppendLine(RuleSentence(rule));
+                        foreach (var rule in station.GoodsRules)
+                            text.AppendLine(TrainPlanWorkspace.RuleSentence(TrainPlanWorkspace.RuleInput(rule), _view, _content));
                         if (station.GoodsRules.IsEmpty) text.AppendLine("没有交易规则。");
                         break;
                 }
@@ -56,22 +57,5 @@ internal sealed partial class TrainInspector
             }
             row.Text = $"{GoodName(stack.Good)} × {stack.Quantity}" + (stack.DefinitionMissing ? "（内容缺失）" : "");
         }
-    }
-
-    private string RuleSentence(AutomaticGoodsRule rule)
-    {
-        var store = _view.FindInventory(rule.LocalInventory) is Lookup<InventoryView>.Found { Value.Owner: InventoryOwner.Lease }
-            ? "租用仓库" : "库存";
-        var good = GoodName(rule.Good);
-        return rule.Action switch
-        {
-            AutomaticGoodsAction.Buy buy => $"买入{good}，直到车上有 {rule.TargetQuantity}" +
-                (buy.MaximumUnitPrice is { } maximum ? $"；单价高于 {maximum.Value} 不买" : ""),
-            AutomaticGoodsAction.Sell sell => $"卖出{good}，直到车上剩 {rule.TargetQuantity}" +
-                (sell.MinimumUnitPrice is { } minimum ? $"；单价低于 {minimum.Value} 不卖" : ""),
-            AutomaticGoodsAction.Load => $"从{store}装载{good}，直到车上有 {rule.TargetQuantity}",
-            AutomaticGoodsAction.Unload => $"卸载{good}到{store}，直到车上剩 {rule.TargetQuantity}",
-            _ => "交易动作已不可用。"
-        };
     }
 }

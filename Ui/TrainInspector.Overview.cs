@@ -40,39 +40,19 @@ internal sealed partial class TrainInspector
                 text.AppendLine($"还需停留 {_train.RemainingDwellSteps / (decimal)SimulationTime.StepsPerSecond:0.###} 秒");
         }
         text.AppendLine("\n当前运行累计");
-        text.AppendLine(_train.CurrentRun is { } run ? RunSummary(run) : "尚未开始或已结束，无当前运行累计。");
+        text.AppendLine(_train.CurrentRun is { } run ? EconomyPanels.RunText(run, _content) : "尚未开始或已结束，无当前运行累计。");
         text.AppendLine("\n上一次运行报告");
         var report = _train.RecentReports.OrderBy(value => value.EndedAt.CompletedSteps).ThenBy(value => value.EndedAt.Sequence).LastOrDefault();
         if (report is null) text.AppendLine("暂无已结束的运行报告。");
         else
         {
-            text.AppendLine(UiInput.FormatTime(report.EndedAt.CompletedSteps) + " · " + (report.Reason switch
-            {
-                RunEndReason.PlanCompleted => "计划完成", RunEndReason.LoopCompleted => "一圈完成",
-                RunEndReason.PlanReplaced => "计划已替换", RunEndReason.TrainDisbanded => "列车已解编",
-                RunEndReason.AllVehiclesDestroyed => "全部车辆损毁", _ => "运行已结束"
-            }));
-            text.AppendLine(RunSummary(report.Totals));
+            text.AppendLine(UiInput.FormatTime(report.EndedAt.CompletedSteps) + " · " + EconomyPanels.EndReasonText(report.Reason));
+            text.AppendLine(EconomyPanels.RunText(report.Totals, _content));
         }
         _description.Text = text.ToString().TrimEnd().ReplaceLineEndings("\n");
         _openCombat.Visible = _view.World.Combats.Any(item => _view.FindCombat(item.Id) is Lookup<CombatView>.Found combat &&
             combat.Value.Participants.Any(participant => participant.Unit is CombatUnitId.Instance { Id: InstanceId.Vehicle vehicle } &&
                 _train.Vehicles.Contains(vehicle.Id)));
-    }
-
-    private string RunSummary(RunAccumulatorView run)
-    {
-        var text = new StringBuilder();
-        var loaded = run.LoadedCapacityRatio is { } ratio ? ratio.ToString("P1") : "—（未进入线路，或进入时没有载货容量）";
-        text.AppendLine($"从{UiInput.FormatTime(run.StartedAt.CompletedSteps)}开始 · 销售收入 {run.SalesReceipts.Value} · 采购支出 {run.PurchasePayments.Value}");
-        text.AppendLine($"服务费用：{run.ServicePayments.Value} · 净现金流 {run.NetCashFlow} · 运输数量 {run.TransportedUnits} · 载运率 {loaded}");
-        foreach (var rule in run.IncompleteRules)
-        {
-            var action = rule.Action switch { TradeAction.Buy => "买入", TradeAction.Sell => "卖出", TradeAction.Load => "装载", TradeAction.Unload => "卸载", _ => "交易" };
-            text.AppendLine($"未完成规则：第 {rule.StopIndex + 1} 站 · {action}{GoodName(rule.Good)} · 已完成 {rule.CompletedQuantity}/{rule.RequestedQuantity}");
-            foreach (var problem in rule.IncompleteReasons) text.AppendLine(ProblemText(problem));
-        }
-        return text.ToString().TrimEnd();
     }
 
     private string Place(NodeId node) => WorldPanels.NodeName(node, _view, _content);

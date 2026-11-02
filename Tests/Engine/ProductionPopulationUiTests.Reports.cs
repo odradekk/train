@@ -51,6 +51,8 @@ public partial class ProductionPopulationUiTests
                 Require(text.Contains("载运率 " + expected), "经营报告未区分未定义、空载和超载的载运率。");
                 Require(ratio is null || !text.Contains("未进入线路"), "有数值的载运率被显示为未定义。");
                 Require(text.Contains("服务费用：17 · 净现金流 -17"), "运行报告未展示核心返回的服务费用。");
+                Require(text.Contains("第1天 00:00") && !text.Contains("步"),
+                    "运行报告仍以模拟步数显示起止时间。");
             }
             CoreProblem shortage = new("insufficient_goods", "Quantity", new WorldObjectId.Inventory(new(10)), []);
             var incomplete = new RunAccumulatorView(new(0, 0), new(0), new(0), new(0), 0, 0, null,
@@ -69,6 +71,8 @@ public partial class ProductionPopulationUiTests
             var reports = Find<Label>(app, "ReportsText").Text;
             Require(reports.Split("补货目标以内").Length == 2,
                 $"货物不足的装载规则应说明补货目标保留，卸载规则不应：{reports}");
+            Require(!reports.Contains("insufficient_goods") && !reports.Contains("Inventory"),
+                "未完成规则泄漏了诊断代码或内部库存标识。");
             Require(setup.Session.SubmitCount == 0, "只读经营报告提交了命令。");
         }
         finally { await fixture.Cleanup(); }

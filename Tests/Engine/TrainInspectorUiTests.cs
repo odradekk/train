@@ -65,6 +65,8 @@ public partial class TrainInspectorUiTests(Node testScene) : TestClass(testScene
             Require(text.Contains("青川") && text.Contains("石港") && text.Contains("50%"), "概况没有显示线路两端和行驶进度。");
             Require(text.Contains("38") && text.Contains("货物不足") && text.Contains("第1天 00:02") && !text.Contains("净现金流 -9"),
                 "概况没有选择最近一次报告，或缺少未完成原因与游戏时间。");
+            Require(text.Contains(EconomyPanels.ReservedStockHint) && text.Contains("实际金额 30"),
+                "概况遗漏未完成规则的实际金额或聚居地保留库存说明。");
             Require(!text.Contains("insufficient_goods") && !text.Contains("步") && !text.Contains("fixture:"), "概况泄漏了代码或模拟时间。");
             Require(Find<Button>(panel, "Stop").IsVisibleInTree(), "运行列车没有停车入口。");
             await Task.CompletedTask;
