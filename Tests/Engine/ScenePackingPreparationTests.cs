@@ -19,7 +19,7 @@ public partial class SceneDisplayTests
         using var display = Attach(cache, new FixedContentView());
         using var resources = new SceneResources(cache, new FixedContentView());
         var source = Object(2, Peak(2)).Visuals[0];
-        using var original = resources.Prepare(source);
+        using var original = SceneDisplayTestDriver.PrepareVisual(resources, cache, source);
         var mesh = original.Node.GetChild<MeshInstance3D>(0).Mesh;
         using var packing = new ScenePackingPreparation(resources, new());
         var slice = new SceneDisplay.PreparationSlice(display, 0, null, true);
@@ -42,8 +42,8 @@ public partial class SceneDisplayTests
         using var resources = new SceneResources(cache, new FixedContentView());
         var a = Object(2, Peak(2)).Visuals[0];
         var b = Object(3, Peak(3)).Visuals[0];
-        using var originalA = resources.Prepare(a);
-        using var originalB = resources.Prepare(b);
+        using var originalA = SceneDisplayTestDriver.PrepareVisual(resources, cache, a);
+        using var originalB = SceneDisplayTestDriver.PrepareVisual(resources, cache, b);
         var meshA = originalA.Node.GetChild<MeshInstance3D>(0).Mesh;
         var meshB = originalB.Node.GetChild<MeshInstance3D>(0).Mesh;
         var geometryA = ((Train.Scenes.Contracts.SceneVisual.Geometry)a).Mesh;
@@ -80,7 +80,7 @@ public partial class SceneDisplayTests
         using var resources = new SceneResources(cache, new FixedContentView());
         var source = Object(2, Peak(2)).Visuals[0];
         var geometry = ((Train.Scenes.Contracts.SceneVisual.Geometry)source).Mesh;
-        using var original = resources.Prepare(source);
+        using var original = SceneDisplayTestDriver.PrepareVisual(resources, cache, source);
         var mesh = original.Node.GetChild<MeshInstance3D>(0).Mesh;
         using var packing = new ScenePackingPreparation(resources, new());
         var unlimited = new SceneDisplay.PreparationSlice(display, 0, null, true);

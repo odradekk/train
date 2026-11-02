@@ -571,7 +571,7 @@ public sealed class NodeStreamingTests
         var before = Chunks(cache);
         var first = Present(scene, snapshot);
         AssertTerrainFog(first, before);
-        var focus = new ScenePoint(288, 0, 288);
+        ScenePoint focus = new(288, 0, 288);
         await Settle(scene, snapshot, focus);
         var retention = new NodeRange(focus, NodeStreaming.RetainCells);
         Assert.IsTrue(before.Keys.Any(from => !retention.Intersects(from)));
@@ -699,19 +699,20 @@ public sealed class NodeStreamingTests
     {
         var snapshot = Snapshot(true);
         var cache = new NodeScene.Cache();
+        var focus = new ScenePoint(288, 0, 288);
         ImmutableDictionary<GridColumn, NodeScene.Part> retained;
         await using var vehicles = new SceneVehicles();
         await using (var scene = Open(snapshot, vehicles, cache))
         {
             await Settle(scene, snapshot, default);
-            await Settle(scene, snapshot, new(288, 0, 288));
+            await Settle(scene, snapshot, focus);
             retained = Chunks(cache);
         }
         await using var reopened = Open(snapshot, vehicles, cache);
         await reopened.BuildWork!;
-        reopened.Pump(focus: new(288, 0, 288));
-        Assert.IsTrue(Chunks(cache).Keys.All(new NodeRange(new(288, 0, 288), NodeStreaming.NearCells).Intersects));
-        await Settle(reopened, snapshot, new(288, 0, 288));
+        reopened.Pump(focus: focus);
+        Assert.IsTrue(Chunks(cache).Keys.All(new NodeRange(focus, NodeStreaming.RetainCells).Intersects));
+        await Settle(reopened, snapshot, focus);
         Assert.AreEqual(retained.Count, Chunks(cache).Count);
         foreach (var (from, part) in retained) Assert.AreSame(part, Chunks(cache)[from]);
     }

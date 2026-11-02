@@ -7,6 +7,11 @@ namespace Train.Ui;
 
 internal partial class DesignEditorPanel
 {
+    private void ExitEditor()
+    {
+        var fromLibrary = _service.OpenedFromLibrary;
+        _service.RequestClose(() => { if (fromLibrary) ReturnToLibrary(); });
+    }
     private SpinBox _height = null!;
     private readonly List<GridPosition> _stroke = [];
     private GridPosition? _boxStart;
@@ -193,7 +198,7 @@ internal partial class DesignEditorPanel
         else if (input.IsActionPressed(CloseAction))
         {
             if (_boxStart is not null) { _boxStart = null; InvalidateHover(); }
-            else _service.RequestClose(() => { });
+            else ExitEditor();
         }
         else if (input is InputEventMouseMotion motion)
         {

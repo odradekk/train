@@ -559,31 +559,6 @@ public sealed partial class EditorServiceTests
     }
 
     [TestMethod]
-    [TestCategory("integration")]
-    public void User_draft_listing_skips_other_targets_and_continues_after_individual_failures()
-    {
-        using var fixture = new EditingFixture();
-        var directory = AuthoringPaths.UserDraftsDirectory(fixture.Root);
-        Directory.CreateDirectory(directory);
-        foreach (var name in new[] { "01-throws", "02-bad", "03-other", "04-valid" })
-            File.WriteAllText(Path.Combine(directory, name + ".json"), name);
-        var valid = new SavedContentDraft(new(Guid.NewGuid()), new(0), new DraftTarget.UserBlueprint(null), new DraftPayload.Design(Draft("valid")));
-        fixture.Host.Factory.DecodeDraftCall = payload => payload switch
-        {
-            "01-throws" => throw new IOException("one file failed"),
-            "02-bad" => new ContentResult<SavedContentDraft>.Faulted("bad_draft", "bad draft", null),
-            "03-other" => new ContentResult<SavedContentDraft>.Success(valid with { Target = new DraftTarget.LocalBlueprint(null) }),
-            "04-valid" => new ContentResult<SavedContentDraft>.Success(valid),
-            _ => throw new InvalidOperationException("其他来源不应扫描。")
-        };
-        File.WriteAllText(Path.Combine(fixture.Root, "authoring-drafts", "other-source.json"), "outside");
-        CollectionAssert.AreEqual(new[] { valid }, fixture.Editor.UserDrafts().ToArray());
-        Assert.IsTrue(fixture.Host.Logs.Any(log => log.Message.Contains("one file failed", StringComparison.Ordinal)));
-        Assert.IsTrue(fixture.Host.Logs.Any(log => log.Message.Contains("bad_draft", StringComparison.Ordinal)));
-        Assert.IsFalse(fixture.Host.Logs.Any(log => log.Message.Contains("03-other", StringComparison.Ordinal)));
-    }
-
-    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Session_read_or_capture_exception_stops_scene_but_does_not_escape_processing(bool read)

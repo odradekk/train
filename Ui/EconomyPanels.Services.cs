@@ -5,6 +5,12 @@ namespace Train.Ui;
 
 internal partial class EconomyPanels
 {
+    internal static string? TrainVehicleName(ICoreReadView view, VehicleId vehicle) =>
+        view.FindInstance(new InstanceId.Vehicle(vehicle)) is Lookup<InstanceView>.Found
+            { Value.Details: InstanceDetails.Vehicle { Train: { } trainId } } &&
+        view.FindTrain(trainId) is Lookup<TrainView>.Found train
+            ? $"列车 {trainId.Value} 的第 {train.Value.Vehicles.IndexOf(vehicle) + 1} 辆车" : null;
+
     internal static string PlotSizeName(PlotSize size) => size switch
     {
         PlotSize.Small => "小", PlotSize.Medium => "中", PlotSize.Large => "大", PlotSize.Giant => "巨型",

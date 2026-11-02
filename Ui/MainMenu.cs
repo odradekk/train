@@ -38,10 +38,8 @@ public partial class MainMenu : Control
         if (_content is null || !ReferenceEquals(_content, content))
         {
             _content = content;
-            var packages = content?.Packages.Where(package => package.State == PackageState.Available)
-                .Select(package => $"{package.Metadata!.Name} {package.Metadata.Version}");
             GetNode<Label>("%VersionPackages").Text = $"版本 {ProjectSettings.GetSetting("application/config/version").AsString()} · 内容包：" +
-                (packages is null ? loading ? "加载中" : "未能加载" : string.Join("、", packages));
+                (content is null ? loading ? "加载中" : "未能加载" : FormatAvailablePackages(content));
         }
         var ready = enabled && IsVisibleInTree();
         if (ready && !_ready)
@@ -60,6 +58,10 @@ public partial class MainMenu : Control
             $"{_recent.Header.Name} · {UiInput.FormatTime(_recent.Header.Position.CompletedSteps)}\n{SavedAt(_recent.Header.SavedAt)}保存";
         _continue.Disabled = _newGame.Disabled || _recent is null;
     }
+
+    internal static string FormatAvailablePackages(IContentView content) =>
+        string.Join("、", content.Packages.Where(package => package.State == PackageState.Available)
+            .Select(package => $"{package.Metadata!.Name} {package.Metadata.Version}"));
 
     internal static string SavedAt(DateTimeOffset savedAt)
     {
