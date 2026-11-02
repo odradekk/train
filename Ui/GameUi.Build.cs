@@ -73,16 +73,20 @@ public partial class GameUi
             _plan = new TrainPlanWorkspace();
             _plan.Initialize(_host, (target, command, reportError) => Submit(target, command, null, reportError));
             _world.AddChild(_plan);
-            _panels.FormationRequested += _formation.Open;
-            _panels.PlanRequested += _plan.Open;
-            _panels.TrainFormationRequested += _formation.Open;
+            _panels.FormationRequested += (target, node, view, content) =>
+                _shell.RequestWorkspace(() => _formation.Open(target, node, view, content));
+            _panels.PlanRequested += (target, train, view, content) =>
+                _shell.RequestWorkspace(() => _plan.Open(target, train, view, content));
+            _panels.TrainFormationRequested += (target, train, view, content) =>
+                _shell.RequestWorkspace(() => _formation.Open(target, train, view, content));
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, Submit, _icons, Submit, SubmitInline);
             _world.AddChild(_economy);
             _founding = new SettlementFoundingPanel { Name = "SettlementFounding" };
             _founding.Initialize(_host, Submit);
             _world.AddChild(_founding);
-            _panels.FoundingRequested += (target, node) => { _founding.Open(target, node); _shell.ShowWorkspace(_founding.Content); };
+            _panels.FoundingRequested += (target, node) => _shell.RequestWorkspace(() =>
+                { _founding.Open(target, node); _shell.ShowWorkspace(_founding.Content); });
             _founding.SettlementRequested += id =>
             {
                 if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
@@ -91,8 +95,10 @@ public partial class GameUi
             _railway = new RailwayWorkPanel { Name = "RailwayWork" };
             _railway.Initialize(_host, Submit);
             _world.AddChild(_railway);
-            _panels.RailwayWorkRequested += (target, edge) => { _railway.Open(target, edge); _shell.ShowWorkspace(_railway.Content); };
-            _economy.FormationRequested += _formation.Open;
+            _panels.RailwayWorkRequested += (target, edge) => _shell.RequestWorkspace(() =>
+                { _railway.Open(target, edge); _shell.ShowWorkspace(_railway.Content); });
+            _economy.FormationRequested += (target, node, vehicles, view, content) =>
+                _shell.RequestWorkspace(() => _formation.Open(target, node, vehicles, view, content));
             _combat = new CombatPanel { Name = "CombatPanel" };
             _combat.Initialize(Submit, ReportUiError);
             _world.AddChild(_combat);
