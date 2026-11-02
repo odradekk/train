@@ -75,12 +75,26 @@ public partial class TrainFormationWorkspaceTests(Node testScene) : TestClass(te
         finally { await fixture.Cleanup(); }
     }
 
-    private static FixedContentView Content() => new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+    private static FixedContentView Content() => new(HostContentScenario.CreateProjection(HostCoreScenario.Input) with
+    {
+        SettlementTemplates = [new(new("fixture:town"), new("fixture:town"), 1, [], [], [], [], 80)]
+    }, new(1))
     {
         Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
         { [new("vehicle-design")] = new ContentLookup<DesignEvaluation>.NotFound() },
         DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
-        { [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound() },
+        {
+            [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound(),
+            [new CoreDefinitionReference.SettlementType(new("fixture:town"))] =
+                new ContentLookup<ContentDisplay>.Found(new(new("聚居地", ""), null, new("fixture:town-symbol"), false))
+        },
+        Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+        {
+            [new("fixture:town-symbol")] = new ContentLookup<ContentAsset>.Found(new(new("fixture:town-symbol"),
+                ImmutableArray.CreateRange(Convert.FromBase64String(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg==")),
+                new AssetMetadata.Png(1, 1), []))
+        },
         SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
         { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(new(new(1), new("fixture:town"),
             new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
