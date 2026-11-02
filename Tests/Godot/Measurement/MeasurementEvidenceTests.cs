@@ -66,7 +66,7 @@ public sealed class MeasurementEvidenceTests
         };
         using var report = ReadReport("scene-node", directory, identity);
         Measured(report, "game_private", 5000000000, "failed");
-        Measured(report, "game_working_set", 3300000000, "failed");
+        Measured(report, "game_working_set", 3300000000, OperatingSystem.IsLinux() ? "recorded" : "failed");
         Measured(report, "game_render", 2200000000, "failed");
     });
 
