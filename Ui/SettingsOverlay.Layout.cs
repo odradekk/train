@@ -6,7 +6,7 @@ namespace Train.Ui;
 public partial class SettingsOverlay
 {
     private readonly PanelContainer _panel = new() { Name = "Settings" };
-    private readonly VBoxContainer _navigation = new() { Name = "Navigation", CustomMinimumSize = new(130, 0) };
+    private readonly VBoxContainer _navigation = new() { Name = "PageNavigation", CustomMinimumSize = new(130, 0) };
     private readonly Control _pageHost = new() { Name = "Pages", SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
     private readonly List<ScrollContainer> _pages = [];
     private readonly List<Button> _pageButtons = [];
