@@ -44,6 +44,7 @@ public partial class AuthoringIntegrationTests
             var ui = app.GetNode<GameUi>("GameUi");
             var panel = Find<AuthoringPanel>(ui, "Authoring");
             panel.Open();
+            await FramesUntil(TestScene, () => !service.IsBusy);
             await input.Activate(Find<Button>(panel, "Publish"));
             await input.Activate(Find<Button>(panel, "ConfirmWrite"));
             await FramesUntil(TestScene, () => !service.IsBusy && !host.IsBusy, timeout: ContentPreparationTimeout);
@@ -74,7 +75,15 @@ public partial class AuthoringIntegrationTests
                 && problems.FindChildren("*", "Label", true, false).OfType<Label>()
                     .Any(label => label.Text.Contains("没有对应的可编辑定义", StringComparison.Ordinal)),
                 "没有对应定义的来源诊断必须转到问题框，提示直接检查源文件，不能切换表单。");
-            await input.Activate(Find<Button>(problems, "CloseProblems"));
+            var locate = Find<Button>(problems, "LocateDiagnostic");
+            locate.GrabFocus();
+            Require(locate.HasFocus(), "再次定位前必须由问题框内的定位按钮持有键盘焦点。");
+            await input.PressKey(Key.Space);
+            Require(problems.IsVisibleInTree() && ReferenceEquals(currentForm, service.Form)
+                && Find<Button>(problems, "CloseProblems").HasFocus(),
+                "再次定位没有对应定义的诊断后，问题框必须保持打开，并把焦点交给关闭按钮。");
+            await input.PressKey(Key.Space);
+            Require(!problems.IsVisibleInTree(), "重新显示的问题框必须能直接按空格关闭。");
             await input.Activate(Find<Button>(panel, "ExitAuthoring"));
             await input.WaitUntil(() => !panel.IsVisibleInTree());
             Require(!globalError.IsVisibleInTree(), "退出创作模式后不能残留全局操作失败面板。");

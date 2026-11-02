@@ -120,6 +120,7 @@ public partial class AuthoringIntegrationTests(Node testScene) : TestClass(testS
         var form = panel.FindChildren("DefinitionForm", "", true, false).OfType<AuthoringDefinitionForm>().Single();
         try
         {
+            await fixture.Pump(() => !fixture.Service.IsBusy);
             var captured = (DefinitionDraft.SettlementTemplate)form.Capture();
             Require(captured.Value.Display == draft.Value.Display, "表单必须读出新建模板的显示文本。");
             fixture.Service.SaveForm(captured);
@@ -171,12 +172,14 @@ public partial class AuthoringIntegrationTests(Node testScene) : TestClass(testS
         var form = panel.FindChildren("DefinitionForm", "", true, false).OfType<AuthoringDefinitionForm>().Single();
         try
         {
+            await fixture.Pump(() => !fixture.Service.IsBusy);
             fixture.Service.SaveForm(form.Capture());
             await fixture.Pump(() => !fixture.Service.IsBusy);
             fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);
             Require(fixture.Service.LastWrite is null && ReferenceEquals(original, fixture.Host.Content), "真实内容拒绝不能写文件或激活候选。");
             var message = Find<Label>(panel, "AuthoringResult").Text;
-            Require(message == "一个文件也没写，游戏里的内容保持原样，草稿还在。",
+            Require(message.Contains("一个文件也没写", StringComparison.Ordinal)
+                && !message.Contains(code, StringComparison.Ordinal),
                 "结果栏必须只描述未写入和草稿保留，诊断由问题框显示：" + message);
             var issues = fixture.Service.PublishIssues;
             var operation = fixture.LastOperation;

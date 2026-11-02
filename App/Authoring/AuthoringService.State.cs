@@ -13,6 +13,7 @@ internal sealed partial class AuthoringService
     private ImmutableArray<AuthoringIssue> writeIssues = [];
     private AuthoringIssue? captureIssue;
     private readonly List<PackageEdit> assetEdits = [];
+    private readonly Dictionary<AuthoringDefinitionAddress, DraftId> pendingDrafts = [];
     internal ImmutableArray<AuthoringIssue> PublishIssues => writeIssues
         .Where(issue => issue.Diagnostic.Severity != ContentDiagnosticSeverity.Information).ToImmutableArray();
     internal ImmutableArray<PackageEdit> PendingChanges => edits.Values.Concat(assetEdits).ToImmutableArray();
@@ -28,6 +29,19 @@ internal sealed partial class AuthoringService
     internal void SetOverlayOpen(bool open) => host.SetOverlayPaused(OverlayPauseSource.Authoring, open);
     internal bool IsPending(AuthoringDefinitionAddress address) => edits.ContainsKey(address);
     internal bool IsDeleted(AuthoringDefinitionAddress address) => edits.GetValueOrDefault(address) is PackageEdit.DeleteDefinition;
+    internal bool IsStagedDraft(SavedContentDraft draft) => draft.Target is DraftTarget.PackageDefinition target
+        && target.Package == package?.Package && edits.GetValueOrDefault(new(target.Kind, target.LocalId)) is PackageEdit.WriteDefinition
+        && pendingDrafts.GetValueOrDefault(new(target.Kind, target.LocalId)) == draft.Id;
+
+    private void AcceptDraft(SavedContentDraft draft)
+    {
+        if (package is null || draft.Target is not DraftTarget.PackageDefinition target || target.Package != package.Package || target.SourceVersion != package.SourceVersion) return;
+        if (draft.Payload is not DraftPayload.Definition definition) throw new ArgumentException("未知包草稿载荷。", nameof(draft));
+        var address = Address(definition.Value);
+        edits[address] = new PackageEdit.WriteDefinition(definition.Value);
+        pendingDrafts[address] = draft.Id;
+        Changed?.Invoke();
+    }
     internal void CaptureFailed(string message)
     {
         captureIssue = new(new("invalid_form", ContentDiagnosticSeverity.Error, "authoring", null, null, "", null, message),

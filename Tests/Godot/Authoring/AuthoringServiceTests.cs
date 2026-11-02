@@ -139,38 +139,6 @@ public sealed partial class AuthoringServiceTests
     }
 
     [TestMethod]
-    public void A_written_package_reopens_and_saved_draft_can_explicitly_use_the_new_source()
-    {
-        using var fixture = new AuthoringFixture();
-        fixture.Open(); fixture.SaveForm();
-        var saved = fixture.Service.Drafts().Single();
-        var previous = ((DraftTarget.PackageDefinition)saved.Target).SourceVersion;
-        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsNotNull(fixture.Service.Package);
-        Assert.IsTrue(File.Exists(fixture.DraftPath(saved.Id)));
-        Assert.AreNotEqual(previous, fixture.Service.Package!.SourceVersion);
-        fixture.Service.OpenDraft(saved);
-        Assert.IsFalse(fixture.Editor.IsOpen);
-        StringAssert.Contains(fixture.Service.Message!, "不会自动合并");
-        fixture.Service.OpenDraft(saved, useCurrentSource: true);
-        fixture.Pump(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
-        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)fixture.Editor.Target!).SourceVersion);
-        Assert.AreEqual(((DefinitionDraft.Blueprint)((DraftPayload.Definition)saved.Payload).Value).Value, fixture.Editor.State!.Snapshot.Draft);
-        Assert.IsTrue(fixture.Editor.IsDirty);
-        fixture.Editor.RequestClose(() => { });
-        Assert.IsTrue(fixture.Editor.Leaving);
-        fixture.Editor.ResolveClose(LeaveChoice.Cancel);
-        fixture.Editor.SaveDraft(); fixture.Pump(() => !fixture.Editor.IsBusy);
-        Assert.IsFalse(fixture.Editor.IsDirty);
-        var resaved = fixture.Service.Drafts().Single();
-        Assert.AreEqual(saved.Id, resaved.Id);
-        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)resaved.Target).SourceVersion);
-        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
-        Assert.IsTrue(fixture.Service.LastWrite!.Success);
-    }
-
-
-    [TestMethod]
     public void Reading_package_without_a_form_does_not_block_editor_close()
     {
         using var fixture = new AuthoringFixture();
@@ -396,7 +364,7 @@ public sealed partial class AuthoringServiceTests
             Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), grid: false);
             Service.MarkFormDirty(); Service.SaveForm(Blueprint("saved form")); Pump(() => !Service.IsBusy);
         }
-        internal void ConfigureWrite(bool rejectReload = false, ContentPreparationReport? report = null)
+        internal void ConfigureWrite(bool rejectReload = false, ContentPreparationReport? report = null, ContentPreparationReport? reloadReport = null)
         {
             LoadCalls = 0;
             var initialOutput = File.Exists(Output) ? File.ReadAllText(Output) : null;
@@ -417,7 +385,7 @@ public sealed partial class AuthoringServiceTests
                 Assert.AreEqual(0, CheckCandidate.Activations);
                 Assert.AreEqual("written", File.ReadAllText(Output));
                 if (rejectReload) return new ContentResult<IContentCandidate>.Failure([Diagnostic("reload-rejected", "reload rejected")]);
-                ReloadCandidate = new(new FixedContentView(Host.Content.Core, new(2)), Host.Content, ContentChange.Presentation);
+                ReloadCandidate = new(new FixedContentView(Host.Content.Core, new(2)), Host.Content, ContentChange.Presentation, reloadReport);
                 return new ContentResult<IContentCandidate>.Success(ReloadCandidate);
             };
         }

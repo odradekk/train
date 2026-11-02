@@ -90,7 +90,8 @@ internal partial class AuthoringPanel
     {
         var dialog = new[] { _confirm, _writeDialog, _problemDialog, _leave, _newMod, _newDefinition, _delete }
             .FirstOrDefault(candidate => candidate.Visible);
-        if (_activeDialog == dialog) return;
+        if (_activeDialog == dialog && (dialog is null || GetViewport().GuiGetFocusOwner() is { } focused
+            && dialog.IsAncestorOf(focused))) return;
         if (_activeDialog is null) _beforeDialog = GetViewport().GuiGetFocusOwner();
         _activeDialog = dialog;
         _mode.FocusBehaviorRecursive = dialog is null ? FocusBehaviorRecursiveEnum.Inherited : FocusBehaviorRecursiveEnum.Disabled;

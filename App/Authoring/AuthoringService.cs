@@ -33,7 +33,7 @@ internal sealed partial class AuthoringService : IDisposable
     internal string ModsDirectory { get; }
     internal bool CanUse => development && host.Content is not null && host.GetStatus()?.IsReplay != true;
     internal bool CanWriteCore => CanUse && coreDirectory is not null;
-    internal bool IsBusy => opening is not null || creating is not null || saving is not null || operation != 0;
+    internal bool IsBusy => discovering is not null || opening is not null || creating is not null || saving is not null || operation != 0;
     internal IAuthoringPackage? Package => package;
     internal ImmutableArray<AuthoringDefinitionAddress> Definitions => package is null ? []
         : package.EditableDefinitions.Concat(edits.Keys).Concat(DirtyDefinition is { } dirty ? [dirty] : []).Distinct().ToImmutableArray();
@@ -151,14 +151,6 @@ internal sealed partial class AuthoringService : IDisposable
         DefinitionDraft.SettlementTemplate value => new(DefinitionKind.SettlementTemplate, value.Value.LocalId),
         _ => throw new ArgumentException("未知定义种类。", nameof(draft))
     };
-
-    private void AcceptDraft(SavedContentDraft draft)
-    {
-        if (package is null || draft.Target is not DraftTarget.PackageDefinition target || target.Package != package.Package || target.SourceVersion != package.SourceVersion) return;
-        if (draft.Payload is not DraftPayload.Definition definition) throw new ArgumentException("未知包草稿载荷。", nameof(draft));
-        edits[Address(definition.Value)] = new PackageEdit.WriteDefinition(definition.Value);
-        Changed?.Invoke();
-    }
 
     private SaveFailure? RequestCloseForm(Action after)
     {

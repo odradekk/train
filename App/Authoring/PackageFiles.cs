@@ -202,7 +202,8 @@ internal static class PackageWriter
         {
             var remaining = writing ? changes.Skip(currentIndex + 1)
                 : changes.Where((_, index) => index != currentIndex);
-            return new(false, done.ToImmutable(), remaining.ToImmutableArray(), current, error.Message, CleanupMessage());
+            return new(false, done.ToImmutable(), remaining.ToImmutableArray(), current,
+                (writing ? "文件写入失败：" : "包写入准备失败：") + error.Message, CleanupMessage());
         }
         string? CleanupMessage() => cleanupMessages.Count == 0 ? null : string.Join("\n", cleanupMessages);
     }

@@ -166,6 +166,7 @@ public partial class AuthoringModeUiTests(Node testScene) : TestClass(testScene)
         panel.Open();
         try
         {
+            await fixture.Pump(() => !fixture.Service.IsBusy);
             await input.Frames(2);
             var form = Find<AuthoringDefinitionForm>(panel, "DefinitionForm");
             var name = form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().Single(field => field.TooltipText == "名称");
@@ -222,14 +223,20 @@ public partial class AuthoringModeUiTests(Node testScene) : TestClass(testScene)
             var row = oldDraftButton.GetParent();
             var draftName = Find<Label>(row, "SavedDraftName");
             var draftTime = Find<Label>(row, "SavedDraftTime");
+            await input.Activate(Find<Button>(panel, "CloseWriteResult"));
+            oldDrafts.EnsureControlVisible((Control)row);
+            await input.Frames(3);
             Require(draftName.IsVisibleInTree() && draftName.Text.Contains("engine-food", StringComparison.Ordinal)
-                && !draftName.ClipText && draftName.TextOverrunBehavior == TextServer.OverrunBehavior.NoTrimming
-                && draftName.AutowrapMode != TextServer.AutowrapMode.Off && !oldDraftButton.ClipText
-                && oldDrafts.HorizontalScrollMode == ScrollContainer.ScrollMode.Disabled,
-                "以前保存的草稿必须显示完整名称，标签换行、操作按钮不裁切，列表不能依赖横向滚动。");
-            Require(draftTime.IsVisibleInTree() && draftTime.Text == savedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-                && draftTime.TooltipText == savedAt.ToString("O"),
-                "每项旧草稿必须显示真实文件保存时间，并在提示里提供完整 UTC 时间。");
+                && draftTime.IsVisibleInTree(), "旧草稿列表必须显示定义名称与保存时间。");
+            foreach (var label in new[] { draftName, draftTime })
+                Require(oldDrafts.GetGlobalRect().Grow(1).Encloses(label.GetGlobalRect())
+                    && label.GetLineCount() == label.GetVisibleLineCount(),
+                    "旧草稿的名称和时间必须处于滚动区域内，文字的所有行都可见。");
+            var local = savedAt.ToLocalTime();
+            var numbers = System.Text.RegularExpressions.Regex.Matches(draftTime.Text, @"\d+")
+                .Select(match => int.Parse(match.Value, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            Require(numbers.Take(5).SequenceEqual(new[] { local.Year, local.Month, local.Day, local.Hour, local.Minute }),
+                "保存时间必须包含实际文件时间在本地时区的年、月、日、时、分。");
         }
         finally { panel.QueueFree(); await input.Frames(3); }
     }

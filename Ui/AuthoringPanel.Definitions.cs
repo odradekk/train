@@ -109,8 +109,7 @@ internal partial class AuthoringPanel
     private void RefreshDrafts()
     {
         Clear(_drafts);
-        var saved = _service.Drafts().Where(draft => draft.Target is DraftTarget.PackageDefinition target
-            && !_service.IsPending(new(target.Kind, target.LocalId))).ToArray();
+        var saved = _service.Drafts().Where(draft => !_service.IsStagedDraft(draft)).ToArray();
         if (saved.Length == 0) _drafts.AddChild(UiStyle.Label("暂无以前保存的草稿。"));
         foreach (var draft in saved)
         {
@@ -154,13 +153,14 @@ internal partial class AuthoringPanel
     {
         if (_sourceUpdating) return;
         if (selected == _coreIndex) _service.OpenCore();
-        else if (selected == _newModIndex) { PrepareNewMod(); RefreshSources(true); }
+        else if (selected == _newModIndex) PrepareNewMod();
         else if (selected > 0)
         {
             var source = _sourceChoices[(int)selected - (_coreIndex >= 0 ? 2 : 1)];
             if (source.Package is { } id) _service.Open(source.Directory, id);
-            else { ShowProblems(source.Diagnostics.Select(item => new AuthoringIssue(item))); RefreshSources(true); }
+            else ShowProblems(source.Diagnostics.Select(item => new AuthoringIssue(item)));
         }
+        RefreshSources(true);
     }
 
     private static void Clear(Node node)

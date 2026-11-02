@@ -20,6 +20,7 @@ public partial class AuthoringModeUiTests
         panel.Initialize(fixture.Service, fixture.Editor); TestScene.AddChild(panel); panel.Open();
         try
         {
+            await fixture.Pump(() => !fixture.Service.IsBusy);
             var definition = Path.Combine(fixture.ModDirectory, "resources", "voxels", "engine-food.voxel.json");
             var original = File.ReadAllBytes(definition);
             var form = Find<AuthoringDefinitionForm>(panel, "DefinitionForm");
@@ -44,7 +45,8 @@ public partial class AuthoringModeUiTests
                 && fixture.Service.Drafts().IsEmpty && original.AsSpan().SequenceEqual(File.ReadAllBytes(definition)),
                 "纯键盘放弃必须退出，不能留下草稿或修改源文件。");
 
-            panel.Open(); fixture.Service.OpenDefinition(new(DefinitionKind.Voxel, "engine-food"), grid: false);
+            panel.Open(); await fixture.Pump(() => !fixture.Service.IsBusy);
+            fixture.Service.OpenDefinition(new(DefinitionKind.Voxel, "engine-food"), grid: false);
             await input.Enter(NameField(), "Saved by keyboard");
             await TabTo(exit, panel); await input.PressKey(Key.Space);
             Require(leave.IsVisibleInTree() && Find<Button>(leave, "CancelLeave").HasFocus(), "保存离开前必须出现可键盘操作的询问。");
@@ -68,6 +70,7 @@ public partial class AuthoringModeUiTests
         var panel = new AuthoringPanel(); panel.Initialize(fixture.Service, fixture.Editor); TestScene.AddChild(panel); panel.Open();
         try
         {
+            await fixture.Pump(() => !fixture.Service.IsBusy);
             fixture.Service.SaveForm(Find<AuthoringDefinitionForm>(panel, "DefinitionForm").Capture());
             await fixture.Pump(() => !fixture.Service.IsBusy);
             fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);

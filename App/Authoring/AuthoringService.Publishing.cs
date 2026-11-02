@@ -75,9 +75,10 @@ internal sealed partial class AuthoringService
         operation = 0; LastWrite = written; LastPublishSucceeded = result.Succeeded;
         if (written?.Success == true) WriteStage = AuthoringWriteStage.ReloadContent;
         else WriteStage = (AuthoringWriteStage)Volatile.Read(ref writePhase);
-        writeIssues = result.Diagnostics.Select(item => Issue(item)).ToImmutableArray();
+        writeIssues = result.Diagnostics.Where(item => !result.Succeeded || item.Source?.Package == Target?.Package)
+            .Select(item => Issue(item)).ToImmutableArray();
         var changedFiles = written is { Completed.IsEmpty: false };
-        if (changedFiles || written?.Success == true) { edits.Clear(); assetEdits.Clear(); }
+        if (changedFiles || written?.Success == true) { edits.Clear(); assetEdits.Clear(); pendingDrafts.Clear(); }
         if (changedFiles) { ReadSource(Target!); RefreshSources(); }
         var outcome = result.Succeeded ? "文件已写入，内容重载成功；草稿还在。"
             : written?.Success == true ? "文件已写入，但内容重载失败。游戏里的内容没有切换，草稿还在。"

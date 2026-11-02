@@ -56,7 +56,7 @@ internal sealed partial class AuthoringService
     {
         Target = target;
         if (!target.IsCore) host.EnableAuthoringPackage(target.Package);
-        edits.Clear(); assetEdits.Clear();
+        edits.Clear(); assetEdits.Clear(); pendingDrafts.Clear();
         captureIssue = null; writeIssues = []; LastWrite = null; LastPublishSucceeded = null; WriteStage = AuthoringWriteStage.None;
         ReadSource(target);
         Report("正在读取源包…");

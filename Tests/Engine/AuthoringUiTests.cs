@@ -165,6 +165,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => fixture.App.Authoring is not null && fixture.Editor.Session is not null);
             var panel = fixture.App.FindChildren("Authoring", "Control", true, false).OfType<AuthoringPanel>().Single();
             var service = fixture.App.Authoring!; panel.Open();
+            await FramesUntil(TestScene, () => !service.IsBusy);
             var source = Find<OptionButton>(panel, "SourcePackage");
             var core = Enumerable.Range(0, source.ItemCount).Where(index => source.GetItemText(index) == "core（开发源码）").ToArray();
             Require(core.Any() == service.CanWriteCore && (!service.CanWriteCore || !source.Disabled && !source.IsItemDisabled(core.Single())),
@@ -222,7 +223,9 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => { service.Process(); return service.Package is not null; });
             service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("repeated-plots", new("", ""), null, 1, null,
                 [new(5, PlotSize.Small, new(0, 0, 0), VoxelOrientation.PxPy, null), new(5, PlotSize.Large, new(8, 0, 0), VoxelOrientation.PxPy, null)], [], [], [])));
-            panel.Open(); _ = service.PreviewTemplate(service.Form!);
+            panel.Open();
+            await FramesUntil(TestScene, () => { service.Process(); return !service.IsBusy; });
+            _ = service.PreviewTemplate(service.Form!);
             await FramesUntil(TestScene, () => { service.Process(); controller.Process(0); return controller.View.Interactive; });
             Require(preview is not null, "模板预览入口必须创建配置的预览。");
             Require(ReferenceEquals(service.TemplatePreview, preview), "显示与拾取必须使用同一份服务预览。");

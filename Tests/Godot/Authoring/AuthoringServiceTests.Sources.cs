@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Authoring;
+using Train.App.Saves;
+using Train.Godot.Tests.Host;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -10,6 +12,37 @@ namespace Train.Godot.Tests.Authoring;
 
 public sealed partial class AuthoringServiceTests
 {
+    [TestMethod]
+    public void A_written_package_reopens_and_saved_draft_can_explicitly_use_the_new_source()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm();
+        var saved = fixture.Service.Drafts().Single();
+        var previous = ((DraftTarget.PackageDefinition)saved.Target).SourceVersion;
+        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsNotNull(fixture.Service.Package);
+        Assert.IsTrue(File.Exists(fixture.DraftPath(saved.Id)));
+        Assert.AreNotEqual(previous, fixture.Service.Package!.SourceVersion);
+        fixture.Service.OpenDraft(saved);
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        StringAssert.Contains(fixture.Service.Message!, "不会自动合并");
+        fixture.Service.OpenDraft(saved, useCurrentSource: true);
+        fixture.Pump(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
+        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)fixture.Editor.Target!).SourceVersion);
+        Assert.AreEqual(((DefinitionDraft.Blueprint)((DraftPayload.Definition)saved.Payload).Value).Value, fixture.Editor.State!.Snapshot.Draft);
+        Assert.IsTrue(fixture.Editor.IsDirty);
+        fixture.Editor.RequestClose(() => { });
+        Assert.IsTrue(fixture.Editor.Leaving);
+        fixture.Editor.ResolveClose(LeaveChoice.Cancel);
+        fixture.Editor.SaveDraft(); fixture.Pump(() => !fixture.Editor.IsBusy);
+        Assert.IsFalse(fixture.Editor.IsDirty);
+        var resaved = fixture.Service.Drafts().Single();
+        Assert.AreEqual(saved.Id, resaved.Id);
+        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)resaved.Target).SourceVersion);
+        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsTrue(fixture.Service.LastWrite!.Success);
+    }
+
     [TestMethod]
     public void Disabled_candidate_without_diagnostics_reports_why_no_files_were_written()
     {
@@ -88,9 +121,16 @@ public sealed partial class AuthoringServiceTests
         using var fixture = new AuthoringFixture();
         fixture.Open(); fixture.SaveForm();
         var previous = fixture.Service.Package!.SourceVersion;
-        fixture.ConfigureWrite();
+        var targetIssue = Diagnostic("target-warning", "目标包警告") with { Severity = ContentDiagnosticSeverity.Warning };
+        var unrelatedIssue = Diagnostic("other-warning", "其他包警告") with
+        {
+            Severity = ContentDiagnosticSeverity.Warning,
+            Source = new(new("other-package"), "definitions/test.json")
+        };
+        fixture.ConfigureWrite(reloadReport: new([], [], [], [unrelatedIssue, targetIssue]));
         fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
         Assert.IsTrue(fixture.Service.LastPublishSucceeded);
+        CollectionAssert.AreEqual(new[] { targetIssue }, fixture.Service.PublishIssues.Select(issue => issue.Diagnostic).ToArray());
         Assert.IsTrue(fixture.Service.LastWrite!.Success);
         Assert.IsNotNull(fixture.Service.Package, "写入修改了磁盘后应自动重新读取源包。");
         Assert.AreNotEqual(previous, fixture.Service.Package.SourceVersion);
@@ -113,6 +153,39 @@ public sealed partial class AuthoringServiceTests
         Assert.IsFalse(fixture.Service.Message!.Contains(diagnostic.Message, StringComparison.Ordinal));
         Assert.IsFalse(fixture.Service.Message.Contains(diagnostic.Code, StringComparison.Ordinal));
         StringAssert.StartsWith(fixture.Service.Message, "一个文件也没写，游戏里的内容保持原样，草稿还在。");
+    }
+
+    [TestMethod]
+    public void Source_refresh_after_write_must_finish_before_another_mod_can_be_created()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm(); fixture.ConfigureWrite();
+        var existing = new PackageId("63973caf-2668-48aa-a6de-54cc2a153822");
+        Directory.CreateDirectory(Path.Combine(fixture.Mods, existing.Value));
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        fixture.Host.Factory.DiscoverCall = (installation, _) =>
+        {
+            started.Set();
+            Assert.IsTrue(release.Wait(HostFixture.HangTimeout), "源列表刷新未获释放。");
+            return new ContentResult<ImmutableArray<PackageStatus>>.Success(
+                [ModStatus(existing, PackageState.Disabled, []) with { Root = installation.Mods }]);
+        };
+        try
+        {
+            fixture.Service.Publish();
+            fixture.Pump(() => fixture.Service.LastPublishSucceeded == true && fixture.Service.Package is not null);
+            HostFixture.WaitForSignal(started, "写入后的源列表刷新开始");
+            Assert.IsTrue(fixture.Service.IsBusy, "等待操作结束也必须等待写入后的源列表刷新。");
+            var next = new PackageId("9cfa778b-59a1-4a93-8fc7-7611b2ba7873");
+            fixture.Service.CreateMod(new(next, "下一模组", "0.1.0", [], []));
+            Assert.AreEqual(new PackageId("core"), fixture.Service.Target!.Package);
+            StringAssert.Contains(fixture.Service.Message!, "请等待");
+            Assert.IsFalse(Directory.Exists(Path.Combine(fixture.Mods, next.Value)));
+        }
+        finally { release.Set(); }
+        fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.AreEqual(existing, fixture.Service.Sources.Single().Package);
     }
 
     [TestMethod]
