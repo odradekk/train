@@ -32,6 +32,7 @@ internal sealed class SettlementPanel
     private CoreRevision? _revision;
     private readonly List<(InventoryView Inventory, LeaseView? Lease)> _locals = [];
     private PanelContainer? _panel;
+    private PanelContainer? _loadingPanel;
     private VBoxContainer _body = null!;
     private Label _state = null!;
     private Label _wallet = null!;
@@ -68,9 +69,7 @@ internal sealed class SettlementPanel
         var relation = (_view.FindSettlement(id) as Lookup<SettlementView>.Found)?.Value.Relation;
         _neutral = relation == SettlementRelation.NonHostile; _owned = relation == SettlementRelation.PlayerOwned;
         BindPages();
-        var title = _content.FindSettlementLayout(id) is ContentLookup<SettlementLayoutProjection>.Found layout
-            ? layout.Value.Display.Name : _owned ? "自有聚居地" : _neutral ? "非敌对聚居地" : "敌对聚居地";
-        _panel = UiStyle.Panel(_parent, "Settlement", title, new(408, 68), 720,
+        _panel = UiStyle.Panel(_parent, "Settlement", Title(id), new(408, 68), 720,
             () => _panel!.Hide(), out _body, fill: true);
         _state = Text(_body, "State", ""); _wallet = Text(_body, "Wallet", "");
         if (!_neutral)
@@ -106,6 +105,33 @@ internal sealed class SettlementPanel
         tabs.TabChanged += _ => _services.RefreshServices();
         _refresh(_binding, _view, _content);
         Opened?.Invoke(new WorldObjectId.Settlement(id), _panel);
+    }
+
+    internal Control? ShowLoading(PanelTarget source, SettlementId id)
+    {
+        if (!ReadCurrent() || !_host.PanelGenerationCurrent(source.Binding, source.Generation)) return null;
+        _parent.Show();
+        if (_loadingPanel is null)
+        {
+            _loadingPanel = UiStyle.Panel(_parent, "SettlementLoading", "", new(408, 68), 720,
+                () => _loadingPanel!.Hide(), out var body, fill: true);
+            Text(body, "Loading", "正在加载详情…");
+        }
+        _loadingPanel.GetNode<Label>("Layout/Heading/Title").Text = Title(id);
+        Opened?.Invoke(new WorldObjectId.Settlement(id), _loadingPanel);
+        return _loadingPanel;
+    }
+
+    private string Title(SettlementId id)
+    {
+        if (_content.FindSettlementLayout(id) is ContentLookup<SettlementLayoutProjection>.Found layout)
+            return layout.Value.Display.Name;
+        return (_view.FindSettlement(id) as Lookup<SettlementView>.Found)?.Value.Relation switch
+        {
+            SettlementRelation.PlayerOwned => "自有聚居地",
+            SettlementRelation.NonHostile => "非敌对聚居地",
+            _ => "敌对聚居地"
+        };
     }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
@@ -231,6 +257,7 @@ internal sealed class SettlementPanel
     internal void Close()
     {
         ReleaseResources();
+        _loadingPanel?.Hide();
         RemoveWindow(_panel); _panel = null;
         _marketTable = null; _overview = null; _buildings = null;
         _target = null; _settlement = null; _locals.Clear();

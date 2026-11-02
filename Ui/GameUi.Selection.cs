@@ -18,6 +18,8 @@ public partial class GameUi
 {
     private WorldSceneController? _scenes;
     private Button? _returnToMap;
+    private sealed record PendingSettlement(PanelTarget Target, SceneRequestId Request, Control Loading, bool ReadyDrawn = false);
+    private PendingSettlement? _pendingSettlement;
 
     private void RefreshSelection()
     {
@@ -32,6 +34,7 @@ public partial class GameUi
             !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
                 _host.PanelGenerationCurrent(_binding, _content.Generation)))
         { ReportUiError("对象已不存在或所属对局已更换。"); return; }
+        _pendingSettlement = null;
         if (content is not null) { _shell.Inspect(id, content); return; }
         if (id is WorldObjectId.Node node && status.View.World.Nodes.First(item => item.Id == node.Id).Occupant
             is NodeOccupant.Settlement occupied)
@@ -68,7 +71,21 @@ public partial class GameUi
                 _ => null
             };
             if (target is null) ReportUiError("对象没有可观察的场景目标。");
-            else _scenes.Open(target);
+            else
+            {
+                _pendingSettlement = null;
+                _scenes.Open(target);
+                if (_scenes.View.Visible && id is WorldObjectId.Node selected &&
+                    status.View.World.Nodes.First(item => item.Id == selected.Id).Occupant is NodeOccupant.Settlement settlement)
+                {
+                    var panelTarget = new PanelTarget(_binding, _content.Generation, new WorldObjectId.Settlement(settlement.Id));
+                    if (_economy!.ShowSettlementLoading(panelTarget, settlement.Id) is { } loading)
+                    {
+                        _pendingSettlement = new(panelTarget, _scenes.CurrentRequest, loading);
+                        return;
+                    }
+                }
+            }
         }
         SelectObject(id);
     }
@@ -98,7 +115,35 @@ public partial class GameUi
 
     private void OnReturnedToMap(SceneProblem? problem)
     {
+        RefreshPendingSettlement();
         if (problem is not null) ShowError($"{problem.Code}：{problem.Detail}");
+    }
+
+    private void OnInspectorFrameDrawn()
+    {
+        // Ready 画出后才建详情，避免重建挡住首个可操作帧的拖动响应。
+        if (_pendingSettlement is { } pending && _scenes?.CurrentRequest == pending.Request &&
+            _scenes.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } frame &&
+            frame.Update.Frame.Request == pending.Request)
+            _pendingSettlement = pending with { ReadyDrawn = true };
+    }
+
+    private void RefreshPendingSettlement()
+    {
+        if (_pendingSettlement is not { } pending) return;
+        if (_shell.SelectedObject != pending.Target.Object || _shell.InspectorContent != pending.Loading)
+        { _pendingSettlement = null; return; }
+        if (_host?.GetStatus() is not { } status ||
+            !pending.Target.IsAvailable(status.Binding, status.View,
+                _host.PanelGenerationCurrent(pending.Target.Binding, pending.Target.Generation)))
+        { _pendingSettlement = null; _shell.Inspect(null, null); return; }
+        if (_scenes?.View.Visible == true)
+        {
+            if (_scenes.CurrentRequest != pending.Request) { _pendingSettlement = null; return; }
+            if (!pending.ReadyDrawn) return;
+        }
+        _pendingSettlement = null;
+        SelectObject(pending.Target.Object);
     }
 
     private void OnSelected(PickSubject subject)

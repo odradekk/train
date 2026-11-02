@@ -41,6 +41,7 @@ internal partial class EconomyPanels : Control
     { SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Ignore; }
 
     internal void OpenSettlement(PanelTarget source, SettlementId id) => _settlementWindow.Open(source, id);
+    internal Control? ShowSettlementLoading(PanelTarget source, SettlementId id) => _settlementWindow.ShowLoading(source, id);
     internal void OpenTrainInventory(PanelTarget target, TrainId id) => _trainInventory.Open(target, id);
     internal void OpenReports() => _reports.Open();
 

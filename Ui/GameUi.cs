@@ -89,12 +89,17 @@ public partial class GameUi : CanvasLayer
         AuthoringService? authoring, TemplateSceneController? templates, NotificationPolicy policy, SaveService? saves)
     { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; _policy = policy; _saves = saves; }
 
-    public override void _Ready() => BuildUi();
+    public override void _Ready()
+    {
+        BuildUi();
+        RenderingServer.FramePostDraw += OnInspectorFrameDrawn;
+    }
 
     public override void _Process(double delta)
     {
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
+        RefreshPendingSettlement();
         _status.Scenes = _scenes;
         _status.Core = status?.View;
         _status.Selected = _shell.SelectedObject is WorldObjectId.Instance selected ? [selected.Id] : [];
@@ -151,6 +156,7 @@ public partial class GameUi : CanvasLayer
 
     private void CloseSessionPanels()
     {
+        _pendingSettlement = null;
         _shell.ShowWorkspace(null); _shell.Inspect(null, null); _shell.ShowList(null);
         _lastWallet = null; _notificationPause = null;
         _panels!.Invalidate();
@@ -195,6 +201,7 @@ public partial class GameUi : CanvasLayer
 
     public override void _ExitTree()
     {
+        RenderingServer.FramePostDraw -= OnInspectorFrameDrawn;
         _editor.Changed -= OnEditorChanged;
         if (_scenes is not null)
         { _scenes.ReturnedToMap -= OnReturnedToMap; _scenes.Selected -= OnSelected; }
