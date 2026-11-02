@@ -35,7 +35,7 @@ internal sealed record NotificationNotice(
 internal sealed class NotificationPolicy
 {
     internal const string RunDestroyedText =
-        "运行因车辆全部被毁结束。游戏继续。可以在「存档」里读档，或「返回菜单」后新游戏。";
+        "运行因车辆全部被毁结束。游戏继续。可以在「存档与读档」里读档，或「返回主菜单」后开始新游戏。";
 
     private readonly NotificationAction[] _actions = new NotificationAction[Enum.GetValues<NotificationCategory>().Length];
 

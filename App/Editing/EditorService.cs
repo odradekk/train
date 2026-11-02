@@ -99,18 +99,6 @@ internal sealed partial class EditorService : IDisposable
         _ => null
     };
 
-    internal void OpenBlueprint(BlueprintAddress address, bool fromLibrary = false)
-    {
-        if (Host.Content?.FindBlueprint(address) is ContentLookup<BlueprintRecord>.Found found)
-        {
-            DraftTarget target = address.Library == BlueprintLibrary.User
-                ? new DraftTarget.UserBlueprint(address.Id) : new DraftTarget.LocalBlueprint(
-                    address.Library == BlueprintLibrary.Local ? address.Id : null);
-            Open(found.Value.Definition, target, address.Library == BlueprintLibrary.Packages ? null : new BlueprintSaveTarget.Overwrite(address), fromLibrary: fromLibrary);
-        }
-        else Report($"无法打开蓝图：{address.Id.Value}，内容缺失或不可用。");
-    }
-
     internal void OpenInstance(InstanceId instance)
     {
         if (Host.Content is not { } content || Host.GetStatus() is not { } status) { Report("没有活动对局。"); return; }
