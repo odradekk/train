@@ -21,7 +21,7 @@ public partial class EconomyUiTests
         var plan = new RunPlan(true, [new PlanStop.Station(new(1), 0, []), new PlanStop.Station(new(2), 0, [])]);
         var planned = EconomyFixture.Create(6, vehicle: EconomyFixture.VehicleState.Formed, extraOwned: [new(11), new(12)], routeToSecondSettlement: true, purchasedPlan: plan);
         var running = EconomyFixture.Create(7, vehicle: EconomyFixture.VehicleState.Formed, extraOwned: [new(11), new(12)], routeToSecondSettlement: true, purchasedPlan: plan, purchasedRunning: true);
-        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content(vehiclePresentation: true));
         setup.Session.QueueSubmit(new CoreCommand.BuyVehicle(new(1), new(9), new(917)), CommandSource.UserInterface,
             Completed(1, before, first, new CommandDecision.Accepted([], [])), first);
         setup.Session.QueueSubmit(new CoreCommand.BuyVehicle(new(1), new(11), new(917)), CommandSource.UserInterface,

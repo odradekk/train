@@ -74,7 +74,7 @@ public partial class EconomyUiTests
     [Test]
     public async Task Canceling_vehicle_sale_submits_nothing_and_preserves_selection()
     {
-        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned), EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned), EconomyFixture.Content(vehiclePresentation: true));
         await Run(setup, async (_, panel) =>
         {
             await Page(panel, 2);

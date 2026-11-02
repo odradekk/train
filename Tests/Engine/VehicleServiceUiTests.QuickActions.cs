@@ -11,7 +11,7 @@ public partial class VehicleServiceUiTests
     public async Task Parked_vehicle_repair_buys_local_materials_at_the_displayed_payment()
     {
         var view = new ServiceView(completed: true) { DamagedParkedVehicle = true };
-        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehiclePresentation: true));
         var request = new JobRequest.Repair(new(new(20), CapabilityKind.Construction), new InstanceId.Vehicle(new(9)), [], 0);
         setup.Session.QueueSubmit(new CoreCommand.CommissionVehicleWork(request, new(999)), CommandSource.UserInterface,
             Completed(1, view, view, new CommandDecision.Accepted([], [])), view);
@@ -39,7 +39,7 @@ public partial class VehicleServiceUiTests
     public async Task Owned_parked_vehicle_repair_uses_only_settlement_inventory()
     {
         var view = new ServiceView(owned: true, completed: true);
-        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehiclePresentation: true));
         await Run(setup, async (_, panel) =>
         {
             await Vehicles(panel);
@@ -63,7 +63,7 @@ public partial class VehicleServiceUiTests
     public async Task Parked_vehicle_dismantling_requires_confirmation_and_cancel_submits_nothing()
     {
         var view = new ServiceView(owned: true, completed: true);
-        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehiclePresentation: true));
         var request = new JobRequest.Dismantle(new(new(20), CapabilityKind.Construction), new InstanceId.Vehicle(new(9)), 0);
         setup.Session.QueueSubmit(new CoreCommand.StartOwnedJob(request), CommandSource.UserInterface,
             Completed(1, view, view, new CommandDecision.Accepted([], [])), view);
@@ -89,7 +89,7 @@ public partial class VehicleServiceUiTests
     public async Task Vehicle_jobs_show_the_same_progress_and_time_as_the_overview()
     {
         var view = new ServiceView();
-        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehiclePresentation: true));
         await Run(setup, async (_, panel) =>
         {
             var overview = Find<Label>(panel, "Commissions").Text.Split('\n').Skip(1).Single();
