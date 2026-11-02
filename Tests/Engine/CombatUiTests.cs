@@ -496,22 +496,6 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
                 World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], [])
             };
 
-        private static FixedContentView Content()
-        {
-            var scene = new DesignSceneProjection(null, null, null, true, null, null, [], [], [], [], []);
-            var layout = new SettlementLayoutProjection(new(4), new("preview:town"),
-                new(new("ground"), scene, new("Ground", "")), [], new("Town", ""));
-            return new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
-            {
-                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-                { [new("station")] = new ContentLookup<DesignEvaluation>.NotFound() },
-                SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
-                {
-                    [new(4)] = new ContentLookup<SettlementLayoutProjection>.Found(layout)
-                }
-            };
-        }
-
         private static FixedCoreReadView Battlefield(SimulationPosition position, bool combatPresent, bool settlementPresent)
         {
             var terrain = new TerrainView(new("fixture:plain"), 0, []);

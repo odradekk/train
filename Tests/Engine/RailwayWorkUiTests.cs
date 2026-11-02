@@ -289,7 +289,7 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(Find<Button>(ui, "Edges"));
             var list = Find<ItemList>(Find<PanelContainer>(ui, "EdgesList"), "Objects");
-            var index = Enumerable.Range(0, list.ItemCount).FirstOrDefault(i => list.GetItemText(i).StartsWith("线路 16 ·"), -1);
+            var index = EdgeRow(ui, new(16));
             Require(index >= 0, "线路列表没有线路 16：" + string.Join(" | ", Enumerable.Range(0, list.ItemCount).Select(list.GetItemText)));
             for (var frame = 0; frame < 180 && list.GetItemRect(index).Size.Y <= 0; frame++) await _input.Frames();
             Require(list.IsVisibleInTree() && list.GetItemRect(index).Size.Y > 0,

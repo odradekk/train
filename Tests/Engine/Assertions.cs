@@ -11,6 +11,10 @@ internal static class Assertions
     internal static SubmissionResult Completed(ulong number, ICoreReadView before, ICoreReadView after, CommandDecision decision)
         => new SubmissionResult.Completed(new(number, before.Position, after.Position, decision), [], null);
     internal static T Find<T>(Node parent, string name) where T : Node => parent.FindChildren(name, "", true, false).OfType<T>().Single();
+    internal static ItemList NodeObjects(Train.Ui.GameUi ui) => Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
+
+    internal static int FirstSelectableItem(ItemList list) => Enumerable.Range(0, list.ItemCount).First(list.IsItemSelectable);
+
     internal static void Require(bool condition, string message)
     {
         if (!condition)

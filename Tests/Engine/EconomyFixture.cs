@@ -178,10 +178,16 @@ internal static class EconomyFixture
             DefinitionDisplays = definitionDisplays ?? (mapPresentation
                 ? new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
                 {
+                    [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound(),
+                    [new CoreDefinitionReference.Terrain(new("core:plains"))] = new ContentLookup<ContentDisplay>.NotFound(),
                     [new CoreDefinitionReference.SettlementType(new("fixture:town"))] =
                         new ContentLookup<ContentDisplay>.Found(new(new("聚居地", "有限外壳情景"), null, icon, false))
                 }
-                : ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty),
+                : new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+                {
+                    [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound(),
+                    [new CoreDefinitionReference.Terrain(new("core:plains"))] = new ContentLookup<ContentDisplay>.NotFound()
+                }),
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {
                 [new(1)] = mapPresentation

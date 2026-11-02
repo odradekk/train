@@ -27,7 +27,7 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
             await UiCapture.Capture(TestScene, "shell-default");
             await _input.Activate(Find<Button>(ui, "Nodes"));
             var list = shell.ListContent!;
-            await _input.ClickItem(Find<ItemList>(list, "Objects"), 0);
+            await _input.ClickItem(Find<ItemList>(list, "Objects"), FirstSelectableItem(Find<ItemList>(list, "Objects")));
             Require(shell.SelectedObject == new WorldObjectId.Settlement(new(1)), "聚居地应通过统一选择进入检查器。");
             Require(Find<TabContainer>(shell.InspectorContent!, "Pages").GetTabCount() == 5,
                 "非敌对聚居地检查器应显示五页。");
@@ -99,7 +99,7 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
         await Run(async (ui, shell) =>
         {
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), FirstSelectableItem(Find<ItemList>(shell.ListContent!, "Objects")));
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
             var saves = ui.GetNode<SavePanel>("Root/SavePanel");
             Require(saves.Visible, "存档入口应打开现有存档覆盖层。");
@@ -124,7 +124,7 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
             {
                 window.Size = new(1920, 1080);
                 await _input.Activate(Find<Button>(ui, "Nodes"));
-                await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+                await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), FirstSelectableItem(Find<ItemList>(shell.ListContent!, "Objects")));
                 var app = ui.GetParent<Train.App.App>();
                 Find<NotificationPanel>(ui, "NotificationPanel").Add(new(NotificationCategory.Destruction,
                     NotificationLevel.Severe, "布局检查通知。", null, null), app.Host!.GetStatus()!.View, app.Host.Content!);
@@ -179,7 +179,7 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
         await Run(async (ui, shell) =>
         {
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), FirstSelectableItem(Find<ItemList>(shell.ListContent!, "Objects")));
             var inspector = shell.InspectorContent!;
             await _input.ChooseTab(Find<TabContainer>(inspector, "Pages"), 1);
             await _input.Activate(inspector.FindChildren("SelectGood", "Button", true, false).Cast<Button>().First());

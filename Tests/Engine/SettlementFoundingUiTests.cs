@@ -182,11 +182,15 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            var list = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
-            list.Select(index);
+            var list = NodeObjects(ui);
+            var rows = WorldListDrawer.Rows(WorldListKind.Nodes, status.View, content, "", 0);
+            var row = Enumerable.Range(0, rows.Count).Single(i => rows[i].Object == new WorldObjectId.Node(nodes[index].Id));
+            list.Select(row);
             list.EnsureCurrentIsVisible();
             await _input.Frames(2);
-            await _input.ClickItem(list, index);
+            await _input.ClickItem(list, row);
+            Require(Find<GameShell>(ui, "World").SelectedObject == new WorldObjectId.Node(nodes[index].Id),
+                "建城预览必须选中已找到的实际空节点。");
             await _input.Activate(Find<Button>(LatestDetail(ui), "FoundSettlement"));
             var text = Find<Label>(Founding(ui), "FoundingPreview").Text;
             Require(text.Contains($"初始人口：{shown.InitialResidents}"), "建城面板的初始人口不是核心预览。");
@@ -272,7 +276,14 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
     {
         if (Find<GameShell>(ui, "World").ListContent?.Name != "NodesList")
             await _input.Activate(Find<Button>(ui, "Nodes"));
-        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), nodeIndex);
+        var panel = Find<PanelContainer>(ui, "NodesList");
+        var node = ui.View!.World.Nodes[nodeIndex];
+        var rows = WorldListDrawer.Rows(WorldListKind.Nodes, ui.View!, ui.GetParent<Train.App.App>().Host!.Content!, "", 0);
+        var row = Enumerable.Range(0, rows.Count).Single(i => rows[i].Object == new WorldObjectId.Node(node.Id));
+        await _input.ClickItem(Find<ItemList>(panel, "Objects"), row);
+        var expected = node.Occupant is NodeOccupant.Settlement town
+            ? (WorldObjectId)new WorldObjectId.Settlement(town.Id) : new WorldObjectId.Node(node.Id);
+        Require(Find<GameShell>(ui, "World").SelectedObject == expected, "节点行点击必须选中指定的实际对象。");
     }
 
     private async Task ClickNode(MacroMap map, NodeMapItem node)

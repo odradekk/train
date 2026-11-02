@@ -46,6 +46,7 @@ internal static class SettlementFoundingUiFixture
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
         {
             Economy = UiWorldFixture.Economy,
+            Lairs = new Dictionary<LairId, Lookup<LairView>> { [new(1)] = new Lookup<LairView>.Missing() },
             Settlements = settlements.ToDictionary(item => item.Id, item => (Lookup<SettlementView>)new Lookup<SettlementView>.Found(item)),
             Inventories = inventories,
             Instances = trains.ToDictionary(train => (InstanceId)new InstanceId.Vehicle(train.Vehicles.Single()), train =>

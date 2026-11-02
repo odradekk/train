@@ -26,7 +26,7 @@ public partial class GameShellAppTests
         };
         var train = ((Lookup<TrainView>.Found)basis.FindTrain(new(7))).Value;
         var plan = new RunPlan(true, [new PlanStop.Waypoint(second.Id), new PlanStop.Waypoint(first.Id)]);
-        // A 只有受阻，B 只有无计划，C 两者都有但只算一次，D 无需关注。
+        // A 只有受阻，B 只有无计划，C 两者都有但只算一次，D 有计划但已停车。
         var trains = new[]
         {
             train with { Id = new(1), Activity = TrainActivity.NoRoute, Plan = plan },
@@ -56,8 +56,8 @@ public partial class GameShellAppTests
         {
             var fleetNumbers = Regex.Matches(Find<Button>(shell.Navigation, "Fleet").Text, @"\d+");
             var edgeNumbers = Regex.Matches(Find<Button>(shell.Navigation, "Edges").Text, @"\d+");
-            Require(fleetNumbers.Count == 1 && int.Parse(fleetNumbers[0].Value) == 3,
-                "导航应显示三列需关注列车：受阻、有计划缺失，以及两者兼有各一列。");
+            Require(fleetNumbers.Count == 1 && int.Parse(fleetNumbers[0].Value) == 4,
+                "导航应显示四列需处理列车：受阻、无计划、两者兼有，以及有计划但已停车各一列。");
             Require(edgeNumbers.Count == 1 && int.Parse(edgeNumbers[0].Value) == 5,
                 "线路导航应显示两条线路上合计五处断点，不能只计算线路数。");
             return Task.CompletedTask;

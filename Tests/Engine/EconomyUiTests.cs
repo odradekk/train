@@ -373,7 +373,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(new HostBinding(Guid.NewGuid()), view, content);
             Require(Find<Label>(inventory, "State").Text.Contains("已失效"), "列车库存仍接受旧绑定。");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             economy = Find<PanelContainer>(ui, "Settlement");
             await Market(economy);
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(new HostBinding(Guid.NewGuid()), view, content);
@@ -526,7 +526,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
         await Run(setup, async (ui, economy) =>
         {
             var shell = Find<GameShell>(ui, "*");
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             economy = shell.InspectorContent!;
             await _input.Activate(Find<Button>(economy, "DeclareWar"));
             var confirmation = Find<ConfirmationDialog>(economy, "DeclareWarConfirmation");

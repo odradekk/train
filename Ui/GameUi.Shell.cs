@@ -149,11 +149,11 @@ public partial class GameUi
 
     private void RefreshNavigation(ICoreReadView view)
     {
-        var needsAttention = view.World.Trains.Count(item => item.Activity == TrainActivity.NoRoute ||
-            view.FindTrain(item.Id) is Lookup<TrainView>.Found { Value.Plan: null });
+        var needsAttention = view.World.Trains.Count(item =>
+            view.FindTrain(item.Id) is Lookup<TrainView>.Found found && WorldListDrawer.NeedsAttention(found.Value));
         var breaks = view.World.Edges.Sum(item => item.Breaks.Length);
         _fleetNavigation.Text = "▰\n车队" + (needsAttention == 0 ? "" : $" {needsAttention}");
-        _fleetNavigation.TooltipText = $"没有运行计划或受阻：{needsAttention} 列";
+        _fleetNavigation.TooltipText = $"没有运行计划、受阻或已停车：{needsAttention} 列";
         _edgeNavigation.Text = "╱\n线路" + (breaks == 0 ? "" : $" {breaks}");
         _edgeNavigation.TooltipText = $"断点：{breaks} 处";
     }
