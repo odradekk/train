@@ -102,22 +102,41 @@ public partial class TrainInspectorUiTests
     }
 
     [Test]
-    public async Task Confirming_disband_submits_the_selected_empty_train_once()
+    public async Task Confirming_disband_replaces_the_removed_trains_visible_data_with_an_unavailable_notice()
     {
         var view = new InspectorView();
         view.Inventory = ((Lookup<InventoryView>.Found)view.FindInventory(view.Train.Inventory)).Value with
         { Stacks = [], Reservations = [], Used = 0, Reserved = 0 };
+        var removed = new InspectorView { Train = view.Train, TrainExists = false };
         await WithInspector(view, async (ui, panel, setup) =>
         {
             var input = new UiTestInput(TestScene);
-            await input.ChooseTab(Find<TabContainer>(panel, "Pages"), 3);
+            var pages = Find<TabContainer>(panel, "Pages");
+            await input.ChooseTab(pages, 3);
+            var oldTitle = Find<Label>(panel, "Title").Text;
+            Require(panel.FindChildren("VehicleDurability", "Label", true, false).OfType<Label>()
+                .Any(label => label.IsVisibleInTree()), "解编前没有可见车辆行，无法验证旧数据是否清除。");
             setup.Session.QueueSubmit(new CoreCommand.DisbandTrain(view.Train.Id), CommandSource.UserInterface,
-                Completed(1, view, view, new CommandDecision.Accepted([], [])), view);
+                Completed(1, view, removed, new CommandDecision.Accepted([], [])), removed);
             await input.Activate(Find<Button>(panel, "Disband"));
             var confirmation = Find<WorldPanels>(ui, "WorldPanels").GetNode<ConfirmationDialog>("DisbandConfirmation");
+            Require(confirmation.DialogText.Contains("青川") &&
+                confirmation.DialogText.Contains($"{view.Train.Vehicles.Length} 辆车停放在") &&
+                confirmation.DialogText.Contains("车上无货物") && confirmation.DialogText.Contains("运行计划会删除"),
+                "解编确认没有交代车辆数量、停放地点、货物状态和运行计划删除后果。");
             await input.Activate(confirmation.GetOkButton(), confirmation);
             Require(setup.Session.SubmitCount == 1 && !confirmation.Visible, "解编确认没有准确提交一次或没有关闭。");
             setup.Session.AssertComplete();
+            Require(ReferenceEquals(setup.Session.CurrentView, removed) &&
+                Find<Label>(panel, "ActionResult").Text.Contains("操作已受理"), "解编没有受理并发布移除列车后的读视图。");
+            var title = Find<Label>(panel, "Title");
+            Require(title.IsVisibleInTree() && title.Text != oldTitle && title.Text.Contains("已不存在"),
+                "列车移除后仍显示旧标题。");
+            var unavailable = Find<Label>(panel, "Unavailable");
+            Require(unavailable.IsVisibleInTree() && !pages.IsAncestorOf(unavailable) && unavailable.Text.Contains("已不存在"),
+                "车辆页看不到分页外的列车已不存在提示。");
+            Require(!pages.IsVisibleInTree() && Find<VBoxContainer>(panel, "Vehicles").GetChildCount() == 0,
+                "列车移除后仍显示旧分页数据或保留车辆行。");
         });
     }
 }

@@ -59,7 +59,9 @@ public partial class TrainInspectorUiTests
         internal InventoryView? Inventory { get; set; }
         internal SettlementView? Settlement { get; set; }
         internal Dictionary<VehicleId, JobQuote> RepairQuotes { get; } = [];
+        internal int RepairQuoteRequests { get; private set; }
         internal CombatView? Combat { get; set; }
+        internal bool TrainExists { get; set; } = true;
         public SimulationPosition Position => _basis.Position;
         public CoreRevision Revision => _basis.Revision;
         public CoreInputId InputIdentity => _basis.InputIdentity;
@@ -70,10 +72,12 @@ public partial class TrainInspectorUiTests
             Nodes = [_basis.World.Nodes[0], _basis.World.Nodes[0] with { Id = new(2), Position = new(750, 300),
                 Occupant = new NodeOccupant.Settlement(new(2), SettlementRelation.NonHostile) }],
             Edges = [new(new(1), new(1), new(2), 300, _basis.World.Nodes[0].Terrain, 1, 1, [], [])],
-            Trains = [new(Train.Id, Train.Position, Train.Activity)],
+            Trains = TrainExists ? [new(Train.Id, Train.Position, Train.Activity)] : [],
             Combats = Combat is { } combat ? [new(combat.Id, combat.Location)] : []
         };
-        public Lookup<TrainView> FindTrain(TrainId id) => id == Train.Id ? new Lookup<TrainView>.Found(Train) : _basis.FindTrain(id);
+        public Lookup<TrainView> FindTrain(TrainId id) => id == Train.Id
+            ? TrainExists ? new Lookup<TrainView>.Found(Train) : new Lookup<TrainView>.Missing()
+            : _basis.FindTrain(id);
         public Lookup<EdgeView> FindEdge(EdgeId id) => new Lookup<EdgeView>.Found(new(World.Edges.Single(edge => edge.Id == id), [], null));
         public Lookup<NodeView> FindNode(NodeId id) => new Lookup<NodeView>.Found(new(World.Nodes.Single(node => node.Id == id), [new(1)], 80, 0, 80));
         public Lookup<LocationView> FindLocation(WorldLocation location) => _basis.FindLocation(location);
@@ -94,9 +98,13 @@ public partial class TrainInspectorUiTests
         public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request) => _basis.QuoteTrade(request);
         public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request) => _basis.QuoteVehicle(request);
         public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => _basis.QuoteLease(request);
-        public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => request is JobRequest.Repair
-            { Instance: InstanceId.Vehicle vehicle } && funding == JobFunding.NpcCommission && RepairQuotes.TryGetValue(vehicle.Id, out var quote)
-            ? new CoreResult<JobQuote>.Success(quote) : _basis.GetJobQuote(request, funding);
+        public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding)
+        {
+            if (request is JobRequest.Repair) RepairQuoteRequests++;
+            return request is JobRequest.Repair { Instance: InstanceId.Vehicle vehicle } &&
+                funding == JobFunding.NpcCommission && RepairQuotes.TryGetValue(vehicle.Id, out var quote)
+                ? new CoreResult<JobQuote>.Success(quote) : _basis.GetJobQuote(request, funding);
+        }
         public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => _basis.PreviewSettlement(node);
         public CoreResult<TrainFormationPreview> PreviewTrainFormation(ImmutableArray<VehicleId> orderedVehicles, TrainId? train) =>
             train == Train.Id && orderedVehicles.SequenceEqual(Train.Vehicles)

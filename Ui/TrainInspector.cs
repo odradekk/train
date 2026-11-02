@@ -16,8 +16,9 @@ internal sealed partial class TrainInspector
     private readonly Action<TrainView> _plan, _formation;
     private readonly Action _combat, _disband;
     private readonly Action<InstanceId> _refit, _service;
-    private readonly Label _title, _description, _departureReason, _result;
+    private readonly Label _title, _description, _departureReason, _result, _unavailable;
     private readonly Button _edit, _start, _stop, _openCombat;
+    private readonly TabContainer _pages;
     private readonly VBoxContainer _planPage, _cargoPage, _vehiclesPage;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
@@ -41,14 +42,16 @@ internal sealed partial class TrainInspector
         _title = Text(heading, "Title", "列车", title: true);
         heading.AddChild(UiStyle.Button("Close", "关闭", Panel.Hide));
         layout.AddChild(new HSeparator());
-        var tabs = new TabContainer { Name = "Pages", SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        _unavailable = Text(layout, "Unavailable", "已不存在：对象或所属对局已失效。");
+        _unavailable.Hide();
+        _pages = new TabContainer { Name = "Pages", SizeFlagsVertical = Control.SizeFlags.ExpandFill,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-        layout.AddChild(tabs);
-        var overview = Page(tabs, "概况");
+        layout.AddChild(_pages);
+        var overview = Page(_pages, "概况");
         _openCombat = UiStyle.Button("OpenCombat", "查看战斗", OpenCombat);
         overview.AddChild(_openCombat);
         _description = Text(overview, "Description", "");
-        _planPage = Page(tabs, "计划"); _cargoPage = Page(tabs, "货物"); _vehiclesPage = Page(tabs, "车辆");
+        _planPage = Page(_pages, "计划"); _cargoPage = Page(_pages, "货物"); _vehiclesPage = Page(_pages, "车辆");
         BuildReadOnlyPages();
         BuildVehicles();
         layout.AddChild(new HSeparator());
@@ -60,6 +63,7 @@ internal sealed partial class TrainInspector
         _stop = UiStyle.Button("Stop", "停车", () => Submit(new CoreCommand.StopTrain(_train.Id)));
         footer.AddChild(_edit); footer.AddChild(_start); footer.AddChild(_stop);
         parent.AddChild(Panel);
+        _pages.TabChanged += _ => ReadCurrent();
     }
 
     private static VBoxContainer Page(TabContainer tabs, string title)
@@ -79,19 +83,26 @@ internal sealed partial class TrainInspector
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
+        if (!Panel.IsVisibleInTree()) return;
         _current = Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(Target.Binding, Target.Generation));
         if (!_current || view.FindTrain(((WorldObjectId.Train)Target.Object).Id) is not Lookup<TrainView>.Found found)
         {
-            _current = false; _description.Text = "已不存在：对象或所属对局已失效。";
+            _current = false; _title.Text = "列车已不存在";
+            _pages.Hide(); _unavailable.Show(); _departureReason.Hide();
+            EconomyPanelControls.Clear(_vehicleList); _vehicles.Clear(); _repairQuote = null;
             _edit.Disabled = _start.Disabled = _stop.Disabled = true;
             _openCombat.Disabled = true;
-            foreach (var button in _vehiclesPage.FindChildren("*", "Button", true, false).OfType<Button>()) button.Disabled = true;
+            _result.Visible = _result.Text.Length > 0;
             return;
         }
-        var changed = !ReferenceEquals(_view, view) || !ReferenceEquals(_content, content);
+        var changed = !_pages.Visible || !ReferenceEquals(_view, view) || !ReferenceEquals(_content, content);
+        _pages.Show(); _unavailable.Hide();
         _view = view; _content = content; _train = found.Value;
         _title.Text = $"列车 {_train.Id.Value} · {WorldPanels.Activity(_train.Activity)}";
-        if (changed) { RefreshOverview(); RefreshReadOnlyPages(); RefreshVehicles(); }
+        if (changed) { RefreshOverview(); RefreshReadOnlyPages(); RefreshVehicles(); _repairQuote = null; }
+        if (_pages.CurrentTab == 3 && _repairQuote is null && _train.Activity == TrainActivity.Stopped &&
+            LocalSettlement() is { Relation: SettlementRelation.NonHostile } settlement)
+            _repairQuote = VehicleRepairs.Quote(_train.Vehicles, settlement, _view, _content);
         UpdateVehicleActions();
         _edit.Disabled = _host.IsBusy;
         _edit.ThemeTypeVariation = _train.Plan is null ? "PrimaryButton" : "";
@@ -108,7 +119,7 @@ internal sealed partial class TrainInspector
 
     private bool ReadCurrent()
     {
-        if (_host.GetStatus() is not { } status || _host.Content is not { } content) return false;
+        if (!Panel.IsVisibleInTree() || _host.GetStatus() is not { } status || _host.Content is not { } content) return false;
         Refresh(status.Binding, status.View, content);
         return _current && !_host.IsBusy;
     }

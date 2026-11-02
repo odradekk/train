@@ -9,6 +9,46 @@ namespace Train.Engine.Tests;
 public partial class TrainInspectorUiTests
 {
     [Test]
+    public async Task Repair_quotes_are_requested_only_for_the_visible_vehicle_page()
+    {
+        InspectorView Damaged()
+        {
+            var view = new InspectorView();
+            var instance = ((Lookup<InstanceView>.Found)view.FindInstance(new InstanceId.Vehicle(view.Train.Vehicles[0]))).Value;
+            view.Instances[instance.Id] = instance with { Structure = new(50, 100) };
+            view.Settlement = ((Lookup<SettlementView>.Found)view.FindSettlement(new(1))).Value with
+            { Plots = [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(40)))] };
+            var request = new JobRequest.Repair(new(new(40), CapabilityKind.Construction), instance.Id, [], 0);
+            view.RepairQuotes[view.Train.Vehicles[0]] = new(request, JobFunding.NpcCommission, view.Revision,
+                1, [], [], [], new(2), new(0), new(2), []);
+            return view;
+        }
+        var view = Damaged();
+        await WithInspector(view, async (ui, panel, setup) =>
+        {
+            Require(view.RepairQuoteRequests == 0, "打开概况页时已请求修理报价。");
+            var input = new UiTestInput(TestScene);
+            var pages = Find<TabContainer>(panel, "Pages");
+            await input.ChooseTab(pages, 3);
+            Require(view.RepairQuoteRequests > 0, "车辆页未获取受损车辆的修理报价。");
+            var requests = view.RepairQuoteRequests;
+            var host = ui.GetParent<Train.App.App>().Host!;
+            var panels = Find<WorldPanels>(ui, "WorldPanels");
+            panels.Refresh(host.GetStatus()!.Binding, view, host.Content!);
+            Require(view.RepairQuoteRequests == requests, "未变化的车辆页重复获取修理报价。");
+            await input.ChooseTab(pages, 0);
+            var later = Damaged();
+            panels.Refresh(host.GetStatus()!.Binding, later, host.Content!);
+            Require(later.RepairQuoteRequests == 0, "概况页刷新时仍请求修理报价。");
+            await input.ChooseTab(pages, 3);
+            panel.Hide();
+            panels.Refresh(host.GetStatus()!.Binding, later, host.Content!);
+            Require(later.RepairQuoteRequests == 0, "关闭检查器后仍刷新修理报价。");
+            Require(setup.Session.SubmitCount == 0, "检查报价可见性提交了命令。");
+        });
+    }
+
+    [Test]
     public async Task Vehicles_show_ordered_durability_totals_and_keep_cargo_from_being_disbanded()
     {
         var view = new InspectorView();

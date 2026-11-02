@@ -53,8 +53,6 @@ internal sealed partial class TrainInspector
             else row.Durability.Text += "\n车辆已不存在。";
         }
         _statistics.Text = $"总长：{_train.LengthMeters:0.##} 米\n总质量：{_train.MassTons:0.##} 吨\n牵引力：{_train.TractionKilonewtons:0.##} 千牛\n载量：{(_inventory is { } inventory ? inventory.Capacity.ToString() : "—")}";
-        _repairQuote = LocalSettlement() is { Relation: SettlementRelation.NonHostile } settlement && _train.Activity == TrainActivity.Stopped
-            ? VehicleRepairs.Quote(_train.Vehicles, settlement, _view, _content) : null;
     }
 
     private void UpdateVehicleActions()
