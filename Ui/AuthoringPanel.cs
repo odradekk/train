@@ -29,6 +29,7 @@ internal partial class AuthoringPanel : Control
     private int _coreIndex = -1, _newModIndex;
     private IAuthoringPackage? _listedPackage;
     private AuthoringDefinitionAddress[] _listedDefinitions = [];
+    private PackageEdit[] _listedEdits = [];
     private bool _wasBusy;
     internal bool IsOpen => _opened;
 
@@ -93,6 +94,7 @@ internal partial class AuthoringPanel : Control
     {
         if (!_service.CanOpen) return;
         _opened = true; _service.SetOverlayOpen(true); _service.RefreshSources(); Refresh();
+        ((Control)_mode.FindChild("ExitAuthoring", true, false)).GrabFocus();
     }
 
     internal void SelectPlot(int index) => _form.SelectPlot(index);
@@ -153,10 +155,14 @@ internal partial class AuthoringPanel : Control
         _message.Text = _service.Message ?? "";
         RefreshSources();
         var definitions = _service.Definitions;
-        if (!ReferenceEquals(_listedPackage, _service.Package) || !_listedDefinitions.SequenceEqual(definitions) || _wasBusy && !busy)
+        var packageChanged = !ReferenceEquals(_listedPackage, _service.Package);
+        if (packageChanged || !_listedDefinitions.SequenceEqual(definitions))
         {
-            _listedPackage = _service.Package; _listedDefinitions = definitions.ToArray(); RebuildTree(); RefreshDrafts();
+            _listedPackage = _service.Package; _listedDefinitions = definitions.ToArray(); RebuildTree();
         }
+        var edits = _service.PendingChanges;
+        if (packageChanged || !_listedEdits.SequenceEqual(edits) || _wasBusy && !busy)
+        { _listedEdits = edits.ToArray(); RefreshDrafts(); }
         _wasBusy = busy; RefreshTreeMarks(); RefreshDialogs(); Arrange();
     }
 

@@ -90,7 +90,7 @@ public partial class GameUi
                 ? $"{operation}当前无法执行，请稍后重试。" : $"{operation}准备失败，请检查内容或输入。";
             if (result.Source == CommandSource.Console)
                 _logger.Warning("console", "console_operation_failed", message);
-            else ShowError(message);
+            else if (_authoringPanel?.IsOpen != true) ShowError(message);
             if (_newOperation == result.Operation) NewGameProblem(message);
         }
         if (_newOperation != result.Operation) return;

@@ -74,7 +74,7 @@ public partial class GameUi
         if (OS.IsDebugBuild())
         {
             MenuAction("开发工具", () => OpenDeveloperTools?.Invoke());
-            if (_authoringPanel is not null) _authoringMenuIndex = MenuAction("创作模式", _authoringPanel.Open);
+            if (_authoringPanel is not null) _authoringMenuIndex = MenuAction("创作模式", OpenAuthoring);
         }
         _shell.LayoutChanged += () => PanelAreaChanged?.Invoke();
     }
@@ -114,9 +114,16 @@ public partial class GameUi
         else _shell.ShowWorkspace(_library);
     }
 
+    private void OpenAuthoring()
+    {
+        if (_authoringPanel is null || _authoring?.CanOpen != true) return;
+        _focusBeforeAuthoring = GetViewport().GuiGetFocusOwner();
+        _errorPanel.Hide();
+        _authoringPanel.Open();
+    }
+
     private bool CloseOverlay()
     {
-        if (_authoringPanel?.HandleEscape() == true) return true;
         if (_menu.CloseSavesOnEscape()) return true;
         if (_errorPanel.Visible) { _errorPanel.Hide(); return true; }
         if (_notices?.CloseLog() == true) return true;
@@ -151,7 +158,7 @@ public partial class GameUi
         if (_authoringMenuIndex >= 0)
         {
             _gameMenu.GetPopup().SetItemDisabled(_authoringMenuIndex, !_authoring!.CanOpen);
-            _gameMenu.GetPopup().SetItemTooltip(_authoringMenuIndex, "制作内容；请等待当前操作结束。");
+            _gameMenu.GetPopup().SetItemTooltip(_authoringMenuIndex, _authoring.CanOpen ? "编辑源包和本地模组" : "请等待当前操作结束。");
         }
     }
 

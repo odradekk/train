@@ -94,11 +94,12 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "设置"
 
-[node name="QuitGame" type="Button" parent="Margin/Scroll/Center/Buttons"]
+[node name="Example" type="Button" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
+visible = false
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-text = "退出游戏"
+text = "从示例存档开始"
 
 [node name="OpenAuthoring" type="Button" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
@@ -106,6 +107,12 @@ visible = false
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "创作模式"
+
+[node name="QuitGame" type="Button" parent="Margin/Scroll/Center/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "退出游戏"
 
 [node name="LoadingStatus" type="Label" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true
@@ -118,13 +125,6 @@ custom_minimum_size = Vector2(0, 10)
 layout_mode = 2
 indeterminate = true
 show_percentage = false
-
-[node name="Example" type="Button" parent="Margin/Scroll/Center/Buttons"]
-unique_name_in_owner = true
-visible = false
-custom_minimum_size = Vector2(0, 44)
-layout_mode = 2
-text = "从示例存档开始"
 
 [node name="VersionPackages" type="Label" parent="Margin/Scroll/Center/Buttons"]
 unique_name_in_owner = true

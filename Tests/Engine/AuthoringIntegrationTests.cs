@@ -12,7 +12,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
+public partial class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
 {
     [Test]
     [Chickensoft.GoDotTest.Timeout(120000)]
@@ -78,68 +78,6 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
                 "真实非网格表单必须写入并经普通重载进入投影。");
         }
         finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
-    }
-
-    [Test]
-    [Chickensoft.GoDotTest.Timeout(120000)]
-    public async Task Real_external_source_change_is_rejected_with_diagnostic_not_host_fault_in_ui()
-    {
-        var fixture = new Fixture(TestScene.GetTree());
-        var id = Guid.NewGuid();
-        var directory = Path.Combine(AuthoringPaths.ModsDirectory(OS.GetUserDataDir()), id.ToString("D"));
-        try
-        {
-            ContentFixture.WriteMod(directory, id);
-            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
-            var host = app.Host!;
-            Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
-                "真实新局请求被拒绝。");
-            await FramesUntil(TestScene, () => !host.IsBusy && host.GetStatus() is not null, timeout: ContentPreparationTimeout);
-            var original = host.Content!;
-            var service = app.Authoring!;
-            Require(service.CanUse, "真实开发构建必须允许创作模式。");
-            service.Open(directory, new(id.ToString("D")));
-            await FramesUntil(TestScene, () => !service.IsBusy && service.Package is not null);
-            service.OpenDefinition(new(DefinitionKind.Voxel, "engine-food"), grid: false);
-            Require(service.Form is not null, "真实源包没有打开体素表单。");
-            service.SaveForm(service.Form!);
-            await FramesUntil(TestScene, () => !service.IsBusy);
-            var saved = service.Drafts().Single();
-            var path = Path.Combine(directory, "resources/voxels/engine-food.voxel.json");
-            var external = File.ReadAllText(path) + "\n ";
-            File.WriteAllText(path, external);
-            var ui = app.GetNode<GameUi>("GameUi");
-            var panel = Find<AuthoringPanel>(ui, "Authoring");
-            panel.Open();
-            await new UiTestInput(TestScene).Activate(Find<Button>(panel, "Publish"));
-            await new UiTestInput(TestScene).Activate(Find<Button>(panel, "ConfirmWrite"));
-            await FramesUntil(TestScene, () => !service.IsBusy && !host.IsBusy, timeout: ContentPreparationTimeout);
-            Require(service.LastWrite is { Success: false, Completed.IsEmpty: true },
-                "外部修改必须拒绝全部写入：" + service.Message);
-            Require(File.ReadAllText(path) == external, "外部修改必须保持原样。");
-            Require(service.Package is not null && service.Drafts().Single().Id == saved.Id,
-                "来源冲突必须保留源包和草稿。");
-            Require(ReferenceEquals(original, host.Content), "拒绝写入不得切换内存内容。");
-            var result = Find<Label>(panel, "AuthoringResult").Text;
-            Require(result.Contains("stale_basis", StringComparison.Ordinal) &&
-                result.Contains("源包已发生外部修改", StringComparison.Ordinal) &&
-                result.Contains("未写入任何文件", StringComparison.Ordinal) &&
-                result.Contains("草稿保留", StringComparison.Ordinal) &&
-                result.Contains("请重新载入", StringComparison.Ordinal) &&
-                result.Contains("处理外部修改后重新校验", StringComparison.Ordinal),
-                "真实创作面板必须显示诊断、未写入、草稿保留与重新载入提示：" + result);
-            Require(ui.ErrorText.Contains("源包已发生外部修改", StringComparison.Ordinal) &&
-                ui.ErrorText.Contains("请重新载入", StringComparison.Ordinal) &&
-                !ui.ErrorText.Contains("发生故障", StringComparison.Ordinal) &&
-                !ui.ErrorText.Contains("package_write_failed", StringComparison.Ordinal),
-                "真实 GameUi 弹窗必须只显示诊断与重新载入提示：" + ui.ErrorText);
-        }
-        finally
-        {
-            try { await fixture.Cleanup(); }
-            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
-        }
     }
 
     [Test]
@@ -225,7 +163,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         new(new("new-template", new("新建模板", "隔离说明"), new("core:agricultural-town"), 1, new("core:agricultural-town-ground"),
             [new(2, PlotSize.SmallStation, new(104, 1, -176), VoxelOrientation.PxPy, null)], [], [.. inventory], []));
 
-    private async Task RejectedForm(RealAuthoringFixture fixture, DefinitionDraft draft, string expected, bool encodable = true, string code = "invalid_field")
+    private async Task RejectedForm(RealAuthoringFixture fixture, DefinitionDraft draft, string expected, string code = "invalid_field")
     {
         var original = fixture.Host.Content!;
         fixture.Service.NewDefinition(draft);
@@ -235,12 +173,29 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         {
             fixture.Service.SaveForm(form.Capture());
             await fixture.Pump(() => !fixture.Service.IsBusy);
-            if (encodable) { fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout); }
+            fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);
             Require(fixture.Service.LastWrite is null && ReferenceEquals(original, fixture.Host.Content), "真实内容拒绝不能写文件或激活候选。");
             var message = Find<Label>(panel, "AuthoringResult").Text;
-            Require(message.Contains(expected, StringComparison.Ordinal) && message.Contains(code, StringComparison.Ordinal),
-                "真实面板必须按普通诊断路径显示错误与字段位置：" + message);
-            Require(fixture.Service.Drafts().Length == (encodable ? 1 : 0), "仅成功编码的草稿可以落盘；写包拒绝须保留已保存草稿。");
+            Require(message == "一个文件也没写，游戏里的内容保持原样，草稿还在。",
+                "结果栏必须只描述未写入和草稿保留，诊断由问题框显示：" + message);
+            var issues = fixture.Service.PublishIssues;
+            var operation = fixture.LastOperation;
+            Require(issues.Any(issue => issue.Diagnostic.Code == code && issue.Diagnostic.Field.Contains(expected, StringComparison.Ordinal))
+                && operation is { Succeeded: false } && operation.Diagnostics.Any(diagnostic => diagnostic.Code == code
+                    && diagnostic.Field.Contains(expected, StringComparison.Ordinal)),
+                "本次写入与真实宿主失败必须保留相同的字段错误诊断。");
+            var input = new UiTestInput(TestScene);
+            await input.Activate(Find<Button>(panel, "Problems"));
+            var problems = Find<Control>(panel, "SourceProblems");
+            Require(problems.IsVisibleInTree() && problems.FindChildren("LocateDiagnostic", "Button", true, false).OfType<Button>()
+                .Any(button =>
+                {
+                    var text = string.Join("\n", button.GetParent().FindChildren("*", "Label", true, false).OfType<Label>().Select(label => label.Text));
+                    return text.Contains(code, StringComparison.Ordinal) && text.Contains(expected, StringComparison.Ordinal);
+                }), "真实问题框必须在同一诊断行显示错误代码、字段位置与定位按钮。");
+            Require(fixture.Service.PublishIssues.SequenceEqual(issues) && ReferenceEquals(operation, fixture.LastOperation),
+                "打开问题框不能修改本次写入诊断或宿主结果。");
+            Require(fixture.Service.Drafts().Length == 1, "写包拒绝须保留已成功编码和保存的草稿。");
         }
         finally { panel.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
     }

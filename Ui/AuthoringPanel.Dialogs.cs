@@ -15,6 +15,7 @@ internal partial class AuthoringPanel
     private PackageId _newPackageId;
     private AuthoringDefinitionAddress? _deleteAddress;
     private bool _showWrite;
+    private Control? _activeDialog, _beforeDialog;
 
     private void BuildDialogs()
     {
@@ -87,8 +88,24 @@ internal partial class AuthoringPanel
     private void HideModal(Control modal) { modal.Hide(); UpdateDialogFocus(); }
     private void UpdateDialogFocus()
     {
-        _mode.FocusBehaviorRecursive = new[] { _confirm, _writeDialog, _problemDialog, _leave, _newMod, _newDefinition, _delete }
-            .Any(dialog => dialog.Visible) ? FocusBehaviorRecursiveEnum.Disabled : FocusBehaviorRecursiveEnum.Inherited;
+        var dialog = new[] { _confirm, _writeDialog, _problemDialog, _leave, _newMod, _newDefinition, _delete }
+            .FirstOrDefault(candidate => candidate.Visible);
+        if (_activeDialog == dialog) return;
+        if (_activeDialog is null) _beforeDialog = GetViewport().GuiGetFocusOwner();
+        _activeDialog = dialog;
+        _mode.FocusBehaviorRecursive = dialog is null ? FocusBehaviorRecursiveEnum.Inherited : FocusBehaviorRecursiveEnum.Disabled;
+        if (dialog is null)
+        {
+            if (GodotObject.IsInstanceValid(_beforeDialog) && _beforeDialog!.IsVisibleInTree()) _beforeDialog.GrabFocus();
+            _beforeDialog = null;
+        }
+        else
+        {
+            var initial = dialog == _confirm ? "CancelWrite" : dialog == _writeDialog ? "CloseWriteResult"
+                : dialog == _problemDialog ? "CloseProblems" : dialog == _leave ? "CancelLeave"
+                : dialog == _newMod ? "ModName" : dialog == _newDefinition ? "NewDefinitionId" : "CancelDelete";
+            ((Control)dialog.FindChild(initial, true, false)).GrabFocus();
+        }
     }
 
     private void PrepareNewMod()
@@ -108,7 +125,9 @@ internal partial class AuthoringPanel
     private void ConfirmPublish()
     {
         if (_service.PendingChanges.IsEmpty || _service.DirtyDefinition is not null) return;
-        Clear(_confirmItems); Text(_confirmItems, "要写入的源包：" + _service.Target?.Package.Value);
+        var name = _service.Sources.FirstOrDefault(source => source.Package == _service.Target?.Package)?.Name
+            ?? _service.Target?.Package.Value;
+        Clear(_confirmItems); Text(_confirmItems, "要写入的源包：" + name);
         foreach (var edit in _service.PendingChanges) Text(_confirmItems, EditName(edit));
         Text(_confirmItems, "写入期间不要用别的工具改这个包。写入前会复核源文件是否被外部修改。");
         ShowModal(_confirm);
@@ -147,7 +166,7 @@ internal partial class AuthoringPanel
                     foreach (var file in result.Remaining) Text(_writeItems, "未执行：" + file.RelativePath);
                     if (result.CleanupMessage is { } cleanup) Text(_writeItems, "临时文件清理失败：" + cleanup);
                 }
-                AddIssues(_writeItems, _service.Issues);
+                AddIssues(_writeItems, _service.PublishIssues);
             }
         }
         UpdateDialogFocus();
@@ -167,7 +186,7 @@ internal partial class AuthoringPanel
             var row = new VBoxContainer(); parent.AddChild(row);
             var diagnostic = issue.Diagnostic;
             Text(row, $"{diagnostic.Code} · {diagnostic.Message}");
-            Text(row, (diagnostic.Source is { } source ? source.Package.Value + ": " + source.Path + " " : "") + diagnostic.Field);
+            Text(row, (diagnostic.Source is { } source ? (source.Path.Length == 0 ? source.Package.Value : source.Path) + " " : "") + diagnostic.Field);
             row.AddChild(UiStyle.Button("LocateDiagnostic", "定位", () =>
             {
                 if (issue.Definition is { } address && _service.Package is not null && _service.Definitions.Contains(address))

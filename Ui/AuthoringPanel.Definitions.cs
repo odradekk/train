@@ -27,6 +27,8 @@ internal partial class AuthoringPanel
     private VBoxContainer _drafts = null!;
     private readonly Dictionary<AuthoringDefinitionAddress, TreeItem> _treeItems = [];
     private bool _selectingTree;
+    private AuthoringTarget? _listedSourceTarget;
+    private bool _listedCoreWritable;
 
     private void BuildDefinitions()
     {
@@ -47,7 +49,8 @@ internal partial class AuthoringPanel
         };
         Text(box, "只读种类请直接修改源文件，再重新载入。");
         box.AddChild(UiStyle.Label("以前保存的草稿", true));
-        var scroll = new ScrollContainer { CustomMinimumSize = new(0, 120), FollowFocus = true }; box.AddChild(scroll);
+        var scroll = new ScrollContainer { CustomMinimumSize = new(0, 120), FollowFocus = true,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled }; box.AddChild(scroll);
         _drafts = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill }; scroll.AddChild(_drafts);
         RebuildTree();
     }
@@ -106,23 +109,32 @@ internal partial class AuthoringPanel
     private void RefreshDrafts()
     {
         Clear(_drafts);
-        var saved = _service.Drafts();
-        if (saved.IsEmpty) _drafts.AddChild(UiStyle.Label("暂无以前保存的草稿。"));
+        var saved = _service.Drafts().Where(draft => draft.Target is DraftTarget.PackageDefinition target
+            && !_service.IsPending(new(target.Kind, target.LocalId))).ToArray();
+        if (saved.Length == 0) _drafts.AddChild(UiStyle.Label("暂无以前保存的草稿。"));
         foreach (var draft in saved)
         {
             if (draft.Target is not DraftTarget.PackageDefinition target) continue;
             var stale = target.SourceVersion != _service.Package?.SourceVersion;
             var name = $"{KindName(target.Kind)} · {target.LocalId}";
+            var row = new VBoxContainer(); _drafts.AddChild(row);
+            var title = Text(row, name); title.Name = "SavedDraftName";
+            var savedAt = _editor.DraftSavedAt(draft);
+            var time = Text(row, savedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")); time.Name = "SavedDraftTime";
+            time.TooltipText = savedAt.UtcDateTime.ToString("O");
             var button = UiStyle.Button(stale ? "OpenDraftOnCurrentSource" : "OpenDraft",
-                stale ? name + "：在当前源包上打开" : name, () => _service.OpenDraft(draft, stale));
-            button.ClipText = true; button.TooltipText = name + $"\n草稿 {draft.Id.Value}" +
+                stale ? "在当前源包上打开" : "打开", () => _service.OpenDraft(draft, stale));
+            button.TooltipText = name + $"\n草稿 {draft.Id.Value}" +
                 (stale ? "\n来源已变化；请手动处理修改。工具不会自动合并。" : "\n打开并重新保存后才加入本次待写入修改。");
-            _drafts.AddChild(button);
+            row.AddChild(button);
         }
     }
 
-    private void RefreshSources()
+    private void RefreshSources(bool force = false)
     {
+        if (!force && _source.ItemCount > 0 && _listedSourceTarget == _service.Target
+            && _listedCoreWritable == _service.CanWriteCore && _sourceChoices.SequenceEqual(_service.Sources)) return;
+        _listedSourceTarget = _service.Target; _listedCoreWritable = _service.CanWriteCore;
         _sourceUpdating = true; _source.Clear(); _source.AddItem("选择要编辑的源包…");
         _coreIndex = -1;
         if (_service.CanWriteCore) { _coreIndex = _source.ItemCount; _source.AddItem("core（开发源码）"); }
@@ -142,12 +154,12 @@ internal partial class AuthoringPanel
     {
         if (_sourceUpdating) return;
         if (selected == _coreIndex) _service.OpenCore();
-        else if (selected == _newModIndex) { PrepareNewMod(); RefreshSources(); }
+        else if (selected == _newModIndex) { PrepareNewMod(); RefreshSources(true); }
         else if (selected > 0)
         {
             var source = _sourceChoices[(int)selected - (_coreIndex >= 0 ? 2 : 1)];
             if (source.Package is { } id) _service.Open(source.Directory, id);
-            else { ShowProblems(source.Diagnostics.Select(item => new AuthoringIssue(item))); RefreshSources(); }
+            else { ShowProblems(source.Diagnostics.Select(item => new AuthoringIssue(item))); RefreshSources(true); }
         }
     }
 
