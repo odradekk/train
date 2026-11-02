@@ -100,6 +100,8 @@ public partial class SettingsOverlay
         }
         KeyRow("close", "关闭当前界面／返回", "Esc");
         KeyRow("console", "打开／关闭控制台", "` / ~");
+        KeyRow("console_complete", "补全命令（控制台，有建议时）", "Tab");
+        KeyRow("console_history", "选择补全项／翻看历史命令（控制台）", "↑ / ↓");
         KeyRow("console_submit", "执行命令（控制台）", "Enter");
         KeyRow("save_name", "确认名称（存档）", "Enter");
 

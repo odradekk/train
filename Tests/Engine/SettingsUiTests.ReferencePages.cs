@@ -36,9 +36,9 @@ public partial class SettingsUiTests
                         Require(rows.Count(row => row.Name == "Key_" + action) == 1, "按键页必须列出全部项目 InputMap 动作。");
                 }
                 Require(rows.Single(row => row.Name == "Key_editor_undo").Text == "F6", "按键说明应读取实际绑定，不能复制默认键位。");
-                Require(!string.IsNullOrWhiteSpace(Find<Label>(overlay, "Key_console").Text) &&
-                    !string.IsNullOrWhiteSpace(Find<Label>(overlay, "Key_close").Text),
-                    "按键页必须包含代码中硬编码的控制台和关闭快捷键。");
+                foreach (var name in new[] { "Key_console", "Key_close", "Key_console_complete", "Key_console_history" })
+                    Require(rows.Any(row => row.Name == name && !string.IsNullOrWhiteSpace(row.Text)),
+                        $"按键页必须列出快捷键并提供非空按键说明：{name}。");
                 await input.Activate(Find<Button>(overlay, "About"));
                 Require(Find<Label>(overlay, "Version").Text == ProjectSettings.GetSetting("application/config/version").AsString(),
                     "关于页应显示实际工程版本。");
