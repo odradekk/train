@@ -10,6 +10,7 @@ public sealed class EditorScenes : IScenesFactory
 {
     public Func<IContentView, DesignEvaluation, SceneResult<IDesignEditSession>>? OpenEditorCall { get; set; }
     public Func<IContentView, SettlementTemplateDraft, EditRevision, SceneResult<ITemplatePreview>>? PreviewTemplateCall { get; set; }
+    public Func<IContentView, DesignEvaluation, SceneResult<IDesignPreview>>? PreviewDesignCall { get; set; }
     public Action<EditorSession>? ConfigureSession { get; set; }
     public EditorSession? Session => Sessions.LastOrDefault();
     public List<EditorSession> Sessions { get; } = [];
@@ -24,7 +25,8 @@ public sealed class EditorScenes : IScenesFactory
         return new SceneResult<IDesignEditSession>.Success(session);
     }
     public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial) => throw Unconfigured();
-    public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial) => throw Unconfigured();
+    public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial) =>
+        PreviewDesignCall?.Invoke(content, initial) ?? throw Unconfigured();
     public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision) =>
         PreviewTemplateCall?.Invoke(content, draft, revision) ?? throw Unconfigured();
     private static InvalidOperationException Unconfigured() => new("UNCONFIGURED: 场景入口。");
