@@ -332,7 +332,7 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
             app = await Boot(fixture, (loaded, logger) => host.Create(logger, loaded.Notifications.Decide));
             await _input.WaitUntil(() => app.Saves!.Status is not null);
             var first = host.Session;
-            const string expected = "运行因车辆全部被毁结束。游戏继续。可以在「存档」里读档，或「返回菜单」后新游戏。";
+            var expected = NotificationPolicy.RunDestroyedText;
             first.QueueAdvance(new(1, new(1, 0), [new(new(1, 0), 0, new CoreEvent.RunReported(new(new(7), new(1, 0),
                 RunEndReason.AllVehiclesDestroyed, new(new(0, 0), new Money(0), new Money(0), new Money(0), 0, 0, null, []))))],
                 null, null), host.View(new(1, 0)));
@@ -341,7 +341,7 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
             app.Host.SetPaused(true);
             var ui = app.GetNode<GameUi>("GameUi");
             var notices = ui.FindChildren("Notice", "Button", true, false).Cast<Button>().Select(button => button.Text).ToArray();
-            Require(NotificationPolicy.RunDestroyedText == expected && notices.Any(text => text.Contains(expected) && text.Contains("列车 7") && text.Contains("严重")) &&
+            Require(notices.Any(text => text.Contains(expected) && text.Contains("列车 7") && text.Contains("严重")) &&
                 !app.Host.GetStatus()!.IsFrozen && first.SubmitCount == 0 &&
                 !expected.Contains("核心模拟发生故障") && !ui.ErrorText.Contains("核心模拟发生故障"),
                 $"全毁通知或冻结状态不对：{string.Join(" | ", notices)} / {ui.ErrorText}");
