@@ -1,12 +1,10 @@
 using System.Collections.Immutable;
-using Train.Content.Contracts;
-using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 
 namespace Train.Engine.Tests;
 
-internal static class EconomyFixture
+internal static partial class EconomyFixture
 {
     internal enum VehicleState { ForSale, Owned, Formed }
     internal const long LargeQuantity = 9007199254740993;
@@ -24,8 +22,12 @@ internal static class EconomyFixture
         SettlementRelation relation = SettlementRelation.NonHostile, int leaseCount = 1, InventoryView? settlementInventory = null,
         IReadOnlyList<ConstructionJobView>? commissionJobs = null,
         double foodExpectedNetChangePerSecond = 0, double equipmentExpectedNetChangePerSecond = 0,
-        ulong completedSteps = 0, ulong? leaseExpiresAt = null, InventoryView? leaseInventory = null)
+        ulong completedSteps = 0, ulong? leaseExpiresAt = null, InventoryView? leaseInventory = null,
+        ImmutableArray<VehicleId> extraForSale = default, ImmutableArray<VehicleId> extraOwned = default,
+        bool routeToSecondSettlement = false, RunPlan? purchasedPlan = null, bool purchasedRunning = false, long vehicleTotal = 917)
     {
+        if (extraForSale.IsDefault) extraForSale = [];
+        if (extraOwned.IsDefault) extraOwned = [];
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
         var terrain = new TerrainView(new("fixture:plain"), 0, []);
@@ -38,7 +40,10 @@ internal static class EconomyFixture
             [new(10)], new(12), 0, 20, 10, 100, 0, 30,
             null, null, 0, new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2),
             [], null, [], TrainOrderFacing.FirstEndLeading, null);
-        var purchasedTrain = train with { Id = new(8), Vehicles = [new(9)], Inventory = new(13) };
+        var purchasedTrain = train with { Id = new(8), Vehicles = [new(9), .. extraOwned], Inventory = new(13),
+            Plan = purchasedPlan, Activity = purchasedRunning ? TrainActivity.Running : TrainActivity.Stopped };
+        var secondNode = node with { Id = new(2), Position = new(650, 300), Occupant = new NodeOccupant.Settlement(new(2), SettlementRelation.NonHostile) };
+        var route = new EdgeMapItem(new(1), new(1), new(2), 400, terrain, 1, 1, [], []);
         var existingVehicleId = new InstanceId.Vehicle(new(10));
         var existingVehicle = new InstanceView(existingVehicleId, new("fixture-vehicle"), new("fixture-composition"), location,
             SettlementRelation.PlayerOwned, new InstanceDetails.Vehicle(SizeClass.Medium, train.Id),
@@ -61,6 +66,10 @@ internal static class EconomyFixture
                 new(100, 5, 2, 20, 0, 75, 50),
                 [new(Food, 42, 50, 2, 40, 20, foodExpectedNetChangePerSecond, []),
                  new(Equipment, 3, 5, 0, 3, 2, equipmentExpectedNetChangePerSecond, [])]));
+        settlement = settlement with {
+            ParkedVehicles = [.. settlement.ParkedVehicles, .. extraForSale, .. (vehicle == VehicleState.Formed ? [] : extraOwned)],
+            VehiclesForSale = [.. settlement.VehiclesForSale, .. extraForSale]
+        };
         if (commissionJobs is not null) settlement = settlement with { CommissionJobs = [.. commissionJobs.Select(job => job.Id)] };
         InventoryView Inventory(ulong id, InventoryOwner owner) => new(new(id), owner, location, InventoryAccess.ReadWrite,
             100, 5, 2, 93, 1.25, [new(Food, foodQuantity, false), new(Equipment, 1, false)], []);
@@ -82,9 +91,10 @@ internal static class EconomyFixture
         }
         var vehicles = new Dictionary<VehicleTradeQuoteRequest, CoreResult<VehicleTradeQuote>>();
         foreach (var action in new[] { VehicleTradeAction.Buy, VehicleTradeAction.Sell })
+        foreach (var id in extraForSale.Concat(extraOwned).Prepend(new(9)))
         {
-            var request = new VehicleTradeQuoteRequest(new(1), new(9), action);
-            vehicles.Add(request, new CoreResult<VehicleTradeQuote>.Success(new(request, new(revision), new(917), blockers)));
+            var request = new VehicleTradeQuoteRequest(new(1), id, action);
+            vehicles.Add(request, new CoreResult<VehicleTradeQuote>.Success(new(request, new(revision), new(vehicleTotal), blockers)));
         }
         var leases = new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>();
         LeaseRequest[] leaseRequests = [new LeaseRequest.Rent(new(1), 3, LeaseDuration),
@@ -92,28 +102,38 @@ internal static class EconomyFixture
             new LeaseRequest.Renew(new(1), LeaseDuration * 3)];
         foreach (var request in leaseRequests)
             leases.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(revision), new(419), 3, blockers)));
+        var instances = new Dictionary<InstanceId, Lookup<InstanceView>> {
+            [instanceId] = new Lookup<InstanceView>.Found(instance),
+            [existingVehicleId] = new Lookup<InstanceView>.Found(existingVehicle),
+            [new InstanceId.Vehicle(new(11))] = new Lookup<InstanceView>.Missing()
+        };
+        foreach (var id in extraForSale.Concat(extraOwned))
+            instances[new InstanceId.Vehicle(id)] = new Lookup<InstanceView>.Found(instance with {
+                Id = new InstanceId.Vehicle(id),
+                Ownership = extraOwned.Contains(id) ? SettlementRelation.PlayerOwned : SettlementRelation.NonHostile,
+                Details = new InstanceDetails.Vehicle(SizeClass.Medium,
+                    vehicle == VehicleState.Formed && extraOwned.Contains(id) ? purchasedTrain.Id : null)
+            });
         return new(new(completedSteps, revision), HostCoreScenario.Input, revision: new(revision))
         {
-            World = new(1, new("fixture:railway"), 1000, 600, [node], [], vehicle == VehicleState.Formed
+            World = new(1, new("fixture:railway"), 1000, 600, routeToSecondSettlement ? [node, secondNode] : [node], routeToSecondSettlement ? [route] : [], vehicle == VehicleState.Formed
                 ? [new(train.Id, train.Position, train.Activity), new(purchasedTrain.Id, purchasedTrain.Position, purchasedTrain.Activity)]
                 : [new(train.Id, train.Position, train.Activity)], [], []),
             Economy = new(new(wallet), rule, rule, rule, new(0), []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
-                [new(1)] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)), [new(2)] = new Lookup<NodeView>.Missing()
+                [new(1)] = new Lookup<NodeView>.Found(new(node, routeToSecondSettlement ? [route.Id] : [], 80, 0, 80)),
+                [new(2)] = routeToSecondSettlement ? new Lookup<NodeView>.Found(new(secondNode, [route.Id], 80, 0, 80)) : new Lookup<NodeView>.Missing()
             },
+            Edges = routeToSecondSettlement ? new Dictionary<EdgeId, Lookup<EdgeView>> { [route.Id] = new Lookup<EdgeView>.Found(new(route, [new(1, null, [])], null)) } : new Dictionary<EdgeId, Lookup<EdgeView>>(),
             Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
             {
                 [location] = new Lookup<LocationView>.Found(new(location, vehicle == VehicleState.Formed ? [train.Id, purchasedTrain.Id] : [train.Id],
-                    [instanceId, existingVehicleId], [], [], occupant)),
-                [new WorldLocation.Node(new(2))] = new Lookup<LocationView>.Missing()
+                    [instanceId, existingVehicleId, .. extraForSale.Select(id => (InstanceId)new InstanceId.Vehicle(id)),
+                        .. extraOwned.Select(id => (InstanceId)new InstanceId.Vehicle(id))], [], [], occupant)),
+                [new WorldLocation.Node(new(2))] = routeToSecondSettlement ? new Lookup<LocationView>.Found(new(new WorldLocation.Node(new(2)), [], [], [], [], secondNode.Occupant)) : new Lookup<LocationView>.Missing()
             },
-            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
-            {
-                [instanceId] = new Lookup<InstanceView>.Found(instance),
-                [existingVehicleId] = new Lookup<InstanceView>.Found(existingVehicle),
-                [new InstanceId.Vehicle(new(11))] = new Lookup<InstanceView>.Missing()
-            },
+            Instances = instances,
             Trains = new Dictionary<TrainId, Lookup<TrainView>>
             {
                 [train.Id] = new Lookup<TrainView>.Found(train),
@@ -123,7 +143,8 @@ internal static class EconomyFixture
             },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             {
-                [new(1)] = new Lookup<SettlementView>.Found(settlement), [new(2)] = new Lookup<SettlementView>.Missing()
+                [new(1)] = new Lookup<SettlementView>.Found(settlement), [new(2)] = routeToSecondSettlement
+                    ? new Lookup<SettlementView>.Found(settlement with { Id = new(2), Node = new(2), ParkedVehicles = [], VehiclesForSale = [], Leases = [] }) : new Lookup<SettlementView>.Missing()
             },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
             {
@@ -148,118 +169,4 @@ internal static class EconomyFixture
         };
     }
 
-    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3,
-        ImmutableArray<ProcessProjection> processes = default,
-        IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
-        BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
-        ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
-        string? equipmentName = null, long? leaseDurationTicks = null)
-    {
-        var icon = new AssetRevision("fixture-food-png");
-        var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
-        var market = new MarketRuleProjection(new("fixture:economy"), new("fixture-market-v1"), 1, 1, 1,
-            new(new(10000), new(10000), new(10000), new(0)), [], new(10000), new(10000), [],
-            60, 10, new(1), new(1), new(10000), leaseDurationTicks ?? (long)LeaseDuration, maxLeaseMultiple);
-        var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
-        {
-            MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market],
-            Processes = processes.IsDefault ? [] : processes,
-            SettlementTemplates = mapPresentation ? [new(new("fixture:town"), new("fixture:town"), 1, [], [], [], [], 80)] : []
-        };
-        return new(projection, new(generation))
-        {
-            Voxels = [],
-            Lairs = new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>
-            { [new("fixture:lair")] = new ContentLookup<LairAppearanceProjection>.Missing([]) },
-            LocalDrafts = drafts.IsDefault ? [] : drafts,
-            Blueprints = [.. new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().Select(record =>
-                new BlueprintSummary(record.Address, record.Definition.Display,
-                    ((DesignEvaluation.Complete)record.Evaluation).Design, true, []))],
-            BlueprintRecords = new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().ToDictionary(
-                record => record.Address, record => (ContentLookup<BlueprintRecord>)new ContentLookup<BlueprintRecord>.Found(record)),
-            DefinitionDisplays = definitionDisplays ?? (mapPresentation
-                ? new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
-                {
-                    [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound(),
-                    [new CoreDefinitionReference.Terrain(new("core:plains"))] = new ContentLookup<ContentDisplay>.NotFound(),
-                    [new CoreDefinitionReference.SettlementType(new("fixture:town"))] =
-                        new ContentLookup<ContentDisplay>.Found(new(new("聚居地", "有限外壳情景"), null, icon, false))
-                }
-                : new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
-                {
-                    [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound(),
-                    [new CoreDefinitionReference.Terrain(new("core:plains"))] = new ContentLookup<ContentDisplay>.NotFound()
-                }),
-            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
-            {
-                [new(1)] = mapPresentation
-                    ? new ContentLookup<SettlementLayoutProjection>.Found(new(new(1), new("fixture:town"),
-                        new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
-                            new("地面", "")), [], new("青川", "有限外壳情景")))
-                    : new ContentLookup<SettlementLayoutProjection>.NotFound(),
-                [new(2)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
-            },
-            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
-            {
-                [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new(foodName, "有限经济情景"), icon, null, false), null, false)),
-                [new GoodId.Voxel(new("fixture:ore"))] = new ContentLookup<GoodPresentation>.Missing([]),
-                [Equipment] = equipmentName is null ? new ContentLookup<GoodPresentation>.Missing([])
-                    : new ContentLookup<GoodPresentation>.Found(new(Equipment, new(new(equipmentName, ""), icon, null, false), null, false))
-            },
-            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
-            {
-                [icon] = new ContentLookup<ContentAsset>.Found(new(icon, bytes, new AssetMetadata.Png(1, 1), []))
-            },
-            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-            {
-                [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
-                [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
-                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding(armedBuilding)),
-                [new("fixture-food-building")] = new ContentLookup<DesignEvaluation>.Found(FoodBuilding())
-            }
-        };
-    }
-
-    private static DesignEvaluation.Complete ServiceBuilding()
-    {
-        var definition = new DesignDraft(new("施工建筑", ""),
-            new DesignSpecification.Building(PlotSize.Small, BuildingKind.Construction, []), new([], [], []));
-        var design = new DesignInput(HostCoreScenario.Input,
-            new(new("fixture-service-building"), new("fixture-building-composition"),
-                new DesignKind.Building(PlotSize.Small, BuildingKind.Construction, []),
-                [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
-                    [new PartCapability.Construction(1, PlotSize.Small, SizeClass.Medium)], false)],
-                100, 1, 1, new(1), [], [], 0, [], true, []), []);
-        return new(design.Design.Design, design.Design.Composition, definition, design,
-            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
-    }
-
-    private static DesignEvaluation.Complete PlainBuilding(bool armed)
-    {
-        var definition = new DesignDraft(new("普通建筑", ""),
-            new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, []), new([], [], []));
-        var design = new DesignInput(HostCoreScenario.Input,
-            new(new("fixture-plain-building"), new("fixture-plain-composition"),
-                new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
-                [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
-                    [new PartCapability.Production(1), .. (armed ? new PartCapability[] { new PartCapability.Weapon(12, 2) } : [])], false)],
-                100, 1, 1, new(1), [], [], 0, [], true, []), []);
-        return new(design.Design.Design, design.Design.Composition, definition, design,
-            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
-    }
-
-    private static DesignEvaluation.Complete FoodBuilding()
-    {
-        var definition = new DesignDraft(new("食品建筑", ""),
-            new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, [FacilityTag.FoodProcessing]), new([], [], []));
-        var design = new DesignInput(HostCoreScenario.Input,
-            new(new("fixture-food-building"), new("fixture-food-composition"),
-                new DesignKind.Building(PlotSize.Small, BuildingKind.Production, [FacilityTag.FoodProcessing]),
-                [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
-                    [new PartCapability.Production(1)], false)],
-                100, 1, 1, new(1), [], [], 0, [], true, []), []);
-        return new(design.Design.Design, design.Design.Composition, definition, design,
-            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
-    }
 }

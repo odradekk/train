@@ -11,7 +11,6 @@ internal sealed class SettlementPanel
 {
     private readonly Control _parent;
     private readonly HostCoordinator _host;
-    private readonly Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit;
     private readonly Action<HostBinding, ICoreReadView, IContentView> _refresh;
     private readonly Action _invalidateTrainInventory;
     private readonly SettlementVehiclesPage _vehicles;
@@ -38,7 +37,7 @@ internal sealed class SettlementPanel
     private Button _combat = null!;
 
     internal SettlementView? Settlement => _settlement;
-    internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
+    internal event Action<PanelTarget, NodeId, ImmutableArray<VehicleId>, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<InstanceId>? ServiceDesignRequested;
     internal event Action<SettlementId>? SettlementCombatRequested;
     internal event Action<WorldObjectId, Control>? Opened;
@@ -49,12 +48,12 @@ internal sealed class SettlementPanel
         GoodsRows goods, Action<HostBinding, ICoreReadView, IContentView> refresh, Action invalidateTrainInventory,
         Func<PanelTarget?, CoreCommand, SubmissionResult> submitInline)
     {
-        _parent = parent; _host = host; _submit = submit; _refresh = refresh; _invalidateTrainInventory = invalidateTrainInventory;
+        _parent = parent; _host = host; _refresh = refresh; _invalidateTrainInventory = invalidateTrainInventory;
         _goods = goods; _submitInline = submitInline;
-        _vehicles = new(() => CanAct, Quote, Submit, (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content));
+        _vehicles = new(() => CanAct, SubmitInline, (target, node, vehicles, view, content) => FormationRequested?.Invoke(target, node, vehicles, view, content));
         _warehouse = new(() => CanAct, goods, SubmitInline);
         _services = new(host, () => CanAct, ReadCurrent, submit, submitTarget, RefreshAfterSubmission);
-        _services.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
+        _services.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, [], view, content);
         _services.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
     }
 
@@ -100,10 +99,10 @@ internal sealed class SettlementPanel
             _buildings = new(() => CanAct, command => SubmitInline(_target!, command));
             _buildings.Build(Page(tabs, "建筑"));
         }
-        _vehicles.BuildVehicles(Page(tabs, "现车"));
+        _vehicles.BuildVehicles(Page(tabs, "车辆"), _owned);
         if (!_owned) _warehouse.Build(Page(tabs, "仓库"));
         _services.BuildServices(Page(tabs, "建造与工地"));
-        tabs.TabChanged += _ => _services.RefreshServices();
+        tabs.TabChanged += _ => { _services.RefreshServices(); _vehicles.UpdateVehicleActions(); };
         _refresh(_binding, _view, _content);
         Opened?.Invoke(new WorldObjectId.Settlement(id), _panel);
     }
@@ -169,14 +168,6 @@ internal sealed class SettlementPanel
         _state.Text = _view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : _host.IsBusy ? "当前操作尚未结束" : "";
     }
 
-    private void Submit(PanelTarget target, CoreCommand command, Action requote)
-    {
-        if (!CanAct) return;
-        _submit(target, command);
-        if (!RefreshAfterSubmission(_invalidateTrainInventory)) return;
-        Quote(requote);
-    }
-
     private SubmissionResult SubmitInline(PanelTarget target, CoreCommand command)
     {
         var result = _submitInline(target, command);
@@ -197,12 +188,6 @@ internal sealed class SettlementPanel
     {
         if (_host.GetStatus() is not { } status || _host.Content is not { } content) return false;
         Bind(status.Binding, status.View, content); return true;
-    }
-
-    private void Quote(Action request)
-    {
-        if (!CanAct) return;
-        request(); _refresh(_binding, _view, _content);
     }
 
     internal void Observe(HostBinding binding, ICoreReadView view, ImmutableArray<EventEnvelope> events)

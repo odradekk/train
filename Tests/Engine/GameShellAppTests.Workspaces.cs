@@ -140,8 +140,11 @@ public partial class GameShellAppTests
                         if (entry == "Formation")
                         {
                             await _input.ChooseTab(Find<TabContainer>(shell.InspectorContent!, "Pages"), 2);
-                            await _input.Activate(Find<Button>(shell.InspectorContent!, "FormPurchased"));
-                            await _input.Activate(Find<CheckBox>(shell.WorkspaceContent!, "Vehicle9"));
+                            var selected = Find<CheckBox>(shell.InspectorContent!, "ParkedVehicle9");
+                            if (!selected.ButtonPressed) await _input.Activate(selected);
+                            await _input.Activate(Find<Button>(shell.InspectorContent!, "FormParked"));
+                            Require(Find<CheckBox>(shell.WorkspaceContent!, "Vehicle9").ButtonPressed,
+                                "车辆页的勾选应预选进入编组工作区。");
                         }
                         else if (entry == "Plan")
                         {

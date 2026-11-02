@@ -74,75 +74,6 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Purchased_vehicle_enters_existing_formation_with_same_identity()
-    {
-        var before = EconomyFixture.Create();
-        var owned = EconomyFixture.Create(2, vehicle: EconomyFixture.VehicleState.Owned);
-        owned.FormationPreviews = TrainFormationTestScenario.Vehicle9;
-        var formed = EconomyFixture.Create(3, vehicle: EconomyFixture.VehicleState.Formed);
-        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
-        setup.Session.QueueSubmit(new CoreCommand.BuyVehicle(new(1), new(9), new(917)), CommandSource.UserInterface,
-            Completed(1, before, owned, new CommandDecision.Accepted([], [])), owned);
-        setup.Session.QueueSubmit(new CoreCommand.FormTrain([new(9)]), CommandSource.UserInterface,
-            Completed(2, owned, formed, new CommandDecision.Accepted([new WorldObjectId.Train(new(8)), new WorldObjectId.Inventory(new(13))], [])), formed);
-        await Run(setup, async (ui, economy) =>
-        {
-            await Page(economy, 2);
-            await _input.Activate(Find<Button>(economy, "SelectBuyVehicle"));
-            await _input.Activate(Find<Button>(economy, "QuoteVehicle"));
-            Require(Find<Label>(economy, "VehicleQuote").Text.Contains("917"), "车辆总额未按核心报价显示。");
-            await UiCapture.Capture(TestScene, "economy-vehicle");
-            await _input.Activate(Find<Button>(economy, "ConfirmVehicle"));
-            await _input.WaitUntil(() => ReferenceEquals(ui.View, owned));
-            var details = Find<Label>(economy, "VehicleDetails").Text;
-            var quote = Find<Label>(economy, "VehicleQuote").Text;
-            Require(!quote.Contains("917") && details.Contains("已买入") && !details.Contains("已不在") && !quote.Contains("已不存在"),
-                $"买入成交后仍显示旧总额，或把已成交说成不在清单中：{details} / {quote}");
-            await _input.Activate(Find<Button>(economy, "FormPurchased"));
-            var formation = Find<TrainFormationWorkspace>(ui, "TrainFormationWorkspace");
-            var available = Find<VBoxContainer>(formation, "AvailableVehicles");
-            Require(available.GetChildCount() == 1 && Find<CheckBox>(available, "Vehicle9").IsVisibleInTree(),
-                "买后原车辆未进入编组候选。");
-            await _input.Activate(Find<CheckBox>(available, "Vehicle9"));
-            Require(Find<VBoxContainer>(formation, "OrderedVehicles").GetChildCount() == 1, "真实输入未把车辆9加入编组。");
-            await _input.Activate(Find<Button>(formation, "FormOnly"));
-            await _input.WaitUntil(() => ReferenceEquals(ui.View, formed));
-            Require(formed.FindTrain(new(8)) is Lookup<TrainView>.Found purchased &&
-                purchased.Value.Vehicles.SequenceEqual(new VehicleId[] { new(9) }) &&
-                formed.FindTrain(new(7)) is Lookup<TrainView>.Found existing &&
-                existing.Value.Vehicles.SequenceEqual(new VehicleId[] { new(10) }) &&
-                formed.FindInstance(new InstanceId.Vehicle(new(9))) is Lookup<InstanceView>.Found
-                    { Value.Details: InstanceDetails.Vehicle { Train: { Value: 8 } } },
-                "购入车辆没有进入新列车8，或原列车7被替换。");
-        });
-        setup.Session.AssertComplete();
-    }
-
-    [Test]
-    public async Task Sold_vehicle_detail_reports_the_sale_instead_of_a_missing_selection()
-    {
-        var before = EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned);
-        var sold = EconomyFixture.Create(2);
-        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
-        setup.Session.QueueSubmit(new CoreCommand.SellVehicle(new(1), new(9), new(917)), CommandSource.UserInterface,
-            Completed(1, before, sold, new CommandDecision.Accepted([], [])), sold);
-        await Run(setup, async (ui, economy) =>
-        {
-            await Page(economy, 2);
-            await _input.Activate(Find<Button>(economy, "SelectSellVehicle"));
-            await _input.Activate(Find<Button>(economy, "QuoteVehicle"));
-            await _input.Activate(Find<Button>(economy, "ConfirmVehicle"));
-            await _input.WaitUntil(() => ReferenceEquals(ui.View, sold));
-            var details = Find<Label>(economy, "VehicleDetails").Text;
-            var quote = Find<Label>(economy, "VehicleQuote").Text;
-            Require(Find<Button>(economy, "SelectBuyVehicle").Visible && details.Contains("已卖出") &&
-                !details.Contains("已不在") && !quote.Contains("已不存在"),
-                $"卖出成交后详情把仍在清单中的车辆说成已不在：{details} / {quote}");
-        });
-        setup.Session.AssertComplete();
-    }
-
-    [Test]
     public async Task Capacity_blockers_and_stale_bindings_disable_submission_across_inspector_switches()
     {
         var view = EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned, forSale: 0, purchaseAvailable: 0, blocked: true);
@@ -153,11 +84,10 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             await Page(economy, 2);
             Require(Find<Label>(economy, "SoldOut").Text.Contains("售罄") &&
                 Find<Label>(economy, "PurchaseCapacity").Text.Contains("收购名额：0"), "售罄或收购名额未展示。");
-            await _input.Activate(Find<Button>(economy, "SelectSellVehicle"));
-            await _input.Activate(Find<Button>(economy, "QuoteVehicle"));
-            Require(Find<Button>(economy, "ConfirmVehicle").Disabled &&
-                Find<Label>(economy, "VehicleQuote").Text.Contains("可用容量不足") &&
-                !Find<Label>(economy, "VehicleQuote").Text.Contains("insufficient_capacity"), "收购受阻时不得允许卖车。");
+            await _input.Activate(Find<CheckBox>(economy, "ParkedVehicle9"));
+            Require(Find<Button>(economy, "SellVehicles").Disabled &&
+                Find<Label>(economy, "SaleReason").Text.Contains("可用容量不足") &&
+                !Find<Label>(economy, "SaleReason").Text.Contains("insufficient_capacity"), "收购受阻时不得允许卖车。");
             await Market(economy);
             Require(Find<Button>(economy, "ConfirmTrade").Disabled &&
                 Find<Label>(economy, "Quote").Text.Contains("资金不足") &&
@@ -239,20 +169,22 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             Require(setup.Session.SubmitCount == 1 && ReferenceEquals(ui.View, after),
                 $"跨修订确认没有提交原报价：count={setup.Session.SubmitCount}, revision={ui.View?.Revision}, error={ui.ErrorText}, rect={Find<Button>(economy, "ConfirmTrade").GetGlobalRect()}, quote={Find<Label>(economy, "Quote").Text}。");
             await Page(economy, 2);
-            var select = Find<Button>(economy, "SelectBuyVehicle");
+            var select = Find<CheckBox>(economy, "BuyVehicle9");
             await _input.ClickAcrossRevision(select, () => Advance(EconomyFixture.Create(6)));
-            await _input.Activate(Find<Button>(economy, "QuoteVehicle"));
-            Require(Find<Label>(economy, "VehicleQuote").Text.Contains("917"), "修订变化吞掉现车选择点击。");
+            Require(select.ButtonPressed && Find<Label>(economy, "PurchaseTotal").Text.Contains("917"), "修订变化吞掉现车选择点击。");
             var vehicleNext = EconomyFixture.Create(7);
             var owned = EconomyFixture.Create(8, vehicle: EconomyFixture.VehicleState.Owned);
             setup.Session.QueueAdvance(new(1, vehicleNext.Position, [], null, null), vehicleNext);
             setup.Session.QueueSubmit(new CoreCommand.BuyVehicle(new(1), new(9), new(917)), CommandSource.UserInterface,
                 Completed(2, vehicleNext, owned, new CommandDecision.Accepted([], [])), owned);
-            await _input.ClickAcrossRevision(Find<Button>(economy, "ConfirmVehicle"), () =>
-            {
-                Require(host.Step(1).Problem is null, "不能发布现车确认修订。");
-                Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, vehicleNext, host.Content!);
-            });
+            await _input.Activate(Find<Button>(economy, "BuyVehicles"));
+            var confirmation = Find<ConfirmationDialog>(economy, "BuyVehiclesConfirmation");
+            var confirmedText = confirmation.DialogText;
+            Require(confirmation.Visible && confirmedText.Contains("917"), "购买确认未显示玩家已看到的报价。");
+            Require(host.Step(1).Problem is null, "不能发布现车确认修订。");
+            Find<EconomyPanels>(ui, "EconomyPanels").Refresh(host.GetStatus()!.Binding, vehicleNext, host.Content!);
+            Require(confirmation.Visible && confirmation.DialogText == confirmedText, "普通修订替换了购买确认中的报价。");
+            await _input.Activate(Find<Button>(confirmation, "BuyOnly"), confirmation);
             Require(setup.Session.SubmitCount == 2 && ReferenceEquals(ui.View, owned), "跨修订现车确认没有成交。");
         });
         setup.Session.AssertComplete();
@@ -296,9 +228,10 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 await Market(economy);
                 RequireInWindow(Find<Button>(economy, "ConfirmTrade"));
                 await Page(economy, 2);
-                RequireInWindow(Find<Button>(economy, "ConfirmVehicle"));
-                RequireInWindow(Find<Button>(economy, "QuoteVehicle"));
-                RequireInWindow(Find<Button>(economy, "FormPurchased"));
+                RequireInWindow(Find<Button>(economy, "BuyVehicles"));
+                RequireInWindow(Find<Button>(economy, "FormParked"));
+                RequireInWindow(Find<Button>(economy, "SellVehicles"));
+                RequireInWindow(Find<Button>(economy, "RepairVehicles"));
                 await Page(economy, 3);
                 RequireInWindow(Find<Button>(economy, "ConfirmLease"));
                 await Page(economy, 7);
@@ -420,7 +353,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
 
     private Task Page(Control economy, int index)
     {
-        var title = index switch { 1 => "市场", 2 => "现车", 3 => "仓库", _ => "建造与工地" };
+        var title = index switch { 1 => "市场", 2 => "车辆", 3 => "仓库", _ => "建造与工地" };
         var tabs = Find<TabContainer>(economy, "Pages");
         return _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == title));
     }

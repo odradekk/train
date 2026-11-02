@@ -229,7 +229,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
                 shell.InspectorContent is { Visible: true } settlement &&
                 Enumerable.Range(0, Find<TabContainer>(settlement, "Pages").GetTabCount())
                     .Select(Find<TabContainer>(settlement, "Pages").GetTabTitle)
-                    .SequenceEqual(new[] { "概况", "库存", "建筑", "现车", "建造与工地" }) &&
+                    .SequenceEqual(new[] { "概况", "库存", "建筑", "车辆", "建造与工地" }) &&
                 !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(),
                 "占用者变化没有把建城入口替换为聚居地检查器。");
             var entry = Find<Button>(shell.InspectorContent!, "OpenSettlementCombat");
