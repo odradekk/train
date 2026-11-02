@@ -67,7 +67,7 @@ public partial class GameUi
         _gameMenu.GetPopup().IdPressed += id => _menuActions[(int)id]();
         MenuAction("保存", () => _menu.ShowSaveFailure(_saves?.Save()));
         MenuAction("存档与读档", _menu.OpenSaves);
-        MenuAction("设置", _settings.Show);
+        MenuAction("设置", _settings.Open);
         MenuAction("报告问题", _settings.OpenIssueReport);
         MenuAction("返回主菜单", () => _menu.ShowSaveFailure(_saves?.ReturnToMenu()));
         MenuAction("退出游戏", () => GetParent<Train.App.App>().RequestQuit());
@@ -119,7 +119,7 @@ public partial class GameUi
         if (_menu.CloseSavesOnEscape()) return true;
         if (_errorPanel.Visible) { _errorPanel.Hide(); return true; }
         if (_notices?.CloseLog() == true) return true;
-        if (_settings.Visible) { _settings.Hide(); return true; }
+        if (_settings.HandleEscape()) return true;
         if (_newGame?.Visible == true) { CancelNewGame(); return true; }
         return false;
     }

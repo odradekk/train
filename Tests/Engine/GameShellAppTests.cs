@@ -63,7 +63,7 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
             foreach (var label in new[] { "保存", "存档与读档", "设置", "报告问题", "返回主菜单", "退出游戏", "开发工具", "创作模式" })
                 Require(labels.Contains(label), $"游戏菜单缺少入口：{label}。");
             await _input.ChooseMenu(menu, "设置");
-            var settings = Find<SettingsPanel>(ui, "SettingsPanel");
+            var settings = Find<SettingsOverlay>(ui, "SettingsOverlay");
             Require(settings.IsVisibleInTree(), "菜单应打开现有设置界面。");
             await _input.PressKey(Key.Escape);
             Require(!settings.Visible, "Esc 应关闭设置覆盖层。");
