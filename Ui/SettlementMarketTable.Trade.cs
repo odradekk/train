@@ -98,6 +98,9 @@ internal sealed partial class SettlementMarketTable
         if (_train is { } train && _good is { } good && TrainInventory(train) is { } inventory)
             _cargo.Text = $"车上{SettlementOverviewPage.GoodName(good, _content)}：{inventory.Stacks.FirstOrDefault(item => item.Good == good)?.Quantity ?? 0} · 剩余载量 {inventory.Available}";
         else _cargo.Text = "";
+        _warehouseCargo.Visible = !Owned && Transfer && Local is not null;
+        _warehouseCargo.Text = !Owned && Transfer && Local is { } warehouse && _good is { } selectedGood
+            ? $"仓库中{SettlementOverviewPage.GoodName(selectedGood, _content)}：{warehouse.Stacks.FirstOrDefault(item => item.Good == selectedGood)?.Quantity ?? 0} · 剩余空间 {warehouse.Available}" : "";
     }
 
     private bool TrainPresent => _train is { } train && _view.FindTrain(train) is Lookup<TrainView>.Found

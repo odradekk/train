@@ -30,7 +30,7 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         _trains = Text(body, "PresentTrains", "");
         _jobs = Text(body, "Commissions", "");
         _leases = Text(body, "LeaseSummary", "");
-        body.AddChild(UiStyle.Button("ManageLeases", "管理租用仓库", () => openPage("仓库租用")));
+        body.AddChild(UiStyle.Button("ManageLeases", "管理租用仓库", () => openPage("仓库")));
         _market = Text(body, "MarketTrends", "");
         body.AddChild(UiStyle.Button("OpenMarket", "查看市场", () => openPage("市场")));
         Text(body, "ServicesTitle", "可用服务");

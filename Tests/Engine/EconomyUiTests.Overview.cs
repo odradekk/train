@@ -16,7 +16,7 @@ public partial class EconomyUiTests
         {
             var tabs = Find<TabContainer>(panel, "Pages");
             var titles = Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle).ToArray();
-            Require(titles.SequenceEqual(new[] { "概况", "市场", "现车", "仓库租用", "建造与工地" }),
+            Require(titles.SequenceEqual(new[] { "概况", "市场", "现车", "仓库", "建造与工地" }),
                 "非敌对聚居地应只显示概况、市场和暂时保留的三个页面。");
             Require(tabs.CurrentTab == 0, "选中聚居地后应先显示概况。");
             Require(!panel.FindChildren("OpenSettlementCombat", "Button", true, false).Any(), "概况已提供宣战，不应重复显示战斗入口。");
@@ -103,7 +103,7 @@ public partial class EconomyUiTests
             var current = Find<PanelContainer>(ui, "Settlement");
             var tabs = Find<TabContainer>(current, "Pages");
             Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
-                .SequenceEqual(new[] { "现车", "仓库租用", "建造与工地" }) && setup.Session.SubmitCount == 1,
+                .SequenceEqual(new[] { "现车", "仓库", "建造与工地" }) && setup.Session.SubmitCount == 1,
                 "宣战后应只保留敌对聚居地的剩余旧页，而且只提交一次。");
         });
         setup.Session.AssertComplete();
