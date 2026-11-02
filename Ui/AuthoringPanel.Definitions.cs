@@ -37,8 +37,7 @@ internal partial class AuthoringPanel
         var actions = new HFlowContainer(); box.AddChild(actions);
         actions.AddChild(UiStyle.Button("NewDefinition", "新建定义…", () => ShowModal(_newDefinition)));
         actions.AddChild(UiStyle.Button("DeleteDefinition", "删除定义…", ConfirmDelete));
-        _tree = new Tree { Name = "DefinitionTree", HideRoot = true, SizeFlagsVertical = SizeFlags.ExpandFill,
-            CustomMinimumSize = new(0, 160) }; box.AddChild(_tree);
+        _tree = new Tree { Name = "DefinitionTree", HideRoot = true, SizeFlagsVertical = SizeFlags.ExpandFill }; box.AddChild(_tree);
         _tree.ItemSelected += () =>
         {
             if (_selectingTree || _tree.GetSelected() is not { } selected) return;

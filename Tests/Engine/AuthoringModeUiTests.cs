@@ -58,6 +58,30 @@ public class AuthoringModeUiTests(Node testScene) : TestClass(testScene)
                 && actual.Size.IsEqualApprox(expected.Size), "创作界面必须覆盖整个 Root，不能保留浮动小窗布局。");
             Require(app.Host!.GetStatus() is null, "从主菜单进入创作不能隐式创建世界。");
 
+            var window = TestScene.GetTree().Root;
+            var size = window.Size;
+            var scale = window.ContentScaleFactor;
+            try
+            {
+                foreach (var (resolution, factor) in new[] { (new Vector2I(1920, 1080), 1f), (new Vector2I(1280, 720), 1f), (new Vector2I(1920, 1080), 2f) })
+                {
+                    window.Size = resolution; window.ContentScaleFactor = factor;
+                    await input.Frames(3);
+                    var tree = Find<Tree>(panel, "DefinitionTree");
+                    var drafts = tree.GetParent().GetChildren().OfType<ScrollContainer>().Single();
+                    var viewport = panel.GetViewport().GetVisibleRect();
+                    Require(mode.GetGlobalRect().End.Y <= viewport.End.Y + 1
+                        && tree.GetGlobalRect().End.Y <= viewport.End.Y + 1
+                        && drafts.GetGlobalRect().End.Y <= viewport.End.Y + 1,
+                        $"{resolution}、缩放 {factor} 时，定义树和旧草稿列表必须完整处于屏幕内。");
+                }
+            }
+            finally
+            {
+                window.ContentScaleFactor = scale; window.Size = size;
+                await input.Frames(3);
+            }
+
             await input.Activate(Find<Button>(panel, "ExitAuthoring"));
             await input.WaitUntil(() => menu.IsVisibleInTree() && !panel.IsVisibleInTree());
             Require(!root.GetNode<Control>("World").IsVisibleInTree() && app.Host.GetStatus() is null,
