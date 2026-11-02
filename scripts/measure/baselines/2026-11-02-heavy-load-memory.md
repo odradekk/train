@@ -112,21 +112,29 @@ natural-map 是每次视图循环回到宏观地图、保持观察后取得的�
 
 ## unknown 与限制
 
-L 节点末窗不稳定，所以两项稳态增量 unknown。原报告的同进程 node_private_delta/node_render_delta 缺少有效配对时仍为 unknown，H 的独立进程派生值不修改原判定。S 的 retired_heap_delta 缺少 cycle 0 配对，仍为 unknown；S reset_heaps 另列。
+L 节点末窗不稳定，所以两项稳态增量 unknown。原报告的同进程 node_private_delta/node_render_delta 缺少有效配对时仍为 unknown，H 的独立进程派生值不修改原判定。原报告中 S 的 retired_heap_delta 缺少 cycle 0 配对，为 unknown；S reset_heaps 另列。
 
-M 不足两小时；M 和 S 的“不得持续增长”均缺少数值判定规则，private_growth/working_set_growth/render_growth 保持 unknown。局部负斜率不能当作通过。第三小时不完整，不能外推。
+原报告生成时增长规则尚未定义；M 不足两小时，不作长测判定。S 现按 [#867 规则](https://github.com/odradekk/train/issues/867)从各负载三轮原始数据离线复判，未重测。存活堆沿用上面仅 reset 的增量，C／B／L 三轮各自都超过 100 MiB。私有字节只判第 2 小时：
+
+| 负载 | 三轮中位数 MiB/h（上限 100） | 单轮最大 MiB/h（上限 200） |
+| --- | --- | --- |
+| C | 115.431524，不通过 | 209.037120，不通过 |
+| B | 195.393390，不通过 | 400.221706，不通过 |
+| L | -363.760846，通过 | 281.549404，不通过 |
+
+因此三组存活堆和私有字节增长均不通过。Linux 工作集只记录，不按 3 GiB 判定；渲染分配按 2 GiB 绝对上限判定，不判斜率。第三小时不完整，仍不外推；busy-combat 的负载限制仍然适用。
 
 原报告所有 unknown 项及 failed 项按轮次保留在 JSON 的 `assessment_audit`。这些 failed 是性能阈值失败；所选正式场景的 report.outcome=completed、进程 exit_code=0、未超时且清理成功。阈值失败不等于测量执行失败。Linux 私有字节为 RssAnon+VmSwap，不能直接和 Windows 私有提交比较。
 
 ## 复算
 
-原始数据保存在 **#866 验证归档（工作树 `TestResults/` 的副本）**，`<归档>` 指该副本根目录。在测量提交对应的源码根目录运行通用汇总器；`<job>`、`<artifact>`、`<measure>` 替换为归档中的对应目录名，M-C 使用 `M-C-retry/artifacts-verified/`：
+原始数据保存在 **#866 验证归档（工作树 `TestResults/` 的副本）**，`<归档>` 指该副本根目录。复现旧汇总使用测量提交的脚本；复判新规则使用含 #867 改动的脚本。`<job>`、`<artifact>`、`<measure>` 替换为归档中的目录名，M-C 使用 `M-C-retry/artifacts-verified/`：
 
 ```powershell
 python scripts/measure/summarize.py "<归档>/issue-866-formal/<job>/artifacts/<artifact>/<measure>/scenarios" --output "<新汇总.json>"
 ```
 
-通用汇总给出末窗、小时斜率与原始报告索引；节点／地图按同轮配对相减，存活堆按上文各自的 GC 基线计算。完整逐轮派生值、源文件哈希、验证记录及离线脚本保存在 `<归档>/issue-866-delivery/memory/`。排除 reference、旧失败 M-C 和人工取消批次。
+通用汇总给出末窗、小时斜率与原始报告索引；节点／地图按同轮配对相减，存活堆按上文各自的 GC 基线计算。新规则逐轮及合并结果在 `scenarios.scene-soak.memory_assessment.A`；合并时把同负载三轮的报告和旁车复制到一个目录，用 `summary.json.runs` 的不同相对路径索引，不改原文件。完整逐轮派生值、源文件哈希、验证记录及旧离线脚本保存在 `<归档>/issue-866-delivery/memory/`。排除 reference、旧失败 M-C 和人工取消批次。
 
 busy-combat 长测约 98.5% 采样帧低于配方，不能把这些内存结果当完整重负载达标证据；其他 full 帧、参考过期及线路 23 未知的范围见[帧基线](2026-11-02-heavy-load-frame-time.md)。三次 S-B2 和一次 S-L2 的人工取消记录不计轮数，编号亦列于该文件。standard-world 未重测，原因同该文件所述。
 

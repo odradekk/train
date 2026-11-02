@@ -73,7 +73,8 @@ public sealed class MeasurementAssessmentTests
             using var report = Report("scene-map", Timing(), new()
             { ["scene_budget"] = new { final_map = new { samples = 3,
                 private_bytes = limit + offset, working_set_bytes = limit + offset, video_bytes = limit + offset } } });
-            Assert.AreEqual(expected, Item(report, metric).GetProperty("status").GetString());
+            Assert.AreEqual(metric == "game_working_set" && OperatingSystem.IsLinux() ? "recorded" : expected,
+                Item(report, metric).GetProperty("status").GetString());
         }
     }
 
