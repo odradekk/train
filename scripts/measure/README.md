@@ -1,14 +1,16 @@
 # 测量辅助脚本
 
-`measure.ps1` 默认测量无需参考文件的 `scene-route-1x`、`scene-route-8x`，其余场景须显式选择；`export-measurement.ps1` 用于导出。场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。脚本使用 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
+`measure.ps1` 默认测量无需参考文件的 `scene-route-1x`、`scene-route-8x`，其余场景须显式选择；`export-measurement.ps1` 用于导出。场景和报告见 [测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。依赖 PowerShell 7、Python 3 标准库和系统计数器，无需 Pester 或额外包。
 
 `-NodeReadyHold` 仅使 `scene-node-first` 和参考运行的指定节点 Ready 后保持 60 秒，其余场景忽略。runner 的 `measure_node_ready_hold` 默认 false，仅传给 `measure` 的参考和场景运行。首开 `measure_seconds` 为 0–120，不改保持时长（默认 5 秒，开启后 60 秒）；混选路线须为 0。`scene-map` 末段纯地图固定保持 60 秒，不受此参数控制；其他地图保持仍为 5 秒。旧 `scene-map` 读数不可比；已提交的基线见 [baselines/](baselines/)。
+
+两入口共用 `-TrainId`／`-NodeId`／`-EdgeId`／`-SoakProfile`；默认值、重负载目标和 workflow 调用见[测量目标](targets.md)。
 
 ## 开发机交替对照
 
 `compare-measurement.ps1` 在协调者安排的安静窗口里做 Windows 开发机交替对照；正式测量用 Linux runner。须备好两侧 Release 导出及所需参考。参考须与测量使用同一构建、存档、列车和节点。
 
-`-NodeReadyHold` 开启时透传给 `measure.ps1`；`-TrainId`、`-NodeId` 仅显式指定时透传，均为正整数，默认分别为 1、2。示例：
+`-NodeReadyHold` 开启时透传给 `measure.ps1`；`-TrainId`、`-NodeId` 仅显式指定时透传，均为正整数，默认分别为 1、2。对照入口不构建、导出或制作参考。示例：
 
 ```powershell
 & ./scripts/measure/compare-measurement.ps1 `
@@ -143,7 +145,7 @@ python scripts/measure/scene-scale.py verify --input TestResults/scene-scale-inp
 
 失败时保留 JSON、日志和分项结果。`stage` 记录具体阶段，命令失败的 `RuntimeError` 消息写入 `failure`，`failed_observation` 指向已有失败观测 JSON。
 
-Linux 的 `measure_input_set=scene-scale` 生成四档后，仅对 1／10× 串行运行参考和所选场景，正式选择 `scene-node-first`。30／100× 打开内存超过测试机容量，仅生成存档和统计。开发机核对应使用待验收提交运行 `verify`，只打开 1／10×，两档均作十秒复核。测量结果在 `scale-<倍率>x/`；`scale-inputs/` 保留根目录 JSON、日志和 `saves/`，结束时清理临时内容树。`example` 输入集仍限 `examples/` 文件。
+Linux 规模输入的生成档位、运行范围和产物布局见 [CI](../../docs/ci.md#linux-夜间运行)。开发机用待验收提交运行 `verify`，只打开 1／10×，两档均作十秒复核。
 
 ## 测试与手动验证
 
@@ -159,8 +161,6 @@ Linux 测量需要 `gamescope` 和 `python3`。输出文件见[测试手册](../
 
 不启动游戏的拒绝路径检查：沿用上面的单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。每次采样均有效且 CPU 均值大于零时，预期有 8 次预检（4 次主序列、4 次补跑）、全部 `measurement_started=false`，并返回 1。查看 `comparison.json` 确认每个计划项只有两次尝试。
 
-
 完整冒烟在安静窗口里以同一导出作为 A 和 B，各跑两轮 `scene-follow-8x -DurationSeconds 2`，再汇总；检查顺序、报告、退出状态、负载日志和每侧有效轮数。每次测量都应成功启动并结束。
-
 
 汇总中两侧帧耗时 p50 都应为 `valid_runs: 2`、`unknown_runs: 0`；检查每轮的 `external-load.jsonl` 是否有有效计数。Linux 采样路径通过 runner 的 `measure` workflow 运行短场景验证，同样检查负载日志。这些冒烟验证编排和采样，不代表性能收益。

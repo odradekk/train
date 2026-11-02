@@ -9,6 +9,28 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementReportTests
 {
     [TestMethod]
+    [DataRow("scene-soak", null, "standard-world", true)]
+    [DataRow("scene-soak", "standard-world", "standard-world", true)]
+    [DataRow("scene-soak", "crowded-station", "crowded-station", false)]
+    [DataRow("scene-soak", "busy-combat", "busy-combat", false)]
+    [DataRow("scene-soak", "long-consist", "long-consist", false)]
+    [DataRow("scene-map", null, "current-stage", false)]
+    public void ReportScopeDescribesSelectedSoakWorld(string scenario, string? profile,
+        string expectedWorld, bool expectedRecipeGap)
+    {
+        var identity = new Dictionary<string, object?>();
+        if (profile is not null) identity["soak_profile"] = profile;
+        using var report = JsonDocument.Parse(MeasurementReport.Serialize(scenario, identity,
+            null, "no rendered frames"));
+        var scope = report.RootElement.GetProperty("scope");
+        var recipeGap = scope.GetProperty("unmeasured").EnumerateArray().Any(gap =>
+            gap.GetString() == "full_recipe_load_only_briefly_after_each_reset");
+
+        Assert.AreEqual((expectedWorld, expectedRecipeGap),
+            (scope.GetProperty("world").GetString(), recipeGap));
+    }
+
+    [TestMethod]
     public void MissingSamplesCanOnlyBeReportedAsFailure()
     {
         Assert.Throws<InvalidOperationException>(() => MeasurementReport.Serialize("scene-map",
