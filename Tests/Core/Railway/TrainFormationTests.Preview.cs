@@ -183,6 +183,3 @@ public sealed partial class TrainFormationTests
         CollectionAssert.AreEqual(expected.RelatedIdentities.ToArray(), actual.RelatedIdentities.ToArray());
     }
 }
-
-
-

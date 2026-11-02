@@ -197,8 +197,3 @@ public sealed partial class TrainFormationTests
         Assert.IsNull(result.Diagnostic);
     }
 }
-
-
-
-
-

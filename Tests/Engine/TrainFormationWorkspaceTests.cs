@@ -65,8 +65,8 @@ public partial class TrainFormationWorkspaceTests(Node testScene) : TestClass(te
             });
             if (!shell)
             {
-                var parent = fixture.AutoFree(new Control { Size = TestScene.GetViewport().GetVisibleRect().Size });
-                parent.AddChild(panel); app.GetNode<GameUi>("GameUi").AddChild(parent);
+                var ui = app.GetNode<GameUi>("GameUi"); ui.AddChild(panel);
+                panel.Opened += () => ((GameShell)ui.World).ShowWorkspace(panel);
             }
             await new UiTestInput(TestScene).Frames(2);
             await run(panel, app.Host!.GetStatus()!.Binding, view, content);

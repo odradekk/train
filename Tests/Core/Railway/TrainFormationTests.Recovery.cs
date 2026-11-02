@@ -56,4 +56,3 @@ public sealed partial class TrainFormationTests
         Assert.AreEqual(ReplayStop.EndOfRecording, replay.Advance(0).Stop);
     }
 }
-
