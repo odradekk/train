@@ -120,7 +120,7 @@
     "Tests/Engine/CombatEffectTests.cs": 13724,
     "Tests/Engine/CombatUiTests.cs": 9237,
     "Tests/Engine/EconomyUiTests.cs": 10415,
-    "Tests/Engine/EditorUiTests.cs": 17201,
+    "Tests/Engine/EditorUiTests.cs": 17075,
     "Tests/Engine/GoodsIconTests.cs": 6983,
     "Tests/Engine/ObservationIndependenceTests.cs": 6419,
     "Tests/Engine/RailwayWorkUiTests.cs": 6017,

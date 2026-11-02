@@ -2,6 +2,7 @@ using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
+using Train.App.Logging;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -52,6 +53,7 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
     {
         await Run(async (app, console) =>
         {
+            var threshold = app.Logger.Threshold;
             await _input.PressKey(Key.Quoteleft);
             var edit = Find<LineEdit>(console, "ConsoleInput");
             var suggestions = Find<ItemList>(console, "Suggestions");
@@ -69,7 +71,8 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
             Require(edit.Text == "sim pause ", "上下键应选择子命令后由 Tab 接受。");
             Require(Find<Label>(console, "CurrentUsage").Text.Contains("sim"), "输入框上方应显示当前命令用法。");
             await _input.PressKey(Key.Enter);
-            Require(app.Logger.Threshold == Train.App.Logging.LogLevel.Debug && edit.Text == "" && edit.HasFocus(),
+            Require(app.Logger.Threshold == threshold, "执行模拟命令不能改变日志写入阈值。");
+            Require(edit.Text == "" && edit.HasFocus(),
                 "执行后应清空输入并能继续输入。");
             Require(console.LogEvents.Any(item => item.EventId == "simulation_paused"), "输入必须真正分发到模拟处理器。");
             await _input.PressKey(Key.Up);
@@ -127,6 +130,7 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
     {
         await Run(async (app, console) =>
         {
+            var threshold = app.Logger.Threshold;
             await _input.PressKey(Key.Quoteleft);
             await _input.Activate(Find<Button>(console, "ClearOutput"));
             app.Logger.Debug("console", "filter_debug", "调试筛选样本。");
@@ -147,7 +151,7 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
             await _input.Choose(filter, 3);
             Require(output.GetParsedText().Contains("调试筛选样本") && !output.GetParsedText().Contains("信息筛选样本"),
                 "调试筛选应只显示调试级别。");
-            Require(console.LogEvents.Count == 4 && app.Logger.Threshold == Train.App.Logging.LogLevel.Debug,
+            Require(console.LogEvents.Count == 4 && app.Logger.Threshold == threshold,
                 "显示筛选不能删除日志或改变写入阈值。");
             string? copied = null;
             console.CopyText = text => copied = text;
@@ -170,6 +174,7 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            app.Logger.Threshold = LogLevel.Debug;
             await _input.Frames(3);
             await check(app, app.GetChildren().OfType<GameConsole>().Single());
         }
