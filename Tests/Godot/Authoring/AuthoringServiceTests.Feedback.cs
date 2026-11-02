@@ -19,7 +19,7 @@ public sealed partial class AuthoringServiceTests
         var captured = Blueprint("changed form");
         ImmutableArray<PackageEdit> received = [];
         fixture.Host.Factory.ValidateAuthoringDefinitionCall = (_, _, edits, _) =>
-        { received = edits; return new ContentResult<ImmutableArray<ContentDiagnostic>>.Success([Diagnostic("invalid_field", "校验结果")]); };
+        { received = edits; return new ContentResult<ImmutableArray<ContentDiagnostic>>.Failure([Diagnostic("invalid_field", "校验结果")]); };
         fixture.Service.MarkFormDirty(); fixture.Service.UpdateForm(captured);
         fixture.Service.Process();
         Assert.AreEqual(0, received.Length, "静默时间不足时不校验。");
@@ -45,7 +45,7 @@ public sealed partial class AuthoringServiceTests
             var value = (DefinitionDraft.Blueprint)((PackageEdit.WriteDefinition)edits.Single()).Draft;
             lock (names) names.Add(value.Value.Display.Name);
             if (value.Value.Display.Name == "first") { entered.Set(); HostFixture.WaitForSignal(release, "释放旧校验"); }
-            return new ContentResult<ImmutableArray<ContentDiagnostic>>.Success([Diagnostic("invalid_field", value.Value.Display.Name)]);
+            return new ContentResult<ImmutableArray<ContentDiagnostic>>.Failure([Diagnostic("invalid_field", value.Value.Display.Name)]);
         };
         fixture.Service.MarkFormDirty(); fixture.Service.UpdateForm(Blueprint("first")); clock.Advance(200); fixture.Service.Process();
         HostFixture.WaitForSignal(entered, "进入旧校验");
