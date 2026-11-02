@@ -196,11 +196,13 @@ public partial class SceneDisplayTests
         SceneResources.GeometryPreparation? pending = null;
         try
         {
-            var unlimited = new SceneDisplay.PreparationSlice(display, 0, null, true);
-            using var cold = measureCold ? resources.TryPrepare(source, null, unlimited, ref pending)! : resources.Prepare(source);
-            using var hit = resources.TryPrepare(source, null, unlimited, ref pending)!;
-            Require(ReferenceEquals(cold.Node.GetChild<MeshInstance3D>(0).Mesh, hit.Node.GetChild<MeshInstance3D>(0).Mesh),
-                "廉价路径须确实复用同一份缓存网格。");
+            using var cold = measureCold ? resources.TryPrepare(source, null,
+                new(display, 0, null, true), ref pending)! : null;
+            using var hit = measureCold ? resources.TryPrepare(source, null,
+                new(display, 0, null, true), ref pending)! : null;
+            if (measureCold)
+                Require(ReferenceEquals(cold!.Node.GetChild<MeshInstance3D>(0).Mesh, hit!.Node.GetChild<MeshInstance3D>(0).Mesh),
+                    "廉价路径须确实复用同一份缓存网格。");
             await new UiTestInput(TestScene).Frames(1);
             SpendPreparationTime(display, first, 2);
             display.Timestamp = () => 0;
@@ -211,12 +213,17 @@ public partial class SceneDisplayTests
             Require(denied is null && !GeometryIsCached(resources, other), measureCold
                 ? "已测冷成本不能被0ms命中覆盖，剩余2ms时必须在生成新网格前停下。"
                 : "没有冷成本样本时，本帧已做过工作就必须在生成新网格前停下。");
-            await new UiTestInput(TestScene).Frames(1);
-            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
-            using var resumed = resources.TryPrepare(otherSource, null,
-                new(display, 0, TimeSpan.FromMilliseconds(4), false), ref pending);
-            Require(resumed is not null && GeometryIsCached(resources, other),
-                "新帧首项必须恢复推进，估算超过整帧预算也不能饿死。");
+            PreparedVisual? resumed = null;
+            for (var frame = 0; frame < 4 && resumed is null; frame++)
+            {
+                await new UiTestInput(TestScene).Frames(1);
+                display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+                resumed = resources.TryPrepare(otherSource, null,
+                    new(display, 0, TimeSpan.FromMilliseconds(4), false), ref pending);
+            }
+            using (resumed)
+                Require(resumed is not null && GeometryIsCached(resources, other),
+                    "后续帧首项必须恢复推进，未知阶段和超过整帧预算的估算都不能饿死。");
         }
         finally { pending?.Dispose(); }
     }

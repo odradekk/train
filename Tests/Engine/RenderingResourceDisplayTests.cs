@@ -149,27 +149,9 @@ public partial class RenderingResourceTests
             new(null, new(new(Guid.Empty), new(1), new(2), revision), NVector3.Zero, objects, [], new([], []), []);
     }
 
-    private async Task<SceneDisplay.PreparedFrame> Prepare(SceneDisplay display, ISceneFrame frame)
-    {
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        while (watch.Elapsed < TimeSpan.FromSeconds(30))
-        {
-            if (display.Prepare(frame) is { } prepared) return prepared;
-            await display.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30));
-            await new UiTestInput(TestScene).Frames(1);
-        }
-        throw new InvalidOperationException("显示准备超时。");
-    }
+    private Task<SceneDisplay.PreparedFrame> Prepare(SceneDisplay display, ISceneFrame frame) =>
+        SceneDisplayTestDriver.Prepare(display, frame, TestScene);
 
-    private async Task AdvanceCandidate(SceneDisplay display, Func<bool> reached)
-    {
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        while (!reached() && watch.Elapsed < TimeSpan.FromSeconds(30))
-        {
-            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
-            await display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30));
-            if (!reached()) await new UiTestInput(TestScene).Frames(1);
-        }
-        Require(reached(), "候选必须在真实后续帧内达到预期进度。");
-    }
+    private Task AdvanceCandidate(SceneDisplay display, Func<bool> reached) =>
+        SceneDisplayTestDriver.AdvanceCandidate(display, reached, TestScene);
 }

@@ -126,7 +126,7 @@
     "Tests/Engine/ObservationIndependenceTests.cs": 6419,
     "Tests/Engine/ProductionPopulationUiTests.cs": 6886,
     "Tests/Engine/RailwayWorkUiTests.cs": 6017,
-    "Tests/Engine/RenderingResourceTests.cs": 8062,
+    "Tests/Engine/RenderingResourceTests.cs": 7012,
     "Tests/Engine/SaveTests.cs": 6106,
     "Tests/Engine/SceneDisplayTests.cs": 25015,
     "Tests/Engine/SceneUiTests.cs": 6527,

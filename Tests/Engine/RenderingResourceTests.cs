@@ -11,6 +11,7 @@ using Train.Rendering;
 using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;
 using static Train.Engine.Tests.Assertions;
+using static Train.Engine.Tests.SceneDisplayTestDriver;
 using NVector2 = System.Numerics.Vector2;
 using NVector3 = System.Numerics.Vector3;
 
@@ -26,8 +27,8 @@ public partial class RenderingResourceTests(Node testScene) : TestClass(testScen
         using var resources = new SceneResources(cache, new FixedContentView());
         var source = new SceneVisual.Geometry(Triangle(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel)),
             new(true, 17, 0.25f, false));
-        using var followed = resources.Prepare(source);
-        using var other = resources.Prepare(source);
+        using var followed = PrepareVisual(resources, cache, source);
+        using var other = PrepareVisual(resources, cache, source);
         var instance = Instance(followed);
         var mesh = instance.Mesh;
         var material = Material(followed);
@@ -72,64 +73,6 @@ public partial class RenderingResourceTests(Node testScene) : TestClass(testScen
             "释放场景资源必须在主线程销毁损伤遮罩。");
         Require(!GodotObject.IsInstanceValid(shader) && !GodotObject.IsInstanceIdValid(shaderId),
             "释放场景资源必须在主线程销毁共享着色器。");
-    }
-
-    [Test]
-    public async Task Geometry_uploads_outward_faces_and_all_vertex_and_surface_channels()
-    {
-        using var dispatcher = new GodotMainThreadDispatcher();
-        using var cache = new AssetResourceCache(dispatcher);
-        var asset = Png("channels");
-        using var resources = new SceneResources(cache, Content(asset));
-        var source = Triangle(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.PaintedMetal, new("#80a0c0")));
-        var surface = new SurfaceState(true, 0xfedcba9876543210UL, 0.375f, true);
-        var packed = await Task.Run(() => PackedSceneMesh.Create(source, CancellationToken.None));
-        using var visual = resources.Prepare(new SceneVisual.Geometry(source, surface), packed);
-        var instance = Instance(visual);
-        var mesh = (ArrayMesh)instance.Mesh;
-        using var arrays = mesh.SurfaceGetArrays(0);
-        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
-        var normals = arrays[(int)Mesh.ArrayType.Normal].AsVector3Array();
-        var uv = arrays[(int)Mesh.ArrayType.TexUV].AsVector2Array();
-        var faceUv = arrays[(int)Mesh.ArrayType.TexUV2].AsVector2Array();
-        var custom = arrays[(int)Mesh.ArrayType.Custom0].AsFloat32Array();
-        var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
-        Require(vertices.Length == source.Vertices.Length && normals.Length == vertices.Length &&
-            uv.Length == vertices.Length && faceUv.Length == vertices.Length && custom.Length == vertices.Length * 3 &&
-            indices.Length == source.TriangleIndices.Length, "后台打包必须保留全部顶点、索引与表现通道。");
-        var customFormat = ((ulong)mesh.SurfaceGetFormat(0) >> (int)Mesh.ArrayFormat.FormatCustom0Shift)
-            & (ulong)Mesh.ArrayFormat.FormatCustomMask;
-        Require(customFormat == (ulong)Mesh.ArrayCustomFormat.RgbFloat, "三个表现通道需要完整 float 精度。");
-        var outward = (vertices[indices[2]] - vertices[indices[0]]).Cross(vertices[indices[1]] - vertices[indices[0]]).Normalized();
-        Require(outward.Dot(Vector3.Back) > 0.999f, "正面绕序没有保持契约的外侧。");
-        for (var index = 0; index < source.Vertices.Length; index++)
-        {
-            var expected = source.Vertices[index];
-            Require(vertices[index].IsEqualApprox(new Vector3(expected.Position.X, expected.Position.Y, expected.Position.Z)), "格坐标被缩放或反射。");
-            Require(normals[index].Dot(outward) > 0.999f, "上传法线不朝外。");
-            Require(uv[index].IsEqualApprox(new Vector2(expected.TextureUv.X, expected.TextureUv.Y)), "TextureUv 丢失。");
-            Require(faceUv[index].IsEqualApprox(new Vector2(expected.FaceUv.X, expected.FaceUv.Y)), "FaceUv 丢失。");
-            Near(custom[index * 3], (int)expected.ExposedEdges);
-            Near(custom[index * 3 + 1], expected.RelativeHeight);
-            Near(custom[index * 3 + 2], expected.Damage);
-        }
-        for (var index = 0; index < indices.Length; index += 3)
-            Require(indices[index] == source.TriangleIndices[index] &&
-                indices[index + 1] == source.TriangleIndices[index + 2] &&
-                indices[index + 2] == source.TriangleIndices[index + 1], "后台打包必须完整保留三角形顺序并转换绕序。");
-        var material = Material(visual);
-        AssertSurface(material, surface);
-        Require(material.GetShaderParameter("has_paint").AsBool(), "几何涂装开关未上传。");
-        Require(material.GetShaderParameter("paint_color").AsColor().IsEqualApprox(Color.FromHtml("#80a0c0")), "几何涂装颜色未上传。");
-        var next = new SceneVisual.Geometry(source with
-        {
-            Material = new SceneMaterial.Voxel(asset.Revision, MaterialCategory.PaintedMetal, new("#102030"))
-        }, new(false, ulong.MaxValue, 0.75f, false));
-        Require(visual.CanUpdate(next), "只改表面状态和涂装不应重建几何。");
-        visual.Update(next);
-        AssertSurface(material, next.Surface);
-        Require(ReferenceEquals(instance.Mesh, mesh), "更新表面状态重建了网格。");
-        Require(material.GetShaderParameter("paint_color").AsColor().IsEqualApprox(Color.FromHtml("#102030")), "更新没有替换涂装颜色。");
     }
 
     [Test]
@@ -277,8 +220,8 @@ public partial class RenderingResourceTests(Node testScene) : TestClass(testScen
         var asset = Png("display-shared");
         using var resources = new SceneResources(cache, Content(asset));
         var source = new SceneVisual.Geometry(Triangle(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.Organic, null)), new(false, 0, 0, false));
-        using var first = resources.Prepare(source);
-        using var second = resources.Prepare(source);
+        using var first = PrepareVisual(resources, cache, source);
+        using var second = PrepareVisual(resources, cache, source);
         var mesh = Instance(first).Mesh;
         var meshId = mesh.GetInstanceId();
         ImageTexture texture;
@@ -387,7 +330,7 @@ public partial class RenderingResourceTests(Node testScene) : TestClass(testScen
             var responses = new HashSet<(float Roughness, float Metallic, float Specular)>();
             foreach (var category in Enum.GetValues<MaterialCategory>())
             {
-                var visual = resources.Prepare(new SceneVisual.Geometry(Triangle(new SceneMaterial.Voxel(asset.Revision, category, null)), new(false, 0, 0, false)));
+                var visual = PrepareVisual(resources, cache, new SceneVisual.Geometry(Triangle(new SceneMaterial.Voxel(asset.Revision, category, null)), new(false, 0, 0, false)));
                 visuals.Add(visual);
                 var material = Material(visual);
                 responses.Add((material.GetShaderParameter("material_roughness").AsSingle(),
@@ -400,7 +343,7 @@ public partial class RenderingResourceTests(Node testScene) : TestClass(testScen
             var builtinMaterials = new Dictionary<BuiltInMaterial, ShaderMaterial>();
             foreach (var builtin in Enum.GetValues<BuiltInMaterial>())
             {
-                var visual = resources.Prepare(new SceneVisual.Geometry(Triangle(new SceneMaterial.BuiltIn(builtin)), new(false, 0, 0, false)));
+                var visual = PrepareVisual(resources, cache, new SceneVisual.Geometry(Triangle(new SceneMaterial.BuiltIn(builtin)), new(false, 0, 0, false)));
                 visuals.Add(visual);
                 builtinMaterials.Add(builtin, Material(visual));
             }

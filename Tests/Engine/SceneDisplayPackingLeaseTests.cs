@@ -69,13 +69,9 @@ public partial class SceneDisplayTests
                 finally { release.Set(); }
                 packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
                 using var prepared = await Prepare(display, formal);
-                if (prepared is null) failures.Add($"正式打包依赖的{(sameKey ? "同键" : "不同键")}候选A租约在取消候选后丢失");
-                else
-                {
-                    prepared.Commit();
-                    Require(display.Objects.Count == 2 && display.Objects[new(formalId)].Visuals.Length == 1 &&
-                        GodotObject.IsInstanceValid(MeshOf(display.Objects[new(formalId)])), "正式帧必须持有有效A资源。");
-                }
+                prepared.Commit();
+                Require(display.Objects.Count == 2 && display.Objects[new(formalId)].Visuals.Length == 1 &&
+                    GodotObject.IsInstanceValid(MeshOf(display.Objects[new(formalId)])), "正式帧必须持有有效A资源。");
             }
             else
             {
