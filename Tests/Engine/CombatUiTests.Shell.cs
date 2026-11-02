@@ -1,4 +1,8 @@
 using Godot;
+using Train.Content.Contracts;
+using Train.Content.ContractSupport;
+using Train.Core.Contracts;
+using Train.Core.ContractSupport;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -6,10 +10,26 @@ namespace Train.Engine.Tests;
 
 public partial class CombatUiTests
 {
+    private static FixedContentView Content()
+    {
+        var scene = new DesignSceneProjection(null, null, null, true, null, null, [], [], [], [], []);
+        var layout = new SettlementLayoutProjection(new(4), new("preview:town"),
+            new(new("ground"), scene, new("Ground", "")), [], new("Town", ""));
+        return new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+        {
+            DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            { [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound() },
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [new("station")] = new ContentLookup<DesignEvaluation>.NotFound() },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+            { [new(4)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
+        };
+    }
+
     private async Task<CombatPanel> SelectBattlefield(GameUi ui)
     {
         await Press(Find<Button>(ui, "Combats"));
-        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "CombatsList"), "Objects"), 0);
+        await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "CombatsList"), "Objects"), 0);
         var combat = Find<CombatPanel>(ui, "CombatPanel");
         await _input.WaitUntil(() => combat.FindChildren("Vehicle11", "Button", true, false).Count == 1);
         await Press(Button(combat, "Vehicle11"));
@@ -25,7 +45,7 @@ public partial class CombatUiTests
     private async Task OpenSettlementCombat(GameUi ui)
     {
         await _input.Click(Find<Button>(ui, "Nodes").GetGlobalRect().GetCenter());
-        await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+        await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
         var settlement = Find<PanelContainer>(ui, "Settlement");
         var entry = Find<Button>(settlement, "OpenSettlementCombat");
         await _input.Click(entry.GetGlobalRect().GetCenter());

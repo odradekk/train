@@ -194,7 +194,14 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         }
         internal HostCoordinator Create(TrainLogger logger, Func<CoreEvent, NotificationAction>? policy = null)
         {
-            var view = _contentView ?? new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
+            var view = _contentView ?? new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+            {
+                DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+                {
+                    [new CoreDefinitionReference.Terrain(new("core:plains"))] = new ContentLookup<ContentDisplay>.NotFound(),
+                    [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound()
+                }
+            };
             var capture = new FixedCoreCapture(new(new(0, 0), "fixed", "fixed"), HostCoreScenario.References,
                 "opaque", HostCoreScenario.Input, new(1));
             Session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), capture)], [], [capture.Checkpoint], [], [], capture.References);

@@ -100,7 +100,7 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var shell = (GameShell)ui.World;
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             Find<NotificationPanel>(ui, "NotificationPanel").Add(new(Train.App.Notifications.NotificationCategory.Destruction,
                 Train.App.Notifications.NotificationLevel.Severe, "底栏避让检查。", null, null), app.Host!.GetStatus()!.View, app.Host.Content!);
             await _input.PressKey(Key.Quoteleft);

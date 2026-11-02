@@ -70,6 +70,7 @@ internal static class RailwayWorkUiFixture
             },
             DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
             {
+                [new CoreDefinitionReference.Terrain(new("core:plains"))] = new ContentLookup<ContentDisplay>.NotFound(),
                 [new CoreDefinitionReference.SettlementType(type)] = new ContentLookup<ContentDisplay>.Found(
                     new(new("镇", ""), null, symbol, false))
             },
