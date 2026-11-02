@@ -10,7 +10,7 @@ public partial class BlueprintLibraryUiTests
     [Test]
     public async Task Vehicle_counts_are_reused_across_new_read_views_and_card_selection_until_refresh()
     {
-        var basis = Vehicles();
+        var basis = Vehicles("pack-locomotive");
         var views = new List<CountedView> { new(basis) };
         var fixture = await Ready(views[0]);
         try
@@ -30,8 +30,8 @@ public partial class BlueprintLibraryUiTests
                 "新读视图不能使开着的蓝图库重新查询地点或聚居地。");
             Require(Shown(library, "2 辆车使用这个设计"), "库开着时保留上次刷新时的统计。");
             await input.Activate(Button(library, "内容包", exact: true));
-            Require(Shown(library, "0 辆车使用这个设计") && views.Sum(view => view.LocationQueries) == queries,
-                "选另一设计只查已有统计，没有同设计车辆也显示零。");
+            Require(Shown(library, "1 辆车使用这个设计") && views.Sum(view => view.LocationQueries) == queries,
+                "另一设计的车辆也应在打开时已汇总，选中时只查表。");
             await input.Activate(Button(library, "本局蓝图库", exact: true));
             library.Hide(); library.Open(); await input.Frames(3);
             Require(Shown(library, "0 辆车使用这个设计") && views.Sum(view => view.LocationQueries) == queries * 2,

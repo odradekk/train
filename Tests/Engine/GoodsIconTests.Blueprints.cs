@@ -64,7 +64,7 @@ public partial class GoodsIconTests
             foreach (var icon in controls) TestScene.AddChild(icon);
             await FramesUntil(TestScene, () => cache.GetChildren().OfType<SubViewport>().Any());
             Require(factory.PreviewCalls.Count == 1 && cache.GetChildCount() == 1 && previews.Single().PresentCalls == 1 &&
-                controls.All(icon => icon.TooltipText == "缩略图正在生成"),
+                controls.Take(2).All(icon => icon.TooltipText == "缩略图正在生成") && controls[2].TooltipText == "图标正在生成",
                 "完整评估采用 Design，部分评估采用 Scene.Design；相同哈希与世代必须和货物共享一次捕获。");
             cache.Bind(new(Guid.NewGuid()), Content(2));
             Require(previews.Single().DisposeCalls == 1 && cache.GetChildCount() == 0 &&

@@ -128,7 +128,7 @@ public partial class BlueprintLibraryUiTests
         finally { release.Set(); fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
 
-    private static FixedCoreReadView Vehicles()
+    private static FixedCoreReadView Vehicles(string otherDesign = "other-design")
     {
         var basis = UiWorldFixture.Map();
         var node = basis.World.Nodes[0];
@@ -137,7 +137,7 @@ public partial class BlueprintLibraryUiTests
         InstanceView Vehicle(ulong number, SettlementRelation relation, string hash) => new(new InstanceId.Vehicle(new(number)), new(hash), new("composition"), first,
             relation, new InstanceDetails.Vehicle(SizeClass.Small, number == 1 ? new TrainId(1) : null), InstanceLock.None, new(1, 1), [], []);
         var instances = new[] { Vehicle(1, SettlementRelation.PlayerOwned, "local-wagon"), Vehicle(2, SettlementRelation.NonHostile, "local-wagon"),
-            Vehicle(3, SettlementRelation.PlayerOwned, "other-design"), Vehicle(5, SettlementRelation.PlayerOwned, "local-wagon"),
+            Vehicle(3, SettlementRelation.PlayerOwned, otherDesign), Vehicle(5, SettlementRelation.PlayerOwned, "local-wagon"),
             new InstanceView(new InstanceId.Building(new(4)), new("local-wagon"), new("composition"), first, SettlementRelation.PlayerOwned,
                 new InstanceDetails.Building(new(1), PlotSize.Small), InstanceLock.None, new(1, 1), [], []) };
         var train = ((Lookup<TrainView>.Found)basis.FindTrain(new(7))).Value with { Id = new(1), Vehicles = [new(1)] };
