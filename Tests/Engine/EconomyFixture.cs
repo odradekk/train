@@ -169,6 +169,8 @@ internal static class EconomyFixture
         return new(projection, new(generation))
         {
             Voxels = [],
+            Lairs = new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>
+            { [new("fixture:lair")] = new ContentLookup<LairAppearanceProjection>.Missing([]) },
             LocalDrafts = drafts.IsDefault ? [] : drafts,
             Blueprints = [.. new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().Select(record =>
                 new BlueprintSummary(record.Address, record.Definition.Display,
