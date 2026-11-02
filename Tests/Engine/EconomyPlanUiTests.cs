@@ -97,27 +97,27 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var specification = specificationLabel.Text;
             var batchText = Find<Label>(specificationLabel.GetParent(), "Batch").Text;
             var revision = host.Content.Core.Processes.Single(item => item.Details is ProcessDetails.Production { Id.Value: "core:test" }).Revision.Value;
-            Require(specification.StartsWith($"当前定义：界面验证流程 · 修订 {revision[..8]}\n") &&
-                batchText.StartsWith($"进行中批次：界面验证流程 · 启动修订 {batch!.StartedFromRevision.Value[..8]}\n"),
-                "生产页未展示流程名称和八位短修订。");
+            Require(specification.Contains("界面验证流程") && batchText.Contains("界面验证流程"),
+                "建筑页应展示当前与本批流程的名称。");
             Require(!specification.Contains("core:test") && !batchText.Contains("core:test") &&
-                !specification.Contains(revision) && !batchText.Contains(batch!.StartedFromRevision.Value),
-                "生产页将定义标识用作名称，或仍显示完整修订。");
-            var populationText = Find<Label>(economy, "Population").Text;
+                !specification.Contains(revision[..8]) && !batchText.Contains(batch!.StartedFromRevision.Value[..8]),
+                "建筑页不能显示定义标识或修订哈希。");
+            var populationText = Find<Label>(economy, "PopulationSummary").Text;
             Require(specification.Contains("100001") && batchText.Contains("100000") && batchText.Contains("不同"),
-                "生产页未区分当前工作量与进行中批次冻结工作量。");
-            Require(populationText.Contains(current.Population.CurrentRule.PublishedRevision!.Value.Value) &&
-                populationText.Contains(period.Period.ExecutionRevision.Value), "人口页未同时展示当前与本期修订。");
-            Require(populationText.Contains("不同") && populationText.Contains("下一期"),
-                "人口页没有说明本期执行规则与当前发布规则不同及生效时机。");
+                "建筑页应区分当前工作量与进行中批次冻结工作量。");
+            Require(populationText.Contains("常住人口") && populationText.Contains("基本需求满足率") &&
+                !populationText.Contains(current.Population.CurrentRule.PublishedRevision!.Value.Value) &&
+                !populationText.Contains(period.Period.ExecutionRevision.Value), "概况应显示人口统计，不展示内部修订。");
             var input = new UiTestInput(TestScene);
             var tabs = Find<TabContainer>(economy, "Pages");
             await input.Frames(2);
-            await input.ChooseTab(tabs, 4);
-            economy.GetNode<ScrollContainer>("Layout/Content/Body/Pages/生产/Page").EnsureControlVisible(
+            await input.ChooseTab(tabs, 2);
+            var facility = current.Facilities.Single(item => item.Process == new ProcessRef.Production(new("core:test")));
+            await input.Activate(Find<Button>(economy, $"SelectBuilding_{facility.Key.Building.Value}"));
+            economy.GetNode<ScrollContainer>("Layout/Content/Body/Pages/建筑/Page").EnsureControlVisible(
                 Find<Label>(specificationLabel.GetParent(), "Batch"));
             await UiCapture.Capture(TestScene, "production-frozen-batch");
-            await input.ChooseTab(tabs, 5);
+            await input.ClickTab(tabs, 0);
             await UiCapture.Capture(TestScene, "population-frozen-period");
         }
         finally

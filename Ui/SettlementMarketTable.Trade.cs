@@ -18,7 +18,7 @@ internal sealed partial class SettlementMarketTable
             _description.Text = _trains.All(item => item is null) ? "没有列车在站。列车到站后才能交易。" : "请选择在站列车。";
             return;
         }
-        if (Local is not { } local) { _description.Text = "请选择租用仓库。"; return; }
+        if (Local is not { } local) { _description.Text = Owned ? "聚居地库存已不可用，请重新打开聚居地。" : "请选择租用仓库。"; return; }
         if (!long.TryParse(_quantity.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var quantity) || quantity <= 0)
         { _description.Text = "请输入正整数数量。"; return; }
         _quote = Read(new(train, _settlement.Id, local.Id, Action, good, quantity));
@@ -90,7 +90,7 @@ internal sealed partial class SettlementMarketTable
         _trainChoice.Disabled = _action.Disabled = _leaseChoice.Disabled = !available;
         _quantity.Editable = available;
         _maximum.Disabled = !available || !TrainPresent || Local is null;
-        _leaseChoice.Visible = _leaseLabel.Visible = Transfer && _leases.Count(item => item is not null) > 1;
+        _leaseChoice.Visible = _leaseLabel.Visible = !Owned && Transfer && _leases.Count(item => item is not null) > 1;
         _confirm.Disabled = !available || !TrainPresent || _quote is not { Blockers.IsEmpty: true } quote ||
             quote.CurrentlyExecutableQuantity < quote.Request.Quantity ||
             (quote.Request.Action is TradeAction.Buy or TradeAction.Sell && quote.Total is null);
