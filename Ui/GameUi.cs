@@ -159,7 +159,7 @@ public partial class GameUi : CanvasLayer
         _economy!.Close();
         _founding?.Close();
         _railway?.Close();
-        _formation.Hide(); _plan.Hide(); _combat?.Close(); _notices?.Hide();
+        _formation.Hide(); _plan.Hide(); _combat?.Close(); _notices?.CloseLog();
         _reports.Clear();
         _notices?.Clear();
     }
