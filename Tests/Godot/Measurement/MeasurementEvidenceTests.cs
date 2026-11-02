@@ -191,6 +191,7 @@ public sealed class MeasurementEvidenceTests
 
     private static object Open(string name, double click, double seconds, double far, bool valid = true, object? steady = null) =>
         new { kind = "open", name, target = "Node { Id = 2 }", click, observation_ended = click + seconds + far + 5,
+            node_voxel_cells = MeasurementAssessment.ReferenceNodeVoxelCells,
             click_to_operable_seconds = seconds, operable_to_ready_seconds = far, sample_valid = valid,
             steady = steady ?? Steady(click + seconds + far + 5, 1000, 2000, 100, 200, 3000) };
 
