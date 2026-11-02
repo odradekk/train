@@ -80,9 +80,9 @@ internal sealed partial class ContentView
             };
             if (kind is { } value) yield return AuthoringPackage.Choice(value, blueprint.Address.Id.Value, blueprint.Definition.Display);
         }
-        foreach (var terrain in _world.Terrains) yield return AuthoringPackage.Choice(C.AuthoringReferenceKind.TerrainType, terrain.Id.Value, terrain.Display);
-        foreach (var type in _world.Types) yield return AuthoringPackage.Choice(C.AuthoringReferenceKind.SettlementType, type.Source.Core.Id.Value, type.Source.Display);
+        foreach (var terrain in _world.Terrains) yield return AuthoringPackage.Choice(terrain.Id, terrain.Display);
+        foreach (var type in _world.Types) yield return AuthoringPackage.Choice(type.Source);
         foreach (var process in _world.Processes)
-            yield return AuthoringPackage.Choice(process.Reference is K.ProcessRef.Recovery ? C.AuthoringReferenceKind.RecoveryProcess : C.AuthoringReferenceKind.ProductionProcess, process.Id, process.Display);
+            yield return AuthoringPackage.Choice(process);
     }
 }

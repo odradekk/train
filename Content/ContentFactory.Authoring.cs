@@ -16,7 +16,7 @@ internal sealed partial class InitialContentFactory
         {
             package = AuthoringSource(package, view, edits);
             var allowed = package.Metadata.Dependencies.Select(dependency => dependency.Package).ToHashSet();
-            return new C.ContentResult<ImmutableArray<C.AuthoringReferenceChoice>>.Success(package.References(view)
+            return new C.ContentResult<ImmutableArray<C.AuthoringReferenceChoice>>.Success(package.References(view.ForAuthoring(package))
                 .Concat(view.AuthoringReferences().Where(choice => ReferenceId(choice.Reference).Split(':')[0] != package.Package.Value
                     && allowed.Contains(new(ReferenceId(choice.Reference).Split(':')[0]))))
                 .OrderBy(choice => choice.Kind).ThenBy(choice => ReferenceId(choice.Reference), StringComparer.Ordinal).ToImmutableArray());

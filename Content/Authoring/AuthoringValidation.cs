@@ -24,10 +24,10 @@ internal static class AuthoringValidation
         };
         if (parsed is null) return parser.Diagnostics.ToImmutableArray();
         if (parsed is ParsedVoxel) return [];
-        var choices = package.References(basis).Concat(basis.AuthoringReferences().Where(choice =>
+        var view = basis.ForAuthoring(package);
+        var choices = package.References(view).Concat(basis.AuthoringReferences().Where(choice =>
             !InitialContentFactory.ReferenceId(choice.Reference).StartsWith(package.Package.Value + ":", StringComparison.Ordinal))).ToArray();
         var known = choices.Select(choice => InitialContentFactory.ReferenceId(choice.Reference)).ToHashSet(StringComparer.Ordinal);
-        var view = basis.ForAuthoring(package);
         var references = new WorldLoader.References(view.AuthoringVoxels(parser), view.AuthoringBlueprints(), known);
         switch (parsed)
         {

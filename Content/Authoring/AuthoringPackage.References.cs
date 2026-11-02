@@ -57,9 +57,9 @@ internal sealed partial class AuthoringPackage
             Fail(field, "必须为有限数值。");
     }
 
-    internal ImmutableArray<C.AuthoringReferenceChoice> References(ContentView basis)
+    internal ImmutableArray<C.AuthoringReferenceChoice> References(ContentView view)
     {
-        var result = basis.ForAuthoring(this).AuthoringReferences()
+        var result = view.AuthoringReferences()
             .Where(choice => choice.Kind is C.AuthoringReferenceKind.InventoryVoxel or C.AuthoringReferenceKind.Building
                 or C.AuthoringReferenceKind.SceneModel or C.AuthoringReferenceKind.Creature or C.AuthoringReferenceKind.InventoryBlueprint)
             .Where(choice => InitialContentFactory.ReferenceId(choice.Reference).StartsWith(Package.Value + ":", StringComparison.Ordinal))
@@ -67,14 +67,19 @@ internal sealed partial class AuthoringPackage
         foreach (var (path, bytes) in _files)
         {
             if (ContentView.DefinitionFile(path, "terrain-types", "terrain-type") && TerrainParser.Parse(bytes.ToArray(), ParsingPackage(), path) is { } terrain)
-                result.Add(Choice(C.AuthoringReferenceKind.TerrainType, terrain.Id.Value, terrain.Display));
+                result.Add(Choice(terrain.Id, terrain.Display));
             else if (ContentView.DefinitionFile(path, "settlement-types", "settlement-type") && SettlementParser.Type(bytes.ToArray(), ParsingPackage(), path) is { } type)
-                result.Add(Choice(C.AuthoringReferenceKind.SettlementType, type.Core.Id.Value, type.Display));
+                result.Add(Choice(type));
             else if (ContentView.DefinitionFile(path, "processes", "process") && ProcessParser.Parse(bytes.ToArray(), ParsingPackage(), path) is { } process)
-                result.Add(Choice(process.Reference is K.ProcessRef.Recovery ? C.AuthoringReferenceKind.RecoveryProcess : C.AuthoringReferenceKind.ProductionProcess, process.Id, process.Display));
+                result.Add(Choice(process));
         }
         return result.ToImmutable();
     }
+
+    internal static C.AuthoringReferenceChoice Choice(K.TerrainTypeId terrain, C.DisplayText display) => Choice(C.AuthoringReferenceKind.TerrainType, terrain.Value, display);
+    internal static C.AuthoringReferenceChoice Choice(ParsedSettlementType type) => Choice(C.AuthoringReferenceKind.SettlementType, type.Core.Id.Value, type.Display);
+    internal static C.AuthoringReferenceChoice Choice(ParsedProcess process) => Choice(
+        process.Reference is K.ProcessRef.Recovery ? C.AuthoringReferenceKind.RecoveryProcess : C.AuthoringReferenceKind.ProductionProcess, process.Id, process.Display);
 
     internal static C.AuthoringReferenceChoice Choice(C.AuthoringReferenceKind kind, string id, C.DisplayText display)
     {

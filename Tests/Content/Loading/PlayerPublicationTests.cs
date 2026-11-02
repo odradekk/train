@@ -272,7 +272,8 @@ public sealed class PlayerPublicationTests
             new C.ContentEdit.ConstructionTarget(draft), new C.ContentEdit.InstanceTarget(new("absent"), draft)
         }) Failure(factory.PrepareEdit(initial.View, edit), "design_invalid");
         Failure(factory.CompareDesigns(initial.View, new("absent"), draft), "design_invalid");
-        Assert.ThrowsExactly<ArgumentException>(() => factory.EvaluateDesign(initial.View, draft));
+        var error = Assert.ThrowsExactly<ArgumentException>(() => factory.EvaluateDesign(initial.View, draft));
+        Assert.DoesNotContain("compositeIdentity", error.Message);
     }
 
     private static C.DesignDraft Only() => new(new("独立设计", "仅引用一个定义"), new C.DesignSpecification.Vehicle(K.SizeClass.Small),

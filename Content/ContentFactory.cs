@@ -124,11 +124,12 @@ internal sealed partial class InitialContentFactory : C.IContentFactory
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(draft);
         if (content is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(content));
+        if (draft.Specification is C.DesignSpecification.FunctionalComposite && compositeIdentity is null)
+            throw new ArgumentException("根功能复合体草稿缺少定义身份，不能推断货物标识。");
         try
         {
             return new C.ContentResult<C.DesignEvaluation>.Success(DesignEvaluator.Evaluate(view, draft, compositeIdentity: compositeIdentity));
         }
-        catch (ArgumentException) { throw; }
         catch (Exception exception)
         {
             return new C.ContentResult<C.DesignEvaluation>.Faulted("content_fault", exception.Message, exception.StackTrace);
