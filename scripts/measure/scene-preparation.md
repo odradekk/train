@@ -2,11 +2,11 @@
 
 四个打开场景（`scene-node-first`、`scene-node`、`scene-edge`、`scene-follow`）和 `scene-route-*` 的报告包含 `scene_preparation_maximum`。capture/reference 场景不作性能判定。
 
-目标场景第一次整帧提交到显示且 `View.Interactive` 为真后，从下一绘制帧开始统计。每次 `Prepare` 和 `PrepareCandidate` 在计时起止各读一次 `GC.GetTotalPauseDuration()`，以差值记录计时内的 GC 暂停。每帧累计这些调用的主线程墙钟耗时和暂停差值，先相减，再取最大值；排除 `Commit`。按[用户决定](https://github.com/odradekk/train/issues/859#issuecomment-6498312019)，该值对照[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)的 ≤4 ms 判定，GC 引起的超时归 #864。`excess` 给出扣除后超出预算的秒数，通过时为 0，未知时为 `null`。生产准备预算仍用含 GC 的墙钟。
+普通打开从 `open.first_operable` 确认的绘制到下一次绘制之间的帧开始统计；在确认绘制或更早结束的帧不计入。路线场景仍从首次 `View.Interactive` 为真后的下一绘制帧开始统计。每次 `Prepare` 和 `PrepareCandidate` 在计时起止各读一次 `GC.GetTotalPauseDuration()`，以差值记录计时内的 GC 暂停。每帧累计这些调用的主线程墙钟耗时和暂停差值，先相减，再取最大值；排除 `Commit`。按[用户决定](https://github.com/odradekk/train/issues/859#issuecomment-6498312019)，该值对照[设计 00](../../docs/design/00-product-and-core-loop.md#本阶段性能目标)的 ≤4 ms 判定，GC 引起的超时归 #864。`excess` 给出扣除后超出预算的秒数，通过时为 0，未知时为 `null`。生产准备预算仍用含 GC 的墙钟。
 
 暂停量采用 .NET 的进程累计计数差，不是 EventPipe 从请求挂起到完成恢复的整个区间；不另行扣除恢复尾部，也不把两者当作精确相同的暂停量。GC 读数放在墙钟起止内，避免扣入结束快照之后发生的暂停。
 
-首次提交帧属于打开耗时。之后每次切换空间，只排除新空间正式显示的首个绘制帧；前后的补齐和候选资源准备照常计入，不重新开始整个统计窗口。本项起点使用宿主的 `View.Interactive` 状态标记；原有打开时延还会验证附近对象的实际交互与镜头拖动响应，因此起点更晚。现有打开时延和路线帧耗时指标保持原定义。
+首次提交帧属于打开耗时。之后每次切换空间，只排除新空间正式显示的首个绘制帧；前后的补齐和候选资源准备照常计入，不重新开始整个统计窗口。普通打开的起点与打开时延共用近处检查及镜头拖动响应确认；本轮任一次打开缺少 `first_operable`，准备判定均为 `unknown`，原因写明缺失条数。
 
 原始 `scene-resource-frames.jsonl` 保留含 GC 的 `preparation_seconds`、`candidate_preparation_seconds` 及其和 `preparation_total_seconds`，记录两类调用累计的 `preparation_gc_pause_seconds`。`preparation_calls`、`candidate_preparation_calls` 记录该绘制帧内的两类调用次数，含没有推进资源的空调用；耗时仍按同帧所有调用之和统计。报告的 `resource_work.phases` 同时保留总调用次数，以及原始准备总耗时、候选耗时分别最大的整条帧记录，供核对一次长调用与多次累加。
 
@@ -20,7 +20,7 @@
 
 `5205be78` 的正式结果仍未满足 ≤4 ms，判定保持 `failed`。[用户决定](https://github.com/odradekk/train/issues/859#issuecomment-6515542064)接受当前优化，将验收标准 2 记为未达标的已知差距，暂不另开工单；4 ms 目标不变。
 
-数字来自第二轮正式 [A：40907420381](https://github.com/odradekk/train/actions/runs/40907420381)（四场景各 30 轮）和 [B：40920558598](https://github.com/odradekk/train/actions/runs/40920558598)（完整路线 3 轮）。超时比例的分母仅含本项有效统计帧，分子为扣除计时内 GC 后仍超过 4 ms 的帧；各最大值可能来自不同帧。
+数字来自第二轮正式 [A：40907420381](https://github.com/odradekk/train/actions/runs/40907420381)（四场景各 30 轮）和 [B：40920558598](https://github.com/odradekk/train/actions/runs/40920558598)（完整路线 3 轮）。A 的四个普通打开场景采用旧 `View.Interactive` 起点，下表对应行及 A 合计与 [#881](https://github.com/odradekk/train/issues/881) 的新窗口不可直接比较；历史数字和判定保留。B 的路线窗口定义未变。超时比例的分母仅含本项有效统计帧，分子为扣除计时内 GC 后仍超过 4 ms 的帧；各最大值可能来自不同帧。
 
 |场景|超时帧 / 统计帧|比例|扣 GC 最大 ms|原始最大 ms|GC 暂停最大 ms|
 |---|---:|---:|---:|---:|---:|

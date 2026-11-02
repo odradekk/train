@@ -101,14 +101,15 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(ui, "Nodes"));
             await _input.ClickItem(Find<ItemList>(shell.ListContent!, "Objects"), 0);
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
-            var saves = Find<SavePanel>(ui.GetParent(), "*");
+            var saves = ui.GetNode<SavePanel>("Root/SavePanel");
             Require(saves.Visible, "存档入口应打开现有存档覆盖层。");
-            saves.GrabFocus();
+            var search = Find<LineEdit>(saves, "Search");
+            search.GrabFocus();
             await _input.Frames(2);
-            Require(saves.HasFocus(), "存档窗口必须拿到焦点后再从根视口发送 Esc。");
+            Require(search.HasFocus(), "存档搜索框必须拿到焦点后再从根视口发送 Esc。");
             await _input.PressKey(Key.Escape);
             Require(!saves.Visible && shell.SelectedObject is WorldObjectId.Settlement && shell.ListContent is not null,
-                "子窗口的同一次 Esc 只能关闭存档，不能再关闭下面的检查器。");
+                "同一次 Esc 只能关闭存档覆盖层，不能再关闭下面的检查器。");
         });
     }
 

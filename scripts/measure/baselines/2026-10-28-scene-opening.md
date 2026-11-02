@@ -33,6 +33,8 @@ runner `lan-linux-nightly`，Arch Linux；Intel Core Ultra 7 258V，8 逻辑处�
 
 ## 典型负载：standard-world（F1）
 
+本节“点击到可操作”“可操作到 Ready”和“读档按钮到可操作”三表中的线路打开行使用旧中心采样规则。车辆遮住中心时会推迟或缺少可操作信号，与 [#881](https://github.com/odradekk/train/issues/881) 修复后的线路打开数字不可直接比较；历史数字和判定保留。
+
 每类 30 个有效样本、0 个无效样本，来自 30 个独立进程；参考和预演不计入。按操作合并，nearest-rank 分位数不插值，p50 为第 15 个、p95 为第 29 个样本。“范围”为最小–最大值，最大值也单列。
 
 点击到可操作，单位秒：

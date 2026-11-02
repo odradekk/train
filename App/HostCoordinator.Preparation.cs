@@ -77,7 +77,7 @@ internal sealed partial class HostCoordinator
             candidate = (core as CoreResult<ICoreSessionCandidate>.Success)?.Value;
             var paired = candidate is not null && candidate.References.Templates.Length > 0
                 ? _contentFactory.WithSettlementCopies(loaded.Value.View, candidate.References.Templates) : loaded.Value.View;
-            return new(content, core, paired);
+            return new(content, core, paired) { World = new(profile.Value, seed) };
         }
         catch { candidate?.Dispose(); loaded.Value.Dispose(); throw; }
     }
@@ -99,7 +99,8 @@ internal sealed partial class HostCoordinator
             new ContentLoadPurpose.Restore(((ContentResult<IContentCapture>.Success)embedded).Value, saved.References)), _files, _assets);
         if (content is not ContentResult<IContentCandidate>.Success loaded) return new(content, null, null);
         try { return new(content, _core.PrepareRestore(saved, loaded.Value.View.Core, options), loaded.Value.View)
-            { Saved = new(saved.Revision, ((ContentResult<IContentCapture>.Success)embedded).Value.Revision, "") }; }
+            { Saved = new(saved.Revision, ((ContentResult<IContentCapture>.Success)embedded).Value.Revision, ""),
+                SavedPackages = ((ContentResult<IContentCapture>.Success)embedded).Value.ReferencedPackages }; }
         catch { loaded.Value.Dispose(); throw; }
     }
 }

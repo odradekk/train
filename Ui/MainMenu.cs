@@ -61,7 +61,7 @@ public partial class MainMenu : Control
         _continue.Disabled = _newGame.Disabled || _recent is null;
     }
 
-    private static string SavedAt(DateTimeOffset savedAt)
+    internal static string SavedAt(DateTimeOffset savedAt)
     {
         var local = savedAt.LocalDateTime;
         var today = DateTime.Today;
@@ -73,15 +73,21 @@ public partial class MainMenu : Control
 
     internal void OpenSaves() => _saves?.Open();
     internal void CloseSaves() => _saves?.Hide();
+    internal bool CloseSavesOnEscape() => _saves?.HandleEscape() == true;
 
-    internal void FitSaves(Rect2 area) => _saves?.Fit(area);
-
-    internal void ConfigureSaves(SaveService service)
+    internal void ConfigureSaves(SaveService service, Control overlayHost)
     {
         _service = service;
-        _saves = new SavePanel();
-        AddChild(_saves);
+        _saves = new SavePanel { Name = "SavePanel", Visible = false, FocusBehaviorRecursive = FocusBehaviorRecursiveEnum.Enabled };
         _saves.Configure(service);
+        var rootFocus = overlayHost.FocusBehaviorRecursive;
+        var menuFocus = FocusBehaviorRecursive;
+        _saves.VisibilityChanged += () =>
+        {
+            overlayHost.FocusBehaviorRecursive = _saves.Visible ? FocusBehaviorRecursiveEnum.Disabled : rootFocus;
+            FocusBehaviorRecursive = _saves.Visible ? FocusBehaviorRecursiveEnum.Disabled : menuFocus;
+        };
+        overlayHost.AddChild(_saves);
         var button = GetNode<Button>("%Saves");
         button.Visible = true;
         button.Pressed += OpenSaves;

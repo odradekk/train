@@ -72,6 +72,67 @@ public class MainMenuUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Save_selected_during_startup_gets_details_when_content_is_ready_without_reselection()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var store = new FileSaveStore(OS.GetUserDataDir());
+        var id = Guid.NewGuid();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var view = UiWorldFixture.Save(HostCoreScenario.Input);
+        var capture = new FixedCoreCapture(new(view.Position, "loading", "loading-checkpoint"),
+            HostCoreScenario.References, "loading core", HostCoreScenario.Input, new(0));
+        var core = new ScriptedCoreFactory
+        {
+            DecodeStateCall = _ => new CoreResult<ICoreCapture>.Success(capture),
+            PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(
+                new ScriptedCoreCandidate(new ScriptedCoreSession(view), HostCoreScenario.References))
+        };
+        var content = new ScriptedContentFactory
+        {
+            DecodeCaptureCall = payload => new ContentResult<IContentCapture>.Success(new FixedContentCapture(payload)),
+            PrepareLoadCall = (request, _, _) =>
+            {
+                if (request.Purpose is ContentLoadPurpose.Initial)
+                {
+                    entered.Set();
+                    Require(release.Wait(TimeSpan.FromSeconds(20)), "测试没有释放启动内容加载。");
+                }
+                return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(ContentView()));
+            }
+        };
+        try
+        {
+            Require(store.Write(store.PathFor(id), new(new(SaveContainer.FormatVersion, id, "加载期间选中的存档",
+                DateTimeOffset.Now, new(view.Position.CompletedSteps, view.Position.Sequence), [], new("fixture:world", 42)), "loading core", "loading content"), false).Published,
+                "无法准备加载期间选中的存档。");
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => new(core, content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
+                new(new("builtin"), new("mods"), null, "fixture", []), logger, sessionOptions: HostOptions());
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => entered.IsSet);
+            await _input.Activate(app.GetNode<MainMenu>("MainMenu").GetNode<Button>("%Saves"));
+            var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
+            var list = Find<ItemList>(panel, "Saves");
+            var selectedRow = Enumerable.Range(0, list.ItemCount).Single(row => list.IsItemSelectable(row) &&
+                list.GetItemText(row).StartsWith("加载期间选中的存档 · ", StringComparison.Ordinal));
+            await _input.ClickItem(list, selectedRow);
+            release.Set();
+            await _input.WaitUntil(() => !app.Host!.IsBusy);
+            await _input.Frames(2);
+            var settled = app.Host!.BackgroundWork.Enqueue(() => true);
+            await _input.WaitUntil(() => settled.IsCompleted);
+            await _input.Frames(2);
+            Require(panel.IsVisibleInTree() && list.GetSelectedItems().SequenceEqual(new[] { selectedRow }) &&
+                app.Saves!.Details?.World == view.World && Find<SaveMapPreview>(panel, "MapPreview").World == view.World &&
+                app.Host.GetStatus() is null,
+                "内容加载完成后应自动读取原选中存档的详情和地图，且不能激活会话。");
+            Require(list.GetItemText(0) == "测试世界 · 种子 42", "内容加载完成后应自动更新世界标题，且不能泄露配置 ID。");
+        }
+        finally { release.Set(); await fixture.Cleanup(); UiTestInput.DeleteSaves([id]); }
+    }
+
+    [Test]
     public async Task Enter_continues_latest_save_and_returning_to_menu_restores_focus()
     {
         UiCapture.ConfigureWindowIfNeeded(TestScene.GetTree().Root);

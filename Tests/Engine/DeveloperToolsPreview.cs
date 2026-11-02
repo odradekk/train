@@ -53,7 +53,7 @@ public partial class DeveloperToolsPreview : Node
             Action(second, "重放单步", "ReplayStep", () => Show(_app.Development!.StartSteps(1)));
             Action(second, "重放至2:0", "ReplayToEnd", () => Show(_app.Development!.AdvanceTo(new(2, 0))));
             Action(second, "导出至默认路径", "ExportFixtureBoundary", () => Show(_app.Development!.ExportReplayBoundary(_fixture.ExportPath)));
-            Action(second, "打开存档面板", "OpenSaves", () => _app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single().Open());
+            Action(second, "打开存档面板", "OpenSaves", () => _app.GetNode<MainMenu>("MainMenu").OpenSaves());
             var third = new HBoxContainer();
             box.AddChild(third);
             Action(third, "进入节点场景", "EnterFixtureScene", () => _app.WorldScenes!.Open(DeveloperToolsFixture.Target));

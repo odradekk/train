@@ -15,13 +15,14 @@ internal sealed record SteadyMemory(double? Private, double? Working, double? Bu
 }
 
 internal sealed record MeasuredOpening(string Type, bool Node, bool Valid, double? Click, double? End,
-    double? Latency, double? Ready, SteadyMemory Steady);
+    double? FirstOperable, double? Latency, double? Ready, SteadyMemory Steady);
 
 /// <summary>只在计时结束后流式读取报告所需的旁车；各文件的缺失和截断分别保留为未知原因。</summary>
 internal sealed class MeasurementEvidence
 {
     private readonly List<(double At, SteadyMemory Memory)> _maps = [];
     internal List<MeasuredOpening> Openings { get; } = [];
+    internal IEnumerable<SteadyMemory> MapMemory => _maps.Select(map => map.Memory);
     internal string? OpeningProblem { get; private set; }
     internal string? MapProblem { get; private set; }
     internal double? InitialHeap { get; private set; }
@@ -46,15 +47,38 @@ internal sealed class MeasurementEvidence
         .Where(map => map.At < click).OrderByDescending(map => map.At)
         .Select(map => map.Memory).FirstOrDefault();
 
+    internal (double? Slope, double? Seconds, double? Start, string? Problem) SecondHourPrivateGrowth()
+    {
+        var maps = _maps.OrderBy(map => map.At).ToArray();
+        if (OpeningProblem is not null || maps.Length == 0)
+            return (null, null, null, OpeningProblem ?? "缺少自然地图内存记录");
+        var start = maps[0].At + 3600;
+        var end = maps[0].At + 7200;
+        var before = maps.Last(map => map.At <= start).At;
+        var after = maps.FirstOrDefault(map => map.At >= end);
+        if (maps[^1].At < end) return (null, maps[^1].At - before, start, "第 2 小时观察不完整");
+        var points = maps.Where(map => map.At >= before && map.At <= after.At).ToArray();
+        if (points.Any(point => point.Memory.Private is null))
+            return (null, after.At - before, start, "第 2 小时私有字节缺失或无效");
+        var meanTime = points.Average(point => (point.At - start) / 3600);
+        var meanValue = points.Average(point => point.Memory.Private!.Value);
+        var denominator = points.Sum(point => Math.Pow((point.At - start) / 3600 - meanTime, 2));
+        var slope = denominator > 0 ? points.Sum(point => ((point.At - start) / 3600 - meanTime) *
+            (point.Memory.Private!.Value - meanValue)) / denominator : (double?)null;
+        return (slope, after.At - before, start, slope is null ? "第 2 小时缺少不同采样时刻" : null);
+    }
+
     internal static MeasurementEvidence Read(string scenario, string directory)
     {
         var result = new MeasurementEvidence();
         if (UsesPreparation(scenario)) result.ReadPreparation(directory);
         result.OpeningProblem = ReadRecords(Path.Combine(directory, "scene-operations.jsonl"), record =>
         {
-            if (scenario == "scene-memory" && At(record, "kind").ToString() == "natural-map")
+            if (scenario is "scene-memory" or "scene-soak" && At(record, "kind").ToString() == "natural-map")
             {
                 if (Number(At(record, "at")) is not { } at) throw new JsonException("地图稳态记录缺少时间");
+                if (scenario == "scene-soak" && Number(At(record, "memory", "samples")) is not > 0)
+                    throw new JsonException("地图稳态记录缺少样本");
                 result._maps.Add((at, SteadyMemory.Read(At(record, "memory"))));
                 return;
             }
@@ -63,6 +87,7 @@ internal sealed class MeasurementEvidence
             result.Openings.Add(new(name, At(record, "target").ToString().StartsWith("Node", StringComparison.Ordinal),
                 name.Length > 0 && At(record, "sample_valid").ValueKind == JsonValueKind.True,
                 Number(At(record, "click")), Number(At(record, "observation_ended")),
+                Number(At(record, "first_operable")),
                 Number(At(record, "click_to_operable_seconds")), Number(At(record, "operable_to_ready_seconds")),
                 SteadyMemory.Read(At(record, "steady"))));
         });
