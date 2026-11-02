@@ -41,7 +41,8 @@ public partial class EconomyUiTests
             Require(!economy.IsVisibleInTree() && Find<Label>(inventory, "Capacity").IsVisibleInTree(),
                 "列车货物页没有替换聚居地检查器。");
             Find<WorldPanels>(ui, "WorldPanels").Refresh(new HostBinding(Guid.NewGuid()), view, content);
-            Require(Find<Label>(inventory, "Description").Text.Contains("已不存在") &&
+            Require(Find<Label>(inventory, "Unavailable").IsVisibleInTree() &&
+                Find<Label>(inventory, "Unavailable").Text.Contains("已不存在") &&
                 Find<Button>(inventory, "EditPlan").Disabled, "列车检查器仍接受旧绑定。");
             await _input.Activate(Find<Button>(ui, "Nodes"));
             await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
@@ -90,6 +91,8 @@ public partial class EconomyUiTests
                     [new(7)], [new InstanceId.Vehicle(new(9)), new InstanceId.Vehicle(new(10))], [], [], node.Occupant)) },
             Instances = new VehicleId[] { new(9), new(10) }.ToDictionary(id => (InstanceId)new InstanceId.Vehicle(id),
                 id => basis.FindInstance(new InstanceId.Vehicle(id))),
+            Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
+                { [new(12)] = basis.FindInventory(new(12)) },
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(7)] = basis.FindTrain(new(7)) }
         };
         var owned = EconomyFixture.Create(revision: 2, vehicle: EconomyFixture.VehicleState.Owned);

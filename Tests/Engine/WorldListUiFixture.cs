@@ -74,6 +74,8 @@ internal static class WorldListUiFixture
         return new(new(0, revision), basis.InputIdentity, revision: new(revision))
         {
             Economy = basis.Economy,
+            Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
+                { [prototype.Inventory] = basis.FindInventory(prototype.Inventory) },
             World = basis.World with { Nodes = [.. nodes], Edges = [.. edges],
                 Combats = [new(new(1), new WorldLocation.Node(first.Id))],
                 Trains = [.. trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity))] },
