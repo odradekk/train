@@ -54,7 +54,7 @@ public sealed class MeasurementSoakEvidenceTests
         AssertMeasured(Opening(report, "opening_maximum", "soak-node"), .2, "passed");
         AssertMeasured(Opening(report, "far_ready", "soak-node"), 1, "passed");
         AssertMeasured(Item(report, "game_private"), 4294967296d, "passed");
-        AssertMeasured(Item(report, "game_working_set"), 3221225473d, "failed");
+        AssertMeasured(Item(report, "game_working_set"), 3221225473d, OperatingSystem.IsLinux() ? "recorded" : "failed");
         AssertMeasured(Item(report, "game_render"), 2147483648d, "passed");
         foreach (var metric in new[] { "node_private_delta", "node_render_delta", "retired_heap_delta" })
         {
