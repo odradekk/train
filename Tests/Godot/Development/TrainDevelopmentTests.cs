@@ -19,8 +19,7 @@ public sealed class TrainDevelopmentTests
             using var fixture = new HostFixture();
             var session = fixture.ReadyHost();
             var binding = fixture.Host.GetStatus()!.Binding;
-            var errors = new List<string>();
-            var commands = new TrainConsoleCommands(fixture.Host, fixture.Logger, errors.Add);
+            var commands = new TrainConsoleCommands(fixture.Host, fixture.Logger);
             using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
             var clockReads = 0;
             using var tools = new DeveloperTools(fixture.Host, saves, () => clockReads++ * 0.006);
@@ -55,7 +54,7 @@ public sealed class TrainDevelopmentTests
             Assert.IsFalse(tools.Running);
             Assert.AreEqual(1, session.AdvanceCount, "命中命令完整边界后不能继续推进。");
             Assert.AreEqual(2, session.SubmitCount);
-            Assert.AreEqual(2, errors.Count);
+            Assert.AreEqual(2, fixture.Logs.Count(log => log.EventId == "train_command_failed"));
             fixture.AssertNoUnexpectedFailures();
         }
     }

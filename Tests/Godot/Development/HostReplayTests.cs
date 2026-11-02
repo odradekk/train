@@ -75,14 +75,13 @@ public sealed class HostReplayTests
     {
         using var run = new ReplayFixture();
         run.Open();
-        var errors = new List<string>();
-        var commands = new TrainConsoleCommands(run.Host.Host, run.Host.Logger, errors.Add);
+        var commands = new TrainConsoleCommands(run.Host.Host, run.Host.Logger);
         var binding = run.Host.Host.GetStatus()!.Binding;
 
         commands.Execute(["start", "1"]);
 
-        Assert.AreEqual("正在重放，不能修改。", errors.Single());
         var failed = run.Host.Logs.Single(log => log.EventId == "train_command_failed");
+        Assert.AreEqual("正在重放，不能修改。", failed.Message);
         Assert.AreEqual("NotAccepted", failed.Attributes["decision"]);
         var problem = (IReadOnlyDictionary<string, object?>)((IReadOnlyList<object?>)failed.Attributes["problems"]!).Single()!;
         Assert.AreEqual("replay_read_only", problem["code"]);

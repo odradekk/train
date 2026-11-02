@@ -9,6 +9,7 @@ namespace Train.Ui;
 
 public partial class DeveloperInspector : Window
 {
+    internal const string Usage = "用法：dev [open|close]；请省略参数或输入 open 打开开发调试窗口，输入 close 关闭开发调试窗口。";
     private DeveloperTools? _tools;
     private WorldSceneController? _scenes;
     private readonly Label _status = new() { Name = "DeveloperStatus", AutowrapMode = TextServer.AutowrapMode.WordSmart };
@@ -48,11 +49,12 @@ public partial class DeveloperInspector : Window
     internal void Open() { PopupCentered(); Refresh(); }
     public override void _UnhandledInput(InputEvent input) => UiStyle.CloseOnEscape(this, input);
 
-    internal void Execute(IReadOnlyList<string> args)
+    internal string? Execute(IReadOnlyList<string> args)
     {
         if (args.Count == 0 || args.Count == 1 && args[0].Equals("open", StringComparison.OrdinalIgnoreCase)) Open();
         else if (args.Count == 1 && args[0].Equals("close", StringComparison.OrdinalIgnoreCase)) Hide();
-        else _localMessage = "用法：dev [open|close]";
+        else return Usage;
+        return null;
     }
 
     public override void _Ready()

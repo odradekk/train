@@ -40,7 +40,7 @@ public sealed class ConsoleCommandParseTests
 public sealed class DevelopmentConsoleCommandTests
 {
     [TestMethod]
-    public void DevelopmentIsListedAndDispatchedOnlyWhenRegistered()
+    public void DevelopmentIsListedAndDispatchedOnlyInDevelopmentBuilds()
     {
         IReadOnlyList<string>? forwarded = null;
         using var registered = DispatchHarness.CreateMemory(development: args => forwarded = args);
@@ -49,7 +49,7 @@ public sealed class DevelopmentConsoleCommandTests
         registered.Dispatcher.Execute("DeV open");
         CollectionAssert.AreEqual(new[] { "open" }, forwarded!.ToArray());
 
-        using var unregistered = DispatchHarness.CreateMemory();
+        using var unregistered = DispatchHarness.CreateMemory(developmentBuild: false);
         unregistered.Dispatcher.Execute("help");
         Assert.IsFalse(unregistered.ConsoleEvents.Single(x => x.EventId == ConsoleCommandDispatcher.HelpEventId)
             .Message.Contains("dev", StringComparison.Ordinal));
@@ -62,7 +62,7 @@ public sealed class DevelopmentConsoleCommandTests
 public sealed class LightingConsoleCommandTests
 {
     [TestMethod]
-    public void Lighting_is_listed_and_forwarded_in_debug_and_explicitly_rejected_in_player_builds()
+    public void Lighting_is_listed_in_debug_and_unknown_in_player_builds()
     {
         IReadOnlyList<string>? forwarded = null;
         using var debug = DispatchHarness.CreateMemory(lighting: arguments => forwarded = arguments);
@@ -71,15 +71,15 @@ public sealed class LightingConsoleCommandTests
         debug.Dispatcher.Execute("LiGhTiNg night");
         CollectionAssert.AreEqual(new[] { "night" }, forwarded!.ToArray());
 
-        using var player = DispatchHarness.CreateMemory(allowReload: false);
+        using var player = DispatchHarness.CreateMemory(developmentBuild: false);
         player.Dispatcher.Execute("help");
         Assert.IsFalse(player.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId)
             .Message.Contains("lighting", StringComparison.Ordinal));
         player.Dispatcher.Execute("lighting night");
         var denial = player.ConsoleEvents.Last();
-        Assert.AreEqual(ConsoleCommandDispatcher.LightingDeniedEventId, denial.EventId);
+        Assert.AreEqual(ConsoleCommandDispatcher.UnknownEventId, denial.EventId);
         Assert.AreEqual(LogLevel.Warning, denial.Level);
-        StringAssert.Contains(denial.Message, "Debug");
+        StringAssert.Contains(denial.Message, "help");
     }
 
     [TestMethod]
@@ -155,12 +155,12 @@ public sealed class ConsoleCommandDispatchTests
     public void Commands_echo_through_logger_as_console_category()
     {
         using var harness = DispatchHarness.Create();
-        harness.Dispatcher.Execute("  help extra  ");
+        harness.Dispatcher.Execute("  help loglevel  ");
 
         var echo = harness.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.EchoEventId);
         Assert.AreEqual(ConsoleCommandDispatcher.Category, echo.Category);
         Assert.AreEqual(LogLevel.Info, echo.Level);
-        Assert.AreEqual("help extra", echo.Message);
+        Assert.AreEqual("help loglevel", echo.Message);
         Assert.IsTrue(harness.ConsoleEvents.Any(e => e.EventId == ConsoleCommandDispatcher.HelpEventId));
         Assert.IsFalse(harness.Quit);
         Assert.IsFalse(harness.Reloaded);
@@ -170,7 +170,7 @@ public sealed class ConsoleCommandDispatchTests
     [TestMethod]
     public void Help_lists_reload_only_when_debug_reload_is_allowed()
     {
-        using var debug = DispatchHarness.Create(allowReload: true);
+        using var debug = DispatchHarness.Create(developmentBuild: true);
         debug.Dispatcher.Execute("HELP");
         var debugHelp = debug.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId);
         Assert.AreEqual(LogLevel.Info, debugHelp.Level);
@@ -179,7 +179,7 @@ public sealed class ConsoleCommandDispatchTests
         StringAssert.Contains(debugHelp.Message, "quit");
         StringAssert.Contains(debugHelp.Message, "reload");
         StringAssert.Contains(debugHelp.Message, "loglevel");
-        using var release = DispatchHarness.Create(allowReload: false);
+        using var release = DispatchHarness.Create(developmentBuild: false);
         release.Dispatcher.Execute("help");
         var releaseHelp = release.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId);
         StringAssert.Contains(releaseHelp.Message, "help");
@@ -190,9 +190,9 @@ public sealed class ConsoleCommandDispatchTests
     }
 
     [TestMethod]
-    public void Simulation_command_is_listed_and_forwarded_only_when_host_provides_it()
+    public void Simulation_is_listed_and_forwarded_only_in_development_builds()
     {
-        using var available = DispatchHarness.Create(simulation: true);
+        using var available = DispatchHarness.Create();
         available.Dispatcher.Execute("help");
         StringAssert.Contains(
             available.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId).Message,
@@ -201,7 +201,7 @@ public sealed class ConsoleCommandDispatchTests
         available.Dispatcher.Execute("SiM speed 4");
         CollectionAssert.AreEqual(new[] { "speed", "4" }, available.SimulationArguments!.ToArray());
 
-        using var unavailable = DispatchHarness.Create(simulation: false);
+        using var unavailable = DispatchHarness.Create(developmentBuild: false);
         unavailable.Dispatcher.Execute("help");
         Assert.IsFalse(unavailable.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId)
             .Message.Contains("sim", StringComparison.Ordinal));
@@ -267,7 +267,7 @@ public sealed class ConsoleCommandDispatchTests
             logger.Info("test", "prior_event", "keep");
             Assert.AreEqual(1, buffer.Snapshot().Count);
 
-            var dispatcher = new ConsoleCommandDispatcher(logger, buffer.Clear, static () => { }, static () => { }, allowReload: true);
+            var dispatcher = new ConsoleCommandDispatcher(logger, buffer.Clear, static () => { });
             dispatcher.Execute("clear");
 
             Assert.AreEqual(0, buffer.Snapshot().Count);
@@ -286,7 +286,7 @@ public sealed class ConsoleCommandDispatchTests
     [TestMethod]
     public void Quit_and_reload_invoke_host_actions_after_echo()
     {
-        using var harness = DispatchHarness.Create(allowReload: true);
+        using var harness = DispatchHarness.Create(developmentBuild: true);
         harness.Dispatcher.Execute("quit");
         Assert.IsTrue(harness.Quit);
         Assert.IsFalse(harness.Reloaded);
@@ -299,12 +299,12 @@ public sealed class ConsoleCommandDispatchTests
     }
 
     [TestMethod]
-    public void Reload_is_denied_outside_debug_and_unknown_commands_warn()
+    public void Unregistered_commands_warn_including_reload_in_player_builds()
     {
-        using var release = DispatchHarness.Create(allowReload: false);
+        using var release = DispatchHarness.Create(developmentBuild: false);
         release.Dispatcher.Execute("reload");
         Assert.IsFalse(release.Reloaded);
-        var denied = release.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.ReloadDeniedEventId);
+        var denied = release.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.UnknownEventId);
         Assert.AreEqual(LogLevel.Warning, denied.Level);
         Assert.AreEqual(ConsoleCommandDispatcher.Category, denied.Category);
 
@@ -353,25 +353,22 @@ internal sealed class DispatchHarness : IDisposable
     public IReadOnlyList<LogEvent> ConsoleEvents =>
         _session.Memory.Snapshot().Where(e => e.Category == ConsoleCommandDispatcher.Category).ToArray();
 
-    private DispatchHarness(LoggerSession session, bool allowReload, bool simulation, Action<IReadOnlyList<string>>? lighting,
+    private DispatchHarness(LoggerSession session, bool developmentBuild, Action<IReadOnlyList<string>>? lighting,
         Action<IReadOnlyList<string>>? development = null)
     {
         _session = session;
-        Dispatcher = new ConsoleCommandDispatcher(
-            session.Logger,
-            () => Cleared = true,
-            () => Quit = true,
-            () => Reloaded = true,
-            allowReload,
-            simulation ? arguments => SimulationArguments = arguments.ToArray() : null, lighting: lighting, development: development);
+        Dispatcher = new ConsoleCommandDispatcher(session.Logger, () => Cleared = true, () => Quit = true);
+        if (developmentBuild)
+            ConsoleCommandRegistration.RegisterDevelopment(Dispatcher, () => Reloaded = true,
+                arguments => SimulationArguments = arguments.ToArray(), _ => { }, lighting ?? (_ => { }), development ?? (_ => { }));
     }
 
-    public static DispatchHarness Create(bool allowReload = true, bool simulation = false) =>
-        new(LoggerSession.Create(), allowReload, simulation, null);
+    public static DispatchHarness Create(bool developmentBuild = true) =>
+        new(LoggerSession.Create(), developmentBuild, null);
 
-    public static DispatchHarness CreateMemory(bool allowReload = true, Action<IReadOnlyList<string>>? lighting = null,
+    public static DispatchHarness CreateMemory(bool developmentBuild = true, Action<IReadOnlyList<string>>? lighting = null,
         Action<IReadOnlyList<string>>? development = null) =>
-        new(LoggerSession.CreateMemory(), allowReload, false, lighting, development);
+        new(LoggerSession.CreateMemory(), developmentBuild, lighting, development);
 
     public void ResetActions()
     {
