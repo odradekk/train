@@ -29,6 +29,9 @@ internal static class SettlementResources
                 && !WorldGoods.DefinitionMissing(world, content, g.Good))
             .OrderBy(g => ((GoodId.Voxel)g.Good).Definition.Value, StringComparer.Ordinal);
 
+    internal static IEnumerable<GoodDefinitionProjection> StockedFuels(IEnumerable<GoodDefinitionProjection> fuels,
+        Func<GoodId, long> available) => fuels.Where(f => available(f.Good) > 0);
+
     // Callers submit at most one request per facility capability and cap work at this step's useful rate.
     internal static SettlementResolution Resolve(WorldState world, CoreContentProjection content, SettlementId id,
         double availableLabor, ImmutableArray<GoodsQuantity> basic, ImmutableArray<FacilityRequest> facilities,
@@ -73,7 +76,7 @@ internal static class SettlementResources
                             : 0, availableLabor);
                     var rate = allocation.WorkPerSecond;
                     var energy = rate * demand.PowerPerWork * SimulationTime.StepSeconds;
-                    foreach (var fuel in fuels)
+                    foreach (var fuel in StockedFuels(fuels, Available))
                     {
                         if (fuelRemaining >= energy) break;
                         var needed = Math.Ceiling((energy - fuelRemaining) / fuel.FuelEnergyPerUnit!.Value);

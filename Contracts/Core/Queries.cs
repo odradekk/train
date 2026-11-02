@@ -241,7 +241,7 @@ public sealed record CreatureGroupView(CreatureGroupId Id, LairId? Home, WorldLo
 public sealed record LairView(LairId Id, NodeId Node, LairTypeId Type, ImmutableArray<CreatureGroupId> Groups);
 
 public sealed record MarketGoodView(GoodId Good, long Stock, long RestockTarget, long ReservedForUse,
-    long SellableQuantity, long ReceivableQuantity, ImmutableArray<CoreProblem> Blockers);
+    long SellableQuantity, long ReceivableQuantity, double ExpectedNetChangePerSecond, ImmutableArray<CoreProblem> Blockers);
 public sealed record MarketView(RuleStatusView Rule, SettlementStorageView Storage, ImmutableArray<MarketGoodView> Goods);
 public sealed record TradeQuoteRequest(TrainId Train, SettlementId Settlement, InventoryId LocalInventory,
     TradeAction Action, GoodId Good, long Quantity);

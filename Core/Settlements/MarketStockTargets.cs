@@ -204,6 +204,15 @@ internal sealed class MarketStockTargets
 
     internal ImmutableArray<MarketGoodView> Goods(WorldState world, CoreContentProjection content)
     {
+        var net = new Dictionary<GoodId, double>();
+        var fuel = SettlementResources.StockedFuels(SettlementResources.Fuels(world, content), _stock.GetValueOrDefault).FirstOrDefault();
+        foreach (var (view, process, _) in _production)
+        {
+            if (view.State != ProductionState.Running || process is null || view.ActualWorkPerSecond <= 0) continue;
+            Add(ProductionQueries.GoodsRates(ProductionQueries.Outputs(process.Details), process, view.ActualWorkPerSecond), 1);
+            Add(ProductionQueries.ConsumptionRates(process, view.ActualWorkPerSecond, fuel), -1);
+        }
+        Add(PopulationOperations.ExpectedConsumption(world, content, _settlement, _population), -1);
         return content.Goods.Select(g => g.Good).Concat(world.DesignGoods.Select(g => g.Good)).Concat(_stock.Keys)
             .Distinct().OrderBy(WorldReferences.GoodKey, StringComparer.Ordinal).Select(good =>
             {
@@ -217,7 +226,13 @@ internal sealed class MarketStockTargets
                         : WorldGoods.DefinitionMissing(world, content, good) ? [new("content_missing", "Good", null, [])] : [];
                 return new MarketGoodView(good, stock, target, target,
                     problems.IsEmpty ? Quantity(good, stock, stock, true) : 0,
-                    problems.IsEmpty ? Quantity(good, stock, _available, false) : 0, problems);
+                    problems.IsEmpty ? Quantity(good, stock, _available, false) : 0, net.GetValueOrDefault(good), problems);
             }).ToImmutableArray();
+
+        void Add(IEnumerable<GoodsRateView> rates, int sign)
+        {
+            foreach (var rate in rates)
+                net[rate.Good] = net.GetValueOrDefault(rate.Good) + sign * rate.UnitsPerSecond;
+        }
     }
 }
