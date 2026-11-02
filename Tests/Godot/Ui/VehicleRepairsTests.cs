@@ -185,7 +185,7 @@ public sealed class VehicleRepairsTests
 
     private static JobQuote RepairQuote(ulong building, ulong vehicle, Money? total, params CoreProblem[] blockers) => new(
         new JobRequest.Repair(new(new(building), CapabilityKind.Construction), new InstanceId.Vehicle(new(vehicle)), [], 0),
-        JobFunding.NpcCommission, new(5), 17, [], [], [], new(0), total, total, [.. blockers]);
+        JobFunding.NpcCommission, new(5), 17, 1, [], [], [], [], new(0), total, total, [.. blockers]);
 
     private sealed class RepairReadView : ICoreReadView
     {

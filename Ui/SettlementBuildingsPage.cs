@@ -7,7 +7,8 @@ using static Train.Ui.EconomyPanelControls;
 namespace Train.Ui;
 
 // Decision note: 2026-10-31-object-centric-management-screens
-internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<CoreCommand, SubmissionResult> submit)
+internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<CoreCommand, SubmissionResult> submit,
+    Action<PlotId> buildRequested, Action<InstanceId> workRequested)
 {
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
@@ -18,13 +19,14 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
     private readonly Dictionary<BuildingId, BuildingRow> _buildings = [];
     private readonly Dictionary<FacilityKey, PlanRow> _plans = [];
     private sealed record BuildingRow(VBoxContainer Root, Button Select, VBoxContainer Details,
-        Label Structure, VBoxContainer Facilities, Button Demolish, Label Result);
+        Label Structure, VBoxContainer Facilities, Button Repair, Label RepairReason, Button Refit, Button Demolish, Label Result);
 
     internal void Build(VBoxContainer body)
     {
         _body = body;
         _empty = Text(body, "Empty", "没有建筑。");
         _plots = Text(body, "OtherPlots", "");
+        BuildWork(body);
         BuildDemolition(body);
     }
 
@@ -53,8 +55,12 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
                 var details = new VBoxContainer { Name = "Details", Visible = false }; root.AddChild(details);
                 var structure = Text(details, "Structure", "");
                 var facilities = new VBoxContainer { Name = "Facilities" }; details.AddChild(facilities);
+                var repair = UiStyle.Button("RepairBuilding", "修理", () => RepairBuilding(id)); details.AddChild(repair);
+                var repairReason = Text(details, "RepairReason", "");
+                var refit = UiStyle.Button("RefitBuilding", "已保存的改装草稿…", () =>
+                { if (canAct()) workRequested(new InstanceId.Building(id)); }); details.AddChild(refit);
                 var demolish = UiStyle.Button("Demolish", "拆除…", () => OpenDemolition(id)); details.AddChild(demolish);
-                row = new(root, select, details, structure, facilities, demolish, Text(details, "DismantleResult", ""));
+                row = new(root, select, details, structure, facilities, repair, repairReason, refit, demolish, Text(details, "DismantleResult", ""));
                 _buildings.Add(id, row);
             }
             var facilitiesHere = settlement.Facilities.Where(facility => facility.Key.Building == id).ToArray();
@@ -76,6 +82,7 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
         _plots.Text = string.Join("\n", otherPlots);
         _plots.Visible = _plots.Text.Length > 0;
         _body.MoveChild(_plots, _body.GetChildCount() - 1);
+        RefreshWork();
         UpdateActions();
         if (_dismantle.Visible) RefreshDemolition();
     }
@@ -96,7 +103,12 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
     internal void UpdateActions()
     {
         var available = canAct();
-        foreach (var row in _buildings.Values) row.Select.Disabled = row.Demolish.Disabled = !available;
+        foreach (var (id, row) in _buildings)
+        {
+            row.Select.Disabled = row.Demolish.Disabled = row.Refit.Disabled = !available;
+            row.Repair.Disabled = !available || !_repairQuotes.ContainsKey(id);
+        }
+        foreach (var button in _plotButtons.Values) button.Disabled = !available;
         foreach (var (key, row) in _plans)
         {
             var facility = _settlement.Facilities.FirstOrDefault(item => item.Key == key);
@@ -122,7 +134,7 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
             var job = construction.Value;
             var name = content.FindDesign(target.Design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
                 ? complete.Definition.Display.Name : "建筑内容缺失";
-            yield return $"正在建造{name} · {EconomyPanels.PlotSizeName(plot.Size)}地块 · 进度 {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job)}" +
+            yield return $"正在建造{name} · {EconomyPanels.PlotSizeName(plot.Size)}地块 · 进度 {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job, view)}" +
                 (job.State == ConstructionState.Working ? "" : $" · {EconomyPanels.ServiceState(job.State)}");
         }
     }

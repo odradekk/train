@@ -11,7 +11,8 @@ namespace Train.Ui;
 /// Decision note: 2026-10-31-object-centric-management-screens
 /// </summary>
 internal sealed partial class SettlementOverviewPage(Action<string> openPage, Func<bool> canAct,
-    Func<CoreCommand, SubmissionResult> submit, Action<GoodId> openGood, Action<BuildingId> openBuilding)
+    Func<CoreCommand, SubmissionResult> submit, Action<GoodId> openGood, Action<BuildingId> openBuilding,
+    Action manufactureRequested)
 {
     private Label _trains = null!, _jobs = null!, _leases = null!, _market = null!;
     private Label _warReason = null!;
@@ -35,7 +36,7 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         body.AddChild(UiStyle.Button("OpenMarket", "查看市场", () => openPage("市场")));
         Text(body, "ServicesTitle", "可用服务");
         body.AddChild(UiStyle.Button("OpenVehicles", "查看车辆", () => openPage("车辆")));
-        body.AddChild(UiStyle.Button("OpenServices", "委托制造、修理与改装", () => openPage("建造与工地")));
+        body.AddChild(UiStyle.Button("OpenServices", "委托制造…", () => { if (canAct()) manufactureRequested(); }));
         body.AddChild(new HSeparator());
         _warReason = Text(body, "WarReason", "");
         _declare = UiStyle.Button("DeclareWar", "宣战…", () =>
