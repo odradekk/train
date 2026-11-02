@@ -69,7 +69,7 @@ internal partial class DesignEditorPanel : Control
         _undo = UiStyle.Button("Undo", "撤销", _service.Undo); bar.AddChild(_undo);
         _redo = UiStyle.Button("Redo", "重做", _service.Redo); bar.AddChild(_redo);
         Add(bar, "SaveDraft", "保存草稿", _service.SaveDraft); _saveBlueprint = UiStyle.Button("SaveBlueprint", "保存蓝图…", SaveBlueprint); bar.AddChild(_saveBlueprint);
-        Add(bar, "ExitEditor", "退出", () => _service.RequestClose(() => { }));
+        Add(bar, "ExitEditor", "退出", ExitEditor);
         _returnServices = UiStyle.Button("ReturnToVehicleServices", "返回车辆服务", () =>
         {
             if (_service.Target is DraftTarget.Instance { Id: InstanceId.Vehicle vehicle })

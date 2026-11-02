@@ -39,6 +39,7 @@ internal sealed partial class EditorService : IDisposable
     internal bool IsDirty => _forceDirty || State?.IsDirty == true;
     internal bool Leaving => _afterClose is not null;
     internal bool SceneUnavailable { get; private set; }
+    internal bool OpenedFromLibrary { get; private set; }
     internal string? Message { get; private set; }
     internal bool HasError { get; private set; }
     internal event Action? Changed;
@@ -55,7 +56,7 @@ internal sealed partial class EditorService : IDisposable
         host.OperationEnded += OperationEnded;
     }
 
-    internal void Open(DesignDraft draft, DraftTarget target, BlueprintSaveTarget? saveTarget = null, bool unsaved = false)
+    internal void Open(DesignDraft draft, DraftTarget target, BlueprintSaveTarget? saveTarget = null, bool unsaved = false, bool fromLibrary = false)
     {
         if (IsOpen || IsBusy) { Report("编辑器已有操作，请先结束当前编辑。"); return; }
         ClearFeedback();
@@ -66,6 +67,7 @@ internal sealed partial class EditorService : IDisposable
         if (Host.BeginEditing() is { } problem) { Report(problem); return; }
         FixedContent = Host.Content!;
         Target = target;
+        OpenedFromLibrary = fromLibrary;
         SaveTarget = saveTarget;
         _draft = new(Guid.NewGuid());
         _forceDirty = unsaved;
@@ -76,7 +78,7 @@ internal sealed partial class EditorService : IDisposable
         Changed?.Invoke();
     }
 
-    internal void OpenDraft(SavedContentDraft draft, bool unsaved = false)
+    internal void OpenDraft(SavedContentDraft draft, bool unsaved = false, bool fromLibrary = false)
     {
         var design = draft.Payload switch
         {
@@ -86,7 +88,7 @@ internal sealed partial class EditorService : IDisposable
             _ => null
         };
         if (design is null) { Report("该草稿不是可编辑的蓝图。"); return; }
-        Open(design, draft.Target, TargetBlueprint(draft.Target), unsaved);
+        Open(design, draft.Target, TargetBlueprint(draft.Target), unsaved, fromLibrary);
         if (_opening is not null) _draft = draft.Id;
     }
 
@@ -97,14 +99,14 @@ internal sealed partial class EditorService : IDisposable
         _ => null
     };
 
-    internal void OpenBlueprint(BlueprintAddress address)
+    internal void OpenBlueprint(BlueprintAddress address, bool fromLibrary = false)
     {
         if (Host.Content?.FindBlueprint(address) is ContentLookup<BlueprintRecord>.Found found)
         {
             DraftTarget target = address.Library == BlueprintLibrary.User
                 ? new DraftTarget.UserBlueprint(address.Id) : new DraftTarget.LocalBlueprint(
                     address.Library == BlueprintLibrary.Local ? address.Id : null);
-            Open(found.Value.Definition, target, address.Library == BlueprintLibrary.Packages ? null : new BlueprintSaveTarget.Overwrite(address));
+            Open(found.Value.Definition, target, address.Library == BlueprintLibrary.Packages ? null : new BlueprintSaveTarget.Overwrite(address), fromLibrary: fromLibrary);
         }
         else Report($"无法打开蓝图：{address.Id.Value}，内容缺失或不可用。");
     }
@@ -361,39 +363,6 @@ internal sealed partial class EditorService : IDisposable
         _ => throw new InvalidDataException("该草稿不是外部草稿。")
     }, draft.Id.Value.ToString("D") + ".json");
 
-    internal ImmutableArray<SavedContentDraft> UserDrafts()
-    {
-        return ReadDrafts(AuthoringPaths.UserDraftsDirectory(_store.Root), target => target is DraftTarget.UserBlueprint);
-    }
-
-    internal ImmutableArray<SavedContentDraft> PackageDrafts(PackageId package) =>
-        ReadDrafts(AuthoringPaths.PackageDraftsDirectory(_store.Root, package),
-            target => target is DraftTarget.PackageDefinition value && value.Package == package);
-
-    private ImmutableArray<SavedContentDraft> ReadDrafts(string path, Func<DraftTarget, bool> include)
-    {
-        if (!Directory.Exists(path)) return [];
-        var drafts = ImmutableArray.CreateBuilder<SavedContentDraft>();
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(path, "*.json").Order(StringComparer.Ordinal))
-            {
-                try
-                {
-                    var result = Host.ContentFactory.DecodeDraft(File.ReadAllText(file, new UTF8Encoding(false, true)));
-                    if (result is ContentResult<SavedContentDraft>.Success success)
-                    {
-                        if (include(success.Value.Target)) drafts.Add(success.Value);
-                    }
-                    else Report($"{file}：{LogContentFailure(result)}");
-                }
-                catch (Exception error) { Report($"{file}：{error.Message}"); }
-            }
-        }
-        catch (Exception error) { Report(error.Message); }
-        return drafts.ToImmutable();
-    }
-
     internal bool SaveBlueprint(BlueprintSaveTarget target)
     {
         if (IsBusy || Session is not { } session || Target is not { } source) return false;
@@ -501,7 +470,7 @@ internal sealed partial class EditorService : IDisposable
     private void Reopen(EditSnapshot snapshot, DraftTarget source, BlueprintSaveTarget target, DraftId draft, string message, CoreProblem? problem = null)
     {
         _saving = null;
-        Open(snapshot.Draft, source, target, unsaved: true);
+        Open(snapshot.Draft, source, target, unsaved: true, fromLibrary: OpenedFromLibrary);
         if (_opening is not null)
         {
             _draft = draft;
