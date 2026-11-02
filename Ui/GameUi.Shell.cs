@@ -109,6 +109,7 @@ public partial class GameUi
 
     private bool CloseOverlay()
     {
+        if (_menu.CloseSavesOnEscape()) return true;
         if (_errorPanel.Visible) { _errorPanel.Hide(); return true; }
         if (_notices?.CloseLog() == true) return true;
         if (_settings.Visible) { _settings.Hide(); return true; }

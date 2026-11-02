@@ -123,14 +123,18 @@ public class AppTests(Node testScene) : TestClass(testScene)
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
             await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
-            var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             foreach (var invalidJson in new[] { false, true })
             {
                 if (invalidJson) File.WriteAllText(path, "not JSON");
                 var failure = app.StartExample(path);
+                var expected = failure is null ? null : SaveService.DescribeFailure(failure);
                 Require(failure is not null && panel.Visible && panel.FindChildren("*", "Label", true, false)
-                    .Cast<Label>().Any(label => label.Text == failure.Message),
+                    .Cast<Label>().Any(label => label.Text == expected),
                     "示例读取或解码失败未通过存档面板显示。");
+                Require(panel.FindChildren("*", "Label", true, false).Cast<Label>()
+                    .Where(label => label.IsVisibleInTree()).All(label => !label.Text.Contains(path) && !label.Text.Contains(failure!.Code)),
+                    "示例失败提示泄露文件路径或内部错误类别。");
                 Require(app.Host!.GetStatus() is null, "损坏示例创建了活动会话。");
                 panel.Hide();
             }

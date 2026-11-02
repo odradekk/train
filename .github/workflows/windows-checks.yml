@@ -34,9 +34,13 @@ on:
         type: string
         default: scene-reference
       measure_input:
-        description: examples/ 下的输入存档（仅 measure 的 example 输入集）
+        description: 输入存档（example／window-soak）
         type: string
         default: examples/standard-world/save.json
+      measure_train: {description: 列车编号, type: string}
+      measure_node: {description: 节点编号, type: string}
+      measure_edge: {description: 线路编号, type: string}
+      measure_soak_profile: {description: 序列, type: choice, options: [standard-world, crowded-station, busy-combat, long-consist], default: standard-world}
       measure_input_set:
         description: 测量输入集（仅 measure）
         type: choice
@@ -319,6 +323,10 @@ jobs:
           SOAK_SECONDS: ${{ inputs.soak_seconds }}
           MEASURE_SCENARIOS: ${{ inputs.measure_scenarios }}
           MEASURE_INPUT: ${{ inputs.measure_input }}
+          TRAIN: ${{ inputs.measure_train }}
+          NODE: ${{ inputs.measure_node }}
+          EDGE: ${{ inputs.measure_edge }}
+          SOAK_PROFILE: ${{ inputs.measure_soak_profile }}
           MEASURE_INPUT_SET: ${{ inputs.measure_input_set }}
           MEASURE_REPEAT: ${{ inputs.measure_repeat }}
           MEASURE_SECONDS: ${{ inputs.measure_seconds }}
@@ -327,8 +335,10 @@ jobs:
           $parameters = @{ Scenario = $env:MEASURE_SCENARIOS; InputSet = $env:MEASURE_INPUT_SET; InputPath = $env:MEASURE_INPUT; Repeat = $env:MEASURE_REPEAT; DurationSeconds = $env:MEASURE_SECONDS }
           if ($env:CI_SELECTION -eq 'measure' -and $env:MEASURE_NODE_READY_HOLD -eq 'true') { $parameters.NodeReadyHold = $true }
           if ($env:CI_SELECTION -eq 'window-soak') {
-            $parameters = @{ Scenario = 'scene-soak'; InputPath = 'examples/standard-world/save.json'; Repeat = 1; DurationSeconds = $env:SOAK_SECONDS }
+            $parameters=@{ Scenario='scene-soak'; InputPath=$env:MEASURE_INPUT; Repeat=1; DurationSeconds=$env:SOAK_SECONDS }
           }
+          foreach ($id in 'Train','Node','Edge') { $value=[Environment]::GetEnvironmentVariable("$($id.ToUpperInvariant())"); if ($value) { $parameters["${id}Id"]=$value } }
+          $parameters.SoakProfile = $env:SOAK_PROFILE
           & "$env:RUNNER_TEMP/measure-tools/scripts/measure/run-measurement.ps1" @parameters -Root $env:GITHUB_WORKSPACE -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable')
           exit $LASTEXITCODE
 

@@ -15,9 +15,11 @@ param(
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
     [switch] $NodeReadyHold,
     [string] $ReferencePath,
-    # scene-* 默认列车 1、节点 2。
+    # scene-* 默认列车 1、节点 2、线路 11。
     [ValidateRange(1, 9223372036854775807)][long] $TrainId,
     [ValidateRange(1, 9223372036854775807)][long] $NodeId,
+    [ValidateRange(1, 9223372036854775807)][long] $EdgeId,
+    [ValidateSet('standard-world', 'crowded-station', 'busy-combat', 'long-consist')][string] $SoakProfile = 'standard-world',
     # test 指用户 2026-10-22 指定的 Linux runner 主机。
     [ValidateSet('development', 'test')][string] $Machine = 'development',
     [string] $RepositoryPath = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
@@ -209,6 +211,8 @@ try {
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 if ($PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('--measure-train', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('--measure-node', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                if ($PSBoundParameters.ContainsKey('EdgeId')) { $arguments += @('--measure-edge', $EdgeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                $arguments += @('--measure-soak-profile', $SoakProfile)
                 $launch = @($ExecutablePath) + $arguments
                 if ($null -ne $wrapper) {
                     $launch = @($wrapper.program) + $wrapper.arguments + @('python3',
