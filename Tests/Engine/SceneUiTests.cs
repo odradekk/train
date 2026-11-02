@@ -56,8 +56,8 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
                 "场景真实点击未经过Pick/Resolve打开实例详情。");
             var pickedRay = frame.LastPickRay;
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            var list = Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects");
-            await _input.ClickItem(list, 0);
+            var list = NodeObjects(ui);
+            await _input.ClickItem(list, FirstSelectableItem(list));
             Require(session.ResolveCalls.Count == 1 && ReferenceEquals(frame.LastPickRay, pickedRay), "顶栏或列表点击穿透场景拾取。");
             Find<PanelContainer>(ui, "Details").Hide();
             Find<PanelContainer>(ui, "NodesList").Hide();
@@ -236,16 +236,13 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
                 Math.Abs(camera.Camera.Position.DistanceTo(focus) - distance) < .001f,
                 "小地图滚轮或中键穿透到世界相机。");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            var panel = Find<PanelContainer>(ui, "NodesList");
-            var list = panel.GetNode<ItemList>("Layout/Content/Body/Objects");
-            await _input.WaitUntil(() => list.ItemCount > 0 && list.GetItemRect(0).Size.Y > 0 &&
-                list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
+            var list = NodeObjects(ui);
             var clearanceRay = frame.LastPickRay;
-            await _input.Click(list.GlobalPosition + list.GetItemRect(0).GetCenter());
+            await _input.ClickItem(list, FirstSelectableItem(list));
             Require(camera.Focus.DistanceTo(focus) < .001f && ReferenceEquals(frame.LastPickRay, clearanceRay),
                 "停靠列表点击穿透到小地图或场景拾取。");
             await ShellGeometry.CheckBothScales(TestScene, ui);
-            panel.Hide();
+            Find<PanelContainer>(ui, "NodesList").Hide();
             await _input.PressKey(Key.Escape);
             await _input.PressKey(Key.Escape);
             await _input.WaitUntil(() => map.IsVisibleInTree() && !minimap.IsVisibleInTree());
@@ -379,6 +376,8 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             var contentView = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
             {
                 GenerationProfiles = [new(new("fixture:world"), new("固定世界", ""))],
+                DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+                { [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = new ContentLookup<ContentDisplay>.NotFound() },
                 // 点击列车时按车长找参考中心车辆；单车列车查不到设计时仍跟随这辆车。
                 Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [new("fixture-design")] = new ContentLookup<DesignEvaluation>.NotFound() }
             };

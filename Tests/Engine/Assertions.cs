@@ -11,6 +11,17 @@ internal static class Assertions
     internal static SubmissionResult Completed(ulong number, ICoreReadView before, ICoreReadView after, CommandDecision decision)
         => new SubmissionResult.Completed(new(number, before.Position, after.Position, decision), [], null);
     internal static T Find<T>(Node parent, string name) where T : Node => parent.FindChildren(name, "", true, false).OfType<T>().Single();
+    internal static Tree NodeObjects(Train.Ui.GameUi ui) => Find<Tree>(Find<PanelContainer>(ui, "NodesList"), "Objects");
+
+    internal static TreeItem[] TreeItems(Tree tree)
+    {
+        var items = new List<TreeItem>();
+        for (var item = tree.GetRoot()?.GetFirstChild(); item is not null; item = item.GetNextInTree()) items.Add(item);
+        return [.. items];
+    }
+
+    internal static int FirstSelectableItem(Tree tree) => Array.FindIndex(TreeItems(tree), item => item.IsSelectable(0));
+
     internal static void Require(bool condition, string message)
     {
         if (!condition)

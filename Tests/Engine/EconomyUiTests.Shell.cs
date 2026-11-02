@@ -30,7 +30,7 @@ public partial class EconomyUiTests
         => Boot(setup, async ui =>
         {
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             await body(ui, Find<PanelContainer>(ui, "Settlement"));
         });
 

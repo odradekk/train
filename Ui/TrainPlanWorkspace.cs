@@ -251,20 +251,5 @@ internal partial class TrainPlanWorkspace : Control
     // 截掉 CommandDiagnostics 附加的、带内部编号的对象说明，保留玩家可读的拒绝原因。
     private static string CleanError(string text) => string.Join("\n", text.Split('\n').Select(line => line.Split("对象：", StringSplitOptions.None)[0]));
 
-    private string PlaceName(NodeId id)
-    {
-        var node = _view.World.Nodes.FirstOrDefault(item => item.Id == id);
-        if (node is null) return "地点已不存在";
-        if (node.Occupant is NodeOccupant.Settlement settlement)
-            return _content.FindSettlementLayout(settlement.Id) is ContentLookup<SettlementLayoutProjection>.Found layout
-                ? layout.Value.Display.Name : "聚居地";
-        var name = node.Occupant is NodeOccupant.Lair ? "生物聚落" : "空节点";
-        if (node.Occupant is NodeOccupant.Lair lair &&
-            _view.FindLair(lair.Id) is Lookup<LairView>.Found found &&
-            _content.FindLair(found.Value.Type) is ContentLookup<LairAppearanceProjection>.Found appearance)
-            return name + " · " + appearance.Value.Display.Text.Name;
-        if (_content.FindDefinitionDisplay(new CoreDefinitionReference.Terrain(node.Terrain.TypeId)) is ContentLookup<ContentDisplay>.Found display)
-            name += " · " + display.Value.Text.Name;
-        return name;
-    }
+    private string PlaceName(NodeId id) => WorldPanels.NodeName(id, _view, _content);
 }

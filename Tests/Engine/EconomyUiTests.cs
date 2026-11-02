@@ -366,14 +366,14 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 Find<Label>(economy, "Quote").Text.Contains("可用容量不足") &&
                 !Find<Label>(economy, "Quote").Text.Contains("insufficient_"), "受阻报价未禁止提交或遗漏原因。");
             await _input.Activate(Find<Button>(ui, "Fleet"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
+            await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             await _input.Activate(Find<Button>(ui, "Inventory"));
             var inventory = Find<PanelContainer>(ui, "TrainInventory");
             Require(!economy.IsVisibleInTree() && inventory.IsVisibleInTree(), "列车库存没有替换聚居地检查器。");
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(new HostBinding(Guid.NewGuid()), view, content);
             Require(Find<Label>(inventory, "State").Text.Contains("已失效"), "列车库存仍接受旧绑定。");
             await _input.Activate(Find<Button>(ui, "Nodes"));
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             economy = Find<PanelContainer>(ui, "Settlement");
             await Market(economy);
             Find<EconomyPanels>(ui, "EconomyPanels").Refresh(new HostBinding(Guid.NewGuid()), view, content);
@@ -526,7 +526,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
         await Run(setup, async (ui, economy) =>
         {
             var shell = Find<GameShell>(ui, "*");
-            await _input.ClickItem(Find<ItemList>(Find<PanelContainer>(ui, "NodesList"), "Objects"), 0);
+            await _input.ClickItem(NodeObjects(ui), FirstSelectableItem(NodeObjects(ui)));
             economy = shell.InspectorContent!;
             await _input.Activate(Find<Button>(economy, "DeclareWar"));
             var confirmation = Find<ConfirmationDialog>(economy, "DeclareWarConfirmation");
