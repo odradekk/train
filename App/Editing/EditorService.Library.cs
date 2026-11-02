@@ -54,6 +54,7 @@ internal sealed partial class EditorService
     }
 
     private readonly Dictionary<SavedContentDraft, string> _userDraftFiles = new(ReferenceEqualityComparer.Instance);
+    internal Action<string> DeleteFile { private get; set; } = File.Delete;
 
     internal void DeleteDraft(SavedContentDraft draft)
     {
@@ -65,7 +66,7 @@ internal sealed partial class EditorService
             { Report("草稿已更新，请重新选择。"); return; }
             try
             {
-                File.Delete(path);
+                DeleteFile(path);
                 _userDraftFiles.Remove(draft);
                 Changed?.Invoke();
             }
