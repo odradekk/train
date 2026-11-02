@@ -157,12 +157,10 @@ pwsh -NoProfile -File scripts/measure/tests/test-run-outcome.ps1
 python -m unittest discover -s scripts/measure/tests -p "test_*.py" -v
 ```
 
-`Tests/SceneScale/` 已接入[统一测试入口](../../docs/run-tests.md)和 CI。上列 Python 和 PowerShell 脚本测试尚未接入 CI。预检使用固定时间序列验证 30 秒覆盖、门槛边界、连续超限和缺失样本；汇总和运行判定测试使用临时目录里的真实 JSON 文件。运行判定覆盖包装器返回 0 而游戏异常退出、已完成报告之后的异常退出、游戏状态缺失和报告结束标记缺失，以及 Windows 的退出和清理检查。`test_game_process.py` 用受控子进程检查退出记录器的零退出、非零退出及信号终止；信号用例在 Windows 上跳过，Linux 上运行。编排通过真实游戏入口验证，不使用假游戏替身；记录器的子进程测试不证明 gamescope 的行为。
+`Tests/SceneScale/` 已接入[统一测试入口](../../docs/run-tests.md)和 CI；上列脚本测试尚未接入。预检用固定时间序列覆盖 30 秒、门槛边界、连续超限和缺样本；汇总与运行判定读取临时目录中的真实 JSON。运行判定覆盖包装器返回 0 时游戏异常退出（含报告完成后）、游戏状态或报告结束标记缺失，以及 Windows 退出和清理。`test_game_process.py` 以受控子进程覆盖零退出、非零退出及信号终止；信号用例仅在 Linux 运行。编排用真实游戏验证；记录器测试不证明 gamescope 行为。
 
-Linux 测量需要 `gamescope` 和 `python3`。输出文件见[测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。
+Linux 测量需要 `gamescope` 和 `python3`。`run-measurement.ps1` 将 `.tpz` 和 `SHA512-SUMS.txt` 缓存在 workflow 指定的版本目录；版本变化时换目录。模板阶段两文件齐全时不联网，仍核对模板 SHA512；缺哪个下载哪个，完成后将 `.partial` 改名入缓存。哈希不符时删除两文件；校验文件没有唯一模板条目时只删校验文件，下次补下载。网络失败单独报错。输出见[测试手册](../../docs/run-tests.md#观察无关检查与窗口测量)。
 
-不启动游戏的拒绝路径检查：沿用上面的单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。每次采样均有效且 CPU 均值大于零时，预期有 8 次预检（4 次主序列、4 次补跑）、全部 `measurement_started=false`，并返回 1。查看 `comparison.json` 确认每个计划项只有两次尝试。
+拒绝路径：沿用单场景示例，传 `-CpuMeanThresholdPercent 0 -Repeat 2`。采样均有效且 CPU 均值大于零时，预期 8 次预检（主序列、补跑各 4 次），全部 `measurement_started=false`，返回 1。`comparison.json` 每项应只有两次尝试。
 
-完整冒烟在安静窗口里以同一导出作为 A 和 B，各跑两轮 `scene-follow-8x -DurationSeconds 2`，再汇总；检查顺序、报告、退出状态、负载日志和每侧有效轮数。每次测量都应成功启动并结束。
-
-汇总中两侧帧耗时 p50 都应为 `valid_runs: 2`、`unknown_runs: 0`；检查每轮的 `external-load.jsonl` 是否有有效计数。Linux 采样路径通过 runner 的 `measure` workflow 运行短场景验证，同样检查负载日志。这些冒烟验证编排和采样，不代表性能收益。
+完整冒烟在安静窗口以同一导出作为 A、B，各跑两轮 `scene-follow-8x -DurationSeconds 2` 后汇总。检查顺序、报告、正常启动和退出；两侧帧耗时 p50 均应为 `valid_runs: 2`、`unknown_runs: 0`，每轮 `external-load.jsonl` 有有效计数。Linux 采样用 runner 的短 `measure` job 验证，同样检查负载日志。冒烟只验证编排和采样。

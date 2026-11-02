@@ -60,19 +60,31 @@ try {
         @(@{ name = 'example'; path = $InputPath; directory = $results; stage = 'not_started'; succeeded = $false })
     }
     $stage = 'template'
-    # 缓存只省下载；每次都按同一发布的官方 SHA512-SUMS.txt 重新核对。
-    $sums = Join-Path $work 'SHA512-SUMS.txt'
-    Invoke-WebRequest "$release/SHA512-SUMS.txt" -OutFile $sums
-    $expected = @(Get-Content -LiteralPath $sums | ForEach-Object { $fields = $_ -split '\s+'; if ($fields[-1] -eq $archiveName) { $fields[0] } })
-    if ($expected.Count -ne 1) { throw "SHA512-SUMS.txt 中没有唯一的 $archiveName。" }
+    # 调用方按发布版本隔离缓存；命中后仍按缓存的官方校验文件核对模板。
+    $sums = Join-Path $CacheDirectory 'SHA512-SUMS.txt'
     $archive = Join-Path $CacheDirectory $archiveName
-    if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
-        Invoke-WebRequest "$release/$archiveName" -OutFile "$archive.partial"
-        Move-Item -LiteralPath "$archive.partial" -Destination $archive -Force
+    $templateSources = @()
+    foreach ($name in @('SHA512-SUMS.txt', $archiveName)) {
+        $cached = Join-Path $CacheDirectory $name
+        if (Test-Path -LiteralPath $cached -PathType Leaf) {
+            $templateSources += "$name=hit"
+        } else {
+            try { Invoke-WebRequest "$release/$name" -OutFile "$cached.partial" }
+            catch { throw "网络下载失败：$name。" }
+            Move-Item -LiteralPath "$cached.partial" -Destination $cached -Force
+            $templateSources += "$name=downloaded"
+        }
     }
-    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA512).Hash -ne $expected[0]) {
-        Remove-Item -LiteralPath $archive -Force
-        throw "$archiveName 与官方 SHA512 不符，已删除缓存。"
+    $expected = @(Get-Content -LiteralPath $sums | ForEach-Object { $fields = $_ -split '\s+'; if ($fields[-1] -eq $archiveName) { $fields[0] } })
+    if ($expected.Count -ne 1) {
+        Remove-Item -LiteralPath $sums -Force
+        throw "SHA512-SUMS.txt 中没有唯一的 $archiveName，已删除校验缓存。"
+    }
+    $matched = (Get-FileHash -LiteralPath $archive -Algorithm SHA512).Hash -eq $expected[0]
+    Write-Host "template: $($templateSources -join ', '), SHA512=$(if ($matched) { 'matched' } else { 'mismatch' })"
+    if (-not $matched) {
+        Remove-Item -LiteralPath $archive, $sums -Force
+        throw "$archiveName 与官方 SHA512 不符，已删除模板和校验缓存。"
     }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $template = Join-Path $work 'linux_release.x86_64'
