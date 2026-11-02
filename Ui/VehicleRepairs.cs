@@ -13,6 +13,10 @@ internal sealed record VehicleRepairQuote(ImmutableArray<JobQuote> Jobs, Money? 
 /// </summary>
 internal static class VehicleRepairs
 {
+    internal static bool NeedsRepair(InstanceView instance) =>
+        instance.Structure.EffectiveCurrent < instance.Structure.Maximum ||
+        instance.Parts.Any(part => part.Durability.EffectiveCurrent < part.Durability.Maximum);
+
     internal static VehicleRepairQuote Quote(IEnumerable<VehicleId> vehicles, SettlementView settlement,
         ICoreReadView view, IContentView content)
     {
@@ -25,8 +29,7 @@ internal static class VehicleRepairs
             if (view.FindInstance(new InstanceId.Vehicle(vehicle)) is not Lookup<InstanceView>.Found found)
                 return new([], null, "车辆已不存在。");
             var instance = found.Value;
-            if (instance.Structure.EffectiveCurrent >= instance.Structure.Maximum &&
-                instance.Parts.All(part => part.Durability.EffectiveCurrent >= part.Durability.Maximum)) continue;
+            if (!NeedsRepair(instance)) continue;
             JobQuote? chosen = null;
             var reason = "当地没有可用的修理设施。";
             foreach (var building in settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>())

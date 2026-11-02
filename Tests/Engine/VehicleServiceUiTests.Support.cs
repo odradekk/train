@@ -43,23 +43,26 @@ public partial class VehicleServiceUiTests
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private sealed partial class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false, bool facilityBlocked = false, PlotSize targetPlot = PlotSize.Small, bool activeTrain = false) : ICoreReadView
+    private sealed partial class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false, bool facilityBlocked = false, PlotSize targetPlot = PlotSize.Small, bool activeTrain = false, bool healthyParkedVehicle = false) : ICoreReadView
     {
         internal bool DamagedParkedVehicle { get; init; }
         private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned,
+            relation: owned ? SettlementRelation.PlayerOwned : SettlementRelation.NonHostile,
+            extraOwned: healthyParkedVehicle ? [new(12)] : [],
             trainActivity: activeTrain ? TrainActivity.Waiting : TrainActivity.Stopped,
             trainPlan: activeTrain ? new RunPlan(false, [new PlanStop.Waypoint(new(1))]) : null);
         private static readonly FacilityKey Facility = new(new(20), CapabilityKind.Construction);
         private static readonly ImmutableArray<CoreProblem> Missing = [new("insufficient_goods", "materials", null, ["fixture:missing"])];
         internal int QuoteCount { get; private set; }
         internal JobQuote? LastQuote { get; private set; }
+        internal List<JobRequest.Repair> RepairRequests { get; } = [];
         public Lookup<SettlementView> FindSettlement(SettlementId id)
         {
             if (basis.FindSettlement(id) is not Lookup<SettlementView>.Found found) return basis.FindSettlement(id);
             PlotView[] plots = missingFacility ? [] : [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(20))), new(new(2), 2, PlotSize.Small, [], new PlotOccupant.Building(new(21)))];
             if (emptyPlot && !missingFacility) plots = [.. plots, new(new(3), 3, PlotSize.Medium, [], new PlotOccupant.Empty())];
             if (constructionPlot && !missingFacility) plots = [.. plots, new(new(4), 4, PlotSize.Large, [], new PlotOccupant.Construction(new(4)))];
-            return new Lookup<SettlementView>.Found(found.Value with { Relation = owned ? SettlementRelation.PlayerOwned : found.Value.Relation, Plots = [.. plots], CommissionJobs = completed || owned ? [] : [new(4)], OwnedJobs = owned && !completed ? buildingWork ? [new(4), new(5), new(6), new(7), new(8), new(9)] : [new(4), new(5)] : [] });
+            return new Lookup<SettlementView>.Found(found.Value with { Plots = [.. plots], CommissionJobs = completed || owned ? [] : [new(4)], OwnedJobs = owned && !completed ? buildingWork ? [new(4), new(5), new(6), new(7), new(8), new(9)] : [new(4), new(5)] : [] });
         }
         public Lookup<JobView> FindJob(JobId id)
         {
@@ -88,11 +91,12 @@ public partial class VehicleServiceUiTests
         }
         public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding)
         {
+            if (request is JobRequest.Repair requestedRepair) RepairRequests.Add(requestedRepair);
             var sources = request switch
             {
                 JobRequest.Repair repair when repair.Facility == Facility && repair.Instance is InstanceId.Vehicle { Id.Value: 9 or 10 } => repair.Sources,
                 JobRequest.Repair repair when owned && repair.Facility == Facility && repair.Instance is InstanceId.Building { Id.Value: 21 } => repair.Sources,
-                JobRequest.Dismantle dismantle when owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Vehicle { Id.Value: 9 } => [],
+                JobRequest.Dismantle dismantle when owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Vehicle { Id.Value: 9 or 12 } => [],
                 JobRequest.Dismantle dismantle when buildingWork && owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Building { Id.Value: 21 } => [],
                 JobRequest.Refit refit when refit.Facility == Facility && expectedDesign is not null && ReferenceEquals(refit.Change.Target, expectedDesign) => refit.Sources,
                 JobRequest.BuildVehicle build when build.Facility == Facility && expectedDesign is not null && ReferenceEquals(build.Design, expectedDesign) => build.Sources,

@@ -38,23 +38,36 @@ public partial class VehicleServiceUiTests
     [Test]
     public async Task Owned_parked_vehicle_repair_uses_only_settlement_inventory()
     {
-        var view = new ServiceView(owned: true, completed: true) { DamagedParkedVehicle = true };
+        var view = new ServiceView(owned: true, completed: true, healthyParkedVehicle: true) { DamagedParkedVehicle = true };
         var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehiclePresentation: true));
         await Run(setup, async (_, panel) =>
         {
             await Vehicles(panel);
             await _input.Activate(Find<CheckBox>(panel, "ParkedVehicle9"));
+            await _input.Activate(Find<CheckBox>(panel, "ParkedVehicle12"));
+            Require(view.RepairRequests.Count > 0 && view.RepairRequests.All(request => request.Instance == new InstanceId.Vehicle(new(9))),
+                "混选受损车和完好车时，只应为受损车 9 获取修理报价。");
             Require(view.LastQuote is { Funding: JobFunding.OwnInventory, Request: JobRequest.Repair repair } &&
-                repair.Sources.SequenceEqual(new InventoryId[] { new(10) }), "自有修理只应取当地库存 10，不取列车 12 或租库 11。");
+                repair.Instance == new InstanceId.Vehicle(new(9)) && repair.Sources.SequenceEqual(new InventoryId[] { new(10) }), "自有修理只应取当地库存 10，不取列车 12 或租库 11。");
+            var button = Find<Button>(panel, "RepairVehicles");
+            Require(!button.Disabled && button.Text.Contains("库存材料") && !button.Text.Contains("999"),
+                "混选完好车时仍应允许修理受损车，并说明使用库存材料。");
+            await _input.Activate(Find<CheckBox>(panel, "ParkedVehicle9"));
+            var repairQuotes = view.RepairRequests.Count;
+            Require(button.Disabled && Find<Label>(panel, "RepairReason").Text == "没有损伤，不需要修理",
+                "只选完好车时，应禁用修理并说明没有损伤。");
+            Require(view.RepairRequests.All(request => request.Instance == new InstanceId.Vehicle(new(9))),
+                "只选完好车时，不应为完好车获取修理报价。");
+            await _input.Frames();
+            Require(view.RepairRequests.Count == repairQuotes, "只选完好车时刷新不得请求修理报价。");
+            await _input.Activate(Find<CheckBox>(panel, "ParkedVehicle9"));
             setup.Session.QueueSubmit(new CoreCommand.StartOwnedJob(view.LastQuote!.Request), CommandSource.UserInterface,
                 Completed(1, view, view, new CommandDecision.Accepted([], [])), view);
-            var button = Find<Button>(panel, "RepairVehicles");
-            Require(!button.Disabled && button.Text.Contains("库存材料") && !button.Text.Contains("999"), "自有修理应说明使用库存材料。");
             Require(panel.FindChildren("SellVehicles", "Button", true, false).Cast<Button>().All(button => !button.IsVisibleInTree()),
                 "自有聚居地不提供出售。");
             await UiCapture.CaptureSizes(TestScene, "vehicles-owned-selected");
             await _input.Activate(button);
-            Require(setup.Session.SubmitCount == 1, "自有修理应直接提交自有施工命令。");
+            Require(setup.Session.SubmitCount == 1, "混选完好车时，自有修理只应为受损车提交一次施工命令。");
         });
         setup.Session.AssertComplete();
     }

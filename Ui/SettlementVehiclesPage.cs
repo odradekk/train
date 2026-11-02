@@ -39,7 +39,7 @@ internal sealed partial class SettlementVehiclesPage(
     internal void BuildVehicles(VBoxContainer body, bool owned)
     {
         Close(); _body = body; _owned = owned;
-        _jobs = Text(body, "VehicleJobs", "没有进行中的委托。");
+        _jobs = Text(body, "VehicleJobs", "");
         Text(body, "ParkedTitle", "停在这里的车辆 · 未编入列车");
         _parkedRows = new() { Name = "ParkedVehicles" }; body.AddChild(_parkedRows);
         _parkedEmpty = Text(body, "ParkedEmpty", "这里没有未编组的玩家车辆。");
@@ -71,7 +71,9 @@ internal sealed partial class SettlementVehiclesPage(
             .Select(item => item.Value).Where(job => job.Target is ConstructionTarget.NewVehicle
                 or ConstructionTarget.Existing { Instance: InstanceId.Vehicle });
         var descriptions = jobs.Select(job => DescribeVehicleJob(_view, _content, job)).ToArray();
-        _jobs.Text = descriptions.Length == 0 ? "没有进行中的委托。" : "进行中的委托\n" + string.Join("\n", descriptions);
+        _jobs.Text = descriptions.Length == 0
+            ? _owned ? "没有进行中的修理或拆解。" : "没有进行中的委托。"
+            : (_owned ? "进行中的施工\n" : "进行中的委托\n") + string.Join("\n", descriptions);
         var parked = _settlement.ParkedVehicles.Where(id => _view.FindInstance(new InstanceId.Vehicle(id)) is
             Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned }).ToArray();
         SyncVehicles(_parkedRows, _parkedChecks, parked, _parkedSelection, "ParkedVehicle");

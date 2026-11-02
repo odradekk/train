@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using Train.App;
-using Train.Content.Contracts;
 using Train.Core.Contracts;
 using static Train.Ui.EconomyPanels;
 
@@ -68,21 +67,22 @@ internal sealed partial class SettlementVehiclesPage
     {
         description.Text = "";
         if (_parkedSelection.Count == 0) { if (!dismantle) description.Text = "请勾选停放车辆。"; return []; }
+        var vehicles = _parkedSelection.Where(id => dismantle ||
+            _view.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found ||
+            VehicleRepairs.NeedsRepair(found.Value)).ToArray();
+        if (vehicles.Length == 0) { description.Text = "没有损伤，不需要修理"; return []; }
         var facilities = _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>()
-            .Where(building => _view.FindInstance(new InstanceId.Building(building.Id)) is Lookup<InstanceView>.Found instance &&
-                _content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found
-                    { Value: DesignEvaluation.Complete { Core: { } input } } &&
-                input.Design.Parts.Any(part => part.Capabilities.Any(capability => capability is PartCapability.Construction)))
+            .Where(building => IsConstructionFacility(_view, _content, building.Id))
             .Select(building => new FacilityKey(building.Id, CapabilityKind.Construction)).ToArray();
         var used = new HashSet<FacilityKey>();
         foreach (var job in _settlement.OwnedJobs.Select(_view.FindJob).OfType<Lookup<JobView>.Found>()
             .Select(item => item.Value).OfType<JobView.Construction>().Select(item => item.Value)
             .Where(job => job.State is not ConstructionState.Completed and not ConstructionState.Failed)) used.Add(job.Facility);
         var free = facilities.Count(facility => !used.Contains(facility));
-        if (free < _parkedSelection.Count)
+        if (free < vehicles.Length)
         { description.Text = $"只有 {free} 个空闲的施工设施"; return []; }
         var quoted = ImmutableArray.CreateBuilder<QuotedVehicle>();
-        foreach (var id in _parkedSelection)
+        foreach (var id in vehicles)
         {
             JobQuote? selected = null;
             var reason = "这里没有可用的施工设施。";

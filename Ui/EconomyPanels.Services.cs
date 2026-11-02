@@ -5,6 +5,12 @@ namespace Train.Ui;
 
 internal partial class EconomyPanels
 {
+    internal static bool IsConstructionFacility(ICoreReadView view, IContentView content, BuildingId building) =>
+        view.FindInstance(new InstanceId.Building(building)) is Lookup<InstanceView>.Found instance &&
+        content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found
+            { Value: DesignEvaluation.Complete { Core: { } input } } &&
+        input.Design.Parts.Any(part => part.Capabilities.Any(capability => capability is PartCapability.Construction));
+
     internal static string? TrainVehicleName(ICoreReadView view, VehicleId vehicle) =>
         view.FindInstance(new InstanceId.Vehicle(vehicle)) is Lookup<InstanceView>.Found
             { Value.Details: InstanceDetails.Vehicle { Train: { } trainId } } &&
