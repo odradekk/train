@@ -16,7 +16,7 @@ internal sealed partial class SettlementVehiclesPage
         _buyBatch = _owned ? [] : TradeQuotes(_buySelection, VehicleTradeAction.Buy, _purchaseTotal);
         _sellBatch = _owned ? [] : TradeQuotes(_parkedSelection, VehicleTradeAction.Sell, _saleReason);
         _dismantleBatch = _owned ? WorkQuotes(true, _dismantleReason) : [];
-        _repairBatch = WorkQuotes(false, _repairReason);
+        _repairBatch = _owned ? WorkQuotes(false, _repairReason) : CommissionRepairQuotes();
         _buy.Text = _buyBatch.IsEmpty ? "购买所选车辆" : $"购买所选车辆 · {_buyBatch.Sum(item => item.Amount)}";
         _sell.Text = _sellBatch.IsEmpty ? "出售" : $"出售 · {_sellBatch.Sum(item => item.Amount)}";
         _repair.Text = _owned ? "修理 · 用库存材料" : _repairBatch.IsEmpty ? "修理" : $"修理 · {_repairBatch.Sum(item => item.Amount)}";
@@ -51,6 +51,19 @@ internal sealed partial class SettlementVehiclesPage
         return reasons.Count == 0 && quoted.Count == selection.Count ? quoted.ToImmutable() : [];
     }
 
+    private ImmutableArray<QuotedVehicle> CommissionRepairQuotes()
+    {
+        if (_parkedSelection.Count == 0) { _repairReason.Text = "请勾选停放车辆。"; return []; }
+        var quote = VehicleRepairs.Quote(_parkedSelection, _settlement, _view, _content);
+        _repairReason.Text = quote.Reason ?? "材料全部在当地购买，不使用列车和租用仓库中的货物。";
+        if (quote.Reason is not null) return [];
+        return [.. quote.Jobs.Select(job =>
+        {
+            var id = ((InstanceId.Vehicle)((JobRequest.Repair)job.Request).Instance).Id;
+            return new QuotedVehicle(id, VehicleName(id), new CoreCommand.CommissionVehicleWork(job.Request, job.TotalPayment!.Value), job.TotalPayment.Value.Value);
+        })];
+    }
+
     private ImmutableArray<QuotedVehicle> WorkQuotes(bool dismantle, Godot.Label description)
     {
         description.Text = "";
@@ -62,43 +75,38 @@ internal sealed partial class SettlementVehiclesPage
                 input.Design.Parts.Any(part => part.Capabilities.Any(capability => capability is PartCapability.Construction)))
             .Select(building => new FacilityKey(building.Id, CapabilityKind.Construction)).ToArray();
         var used = new HashSet<FacilityKey>();
-        if (_owned)
-            foreach (var job in _settlement.OwnedJobs.Select(_view.FindJob).OfType<Lookup<JobView>.Found>()
-                .Select(item => item.Value).OfType<JobView.Construction>().Select(item => item.Value)
-                .Where(job => job.State is not ConstructionState.Completed and not ConstructionState.Failed)) used.Add(job.Facility);
+        foreach (var job in _settlement.OwnedJobs.Select(_view.FindJob).OfType<Lookup<JobView>.Found>()
+            .Select(item => item.Value).OfType<JobView.Construction>().Select(item => item.Value)
+            .Where(job => job.State is not ConstructionState.Completed and not ConstructionState.Failed)) used.Add(job.Facility);
         var free = facilities.Count(facility => !used.Contains(facility));
-        if (_owned && free < _parkedSelection.Count)
+        if (free < _parkedSelection.Count)
         { description.Text = $"只有 {free} 个空闲的施工设施"; return []; }
         var quoted = ImmutableArray.CreateBuilder<QuotedVehicle>();
         foreach (var id in _parkedSelection)
         {
             JobQuote? selected = null;
             var reason = "这里没有可用的施工设施。";
-            foreach (var facility in facilities.Where(facility => !_owned || !used.Contains(facility)))
+            foreach (var facility in facilities.Where(facility => !used.Contains(facility)))
             {
                 JobRequest request = dismantle ? new JobRequest.Dismantle(facility, new InstanceId.Vehicle(id), 0)
-                    : new JobRequest.Repair(facility, new InstanceId.Vehicle(id), _owned ? [_settlement.Inventory] : [], 0);
-                switch (_view.GetJobQuote(request, _owned ? JobFunding.OwnInventory : JobFunding.NpcCommission))
+                    : new JobRequest.Repair(facility, new InstanceId.Vehicle(id), [_settlement.Inventory], 0);
+                switch (_view.GetJobQuote(request, JobFunding.OwnInventory))
                 {
                     case CoreResult<JobQuote>.Success { Value: var quote }:
                         reason = quote.Blockers.IsEmpty ? "暂时无法获取修理金额。" : Describe(quote.Blockers);
-                        if (quote.Blockers.IsEmpty && (_owned || quote.TotalPayment is not null)) selected = quote;
+                        if (quote.Blockers.IsEmpty) selected = quote;
                         break;
                     case CoreResult<JobQuote>.Failure failure: reason = Describe(failure.Problems); break;
                     case CoreResult<JobQuote>.Faulted fault: reason = CommandDiagnostics.Describe(fault.Fault); break;
                 }
                 if (selected is null) continue;
-                if (_owned) used.Add(facility);
+                used.Add(facility);
                 break;
             }
             if (selected is null) { description.Text = $"{VehicleName(id)}：{reason}"; return []; }
-            quoted.Add(new(id, VehicleName(id), _owned ? new CoreCommand.StartOwnedJob(selected.Request)
-                : new CoreCommand.CommissionVehicleWork(selected.Request, selected.TotalPayment!.Value),
-                _owned ? 0 : selected.TotalPayment!.Value.Value));
+            quoted.Add(new(id, VehicleName(id), new CoreCommand.StartOwnedJob(selected.Request), 0));
         }
-        var total = checked(quoted.Sum(item => item.Amount));
-        if (!_owned && total > _view.Economy.Wallet.Value) { description.Text = "资金不足，不能修理全部所选车辆。"; return []; }
-        if (!dismantle) description.Text = _owned ? "材料只取本聚居地库存。" : "材料全部在当地购买，不使用列车和租用仓库中的货物。";
+        if (!dismantle) description.Text = "材料只取本聚居地库存。";
         return quoted.ToImmutable();
     }
 

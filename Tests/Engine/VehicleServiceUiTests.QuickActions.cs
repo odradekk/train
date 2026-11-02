@@ -10,7 +10,7 @@ public partial class VehicleServiceUiTests
     [Test]
     public async Task Parked_vehicle_repair_buys_local_materials_at_the_displayed_payment()
     {
-        var view = new ServiceView(completed: true);
+        var view = new ServiceView(completed: true) { DamagedParkedVehicle = true };
         var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
         var request = new JobRequest.Repair(new(new(20), CapabilityKind.Construction), new InstanceId.Vehicle(new(9)), [], 0);
         setup.Session.QueueSubmit(new CoreCommand.CommissionVehicleWork(request, new(999)), CommandSource.UserInterface,

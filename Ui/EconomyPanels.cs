@@ -10,7 +10,6 @@ namespace Train.Ui;
 internal partial class EconomyPanels : Control
 {
     private SettlementPanel _settlementWindow = null!;
-    private TrainInventoryPanel _trainInventory = null!;
     private EconomyReportsPanel _reports = null!;
 
     internal const string ReservedStockHint = "聚居地库存在补货目标以内的部分留给本地，自动装载和买入只取超出部分。";
@@ -26,14 +25,12 @@ internal partial class EconomyPanels : Control
         Func<PanelTarget?, CoreCommand, SubmissionResult> submitInline)
     {
         var goods = new GoodsRows(icons);
-        _settlementWindow = new(this, host, submit, submitTarget, goods, Refresh, () => _trainInventory.InvalidateRevision(), submitInline);
-        _trainInventory = new(this, host, goods, Refresh);
+        _settlementWindow = new(this, host, submit, submitTarget, goods, Refresh, submitInline);
         _reports = new(this, host);
         _settlementWindow.FormationRequested += (target, node, vehicles, view, content) => FormationRequested?.Invoke(target, node, vehicles, view, content);
         _settlementWindow.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
         _settlementWindow.SettlementCombatRequested += settlement => SettlementCombatRequested?.Invoke(settlement);
         _settlementWindow.Opened += (target, panel) => InspectorRequested?.Invoke(target, panel);
-        _trainInventory.Opened += (target, panel) => InspectorRequested?.Invoke(target, panel);
         _reports.Opened += panel => WorkspaceRequested?.Invoke(panel);
     }
 
@@ -41,17 +38,15 @@ internal partial class EconomyPanels : Control
     { SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Ignore; }
 
     internal void OpenSettlement(PanelTarget source, SettlementId id) => _settlementWindow.Open(source, id);
-    internal void OpenTrainInventory(PanelTarget target, TrainId id) => _trainInventory.Open(target, id);
     internal void OpenReports() => _reports.Open();
 
     internal void Close()
-    { _settlementWindow.Close(); _trainInventory.Close(); _reports.Close(); }
+    { _settlementWindow.Close(); _reports.Close(); }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
         _reports.Refresh(binding, view, content);
         _settlementWindow.Refresh(binding, view, content);
-        _trainInventory.Refresh(binding, view, content, _settlementWindow.Settlement);
     }
 
     internal void Observe(HostBinding binding, ICoreReadView view, ImmutableArray<EventEnvelope> events)

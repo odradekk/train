@@ -12,7 +12,6 @@ internal sealed class SettlementPanel
     private readonly Control _parent;
     private readonly HostCoordinator _host;
     private readonly Action<HostBinding, ICoreReadView, IContentView> _refresh;
-    private readonly Action _invalidateTrainInventory;
     private readonly SettlementVehiclesPage _vehicles;
     private readonly SettlementWarehousePage _warehouse;
     private readonly SettlementServicesPage _services;
@@ -36,7 +35,6 @@ internal sealed class SettlementPanel
     private Label _wallet = null!;
     private Button _combat = null!;
 
-    internal SettlementView? Settlement => _settlement;
     internal event Action<PanelTarget, NodeId, ImmutableArray<VehicleId>, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<InstanceId>? ServiceDesignRequested;
     internal event Action<SettlementId>? SettlementCombatRequested;
@@ -45,10 +43,10 @@ internal sealed class SettlementPanel
     internal SettlementPanel(Control parent, HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit,
         Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget,
-        GoodsRows goods, Action<HostBinding, ICoreReadView, IContentView> refresh, Action invalidateTrainInventory,
+        GoodsRows goods, Action<HostBinding, ICoreReadView, IContentView> refresh,
         Func<PanelTarget?, CoreCommand, SubmissionResult> submitInline)
     {
-        _parent = parent; _host = host; _refresh = refresh; _invalidateTrainInventory = invalidateTrainInventory;
+        _parent = parent; _host = host; _refresh = refresh;
         _goods = goods; _submitInline = submitInline;
         _vehicles = new(() => CanAct, SubmitInline, (target, node, vehicles, view, content) => FormationRequested?.Invoke(target, node, vehicles, view, content));
         _warehouse = new(() => CanAct, goods, SubmitInline);
@@ -168,10 +166,11 @@ internal sealed class SettlementPanel
         _state.Text = _view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : _host.IsBusy ? "当前操作尚未结束" : "";
     }
 
+
     private SubmissionResult SubmitInline(PanelTarget target, CoreCommand command)
     {
         var result = _submitInline(target, command);
-        RefreshAfterSubmission(_invalidateTrainInventory);
+        RefreshAfterSubmission(null);
         return result;
     }
 
