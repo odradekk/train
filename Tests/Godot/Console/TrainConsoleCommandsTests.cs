@@ -12,6 +12,27 @@ namespace Train.Godot.Tests.Console;
 public sealed class TrainConsoleCommandsTests
 {
     [TestMethod]
+    public void MissingArgumentsProduceOneWarningWithUsage()
+    {
+        using var fixture = new HostFixture();
+        var commands = new TrainConsoleCommands(fixture.Host, fixture.Logger);
+
+        commands.Execute([]);
+
+        var log = fixture.Logs.Single();
+        Assert.AreEqual("train_usage", log.EventId);
+        StringAssert.Contains(log.Message, "用法：train");
+    }
+
+    [TestMethod]
+    public void InvalidPlanDwellExplainsHowToCorrectConsoleInput()
+    {
+        Assert.IsFalse(TrainConsoleCommands.TryParse(["plan", "1", "once", "station:1:-1"], out _, out var error));
+        StringAssert.Contains(error!, "非负整数秒");
+        StringAssert.Contains(error!, "train plan");
+    }
+
+    [TestMethod]
     public void FormPreservesVehicleOrderWithoutBusinessValidation()
     {
         Assert.IsTrue(TrainConsoleCommands.TryParse(["FORM", "9", "2", "9"], out var command, out var error));
@@ -74,7 +95,7 @@ public sealed class TrainConsoleCommandsTests
     {
         using var fixture = new HostFixture();
         var original = fixture.ReadyHost();
-        var commands = new TrainConsoleCommands(fixture.Host, fixture.Logger, error => Assert.Fail(error));
+        var commands = new TrainConsoleCommands(fixture.Host, fixture.Logger);
         var before = fixture.Host.GetStatus()!.Binding;
         var replacementView = new FixedCoreReadView(new(0, 0), HostCoreScenario.Input);
         var submittedView = new FixedCoreReadView(new(0, 1), HostCoreScenario.Input);

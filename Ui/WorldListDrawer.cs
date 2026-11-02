@@ -58,6 +58,7 @@ internal sealed class WorldListDrawer
             ScrollHorizontalEnabled = false, MouseForcePassScrollEvents = false };
         _list.SetColumnClipContent(0, true);
         body.AddChild(_list);
+        // Tree 不公开滚动条访问器，取内部滚动条来保留刷新前的位置。
         _scroll = _list.GetChildren(true).OfType<VScrollBar>().Single();
         _list.ItemSelected += () =>
         {

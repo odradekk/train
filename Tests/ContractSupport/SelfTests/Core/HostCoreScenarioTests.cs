@@ -52,12 +52,17 @@ public sealed class HostCoreScenarioTests
 
         AssertUnconfigured(() => session.Advance(2));
         AssertUnconfigured(() => session.Submit(new CoreCommand.DisbandTrain(new(2)), CommandSource.Console));
+        Assert.AreEqual(1, session.SubmitCount);
         AssertUnconfigured(() => session.Submit(command, CommandSource.UserInterface));
+        Assert.AreEqual(2, session.SubmitCount);
         AssertUnconfigured(session.AssertComplete);
         Assert.AreSame(submitted, session.Submit(command, CommandSource.Console));
+        Assert.AreEqual(3, session.SubmitCount);
         AssertUnconfigured(() => session.Advance(1));
         Assert.AreSame(advanced, session.Advance(2));
         session.AssertComplete();
+        AssertUnconfigured(() => session.Submit(command, CommandSource.Console));
+        Assert.AreEqual(4, session.SubmitCount);
         AssertUnconfigured(() => session.Advance(2));
         AssertUnconfigured(() => session.ReadRecording());
         AssertUnconfigured(() => session.CaptureRecordingStart());
