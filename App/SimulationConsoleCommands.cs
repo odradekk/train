@@ -22,8 +22,8 @@ internal sealed class SimulationConsoleCommands
     internal const string BusyEventId = "simulation_busy";
     internal const string CheckpointFailedEventId = "simulation_checkpoint_failed";
 
-    private const string Usage =
-        "用法: sim [status|pause|resume|speed 1|2|4|8|step [N]|checkpoint]";
+    internal const string Usage =
+        "用法：sim [status|pause|resume|speed 1|2|4|8|step [N]|checkpoint]；请按此格式输入，倍速只能为 1、2、4、8，步数 N 须为正整数。";
 
     private readonly HostCoordinator _host;
     private readonly TrainLogger _logger;
@@ -152,7 +152,7 @@ internal sealed class SimulationConsoleCommands
                 return;
             case CoreResult<ICoreCapture>.Failure failure:
                 Log(LogLevel.Warning, CheckpointFailedEventId,
-                    "检查点获取失败：" + string.Join("，", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}")) + "。",
+                    "检查点获取失败：" + string.Join("，", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}")) + "。请通过菜单“报告问题”导出复现包并报告问题。",
                     new Dictionary<string, object?>
                     {
                         ["problem_code"] = string.Join(",", failure.Problems.Select(problem => problem.Code)),
@@ -161,7 +161,7 @@ internal sealed class SimulationConsoleCommands
                 return;
             case CoreResult<ICoreCapture>.Faulted faulted:
                 Log(LogLevel.Warning, CheckpointFailedEventId,
-                    $"检查点获取失败：{faulted.Fault.Code}/{faulted.Fault.Operation}/{faulted.Fault.Field}。",
+                    $"检查点获取失败：{faulted.Fault.Code}/{faulted.Fault.Operation}/{faulted.Fault.Field}。请通过菜单“报告问题”导出复现包并报告问题。",
                     new Dictionary<string, object?>
                     {
                         ["fault_code"] = faulted.Fault.Code, ["operation"] = faulted.Fault.Operation,
@@ -185,7 +185,7 @@ internal sealed class SimulationConsoleCommands
         });
 
     private void SessionUnavailable() =>
-        Log(LogLevel.Warning, SessionUnavailableEventId, "没有活动模拟会话。");
+        Log(LogLevel.Warning, SessionUnavailableEventId, "没有活动模拟会话，请先创建或读取存档，再执行 sim 命令。");
 
     private void ReportProblem(CoreProblem problem, string prefix = "")
     {
@@ -200,7 +200,17 @@ internal sealed class SimulationConsoleCommands
         var fault = problem.Code == "frozen" ? _host.GetStatus()?.View.Fault : null;
         var detail = fault is null ? $"{problem.Code}/{problem.Field}" :
             $"{fault.Code}/{fault.Operation}/{fault.Field}";
-        Log(LogLevel.Warning, eventId, $"{prefix}模拟操作未完成：{detail}。",
+        var instruction = problem.Code switch
+        {
+            "simulation_session_unavailable" => "没有活动模拟会话，请先创建或读取存档，再执行 sim 命令。",
+            "simulation_requires_pause" => "模拟正在运行，请先执行 sim pause，再执行 sim step。",
+            "busy" => "当前操作尚未结束，请等待操作完成后重试。",
+            "frozen" => "模拟已因故障冻结，请导出复现包或读取更早的存档。",
+            "editing_active" => "正在编辑设计，请先结束设计编辑，再执行模拟操作。",
+            "replay_read_only" => "正在只读重放，请先读取普通存档，再执行模拟修改。",
+            _ => "模拟操作未完成，请检查日志中的问题详情后重试。"
+        };
+        Log(LogLevel.Warning, eventId, $"{prefix}{instruction}详情：{detail}。",
             new Dictionary<string, object?>
             {
                 ["problem_code"] = problem.Code, ["problem_field"] = problem.Field,

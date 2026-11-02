@@ -83,7 +83,7 @@ public sealed class HumanLogFormatTests
         var error = FormatConsole(LogLevel.Error, "failed [id]");
         StringAssert.Contains(error, "#ff6b68");
         StringAssert.Contains(error, "#7f7f7f");
-        StringAssert.Contains(error, "[lb]ERROR]");
+        StringAssert.Contains(error, "[lb]错误]");
         StringAssert.Contains(error, "[lb]id]");
         Assert.IsFalse(error.Contains("[ERROR]", StringComparison.Ordinal));
 
@@ -111,6 +111,28 @@ public sealed class HumanLogFormatTests
         StringAssert.Contains(line, "#56b6c2");
         StringAssert.Contains(line, "help extra");
         StringAssert.Contains(line, "#7f7f7f");
+    }
+
+    [TestMethod]
+    public void Console_keeps_full_help_and_chinese_level_names()
+    {
+        var message = new string('用', 200) + "完整用法的结尾。";
+        var line = FormatConsole(LogLevel.Warning, message);
+        StringAssert.Contains(line, message);
+        StringAssert.Contains(line, "警告");
+    }
+
+    [TestMethod]
+    public void Each_help_line_includes_its_level_time_and_category()
+    {
+        var lines = FormatConsole(LogLevel.Info, "help：查看帮助\nclear：清空输出").Split('\n');
+        Assert.AreEqual(2, lines.Length);
+        foreach (var line in lines)
+        {
+            StringAssert.Contains(line, "[lb]信息]");
+            StringAssert.Contains(line, "[lb]content]");
+            StringAssert.Contains(line, ":31:04.123]");
+        }
     }
 
     private static string Format(
