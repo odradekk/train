@@ -175,7 +175,8 @@ public static class ConsumerExamples
         IContentView content, SettlementId settlement) => content.FindSettlementLayout(settlement);
 
     public static ContentResult<DesignEvaluation> InspectDraft(IContentFactory factory,
-        IContentView content, DesignDraft draft) => factory.EvaluateDesign(content, draft);
+        IContentView content, DesignDraft draft, CompositeDefinitionId? compositeIdentity = null) =>
+        factory.EvaluateDesign(content, draft, compositeIdentity);
 
     public static ContentResult<IContentCandidate> CopyBlueprint(IContentFactory factory,
         IContentView content, DesignDraft draft) => factory.PrepareEdit(content,

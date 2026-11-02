@@ -118,14 +118,15 @@ internal sealed partial class InitialContentFactory : C.IContentFactory
             new(new(before.Id.Split(':')[0]), after.Path), required.Field, null, "流程种类改变视为删除原流程；仍被引用时不能发布。");
     }
 
-    public C.ContentResult<C.DesignEvaluation> EvaluateDesign(C.IContentView content, C.DesignDraft draft)
+    public C.ContentResult<C.DesignEvaluation> EvaluateDesign(C.IContentView content, C.DesignDraft draft,
+        K.CompositeDefinitionId? compositeIdentity = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(draft);
         if (content is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(content));
         try
         {
-            return new C.ContentResult<C.DesignEvaluation>.Success(DesignEvaluator.Evaluate(view, draft));
+            return new C.ContentResult<C.DesignEvaluation>.Success(DesignEvaluator.Evaluate(view, draft, compositeIdentity: compositeIdentity));
         }
         catch (NotImplementedException) { throw; }
         catch (Exception exception)

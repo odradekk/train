@@ -30,7 +30,7 @@ public sealed class ScriptedContentFactory : IContentFactory
     public Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureCall { get; init; }
     public Func<ImmutableArray<IContentView>, CoreReferenceManifest, ContentResult<IContentReplayCapture>>? CaptureReplayCall { get; init; }
     public Func<string, ContentResult<IContentReplayCapture>>? DecodeReplayCall { get; set; }
-    public Func<IContentView, DesignDraft, ContentResult<DesignEvaluation>>? EvaluateDesignCall { get; set; }
+    public Func<IContentView, DesignDraft, CompositeDefinitionId?, ContentResult<DesignEvaluation>>? EvaluateDesignCall { get; set; }
     public Func<IContentView, ContentEdit, ContentResult<IContentCandidate>>? PrepareEditCall { get; set; }
     public Func<SavedContentDraft, ContentResult<string>>? EncodeDraftCall { get; set; }
     public Func<string, ContentResult<SavedContentDraft>>? DecodeDraftCall { get; set; }
@@ -54,7 +54,8 @@ public sealed class ScriptedContentFactory : IContentFactory
 
     public ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files) =>
         (DiscoverCall ?? throw Unconfigured())(installation, files);
-    public ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft) => (EvaluateDesignCall ?? throw Unconfigured())(content, draft);
+    public ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft,
+        CompositeDefinitionId? compositeIdentity = null) => (EvaluateDesignCall ?? throw Unconfigured())(content, draft, compositeIdentity);
     public ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target) => throw Unconfigured();
     public ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit) => (PrepareEditCall ?? throw Unconfigured())(basis, edit);
     public ContentResult<IContentCapture> Capture(IContentView content, CoreReferenceManifest references)

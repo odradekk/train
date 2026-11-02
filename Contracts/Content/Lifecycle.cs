@@ -8,7 +8,8 @@ public interface IContentFactory
     ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files);
     ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request,
         IContentFiles files, IAssetInspector inspector);
-    ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft);
+    ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft,
+        CompositeDefinitionId? compositeIdentity = null);
     ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content,
         DesignHash current, DesignDraft target);
     ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit);

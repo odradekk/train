@@ -595,7 +595,6 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => Selected(secondIds));
             Require(fixture.Editor.State.Snapshot.Stamp.Revision == revision,
                 "接受和拒绝选择以及外部选择同步都不能改变草稿修订。");
-
             fixture.Editor.RequestClose(() => { });
             if (fixture.Editor.Leaving) fixture.Editor.ResolveClose(LeaveChoice.Discard);
             await FramesUntil(TestScene, () => !fixture.Editor.IsOpen);
@@ -743,7 +742,6 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
-
     [Test]
     public async Task Successful_blueprint_publish_returns_to_library_once()
     {
@@ -789,7 +787,6 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
-
     [Test]
     public async Task Budget_preparation_keeps_committed_geometry_without_outdated_overlay()
     {
@@ -925,7 +922,7 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
                     ]
                 }
             };
-            ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).EvaluateDesignCall = (_, draft) =>
+            ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).EvaluateDesignCall = (_, draft, _) =>
                 new ContentResult<DesignEvaluation>.Success(locked with { Definition = draft });
             session.Change(session.Capture().Draft);
             var panel = EditorPanel(fixture);

@@ -315,7 +315,7 @@ public sealed partial class AuthoringServiceTests
             Host.Factory.OpenAuthoringPackageCall = (_, id, version, _) => new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, [Blueprint("original")]));
             Host.Factory.QueryAuthoringReferencesCall = (_, _, _) => new ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success([]);
             Host.Factory.ValidateAuthoringDefinitionCall = (_, _, _, _) => new ContentResult<ImmutableArray<ContentDiagnostic>>.Success([]);
-            Host.Factory.EvaluateDesignCall = (_, draft) => new ContentResult<DesignEvaluation>.Success(new DesignEvaluation.Complete(new("design"), new("composition"), draft, null, new(null, null, null, true, null, null, [], [], [], [], []), true, []));
+            Host.Factory.EvaluateDesignCall = (_, draft, _) => new ContentResult<DesignEvaluation>.Success(new DesignEvaluation.Complete(new("design"), new("composition"), draft, null, new(null, null, null, true, null, null, [], [], [], [], []), true, []));
             SavedContentDraft? encoded = null;
             Host.Factory.EncodeDraftCall = draft => { encoded = draft; return new ContentResult<string>.Success("opaque draft"); };
             Host.Factory.DecodeDraftCall = text => text == "opaque draft" && encoded is not null ? new ContentResult<SavedContentDraft>.Success(encoded) : throw new InvalidOperationException("UNCONFIGURED: draft payload");

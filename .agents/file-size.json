@@ -50,7 +50,7 @@
   },
   "baseline": {
     "App/ArtCapture/ArtCaptureEntry.cs": 5226,
-    "App/Editing/EditorService.cs": 7796,
+    "App/Editing/EditorService.cs": 7777,
     "App/HostCoordinator.cs": 11605,
     "App/Measurement/FollowRouteAnalysis.cs": 6034,
     "App/Measurement/MeasurementRun.SceneBudget.cs": 10008,

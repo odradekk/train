@@ -686,7 +686,6 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
         await _input.Choose(Find<OptionButton>(economy, "ServiceVehicle"), 1);
     }
-
     [Test]
     public async Task Buildings_page_lists_buildings_empty_plots_and_sites_without_submitting()
     {
@@ -711,7 +710,6 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         });
         setup.Session.AssertComplete();
     }
-
     [Test]
     public async Task Leaving_the_refit_editor_keeps_the_service_form_and_invalidates_the_quote()
     {
@@ -719,7 +717,7 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         await Run(setup, async (ui, economy) =>
         {
             var draft = new DesignDraft(new("改装", ""), new DesignSpecification.Vehicle(SizeClass.Medium), new([], [], []));
-            setup.ContentFactory!.EvaluateDesignCall = (_, design) => new ContentResult<DesignEvaluation>.Success(
+            setup.ContentFactory!.EvaluateDesignCall = (_, design, _) => new ContentResult<DesignEvaluation>.Success(
                 new DesignEvaluation.Complete(new("design"), new("composition"), design, null,
                     new(null, null, null, true, null, null, [], [], [], [], []), true, []));
             await Services(economy);
@@ -752,7 +750,6 @@ public partial class VehicleServiceUiTests(Node testScene) : TestClass(testScene
         });
         setup.Session.AssertComplete();
     }
-
     private async Task OpenAndLeave(GameUi ui, Train.App.Editing.EditorService editor, DesignDraft draft, string button)
     {
         editor.Open(draft, new DraftTarget.Instance(new InstanceId.Vehicle(new(9))));

@@ -113,7 +113,7 @@ Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|Immutable
 Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|ImmutableArray<PackageMetadata> ReferencedPackages { get; }
 Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|string Encode();
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target);
-Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft, CompositeDefinitionId? compositeIdentity = null);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package, PackageSourceVersion sourceVersion, IContentFiles files);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request, IContentFiles files, IAssetInspector inspector);
