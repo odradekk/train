@@ -96,12 +96,9 @@ public partial class GameShellAppTests
                 await _input.Click(mask.GlobalPosition + new Vector2(2, 2));
                 Require(shell.WorkspaceContent == workspace, "点击工作区四周的遮罩不能关闭工作区。");
                 var edit = Find<Button>(shell.InspectorContent!, "EditPlan");
-                var scroll = Find<ScrollContainer>(shell.InspectorContent!, "Content");
-                scroll.EnsureControlVisible(edit);
-                await _input.Frames(3);
-                var hit = edit.GetGlobalRect().Intersection(scroll.GetGlobalRect());
-                Require(hit.HasArea(), "检查器中的计划入口必须能滚入可见范围。");
-                await _input.Click(hit.GetCenter());
+                Require(edit.IsVisibleInTree() && shell.InspectorContent!.GetGlobalRect().Encloses(edit.GetGlobalRect()),
+                    "检查器固定底栏中的计划入口必须完整可见。");
+                await _input.Click(edit.GetGlobalRect().GetCenter());
                 Require(shell.WorkspaceContent is TrainPlanWorkspace, "检查器按钮必须响应鼠标并替换工作区。");
             }
             finally { window.Size = size; }

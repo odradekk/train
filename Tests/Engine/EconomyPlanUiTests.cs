@@ -205,7 +205,7 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             }
             Require(train.CurrentRun is { SalesReceipts.Value: > 0, TransportedUnits: 10 }, "面板规则没有执行真实卖出交易。");
             await input.Frames(2);
-            var title = Find<PanelContainer>(ui, "Details").GetNode<Label>("Layout/Heading/Title").Text;
+            var title = Find<Label>(Find<PanelContainer>(ui, "Details"), "Title").Text;
             Require(title == $"列车 {trainId.Value} · 装卸", $"启动后列车详情标题没有跟随当前状态：{title}");
             var description = Find<Label>(Find<GameShell>(ui, "*").InspectorContent!, "Description").Text;
             Require(description.Contains("销售收入 " + train.CurrentRun!.SalesReceipts.Value) && description.Contains("运输数量 10"),
