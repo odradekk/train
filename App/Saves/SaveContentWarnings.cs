@@ -30,7 +30,7 @@ internal static class SaveContentWarnings
             warnings.Add("这些内容对应的缺失货物不能使用或交易。");
         }
         if (references.Any(m => !IsPart(m.Item1)))
-            warnings.Add("其他缺失内容的功能失效。");
+            warnings.Add("这些内容的功能失效。");
         warnings.Add("继续读档会用占位保留原有状态；装回所需内容包后重新读档可恢复。");
         return warnings.ToImmutable();
     }

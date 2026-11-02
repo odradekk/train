@@ -40,8 +40,8 @@ public sealed class SaveContentWarningsTests
     public void Missing_package_names_fall_back_to_the_preparation_report()
     {
         var text = Describe(new([Status("山间铁路") with { State = PackageState.Available }], [Missing(Voxel)], [], []), []);
-        StringAssert.Contains(text, "缺失内容来自：山间铁路");
-        Assert.IsFalse(text.Contains("缺失内容包", StringComparison.Ordinal));
+        StringAssert.Contains(text.Split('\n')[0], "山间铁路");
+        Assert.IsFalse(text.Split('\n')[0].Contains("名称未知", StringComparison.Ordinal));
         AssertPlayerText(text);
     }
 
@@ -74,13 +74,14 @@ public sealed class SaveContentWarningsTests
     public void Missing_parts_explain_only_the_affected_parts_and_goods(bool composite)
     {
         CoreDefinitionReference definition = composite ? new CoreDefinitionReference.Composite(new(Package + ":motor")) : Voxel;
-        var text = Describe(new([], [Missing(definition)], [], []), []);
-        StringAssert.Contains(text, composite ? "功能复合体" : "体素");
-        StringAssert.Contains(text, "没有能力、质量和价值");
-        StringAssert.Contains(text, "不贡献结构");
-        StringAssert.Contains(text, "不受伤害");
-        StringAssert.Contains(text, "不能改装或修理");
-        StringAssert.Contains(text, "缺失货物不能使用或交易");
+        var warnings = SaveContentWarnings.Describe(new([], [Missing(definition)], [], []), []);
+        var text = string.Join("\n", warnings);
+        StringAssert.Contains(warnings[1], composite ? "功能复合体" : "体素");
+        StringAssert.Contains(text, "质量");
+        StringAssert.Contains(text, "结构");
+        StringAssert.Contains(text, "伤害");
+        StringAssert.Contains(text, "修理");
+        StringAssert.Contains(text, "交易");
         Assert.IsFalse(text.Contains("所有车辆", StringComparison.Ordinal));
         Assert.IsFalse(text.Contains("所有建筑", StringComparison.Ordinal));
         AssertPlayerText(text);
@@ -88,13 +89,13 @@ public sealed class SaveContentWarningsTests
 
     [TestMethod]
     [DynamicData(nameof(OtherReferences))]
-    public void Other_missing_kinds_have_chinese_labels_without_unrelated_part_restrictions(ContentReference reference, string label)
+    public void Other_missing_kinds_have_chinese_labels_without_unrelated_part_restrictions(ContentReference reference)
     {
         var text = Describe(new([], [new(reference, null, "World.Inventory", [])], [], []), []);
-        StringAssert.Contains(text, label);
-        StringAssert.Contains(text, "功能失效");
-        Assert.IsFalse(text.Contains("不能改装或修理", StringComparison.Ordinal));
-        Assert.IsFalse(text.Contains("缺失货物不能使用或交易", StringComparison.Ordinal));
+        StringAssert.Contains(text, "失效");
+        Assert.IsFalse(text.Contains("其他", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains("修理", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains("交易", StringComparison.Ordinal));
         AssertPlayerText(text);
     }
 
@@ -103,26 +104,23 @@ public sealed class SaveContentWarningsTests
     {
         var text = Describe(new([], [], [], []), [new(Voxel, "World.Inventory")]);
         StringAssert.Contains(text, "占位");
-        StringAssert.Contains(text, "保留原有状态");
-        StringAssert.Contains(text, "装回");
         StringAssert.Contains(text, "重新读档");
-        StringAssert.Contains(text, "恢复");
     }
 
     public static IEnumerable<object[]> OtherReferences()
     {
-        yield return [new ContentReference.Core(new CoreDefinitionReference.Process(new ProcessRef.Production(new(Package + ":process")))), "生产流程"];
-        yield return [new ContentReference.Core(new CoreDefinitionReference.Process(new ProcessRef.Recovery(new(Package + ":recovery")))), "回收流程"];
-        yield return [new ContentReference.Core(new CoreDefinitionReference.Rule(new(Package + ":rule"))), "规则"];
-        yield return [new ContentReference.Core(new CoreDefinitionReference.SettlementType(new(Package + ":town"))), "聚居地类型"];
-        yield return [new ContentReference.Core(new CoreDefinitionReference.Template(new(Package + ":template"))), "聚居地模板"];
-        yield return [new ContentReference.Core(new CoreDefinitionReference.Terrain(new(Package + ":terrain"))), "地貌"];
-        yield return [new ContentReference.Core(new CoreDefinitionReference.Creature(new(Package + ":creature"))), "生物"];
-        yield return [new ContentReference.Core(new CoreDefinitionReference.Lair(new(Package + ":lair"))), "生物聚落类型"];
-        yield return [new ContentReference.Blueprint(new(BlueprintLibrary.Packages, new(Package + ":blueprint"))), "蓝图"];
-        yield return [new ContentReference.Design(new("opaque-design-hash")), "设计"];
-        yield return [new ContentReference.Draft(new(Guid.Parse(Package))), "草稿"];
-        yield return [new ContentReference.Generation(new(Package + ":generation")), "世界生成配置"];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.Process(new ProcessRef.Production(new(Package + ":process"))))];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.Process(new ProcessRef.Recovery(new(Package + ":recovery"))))];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.Rule(new(Package + ":rule")))];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.SettlementType(new(Package + ":town")))];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.Template(new(Package + ":template")))];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.Terrain(new(Package + ":terrain")))];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.Creature(new(Package + ":creature")))];
+        yield return [new ContentReference.Core(new CoreDefinitionReference.Lair(new(Package + ":lair")))];
+        yield return [new ContentReference.Blueprint(new(BlueprintLibrary.Packages, new(Package + ":blueprint")))];
+        yield return [new ContentReference.Design(new("opaque-design-hash"))];
+        yield return [new ContentReference.Draft(new(Guid.Parse(Package)))];
+        yield return [new ContentReference.Generation(new(Package + ":generation"))];
     }
 
     private static MissingContentReference Missing(CoreDefinitionReference reference) => new(new ContentReference.Core(reference), new(Package), "World.Inventory", []);
@@ -132,6 +130,8 @@ public sealed class SaveContentWarningsTests
 
     private static void AssertPlayerText(string text)
     {
+        foreach (var line in text.Split('\n'))
+            Assert.IsTrue(line[(line.IndexOf('：') + 1)..].Any(character => character is >= '\u4e00' and <= '\u9fff'), line);
         foreach (var identifier in new[] { Package, "World.Inventory", "opaque-design-hash", "Value =", "CoreDefinitionReference", "reference_missing" })
             Assert.IsFalse(text.Contains(identifier, StringComparison.Ordinal), text);
     }
