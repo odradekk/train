@@ -351,7 +351,7 @@ internal sealed partial class SceneDisplay : IDisposable
         _cache.RequireMainThread();
         if (_disposed) return;
         _disposed = true;
-        if (ReferenceEquals(_freshPreparation, this)) _freshPreparation = null;
+        if (_freshPreparation?.Display == this) _freshPreparation = null;
         CancelPreparation();
         CancelCandidate();
         _retirement?.Dispose();

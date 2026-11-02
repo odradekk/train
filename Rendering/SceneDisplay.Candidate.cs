@@ -86,7 +86,7 @@ internal sealed partial class SceneDisplay
         try
         {
             if (_candidateUpdate is not { } update) return;
-            var slice = new PreparationSlice(this, started, budget, false);
+            var slice = new PreparationSlice(this, started, budget, false, candidate: true);
             if (_candidatePacking is null)
             {
                 if (!slice.Start()) return;

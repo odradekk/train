@@ -12,6 +12,27 @@ namespace Train.Engine.Tests;
 public partial class SceneDisplayTests
 {
     [Test]
+    public async Task Candidate_makes_progress_when_formal_preparation_always_runs_first()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var shown = Frame(1, []);
+        await Commit(display, shown);
+        var candidate = Frame(2, [Object(1, Peak(1))], space: 2);
+        display.ReceiveCandidate(candidate.Update);
+        for (var frame = 0; frame < 12 && display.IsPreparingCandidate; frame++)
+        {
+            await new UiTestInput(TestScene).Frames(1);
+            using (var active = display.Prepare(shown)) active?.Commit();
+            display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+            await display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        Require(display.PreparedCandidate == candidate.Update.Frame,
+            "正式准备固定先调用时，也不能取走候选未知阶段预约的首项，使候选永久等待。");
+    }
+
+    [Test]
     public async Task New_displays_make_progress_when_another_display_prepares_first_each_frame()
     {
         await new UiTestInput(TestScene).Frames(1);
