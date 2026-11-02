@@ -154,6 +154,30 @@ public sealed class NodeSceneBedQueryTests
         Assert.IsTrue(bedChangedBottom > 0, "At least one skirt bottom must depend on the complete bed.");
     }
 
+    [TestMethod]
+    [DataRow(2, false)]
+    [DataRow(10, false)]
+    [DataRow(20, false)]
+    [DataRow(2, true)]
+    [DataRow(10, true)]
+    [DataRow(20, true)]
+    public void BedOutsideTheQueryStillReachesTheParallelChunkEdge(int distance, bool alongX)
+    {
+        var from = new GridColumn(32, -32);
+        // The query starts one column before the chunk; the centreline is farther outside it.
+        RailwaySample Sample(double arc) => alongX
+            ? new(new(from.X + arc, 80, from.Z - 1 - distance), Vector3.UnitX, Vector3.UnitZ)
+            : new(new(from.X - 1 - distance, 80, from.Z + arc), Vector3.UnitZ, Vector3.UnitX);
+        (Func<double, RailwaySample> Sample, double Length)[] routes = [(Sample, 31.75)];
+        var actual = Arrange(routes);
+        var reference = Reference(routes);
+        var edge = alongX ? new GridColumn(from.X + 16, from.Z) : new GridColumn(from.X, from.Z + 16);
+        Assert.IsTrue(reference.Bed.ContainsKey(edge), "The route must reach the queried chunk despite its outside centreline.");
+        Assert.AreNotEqual(NodeFixtures.EmptyPreparation().BuildChunk(from).Heights[edge], reference.BuildChunk(from).Heights[edge]);
+        NodeFixtures.AssertPartEqual(reference.BuildChunk(from), actual.BuildChunk(from));
+        AssertHeight(actual, reference.Bed, edge);
+    }
+
     private static void AssertHeight(NodeScene.Preparation prepared, Dictionary<GridColumn, NodeScene.RailBed> bed, GridColumn column)
     {
         var node = prepared.Snapshot.Core.World.Nodes.Single(item => item.Id == prepared.Global.Layout.Node);
@@ -164,13 +188,13 @@ public sealed class NodeSceneBedQueryTests
     }
 
     private static NodeScene.Preparation Arrange((Func<double, RailwaySample> Sample, double Length)[] routes) =>
-        Empty() with { Beds = new(routes) };
+        NodeFixtures.EmptyPreparation() with { Beds = new(routes) };
 
     private static ReferenceChunk Reference((Func<double, RailwaySample> Sample, double Length)[] routes)
     {
         var bed = new Dictionary<GridColumn, NodeScene.RailBed>();
         foreach (var route in routes) RasterizeReference(bed, route.Sample, route.Length);
-        return new(Empty(), bed);
+        return new(NodeFixtures.EmptyPreparation(), bed);
     }
 
     private sealed record ReferenceChunk(NodeScene.Preparation Data, Dictionary<GridColumn, NodeScene.RailBed> Bed)
@@ -181,14 +205,6 @@ public sealed class NodeSceneBedQueryTests
             .Where(item => item.Key.X >= from.X - 1 && item.Key.X <= from.X + VoxelGrid.ChunkSize &&
                 item.Key.Z >= from.Z - 1 && item.Key.Z <= from.Z + VoxelGrid.ChunkSize)
             .ToDictionary();
-    }
-    private static NodeScene.Preparation Empty()
-    {
-        var layout = NodeFixtures.Layout;
-        layout = layout with { SceneModel = layout.SceneModel with { Scene = SceneFixtures.Projection(
-            [SceneFixtures.Cell(new(-64, 0, -64)), SceneFixtures.Cell(new(96, 0, 96))]) } };
-        var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
-        return NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)) with { Beds = new([]) };
     }
 
     // Full serial rasterization from baseline 30029b5f; intentionally independent of task query bounds.

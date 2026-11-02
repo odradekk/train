@@ -14,7 +14,7 @@ public sealed class NodeSceneChunkInputsTests
     [DataRow(32, -32)]
     public void ChunkInputsIncludeBedsOnEachSideAndCornerOfTheOneCellHalo(int x, int z)
     {
-        var prepared = Empty();
+        var prepared = NodeFixtures.EmptyPreparation();
         var from = new GridColumn(x, z);
         var emptyInputs = prepared.ChunkInputs(from);
         var size = VoxelGrid.ChunkSize;
@@ -36,7 +36,7 @@ public sealed class NodeSceneChunkInputsTests
     [DataRow(32, -32)]
     public void ChunkInputsIgnoreBedsBeyondTheOneCellHalo(int x, int z)
     {
-        var prepared = Empty();
+        var prepared = NodeFixtures.EmptyPreparation();
         var from = new GridColumn(x, z);
         var emptyInputs = prepared.ChunkInputs(from);
         var size = VoxelGrid.ChunkSize;
@@ -52,14 +52,6 @@ public sealed class NodeSceneChunkInputsTests
         }
     }
 
-    private static NodeScene.Preparation Empty()
-    {
-        var layout = NodeFixtures.Layout;
-        layout = layout with { SceneModel = layout.SceneModel with { Scene = SceneFixtures.Projection(
-            [SceneFixtures.Cell(new(-64, 0, -64)), SceneFixtures.Cell(new(64, 0, 64))]) } };
-        var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
-        return NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId)) with { Beds = new([]) };
-    }
 
     private static NodeScene.Preparation WithBed(NodeScene.Preparation prepared, GridColumn column)
     {
