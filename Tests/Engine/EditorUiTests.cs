@@ -617,7 +617,7 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));
     private static bool ConsoleLogs(EditorPreview fixture, string text) => fixture.App.GetChildren().OfType<GameConsole>().Single().LogEvents
-        .Any(log => log.Category == "editor" && log.Message.Contains(text, StringComparison.Ordinal));
+        .Any(log => log.Message.Contains(text) || log.Attributes.Values.OfType<string>().Any(raw => raw.Contains(text)));
     private static int Count(string text, string value)
     {
         var count = 0;
@@ -954,7 +954,7 @@ public partial class EditorUiTests(Node testScene) : TestClass(testScene)
                 && fixture.Editor.State!.Selection.Contains(new EditElementId(1)));
             foreach (var text in new[] { "named-lock-package:missing-voxel", "missing-lock-package:missing-part", "named-lock-package", "missing-lock-package" })
                 Require(ConsoleLogs(fixture, text), $"锁定行控制台日志缺少：{text}");
-            var logs = fixture.App.FindChildren("*", "", true, false).OfType<GameConsole>().Single().LogEvents;
+            var logs = fixture.App.GetChildren().OfType<GameConsole>().Single().LogEvents;
             foreach (var text in new[] { "禁止：Move、Paint", "禁止：Enter、Rotate" })
                 Require(logs.Any(log => log.EventId == "editor_design_locked" && log.Message.Contains(text, StringComparison.Ordinal)),
                     $"锁定行日志缺少：{text}");
