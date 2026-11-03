@@ -107,6 +107,8 @@ public class CreatureNotificationTests(Node testScene) : TestClass(testScene)
                     new([], 0, [new("invalid_state", "Edge.Tracks", null, []), new("invalid_state", "MaterialSource", null, [])]))
             },
             Economy = UiWorldFixture.Economy,
+            FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>>
+            { [first.Id] = new CoreResult<SettlementFoundingPreview>.Failure([new("content_missing", "ConstructionRule", null, [])]) },
             World = basis.World with
             {
                 Nodes = [first, second], Edges = [edge], Trains = [],

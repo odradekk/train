@@ -6,17 +6,21 @@ namespace Train.Engine.Tests;
 
 internal static class SettlementFoundingUiFixture
 {
-    internal static FixedCoreReadView World(ulong revision, JobId? foundingJob, NodeOccupant? firstOccupant = null)
+    internal static FixedCoreReadView World(ulong revision, JobId? foundingJob, NodeOccupant? firstOccupant = null,
+        long materialQuantity = 12, TrainView? materialTrain = null, bool secondTrain = false,
+        InstanceView? changedVehicle = null, bool lairCleared = false, bool creaturePresent = false)
     {
         var terrain = new TerrainView(new("fixture:plain"), 0, []);
         NodeMapItem Node(ulong id, double x, double y, NodeOccupant occupant) =>
-            new(new(id), new(x, y), terrain, occupant, [], 0, 1, id == 1 ? foundingJob : null);
+            new(new(id), new(x, y), terrain, occupant,
+                id == 1 ? [new(EconomyFixture.Food, 37, new ResourceRenewal.NonRenewable())] : [],
+                0, 1, id == 1 ? foundingJob : null);
         var nodes = new[]
         {
             Node(1, 500, 900, firstOccupant ?? new NodeOccupant.Empty()),
             Node(2, 900, 900, new NodeOccupant.Empty()),
             Node(3, 1300, 900, new NodeOccupant.Empty()),
-            Node(4, 500, 1400, new NodeOccupant.Lair(new(1))),
+            Node(4, 500, 1400, lairCleared ? new NodeOccupant.Empty() : new NodeOccupant.Lair(new(1))),
             Node(5, 900, 1400, new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile)),
             Node(6, 1700, 900, new NodeOccupant.Empty())
         };
@@ -25,7 +29,7 @@ internal static class SettlementFoundingUiFixture
             TrainActivity.Stopped, [new(id)], new(id), 0, 20, 10, 100, 0, 30, null, null, 0,
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [],
             TrainOrderFacing.FirstEndLeading, null);
-        var trains = new[] { Train(7, 1), Train(8, 2), Train(9, 3) };
+        var trains = new[] { materialTrain ?? Train(7, 1), Train(8, secondTrain ? 1UL : 2UL), Train(9, 3) };
         CoreResult<SettlementFoundingPreview> Success(ulong node, ImmutableArray<CoreProblem> blockers) =>
             new CoreResult<SettlementFoundingPreview>.Success(new(new(node), 40, [new(EconomyFixture.Food, 1.5)],
                 [new(EconomyFixture.Food, 12)], 180, blockers));
@@ -40,9 +44,13 @@ internal static class SettlementFoundingUiFixture
         var inventories = settlements.ToDictionary(item => item.Inventory, item => (Lookup<InventoryView>)new Lookup<InventoryView>.Found(
             new(item.Inventory, new InventoryOwner.Settlement(item.Id), new WorldLocation.Node(item.Node),
                 InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], [])));
+        var group = new CreatureGroupView(new(1), new(1), new WorldLocation.Node(new(4)), null,
+            CreatureActivity.Retreating, 1, []);
         foreach (var train in trains)
             inventories.Add(train.Inventory, new Lookup<InventoryView>.Found(new(train.Inventory, new InventoryOwner.Train(train.Id),
-                new WorldLocation.Node(((TrainPosition.Node)train.Position).Id), InventoryAccess.ReadWrite, 100, 0, 0, 100, 0, [], [])));
+                new WorldLocation.Node(((TrainPosition.Node)train.Position).Id), InventoryAccess.ReadWrite, 100,
+                train.Id == new TrainId(7) ? materialQuantity : 0, 0, 100, 0,
+                train.Id == new TrainId(7) && materialQuantity > 0 ? [new(EconomyFixture.Food, materialQuantity, false)] : [], [])));
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
         {
             Economy = UiWorldFixture.Economy,
@@ -50,25 +58,31 @@ internal static class SettlementFoundingUiFixture
             {
                 [new(1)] = new Lookup<LairView>.Found(new(new(1), new(4), new("fixture:lair"), []))
             },
+            CreatureGroups = new Dictionary<CreatureGroupId, Lookup<CreatureGroupView>>
+            { [group.Id] = creaturePresent ? new Lookup<CreatureGroupView>.Found(group) : new Lookup<CreatureGroupView>.Missing() },
             Settlements = settlements.ToDictionary(item => item.Id, item => (Lookup<SettlementView>)new Lookup<SettlementView>.Found(item)),
             Inventories = inventories,
-            Instances = trains.ToDictionary(train => (InstanceId)new InstanceId.Vehicle(train.Vehicles.Single()), train =>
-                (Lookup<InstanceView>)new Lookup<InstanceView>.Found(new(new InstanceId.Vehicle(train.Vehicles.Single()),
+            Instances = trains.SelectMany(train => train.Vehicles.Select(vehicle =>
+                changedVehicle?.Id == new InstanceId.Vehicle(vehicle) ? changedVehicle : new InstanceView(new InstanceId.Vehicle(vehicle),
                     new("fixture-vehicle"), new("fixture-composition"), new WorldLocation.Node(((TrainPosition.Node)train.Position).Id),
                     SettlementRelation.PlayerOwned, new InstanceDetails.Vehicle(SizeClass.Medium, train.Id),
-                    InstanceLock.None, new(100, 100), [], []))),
+                    InstanceLock.None, new(100, 100), [], [])))
+                .ToDictionary(instance => instance.Id, instance => (Lookup<InstanceView>)new Lookup<InstanceView>.Found(instance)),
             World = new(1, new("fixture:railway"), 4000, 2400, nodes.ToImmutableArray(), [],
-                trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
+                trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(),
+                creaturePresent ? [new(group.Id, group.Location, group.Activity)] : [], []),
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
             Locations = nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
-                (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [], [], [], [], node.Occupant))),
+                (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [], [],
+                    creaturePresent && node.Id == new NodeId(4) ? [group.Id] : [], [], node.Occupant))),
             Trains = trains.ToDictionary(train => train.Id, train => (Lookup<TrainView>)new Lookup<TrainView>.Found(train)),
             FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>>
             {
                 [new(1)] = Success(1, []),
                 [new(2)] = new CoreResult<SettlementFoundingPreview>.Failure([new("content_missing", "Population.Rule", null, [])]),
                 [new(3)] = Success(3, [new("node_occupied", "Node", new WorldObjectId.Node(new(3)), [])]),
-                [new(6)] = Success(6, [])
+                [new(6)] = Success(6, []),
+                [new(4)] = Success(4, [])
             },
             Jobs = foundingJob is { } job ? new Dictionary<JobId, Lookup<JobView>>
             {

@@ -123,6 +123,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
         return new(basis.Position, basis.InputIdentity, basis.Fault, basis.Revision)
         {
             FormationPreviews = TrainFormationTestScenario.Editing,
+            FoundingPreviews = nodes.ToDictionary(node => node.Id, node => basis.PreviewSettlement(node.Id)),
             Economy = basis.Economy,
             World = basis.World with { Edges = [edge] },
             Nodes = nodes.ToDictionary(node => node.Id, node =>

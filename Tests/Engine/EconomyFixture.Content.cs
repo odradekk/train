@@ -14,7 +14,7 @@ internal static partial class EconomyFixture
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
         ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
         string? equipmentName = null, long? leaseDurationTicks = null, bool vehiclePresentation = false,
-        IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? additionalDesigns = null)
+        IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? additionalDesigns = null, string? lairName = null)
     {
         mapPresentation |= vehiclePresentation;
         var icon = new AssetRevision("fixture-food-png");
@@ -33,7 +33,10 @@ internal static partial class EconomyFixture
         {
             Voxels = [],
             Lairs = new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>
-            { [new("fixture:lair")] = new ContentLookup<LairAppearanceProjection>.Missing([]) },
+            { [new("fixture:lair")] = lairName is null ? new ContentLookup<LairAppearanceProjection>.Missing([])
+                : new ContentLookup<LairAppearanceProjection>.Found(new(new("fixture:lair"),
+                    new(new("fixture:model"), new(null, null, null, true, null, null, [], [], [], [], []), new(lairName, "")),
+                    new(new(lairName, ""), null, null, false))) },
             LocalDrafts = drafts.IsDefault ? [] : drafts,
             Blueprints = [.. new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().Select(record =>
                 new BlueprintSummary(record.Address, record.Definition.Display,

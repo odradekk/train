@@ -89,6 +89,8 @@ internal static class WorldListUiFixture
                     new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, 11)], 48, []))
             },
             Economy = basis.Economy,
+            FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>>
+            { [first.Id] = new CoreResult<SettlementFoundingPreview>.Failure([new("content_missing", "ConstructionRule", null, [])]) },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
                 {
                     [prototype.Inventory] = basis.FindInventory(prototype.Inventory),

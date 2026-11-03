@@ -44,7 +44,6 @@ public partial class GameUi : CanvasLayer
     private EconomyPanels? _economy;
     private CombatPanel? _combat;
     private readonly BattleReportLog _reports = new();
-    private SettlementFoundingPanel? _founding;
     private GoodsIconCache _icons = null!;
     private HFlowContainer _bar = null!;
     private readonly List<(SimulationSpeed? Speed, Button Button)> _speeds = [];
@@ -153,7 +152,6 @@ public partial class GameUi : CanvasLayer
                 _plan!.Refresh(_binding, _view, _content);
                 _economy!.Refresh(_binding, _view, _content);
                 _combat!.Refresh(_binding, _view, _content, _host!.IsBusy, _reports);
-                _founding?.Refresh(_binding, _view, _content);
             }
         }
         else if (_view is not null)
@@ -182,7 +180,6 @@ public partial class GameUi : CanvasLayer
         _formation!.Refresh(default, _view!, _content!);
         _plan!.Refresh(default, _view!, _content!);
         _economy!.Close();
-        _founding?.Close();
         _formation.Hide(); _plan.Hide(); _combat?.Close(); _notices?.CloseLog();
         _reports.Clear();
         _notices?.Clear();
