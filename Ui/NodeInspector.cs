@@ -251,8 +251,10 @@ internal sealed class NodeInspector
         foreach (var market in markets)
             if (market.Market.Goods.Any(item => item.Good == good && item.SellableQuantity > 0 && item.Blockers.IsEmpty))
                 names.Add(WorldPanels.NodeName(market.Node, _view, _content));
+        var groups = names.GroupBy(name => name, StringComparer.Ordinal).ToArray();
         return names.Count == 0 ? "目前没有市场有货。" :
-            string.Join("、", names.Take(3)) + (names.Count > 3 ? $"等 {names.Count} 处" : "") + "当前有货。";
+            string.Join("、", groups.Take(3).Select(group => group.Count() > 1 ? $"{group.Key} {group.Count()} 处" : group.Key)) +
+            (groups.Length > 3 ? $"等 {names.Count} 处" : "") + "当前有货。";
     }
 
     private void ShowProgress(JobId job)
