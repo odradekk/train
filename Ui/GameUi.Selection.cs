@@ -1,14 +1,5 @@
-using System.Collections.Immutable;
-using System.Globalization;
 using Godot;
 using Train.App;
-using Train.App.Editing;
-using Train.App.Authoring;
-using Train.App.Logging;
-using Train.App.Notifications;
-using Train.App.Recording;
-using Train.App.Saves;
-using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
@@ -18,6 +9,8 @@ public partial class GameUi
 {
     private WorldSceneController? _scenes;
     private Button? _returnToMap;
+    private WorldObjectId? _navigationObject;
+    private ICoreReadView? _navigationView;
 
     private void RefreshSelection()
     {
@@ -32,6 +25,7 @@ public partial class GameUi
             !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
                 _host.PanelGenerationCurrent(_binding, _content.Generation)))
         { ReportUiError("对象已不存在或所属对局已更换。"); return; }
+        _navigationObject = null;
         if (content is not null) { _shell.Inspect(id, content); RefreshObjectNavigation(); return; }
         if (id is WorldObjectId.Node node && status.View.World.Nodes.First(item => item.Id == node.Id).Occupant
             is NodeOccupant.Settlement occupied)
@@ -58,11 +52,12 @@ public partial class GameUi
             new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
                 _host.PanelGenerationCurrent(_binding, _content.Generation)))
         {
-            WorldSceneTarget? target = ObjectLocation(id, status.View) is { } location
-                ? new WorldSceneTarget.Location(location) : null;
+            WorldSceneTarget? target;
             if (id is WorldObjectId.Train train)
                 target = status.View.FindTrain(train.Id) is Lookup<TrainView>.Found found && !found.Value.Vehicles.IsEmpty
                     ? new WorldSceneTarget.Follow(train.Id, FollowedVehicle.Of(found.Value, status.View, _host.Content)) : null;
+            else
+                target = ObjectLocation(id, status.View) is { } location ? new WorldSceneTarget.Location(location) : null;
             if (target is null) ReportUiError("对象没有可观察的场景目标。");
             else _scenes.Open(target);
         }
@@ -94,29 +89,19 @@ public partial class GameUi
     private void RefreshObjectNavigation()
     {
         var id = _shell.SelectedObject;
+        var view = _view;
+        if (_navigationObject == id && ReferenceEquals(_navigationView, view)) return;
+        _navigationObject = id;
+        _navigationView = view;
         var supported = id is WorldObjectId.Node or WorldObjectId.Settlement or WorldObjectId.Edge or WorldObjectId.Train or WorldObjectId.Combat;
         if (!supported) { _shell.SetObjectNavigation(false, null, null); return; }
         var locateReason = _map.ObjectPoint(id!) is null ? "对象没有地图位置。" : null;
-        var sceneReason = _host?.GetStatus() is not { } status || ObjectLocation(id!, status.View) is null
+        var sceneReason = view is null || ObjectLocation(id!, view) is null
             ? "对象没有可观察的场景目标。"
-            : id is WorldObjectId.Train train && status.View.FindTrain(train.Id) is Lookup<TrainView>.Found { Value.Vehicles.IsEmpty: true }
+            : id is WorldObjectId.Train train && view.FindTrain(train.Id) is Lookup<TrainView>.Found { Value.Vehicles.IsEmpty: true }
                 ? "列车没有车辆。" : null;
         _shell.SetObjectNavigation(true, locateReason, sceneReason);
     }
-
-    private void OpenLocation(WorldLocation location)
-    {
-        if (_scenes is null || _host?.GetStatus() is not { } status || !LocationExists(status.View, location))
-        { ReportUiError("已不存在"); return; }
-        _scenes.Open(new WorldSceneTarget.Location(location));
-    }
-
-    private static bool LocationExists(ICoreReadView view, WorldLocation location) => location switch
-    {
-        WorldLocation.Node node => view.World.Nodes.Any(item => item.Id == node.Id),
-        WorldLocation.Edge edge => view.World.Edges.Any(item => item.Id == edge.Id),
-        _ => false
-    };
 
     private void OnReturnedToMap(SceneProblem? problem)
     {
