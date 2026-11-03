@@ -11,7 +11,7 @@ namespace Train.Engine.Tests;
 public partial class GameShellAppTests
 {
     [Test]
-    public async Task Founding_content_remains_reachable_in_the_narrow_workspace()
+    public async Task Founding_conditions_remain_reachable_in_the_narrow_inspector()
     {
         var setup = new HostSimulationTests.HostSetup(SettlementFoundingUiFixture.World(1, null),
             EconomyFixture.Content(mapPresentation: true));
@@ -22,8 +22,25 @@ public partial class GameShellAppTests
             var row = Enumerable.Range(0, rows.Count).Single(index => rows[index].Object == new WorldObjectId.Node(new(1)));
             await _input.ClickItem(Find<Tree>(shell.ListContent!, "Objects"), row);
             Require(shell.SelectedObject == new WorldObjectId.Node(new(1)), "建城检查必须选中原来的空节点。");
-            await _input.Activate(Find<Button>(shell.InspectorContent!, "FoundSettlement"));
-            await CheckNarrowWorkspaceContent(ui);
+            var window = TestScene.GetTree().Root;
+            var size = window.Size;
+            try
+            {
+                window.Size = new(1280, 720);
+                window.ContentScaleFactor = 2;
+                await _input.Frames(6);
+                ShellGeometry.Check(ui);
+                var panel = shell.InspectorContent!;
+                var scroll = Find<ScrollContainer>(panel, "Content");
+                scroll.ScrollVertical = (int)scroll.GetVScrollBar().MaxValue;
+                await _input.Frames(3);
+                var conditions = Find<Label>(panel, "FoundingConditions");
+                var action = Find<Button>(panel, "FoundSettlement");
+                Require(conditions.Text.Contains("12") && shell.WorkspaceContent is null &&
+                    panel.GetGlobalRect().Encloses(action.GetGlobalRect()) && scroll.Size.Y > 0,
+                    "窄检查器必须能滚动查看建立条件，主按钮留在检查器内。");
+            }
+            finally { window.Size = size; }
         }, setup);
     }
 
