@@ -9,7 +9,7 @@ using Train.Core.Sessions;
 namespace Train.Core.Tests.Sessions;
 
 [TestClass]
-public sealed class CoreCaptureTests
+public sealed partial class CoreCaptureTests
 {
     private const string Identity = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     private static CoreSessionOptions Options => WorldFixture.Options;
@@ -284,12 +284,6 @@ public sealed class CoreCaptureTests
         Assert.IsNull(active.Read().Fault);
     }
 
-    private static CoreSession Session() => new(WorldFixture.State(new(7, 2), 10, new(20), Content('A')));
-    private static ICoreCapture Saved()
-    {
-        using var session = Session();
-        return Capture(session);
-    }
     private static CoreContentProjection Content(char identity)
         => WorldFixture.Content with { Identity = new(new string(identity, 64)) };
     private static ICoreCapture Capture(ICoreSession session) => Success(session.Capture(CapturePurpose.Save));

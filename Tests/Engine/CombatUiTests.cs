@@ -410,16 +410,6 @@ public partial class CombatUiTests(Node testScene) : TestClass(testScene)
         }
     }
 
-    private static void Queue(ScriptedCoreSession session, ulong step, CoreEvent? item)
-    {
-        ImmutableArray<EventEnvelope> events = item is null ? [] : [new(new(step, 0), 0, item)];
-        session.QueueAdvance(new(1, new(step, 0), events, null, null), new FixedCoreReadView(new(step, 0), HostCoreScenario.Input, null, new(1))
-        {
-            Economy = UiWorldFixture.Economy,
-            World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], [])
-        });
-    }
-
     private static (string Path, byte[]? Bytes) BackupSettings()
     {
         var path = ProjectSettings.GlobalizePath("user://settings.cfg");
