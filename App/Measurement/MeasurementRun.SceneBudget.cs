@@ -213,6 +213,11 @@ internal sealed partial class MeasurementRun
 
     private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
     {
+        var map = _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap");
+        if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
+        map.RaiseObjectClicked(target);
+        // 检查器在单击时构建；这一帧绘制完成后才开始计量进入场景。
+        await _app.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         ResetSceneProbe();
         var observationSeconds = ReadyObservationSeconds(_scenario, target, _node, _nodeReadyHold, IsLowOrbit);
         _scenePhase = name;
@@ -239,8 +244,7 @@ internal sealed partial class MeasurementRun
             MeasuredTrain(), _app.Host!.GetStatus()!.View, _app.Host.Content!))) : null;
         _subject = follow;
         _sceneClick = Seconds();
-        if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
-        _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").RaiseObjectClicked(target);
+        map.RaiseObjectActivated(target);
         _sceneOpenedTargets.Add(target.ToString()!);
         _lowOrbitStarted = 0;
         var referenceResumed = false;
@@ -653,13 +657,4 @@ internal sealed partial class MeasurementRun
         };
     }
 
-    private static IEnumerable<Node> SceneUiDescendants(Node node)
-    {
-        foreach (var child in node.GetChildren())
-        {
-            if (child is Node3D) continue;
-            yield return child;
-            foreach (var descendant in SceneUiDescendants(child)) yield return descendant;
-        }
-    }
 }

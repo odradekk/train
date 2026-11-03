@@ -53,7 +53,7 @@
     "App/Editing/EditorService.cs": 7796,
     "App/HostCoordinator.cs": 11605,
     "App/Measurement/FollowRouteAnalysis.cs": 6034,
-    "App/Measurement/MeasurementRun.SceneBudget.cs": 10008,
+    "App/Measurement/MeasurementRun.SceneBudget.cs": 9994,
     "App/Measurement/MeasurementRun.SceneInteraction.cs": 7295,
     "Content/Authoring/DefinitionDraftJson.cs": 7674,
     "Content/Designs/DesignEvaluator.cs": 9667,

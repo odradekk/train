@@ -103,4 +103,13 @@ internal sealed partial class MeasurementRun
         return true;
     }
 
+    private static IEnumerable<Node> SceneUiDescendants(Node node)
+    {
+        foreach (var child in node.GetChildren())
+        {
+            if (child is Node3D) continue;
+            yield return child;
+            foreach (var descendant in SceneUiDescendants(child)) yield return descendant;
+        }
+    }
 }
