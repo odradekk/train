@@ -57,6 +57,11 @@ internal partial class BlueprintLibraryPanel
             }
             if (blueprint.Address.Library == BlueprintLibrary.Packages)
             {
+                if (item.Design?.Specification is DesignSpecification.FunctionalComposite)
+                {
+                    Text(_details, "内容包里的蓝图只读。功能复合体只能整件装到其他设计里，不能复制编辑。");
+                    return;
+                }
                 Text(_details, "内容包里的蓝图只读。复制一份后再编辑。");
                 Action("CopyLocalBlueprint", "复制到本局蓝图库并编辑", () => Copy(item, BlueprintLibrary.Local), true);
             }
