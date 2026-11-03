@@ -63,7 +63,7 @@ public partial class MacroMap
         ClipContents = true;
         Resized += OnResized;
         VisibilityChanged += () => { if (!IsVisibleInTree()) { CloseLayers(); _clickedObject = null; } };
-        _layers = new PopupPanel { Name = "InformationLayers", WrapControls = true, MinSize = new(280, 0) };
+        _layers = new PopupPanel { Name = "InformationLayers", WrapControls = true };
         var body = new VBoxContainer { Name = "Body" };
         body.AddThemeConstantOverride("separation", 6);
         body.AddChild(UiStyle.Label("地图信息层", true));
@@ -108,11 +108,9 @@ public partial class MacroMap
     private void ToggleLayers()
     {
         if (CloseLayers()) return;
-        var minimum = _layers.GetContentsMinimumSize();
-        minimum.X = Math.Max(minimum.X, _layers.MinSize.X);
-        minimum = minimum.Ceil();
+        var minimum = _layers.GetContentsMinimumSize().Ceil();
         // 嵌入弹窗使用父视口的逻辑坐标，由父窗口统一缩放。
-        var position = _tools.GlobalPosition - new Vector2(0, minimum.Y + 8);
+        var position = _tools.GlobalPosition.Ceil() - new Vector2(0, minimum.Y + 8);
         _layers.PopupOnParent(new((Vector2I)position, (Vector2I)minimum));
     }
 

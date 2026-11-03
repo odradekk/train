@@ -151,7 +151,7 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 | `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
 | `scene-edge` | 地图首次打开线路 11、返回地图后重开、读档回地图后立即再开线路 |
-| `scene-follow` | 地图首次点击列车 1，跟随其参考中心所在的车辆 |
+| `scene-follow` | 双击列车 1 进入，跟随参考中心所在车辆 |
 | `scene-follow-8x` | 经同一 UI 路径跟随，遇敌自动降速设为 `None`；8× 预热 5 秒后采样 120 秒（`DurationSeconds` 可缩短） |
 | `scene-route-1x`、`scene-route-2x`、`scene-route-4x`、`scene-route-8x` | seed 40 起步贸易存档，跟随列车 1 完成线路→节点→线路；终点节点显示帧定位到车头（按编组朝向取首车或末车）后，补齐交接后的车身轨迹。记录 Scenes／实际显示的前方覆盖、车身覆盖、边界截断和未知；倍率取自原生帧循环。仅 `scene-route-8x` 将遇敌自动降速设为 `None` |
 | `scene-route-capture-1x`、`scene-route-capture-8x` | 同一路线的独立截图运行，截图开销不计作计时证据 |
