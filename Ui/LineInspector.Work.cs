@@ -43,13 +43,19 @@ internal sealed partial class LineInspector
     private void RefreshPreview(WorkRow row, RailwayWorkRequest request, string action, string? location = null)
     {
         var result = _view.PreviewRailwayWork(request, _source);
-        row.CanStart = false; row.Button.Text = action;
+        row.CanStart = false; row.Button.Text = action; row.Button.Visible = true;
         if (result is not CoreResult<RailwayWorkPreview>.Success success)
         {
             row.Description.Text = "暂时无法读取施工条件。";
             return;
         }
         var preview = success.Value;
+        if (request is RailwayWorkRequest.RepairBreak && preview.Blockers.Any(problem => problem is { Code: "busy", Field: "Break" }))
+        {
+            row.Description.Text = $"{location}\n正在修复。";
+            row.Button.Visible = false;
+            return;
+        }
         if (request is RailwayWorkRequest.AddTrack)
         {
             row.Button.Visible = !preview.Blockers.Any(problem => problem is { Code: "invalid_state", Field: "Edge.Tracks" });

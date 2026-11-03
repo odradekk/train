@@ -22,6 +22,11 @@ public partial class RailwayWorkUiTests
             Require(repair.Disabled, "已有未开工维修时仍能重复手动修复。");
             repair.EmitSignal(BaseButton.SignalName.Pressed);
             Require(setup.Session.SubmitCount == 0, "检查既有维修提交了命令。");
+            var description = repair.GetParent().GetNode<Label>("Description").Text;
+            Require(!repair.Visible && description.Contains("正在修复") && !description.Contains("当前操作尚未结束")
+                && !description.Contains("需要：") && !description.Contains("来源：")
+                && !description.Contains("库存") && !description.Contains("工期"),
+                "已有修复任务的断点应明确说明正在修复，隐藏重复开工信息和按钮：" + description);
         });
         setup.Session.AssertComplete();
     }
@@ -57,8 +62,8 @@ public partial class RailwayWorkUiTests
             var row = Find<VBoxContainer>(panel, "AddTrackRow");
             var description = row.GetNode<Label>("Description").Text;
             Require(description.Contains("需要：夹具钢轨 × 17") && description.Contains("来源：自有镇")
-                && description.Contains("来源库存：夹具钢轨 × 18") && description.Contains("工期：")
-                && description.Contains("时") && description.Contains("分") && !description.Contains("90000") && !description.Contains("tick"),
+                && description.Contains("来源库存：夹具钢轨 × 18") && description.Contains("工期：25 分")
+                && !description.Contains("90000") && !description.Contains("tick"),
                 "建设说明没有显示预览材料、来源库存和可读工期：" + description);
             setup.Session.QueueSubmit(new CoreCommand.ExpandRail(new(RailwayWorkUiFixture.ZeroTrackEdge), new(1)),
                 CommandSource.UserInterface, Completed(1, initial, initial,
@@ -123,7 +128,7 @@ public partial class RailwayWorkUiTests
     {
         var initial = RailwayWorkUiFixture.ReadyToRepair();
         var setup = new HostSimulationTests.HostSetup(initial, RailwayWorkUiFixture.Content());
-        var replacement = new ScriptedCoreSession(RailwayWorkUiFixture.ReadyToRepair());
+        var replacement = UiWorldFixture.Session(RailwayWorkUiFixture.ReadyToRepair());
         setup.ReplacementCandidate = new(replacement, HostCoreScenario.References);
         await Run(setup, async ui =>
         {

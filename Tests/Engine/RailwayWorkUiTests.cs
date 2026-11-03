@@ -141,8 +141,10 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         {
             var empty = await OpenFromList(ui, 0);
             Require(Find<Button>(empty, "AddTrack").Text.Contains("建设线路"), "零轨线路应显示建设线路。");
+            Require(empty.FindChild("AddTrackHeading", true, false) is Label { Text: "建设线路" }, "零轨线路缺少建设线路标题。");
             var existing = await OpenFromList(ui, 1);
             Require(Find<Button>(existing, "AddTrack").Text.Contains("加轨"), "已有轨线路应显示加轨。");
+            Require(existing.FindChild("AddTrackHeading", true, false) is Label { Text: "加轨" }, "已有轨线路缺少加轨标题。");
             var busy = await OpenFromList(ui, 2);
             occupiedDescription = Find<VBoxContainer>(busy, "AddTrackRow").GetNode<Label>("Description").Text;
             Require(!Find<Button>(busy, "AddTrack").Visible && occupiedDescription.Contains("施工中")
@@ -244,7 +246,7 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
     public async Task Missing_content_uses_chinese_without_internal_identifiers()
     {
         var content = RailwayWorkUiFixture.Content(missingGood: true);
-        var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.Create(), content);
+        var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.ReadyToRepair(), content);
         await Run(setup, async ui =>
         {
             var panel = await OpenFromList(ui, 2);

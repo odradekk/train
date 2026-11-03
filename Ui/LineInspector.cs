@@ -15,7 +15,7 @@ internal sealed partial class LineInspector
     private readonly HostCoordinator _host;
     private readonly Func<PanelTarget?, CoreCommand, SubmissionResult> _submit;
     private readonly Action<WorldObjectId> _select;
-    private readonly Label _summary, _works, _feedback, _noBreaks;
+    private readonly Label _summary, _works, _feedback, _noBreaks, _addHeading;
     private readonly VBoxContainer _body, _breaks, _trains;
     private readonly OptionButton _sources, _automaticSource;
     private readonly CheckButton _automatic;
@@ -50,6 +50,7 @@ internal sealed partial class LineInspector
         Text(_body, "BreaksHeading", "断点修复");
         _breaks = new VBoxContainer { Name = "Breaks" }; _body.AddChild(_breaks);
         _noBreaks = Text(_breaks, "NoBreaks", "没有断点。");
+        _addHeading = Text(_body, "AddTrackHeading", "");
         _add = CreateRow(_body, "AddTrack", () => StartWork(new RailwayWorkRequest.AddTrack(_edge.Map.Id), _add!));
         _automatic = new CheckButton { Name = "AutomaticRepair", Text = "自动修复" }; _body.AddChild(_automatic);
         _automaticSource = Sources(_body, "AutomaticRepairSource");
@@ -104,7 +105,8 @@ internal sealed partial class LineInspector
             Panel.GetNode<Label>("Layout/Heading/Title").Text = $"{Place(map.Start)}—{Place(map.End)}";
             _summary.Text = $"长度 {map.LengthMeters:0.##} 米 · 铁轨 {map.Tracks}/{map.TrackLimit}";
             RefreshWorks(); RefreshTrains(); RefreshBreaks();
-            RefreshPreview(_add, new RailwayWorkRequest.AddTrack(map.Id), map.Tracks == 0 ? "建设线路" : "加轨");
+            _addHeading.Text = map.Tracks == 0 ? "建设线路" : "加轨";
+            RefreshPreview(_add, new RailwayWorkRequest.AddTrack(map.Id), _addHeading.Text);
         }
         _sources.Disabled = _host.IsBusy || _sourceIds.Count == 0;
         foreach (var row in _repairs.Values.Append(_add)) row.Button.Disabled = _host.IsBusy || !row.CanStart;
