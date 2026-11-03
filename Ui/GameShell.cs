@@ -127,7 +127,7 @@ public partial class GameShell : Control
             _enter.Disabled == (sceneReason is not null) && _navigationReason.Text == reason) return;
         _objectNavigation.Visible = visible;
         _locate.Disabled = locateReason is not null;
-        _enter.Disabled = sceneReason is not null;
+        _enter.Disabled = false;
         _navigationReason.Text = reason;
         _navigationReason.Visible = _navigationReason.Text.Length > 0;
         Arrange();

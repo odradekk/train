@@ -21,7 +21,7 @@ public partial class GameUi
         _status = new SceneStatusOverlay { Name = "SceneStatusOverlay", MouseFilter = Control.MouseFilterEnum.Ignore };
         _status.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _world.AddChild(_status);
-        _map.ObjectClicked += id => SelectObject(id);
+        _map.ObjectClicked += id => { SelectObject(id); if (id is WorldObjectId.Combat) OpenScene(id); };
         _map.ObjectActivated += OpenScene;
         _map.DisplayFailed += message =>
         { _logger.Warning("ui", "map_display_failed", message); ShowError(message); };

@@ -330,7 +330,7 @@ public partial class MacroMap : Control
     private Vector2? TrainPoint(TrainMapItem train)
     {
         if (train.Position is TrainPosition.Node node && _nodes.TryGetValue(node.Id, out var at))
-            return MapToScreen(at.Position) + _trainOffsets[train.Id];
+            return MapToScreen(at.Position) + new Vector2(40, 0);
         if (train.Position is TrainPosition.Edge moving)
             return EdgeDistancePoint(moving.Id, moving.DistanceMeters);
         return null;
