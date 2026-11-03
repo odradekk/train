@@ -64,7 +64,7 @@ internal sealed class NodeInspector
         _sources.AddChild(_trains);
         _trains.ItemSelected += index =>
         {
-            _selectedTrain = index > 0 && index <= _trainIds.Count ? _trainIds[(int)index - 1] : null;
+            _selectedTrain = index >= 0 && index < _trainIds.Count ? _trainIds[(int)index] : null;
             if (ReadCurrent()) { RefreshFounding(); UpdateActions(); }
         };
         _conditions = Text(body, "FoundingConditions", "");
@@ -177,10 +177,10 @@ internal sealed class NodeInspector
             .Select(item => item.Id).ToArray();
         if (_trainIds.SequenceEqual(ids) && _trains.ItemCount > 0) return;
         _trainIds.Clear(); _trainIds.AddRange(ids); _trains.Clear();
-        _trains.AddItem(ids.Length == 0 ? "该节点没有停靠的列车" : "选择列车");
+        if (ids.Length == 0) _trains.AddItem("该节点没有停靠的列车");
         foreach (var id in ids) _trains.AddItem($"列车 {id.Value}");
-        var index = _selectedTrain is { } selected ? Array.IndexOf(ids, selected) + 1 : 0;
-        _trains.Select(index); _selectedTrain = index > 0 ? ids[index - 1] : null;
+        var index = _selectedTrain is { } selected ? Math.Max(0, Array.IndexOf(ids, selected)) : 0;
+        _trains.Select(index); _selectedTrain = ids.Length > 0 ? ids[index] : null;
     }
 
     private void RefreshFounding()
@@ -201,16 +201,15 @@ internal sealed class NodeInspector
         var reasons = new List<string>();
         if (!preview.Blockers.IsEmpty) reasons.Add(EconomyPanels.DescribeProblems(preview.Blockers, _content));
         var train = _selectedTrain is { } selected && _view.FindTrain(selected) is Lookup<TrainView>.Found found ? found.Value : null;
-        Check(train is not null, train is not null ? "已选择材料列车" : _trainIds.Count == 0 ? "需要一列玩家列车停在这里" : "需要选择材料列车",
-            _trainIds.Count == 0 ? "该节点没有停靠的列车。" : "请选择材料列车。");
+        Check(train is not null && train.Position is TrainPosition.Node position && position.Id == _id && train.SpeedMetersPerSecond == 0,
+            train is not null ? $"列车 {train.Id.Value} 停在这里" : "需要一列玩家列车停在这里",
+            _trainIds.Count == 0 ? "该节点没有停靠的列车。" : "材料列车必须停在本节点，速度为零。");
         InventoryView? inventory = null;
         if (train is not null)
         {
             var vehicles = train.Vehicles.Select(id => _view.FindInstance(new InstanceId.Vehicle(id))).ToArray();
             Check(vehicles.All(item => item is Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned }),
                 "列车全部车辆归玩家所有", "材料列车必须全部归玩家所有。");
-            Check(train.Position is TrainPosition.Node position && position.Id == _id && train.SpeedMetersPerSecond == 0,
-                "列车已停在这里", "材料列车必须停在本节点，速度为零。");
             const InstanceLock construction = InstanceLock.UnderRefit | InstanceLock.UnderRepair | InstanceLock.UnderDeconstruction;
             Check(vehicles.All(item => item is Lookup<InstanceView>.Found vehicle && (vehicle.Value.Lock & construction) == 0),
                 "列车没有施工任务", "材料列车正在改装、修理或拆解。");
@@ -223,30 +222,35 @@ internal sealed class NodeInspector
             var have = inventory?.Stacks.FirstOrDefault(item => item.Good == material.Good)?.Quantity ?? 0;
             var name = SettlementOverviewPage.GoodName(material.Good, _content);
             var enough = have >= material.Quantity;
-            text.AppendLine($"{(enough ? "✓" : "✗")} {name}：{have} / {material.Quantity}" +
+            text.AppendLine($"{(enough ? "✓" : "×")} {name}：{have} / {material.Quantity}" +
                 (enough ? "" : $"，还差 {material.Quantity - have}"));
             if (enough) continue;
             reasons.Add($"{name}还差 {material.Quantity - have}。"); missing.Add(material.Good);
         }
         _conditions.Text = text.ToString().ReplaceLineEndings("\n");
         _blocked = string.Join("\n", reasons);
-        _purchases.Text = string.Join("\n", missing.Select(good => $"{SettlementOverviewPage.GoodName(good, _content)}：{PurchaseLocations(good)}"));
+        var markets = new List<(NodeId Node, MarketView Market)>();
+        if (missing.Count > 0)
+            foreach (var node in _view.World.Nodes)
+                if (node.Occupant is NodeOccupant.Settlement { Relation: SettlementRelation.NonHostile } occupant &&
+                    _view.FindSettlement(occupant.Id) is Lookup<SettlementView>.Found { Value.Relation: SettlementRelation.NonHostile } settlement)
+                    markets.Add((node.Id, settlement.Value.Market));
+        _purchases.Text = string.Join("\n", missing.Select(good =>
+            $"{SettlementOverviewPage.GoodName(good, _content)}：{PurchaseLocations(good, markets)}"));
 
         void Check(bool met, string label, string reason)
         {
-            text.AppendLine($"{(met ? "✓" : "✗")} {label}");
+            text.AppendLine($"{(met ? "✓" : "×")} {label}");
             if (!met) reasons.Add(reason);
         }
     }
 
-    private string PurchaseLocations(GoodId good)
+    private string PurchaseLocations(GoodId good, List<(NodeId Node, MarketView Market)> markets)
     {
         var names = new List<string>();
-        foreach (var node in _view.World.Nodes)
-            if (node.Occupant is NodeOccupant.Settlement { Relation: SettlementRelation.NonHostile } occupant &&
-                _view.FindSettlement(occupant.Id) is Lookup<SettlementView>.Found { Value.Relation: SettlementRelation.NonHostile } settlement &&
-                settlement.Value.Market.Goods.Any(item => item.Good == good && item.SellableQuantity > 0 && item.Blockers.IsEmpty))
-                names.Add(WorldPanels.NodeName(node.Id, _view, _content));
+        foreach (var market in markets)
+            if (market.Market.Goods.Any(item => item.Good == good && item.SellableQuantity > 0 && item.Blockers.IsEmpty))
+                names.Add(WorldPanels.NodeName(market.Node, _view, _content));
         return names.Count == 0 ? "目前没有市场有货。" :
             string.Join("、", names.Take(3)) + (names.Count > 3 ? $"等 {names.Count} 处" : "") + "当前有货。";
     }
