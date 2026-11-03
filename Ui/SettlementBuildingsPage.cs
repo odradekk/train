@@ -127,9 +127,6 @@ internal sealed partial class SettlementBuildingsPage(Func<bool> canAct, Func<Co
         }
     }
 
-    internal static bool NeedsAttention(FacilityView facility) => facility.Enabled &&
-        facility.State is not (ProductionState.Running or ProductionState.Disabled);
-
     internal static string Status(FacilityView facility) => facility.State switch
     {
         ProductionState.Disabled => facility.Process is null ? "未选择流程" : "已停用",

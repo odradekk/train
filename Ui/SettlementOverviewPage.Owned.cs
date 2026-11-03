@@ -36,27 +36,23 @@ internal sealed partial class SettlementOverviewPage
         _population.Text = $"常住人口 {population.Residents}\n基本需求满足率 {Ratio(period?.BasicSatisfaction)}\n改善需求满足率 {Ratio(period?.ImprovementSatisfaction)}";
         if (population.Execution is PopulationExecution.Disabled) _population.Text += "\n居民消费已停用，请检查人口规则内容。";
         _labor.Text = $"劳动力：可用 {population.AvailableLabor:0.###} · 已占用 {population.AllocatedLabor:0.###} · 闲置 {population.IdleLabor:0.###}";
-        var stopped = _settlement.Facilities.Where(SettlementBuildingsPage.NeedsAttention).GroupBy(item => item.Key.Building).ToArray();
-        foreach (var id in _blockedBuildings.Keys.Except(stopped.Select(item => item.Key)).ToArray())
+        var attention = SettlementAttention.Read(_view, content, _settlement);
+        foreach (var id in _blockedBuildings.Keys.Except(attention.Buildings.Select(item => item.Building)).ToArray())
         { RemoveControl(_blockedBuildings[id]); _blockedBuildings.Remove(id); }
-        foreach (var group in stopped)
+        foreach (var item in attention.Buildings)
         {
-            if (!_blockedBuildings.TryGetValue(group.Key, out var button))
+            if (!_blockedBuildings.TryGetValue(item.Building, out var button))
             {
-                var id = group.Key;
+                var id = item.Building;
                 button = UiStyle.Button($"BlockedBuilding_{id.Value}", "", () => openBuilding(id));
                 button.AutowrapMode = TextServer.AutowrapMode.WordSmart;
                 _attention.AddChild(button); _blockedBuildings.Add(id, button);
             }
-            button.Text = $"{SettlementBuildingsPage.BuildingName(_view, content, group.Key)}停工：" +
-                string.Join("；", group.Select(SettlementBuildingsPage.Status).Distinct());
+            button.Text = item.Text;
         }
-        var inventory = (_view.FindInventory(_settlement.Inventory) as Lookup<InventoryView>.Found)?.Value;
-        var shortages = _settlement.Market.Goods.Where(item =>
-            (inventory?.Stacks.FirstOrDefault(stack => stack.Good == item.Good)?.Quantity ?? 0) < item.RestockTarget).ToArray();
-        foreach (var good in _lowStock.Keys.Except(shortages.Select(item => item.Good)).ToArray())
+        foreach (var good in _lowStock.Keys.Except(attention.Goods.Select(item => item.Good)).ToArray())
         { RemoveControl(_lowStock[good]); _lowStock.Remove(good); }
-        foreach (var item in shortages)
+        foreach (var item in attention.Goods)
         {
             if (!_lowStock.TryGetValue(item.Good, out var button))
             {
@@ -65,11 +61,10 @@ internal sealed partial class SettlementOverviewPage
                 button.AutowrapMode = TextServer.AutowrapMode.WordSmart;
                 _attention.AddChild(button); _lowStock.Add(good, button);
             }
-            var quantity = inventory?.Stacks.FirstOrDefault(stack => stack.Good == item.Good)?.Quantity ?? 0;
-            button.Text = $"{GoodName(item.Good, content)}低于补货目标：{quantity} / {item.RestockTarget}";
+            button.Text = item.Text;
         }
-        _nothingPending.Visible = stopped.Length == 0 && shortages.Length == 0;
-        _sites.Text = Join(SettlementBuildingsPage.ConstructionSites(_view, content, _settlement), "没有进行中的工地。");
+        _nothingPending.Visible = attention.Buildings.Count == 0 && attention.Goods.Count == 0;
+        _sites.Text = Join(attention.Sites, "没有进行中的工地。");
         var armedBuildings = 0; var weapons = 0; var incomplete = false;
         foreach (var building in _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>())
         {

@@ -7,10 +7,10 @@ using static Train.Ui.EconomyPanelControls;
 namespace Train.Ui;
 
 /// <summary>
-/// 按列车查看运行结果，并从报告进入对应的运行计划。
+/// 查看本局收支、聚居地经营和列车运行结果，并从报告进入运行计划。
 /// Decision note: 2026-10-31-object-centric-management-screens
 /// </summary>
-internal sealed class EconomyReportsWorkspace(Control parent, HostCoordinator host)
+internal sealed partial class EconomyReportsWorkspace(Control parent, HostCoordinator host)
 {
     private const float SummaryColumnWidth = 240;
     internal event Action<Control>? Opened;
@@ -58,22 +58,22 @@ internal sealed class EconomyReportsWorkspace(Control parent, HostCoordinator ho
         _wallet.SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin;
         var totals = new VBoxContainer { Name = "CashFlow", CustomMinimumSize = new(SummaryColumnWidth, 0),
             SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin }; summary.AddChild(totals);
-        Text(totals, "NetCashFlow", "本局净现金流：—");
-        Text(totals, "IncomeAndExpenses", "收入 — · 支出 —");
         Text(_body, "CashFlowMeaning", "净现金流是实际收入减实际支出，不扣除货物成本和折旧。");
-        Text(_body, "DailyCashFlow", "最近 7 个游戏日净现金流：暂无统计。");
+        BuildCashFlowSummary(totals);
         _pages = new TabContainer { Name = "ReportPages", SizeFlagsVertical = Control.SizeFlags.ExpandFill,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, CustomMinimumSize = new(0, 200) };
         _body.AddChild(_pages);
         _trains = Page(_pages, "列车");
         _empty = Text(_trains, "Empty", "没有列车或已结束的运行报告。");
-        Text(Page(_pages, "聚居地"), "Empty", "暂无聚居地报告。");
-        Text(Page(_pages, "收支明细"), "Empty", "暂无收支明细。");
+        BuildSettlements(Page(_pages, "聚居地"));
+        BuildCashFlows(Page(_pages, "收支明细"));
     }
 
     internal void Close()
     {
         RemoveWindow(_panel); _panel = null; _revision = null; _expanded = null; _rows.Clear();
+        _cashFlows = default; _cashFlowDay = null; _cashFlowRows.Clear(); _cashFlowLimit = CashFlowBatchSize;
+        _ownedSettlementRows.Clear(); _tradeSettlementRows.Clear();
     }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
@@ -84,6 +84,11 @@ internal sealed class EconomyReportsWorkspace(Control parent, HostCoordinator ho
         {
             _revision = view.Revision;
             _wallet.Text = $"资金：{view.Economy.Wallet.Value}";
+            var cashChanged = _cashFlows != view.Economy.CashFlows;
+            _cashFlows = view.Economy.CashFlows;
+            RefreshCashFlowSummary(view, cashChanged);
+            RefreshSettlements(view, content, cashChanged);
+            RefreshCashFlows(view, content, cashChanged);
             var trains = view.World.Trains.Select(item => item.Id)
                 .Concat(view.Economy.RecentRunReports.Select(item => item.Train)).Distinct().ToArray();
             foreach (var id in _rows.Keys.Except(trains).ToArray())
