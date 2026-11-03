@@ -8,11 +8,13 @@
 
 | 负载 | 汇总章节 |
 |---|---|
-| 典型：standard-world | [2026-10-28：典型负载](2026-10-28-scene-opening.md#典型负载standard-worldf1)；[2026-10-31：部分打开操作的更新](2026-10-31-scene-opening.md#打开时间) |
+| 典型：standard-world | [2026-10-28：典型负载](2026-10-28-scene-opening.md#典型负载standard-worldf1)；[2026-10-31：部分打开操作的更新](2026-10-31-scene-opening.md#打开时间)；[2026-11-03：选中后进入的新口径，三轮](2026-11-03-scene-opening.md#打开时间) |
 | 重负载：规模点 | [2026-10-28：规模 1×／10×](2026-10-28-scene-opening.md#重负载规模点f2)；[2026-10-31：规模 1×／10× 首次节点更新](2026-10-31-scene-opening.md#打开时间) |
 | 重负载：crowded-station、busy-combat、long-consist | [2026-11-02：打开时间](2026-11-02-heavy-load-scene-opening.md#打开时间)和[每帧场景准备窗口](2026-11-02-heavy-load-scene-opening.md#每帧场景准备窗口) |
 
-这三份打开汇总的线路时延采用 [#881](https://github.com/odradekk/train/issues/881) 修复前的中心采样规则，与修复后的完成点不可直接比较；重负载汇总另将已识别的受影响时延剔除为 unknown。Ready 只确认必要范围，不证明全部远景补齐。重负载汇总的每帧准备窗口从旧 `View.Interactive` 起算，未按 #881 改为 `open.first_operable`，原数字与判定保留。
+此前三份打开汇总的线路时延采用 [#881](https://github.com/odradekk/train/issues/881) 修复前的中心采样规则，与修复后的完成点不可直接比较；重负载汇总另将已识别的受影响时延剔除为 unknown。Ready 只确认必要范围，不证明全部远景补齐。重负载汇总的每帧准备窗口从旧 `View.Interactive` 起算，未按 #881 改为 `open.first_operable`，原数字与判定保留。
+
+2026-11-03 汇总采用 [#888](https://github.com/odradekk/train/issues/888) 的新顺序：先选中并绘制，再从进入操作计时，节点和线路均排除检查器构建，因此与旧基线在这一项上也不可比。每场景只有 3 轮，打开时延 p95 为 unknown；性能失败及路线覆盖缺口见该基线的判定与限制。
 
 ## 完整游戏的帧耗时和实际倍速
 
