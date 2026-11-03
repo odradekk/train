@@ -264,5 +264,6 @@ public sealed class VehicleRepairsTests
         public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request) => _fixed.QuoteVehicle(request);
         public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => _fixed.QuoteLease(request);
         public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => _fixed.PreviewSettlement(node);
+        public CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource) => _fixed.PreviewRailwayWork(request, materialSource);
     }
 }

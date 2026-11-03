@@ -77,5 +77,6 @@ public partial class BlueprintLibraryUiTests
         public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => basis.QuoteLease(request);
         public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => basis.GetJobQuote(request, funding);
         public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => basis.PreviewSettlement(node);
+        public CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource) => basis.PreviewRailwayWork(request, materialSource);
     }
 }

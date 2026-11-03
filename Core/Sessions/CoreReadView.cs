@@ -165,4 +165,19 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
                 new(exception.Message, exception.StackTrace));
         }
     }
+    public CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (materialSource is { Value: 0 }) throw new ArgumentException("材料来源编号必须非零。", nameof(materialSource));
+        if (request is RailwayWorkRequest.AddTrack { Edge.Value: 0 }
+            or RailwayWorkRequest.RepairBreak { Edge.Value: 0 } or RailwayWorkRequest.RepairBreak { Break.Value: 0 })
+            throw new ArgumentException("铁路和断点编号必须非零。", nameof(request));
+        try { return new CoreResult<RailwayWorkPreview>.Success(RailwayWorks.Preview(State, Content, request, materialSource)); }
+        catch (Exception exception)
+        {
+            return new CoreResult<RailwayWorkPreview>.Faulted(new("internal_error", Position, nameof(PreviewRailwayWork), "", null),
+                new(exception.Message, exception.StackTrace));
+        }
+    }
+
 }
