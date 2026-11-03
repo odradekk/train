@@ -196,7 +196,7 @@ public partial class GameShell : Control
         if (!IsNodeReady() || !IsInsideTree()) return;
         var navigationWidth = _navigation.GetCombinedMinimumSize().X;
         var height = Math.Max(0, Size.Y - TopInset - BottomInset);
-        // 中间至少容得下现有的 280 宽地图图层面板和 240 宽节点小地图。
+        // 中间保留地图工具、图层弹窗和节点小地图的操作空间。
         var width = Math.Max(0, Size.X - navigationWidth - 24 - 280);
         var inspectorWidth = InspectorContent is null ? 0 : Math.Min(440, ListContent is null ? width : width * .62f);
         var listWidth = ListContent is null ? 0 : Math.Min(340, width - inspectorWidth);

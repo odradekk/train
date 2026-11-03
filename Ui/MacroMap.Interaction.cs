@@ -80,7 +80,10 @@ public partial class MacroMap
         buttons.AddChild(UiStyle.Button("ZoomOut", "−", () => ChangeZoom(1 / 1.2f, MapArea.GetCenter())));
         buttons.AddChild(UiStyle.Button("ZoomIn", "+", () => ChangeZoom(1.2f, MapArea.GetCenter())));
         buttons.AddChild(UiStyle.Button("FitMap", "全图", () => { _fitPending = true; FitCamera(); }));
-        buttons.AddChild(UiStyle.Button("Layers", "图层", ToggleLayers));
+        var layersButton = UiStyle.Button("Layers", "图层", ToggleLayers);
+        // 原生弹窗失焦后延迟隐藏；与 MenuButton 一样在按下时切换，避免释放时重新打开。
+        layersButton.ActionMode = BaseButton.ActionModeEnum.Press;
+        buttons.AddChild(layersButton);
         buttons.GetChild<Button>(0).TooltipText = "缩小地图";
         buttons.GetChild<Button>(1).TooltipText = "放大地图";
         _tools.AddChild(buttons);
