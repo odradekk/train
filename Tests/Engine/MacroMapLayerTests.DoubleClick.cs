@@ -25,7 +25,7 @@ public partial class MacroMapLayerTests
             await fixture.AddToRoot(map);
             var original = UiWorldFixture.InformationLayers();
             var edge = original.World.Edges[0];
-            var train = new TrainMapItem(new(10), new TrainPosition.Edge(edge.Id, 100, TravelDirection.Forward, 30), TrainActivity.Running);
+            var train = new TrainMapItem(new(10), new TrainPosition.Edge(edge.Id, 0, TravelDirection.Forward, 100), TrainActivity.Running);
             map.SetView(new FixedCoreReadView(default, HostCoreScenario.Input)
             { World = original.World with { Trains = [train] } }, content.View);
             WorldObjectId? selected = null, activated = null;
@@ -36,7 +36,7 @@ public partial class MacroMapLayerTests
             await input.Click(point);
             Require(selected == id && activated is null, "第一次按下必须只选中正在运行的列车。");
             map.SetView(new FixedCoreReadView(default, HostCoreScenario.Input)
-            { World = original.World with { Trains = [train with { Position = new TrainPosition.Edge(edge.Id, 170, TravelDirection.Forward, 30) }] } }, content.View);
+            { World = original.World with { Trains = [train with { Position = new TrainPosition.Edge(edge.Id, 0, TravelDirection.Forward, 170) }] } }, content.View);
             Require(map.HitTest(point - map.GlobalPosition) == new WorldObjectId.Edge(edge.Id),
                 "列车移走后，第二次按下的位置必须实际命中下面的线路。");
             await input.DoubleClick(point);

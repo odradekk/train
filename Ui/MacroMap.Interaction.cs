@@ -151,8 +151,8 @@ public partial class MacroMap
         if (!IsVisibleInTree() || input is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } button) return;
         var previous = _clickedObject;
         _clickedObject = null;
-        // 单击后出现的检查器可能覆盖原标记；同一标记的第二次点击仍属于地图的双击。
-        if (button.DoubleClick && previous is not null && HitTest(GetGlobalTransformWithCanvas().AffineInverse() * button.Position) == previous)
+        // 标记可能移动或被新检查器遮挡；双击仍属于第一次地图选中的对象。
+        if (button.DoubleClick && previous is not null)
         {
             RaiseObjectActivated(previous);
             GetViewport().SetInputAsHandled();
@@ -168,8 +168,8 @@ public partial class MacroMap
                 ChangeZoom(button.ButtonIndex == MouseButton.WheelUp ? 1.2f : 1 / 1.2f, button.Position);
             else if (button.Pressed && button.ButtonIndex == MouseButton.Left && HitTest(button.Position) is { } hit)
             {
-                if (button.DoubleClick) RaiseObjectActivated(hit);
-                else { _clickedObject = hit; RaiseObjectClicked(hit); }
+                _clickedObject = hit;
+                RaiseObjectClicked(hit);
             }
             AcceptEvent();
         }
@@ -186,10 +186,10 @@ public partial class MacroMap
         if (View is null || _content is null || HitTest(atPosition) is not { } id) return "";
         var text = id switch
         {
-            WorldObjectId.Node node => WorldPanels.NodeName(node.Id, View, _content) + "\n" +
+            WorldObjectId.Node node => WorldPanels.NodeName(node.Id, View, _content) +
                 (_nodes[node.Id].Occupant switch
-                { NodeOccupant.Settlement settlement => WorldPanels.Relation(settlement.Relation),
-                    NodeOccupant.Lair => "生物聚落", _ => "未建立聚居地" }),
+                { NodeOccupant.Settlement settlement => "\n" + WorldPanels.Relation(settlement.Relation),
+                    NodeOccupant.Lair => "", _ => "\n未建立聚居地" }),
             WorldObjectId.Edge edge => WorldPanels.NodeName(_edges[edge.Id].Start, View, _content) + "—" +
                 WorldPanels.NodeName(_edges[edge.Id].End, View, _content) + "\n" + WorldListDrawer.EdgeStatus(_edges[edge.Id]),
             WorldObjectId.Train train => $"列车 {train.Id.Value}\n" + WorldPanels.Activity(_world!.Trains.First(item => item.Id == train.Id).Activity),
