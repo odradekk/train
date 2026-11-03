@@ -30,7 +30,7 @@ internal static class ShellGeometry
         {
             var toasts = Find<Control>(ui, "Toasts");
             if (toasts.IsVisibleInTree() && toasts.GetChildCount() > 0) regions.Add(toasts);
-            regions.AddRange(new[] { Find<Control>(ui, "InformationLayers"), Find<Control>(ui, "NodeMinimap") }
+            regions.AddRange(new[] { Find<Control>(ui, "MapTools"), Find<Control>(ui, "NodeMinimap") }
                 .Where(control => control.IsVisibleInTree()));
         }
         var bounds = ui.GetViewport().GetVisibleRect();

@@ -23,6 +23,7 @@ public partial class NotificationPanel : Control
 
     internal event Action<NotificationNotice>? Chosen;
     internal Rect2 ToastArea { get; set; }
+    internal Rect2? ToastObstacle { get; set; }
     internal int UnreadCount { get; private set; }
 
     internal void Clear()
@@ -122,6 +123,8 @@ public partial class NotificationPanel : Control
         _toastsBox.Size = new(Math.Max(0, Math.Min(460, ToastArea.Size.X - 16)), 0);
         _toastsBox.GlobalPosition = new(ToastArea.GetCenter().X - _toastsBox.Size.X / 2,
             ToastArea.End.Y - _toastsBox.Size.Y - 8);
+        if (ToastObstacle is { } obstacle && _toastsBox.GetGlobalRect().Intersects(obstacle))
+            _toastsBox.GlobalPosition = new(_toastsBox.GlobalPosition.X, obstacle.Position.Y - _toastsBox.Size.Y - 8);
         for (var index = _toasts.Count - 1; index >= 0; index--)
         {
             var toast = _toasts[index];

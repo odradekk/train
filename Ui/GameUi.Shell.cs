@@ -32,6 +32,8 @@ public partial class GameUi
         _shell.CloseOverlay = CloseOverlay;
         _shell.SceneVisible = () => _scenes?.View.Visible == true;
         _shell.OpenMenu = () => _gameMenu.ShowPopup();
+        _shell.LocateRequested += LocateObject;
+        _shell.SceneRequested += OpenScene;
         _shell.UnsavedWorkspace = () => _shell.WorkspaceContent switch
         {
             TrainFormationWorkspace { HasUnsavedChanges: true } => "编组",
@@ -130,6 +132,7 @@ public partial class GameUi
 
     private bool CloseOverlay()
     {
+        if (_map.CloseLayers()) return true;
         if (_menu.CloseSavesOnEscape()) return true;
         if (_errorPanel.Visible) { _errorPanel.Hide(); return true; }
         if (_notices?.CloseLog() == true) return true;
@@ -147,6 +150,7 @@ public partial class GameUi
 
     private void UpdateShell(HostStatus status, double delta)
     {
+        RefreshObjectNavigation();
         var wallet = status.View.Economy.Wallet.Value;
         if (_lastWallet is { } previous && previous != wallet)
         { _walletChange = wallet - previous; _walletChangeRemaining = 3; }
@@ -184,12 +188,17 @@ public partial class GameUi
         if (_shell is null || _map is null || _minimap is null || _status is null) return;
         var area = _shell.SceneArea;
         _map.OverlayArea = area;
-        _map.PositionLayerPanel(area.Position.Y);
-        _minimap.Position = new(area.End.X - _minimap.Size.X, area.Position.Y);
+        _map.PositionTools();
+        _minimap.Position = new(area.Position.X, Math.Max(area.Position.Y, area.End.Y - _minimap.Size.Y));
         _status.ClipContents = true;
         _status.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
         _status.Position = area.Position;
         _status.Size = area.Size;
-        if (_notices is not null) _notices.ToastArea = new(_world.GlobalPosition + area.Position, area.Size);
+        if (_notices is not null)
+        {
+            _notices.ToastArea = new(_world.GlobalPosition + area.Position, area.Size);
+            _notices.ToastObstacle = _map.IsVisibleInTree() ? _map.ToolsBounds :
+                _minimap.IsVisibleInTree() ? _minimap.GetGlobalRect() : null;
+        }
     }
 }

@@ -58,17 +58,21 @@ internal sealed partial class MeasurementRun
             var host = _app.Host!;
             var speed = RouteSpeed;
             var train = MeasuredTrain();
+            _sceneTarget = new WorldObjectId.Train(train.Id);
+            var map = _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap");
+            map.RaiseObjectClicked(_sceneTarget);
+            await _app.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            train = MeasuredTrain();
             // 与 GameUi.OpenScene 相同。
             var followed = FollowedVehicle.Of(train, host.GetStatus()!.View, host.Content!);
             StartStreamingRoute(followed);
             _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(followed));
-            _sceneTarget = new WorldObjectId.Train(train.Id);
             host.SetSpeed(speed);
             host.SetPaused(false);
             if (host.Submit(host.GetStatus()!.Binding, new CoreCommand.StartTrain(train.Id), CommandSource.AutomationTest)
                 is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
                 throw new InvalidOperationException("无法启动测量列车。");
-            _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").RaiseObjectClicked(_sceneTarget);
+            map.RaiseObjectActivated(_sceneTarget);
             _routeStarted = Seconds();
             var gcStart = GcReading.Current;
             _sceneTiming = new(_routeStarted, host.GetStatus()!.View.Position.CompletedSteps);

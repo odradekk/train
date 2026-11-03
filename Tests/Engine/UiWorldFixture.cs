@@ -100,17 +100,17 @@ internal static class UiWorldFixture
     internal static FixedCoreReadView Save(CoreInputId input, bool inCombat = false)
         => Create(Scenario.Save, default, input, inCombat: inCombat);
 
-    internal static FixedCoreReadView Scene()
-        => Create(Scenario.Scene, default, HostCoreScenario.Input);
+    internal static FixedCoreReadView Scene(bool inCombat = false, bool emptyTrain = false, double firstNodeX = 250)
+        => Create(Scenario.Scene, default, HostCoreScenario.Input, inCombat: inCombat, emptyTrain: emptyTrain, firstNodeX: firstNodeX);
 
     internal static FixedCoreReadView Formation(ulong sequence, bool formed, RunPlan? plan = null)
         => Create(Scenario.Formation, new(0, sequence), HostCoreScenario.Input, formed, plan);
 
     private static FixedCoreReadView Create(Scenario scenario, SimulationPosition tick, CoreInputId input,
-        bool formed = true, RunPlan? plan = null, bool inCombat = false)
+        bool formed = true, RunPlan? plan = null, bool inCombat = false, bool emptyTrain = false, double firstNodeX = 250)
     {
         var terrain = new TerrainView(new(scenario == Scenario.Map ? "core:plains" : "fixture:plain"), 0, []);
-        var first = new NodeMapItem(new(1), new(250, 300), terrain, new NodeOccupant.Empty(), [],
+        var first = new NodeMapItem(new(1), new(firstNodeX, 300), terrain, new NodeOccupant.Empty(), [],
             0, scenario == Scenario.Map ? 0 : 1, null);
         var second = first with { Id = new(2), Position = new(750, 300) };
         var edge = new EdgeMapItem(new(1), first.Id, second.Id, 600, terrain, 1, 1, [], []);
@@ -118,7 +118,7 @@ internal static class UiWorldFixture
         // Save 默认保留一辆未编组车辆；Scene 需一辆可跟随的车；Formation 检查两辆车的顺序。
         ImmutableArray<VehicleId> ordered = scenario switch
         {
-            Scenario.Scene => [new(9)],
+            Scenario.Scene when !emptyTrain => [new(9)],
             Scenario.Save when inCombat => [new(1)],
             Scenario.Formation when formed => [new(2), new(1)],
             _ => []

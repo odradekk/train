@@ -11,6 +11,10 @@ public partial class GameShell : Control
 {
     private readonly Control _listHost = Host("ListRegion");
     private readonly Control _inspectorHost = Host("InspectorRegion");
+    private readonly Control _inspectorBody = Host("InspectorBody");
+    private readonly PanelContainer _objectNavigation = new() { Name = "ObjectNavigation", Visible = false };
+    private Button _locate = null!, _enter = null!;
+    private Label _navigationReason = null!;
     private readonly Control _workspaceHost = Host("WorkspaceRegion");
     private readonly ColorRect _mask = new() { Name = "WorkspaceMask", Color = new(0, 0, 0, .45f),
         MouseFilter = MouseFilterEnum.Stop, MouseForcePassScrollEvents = false, Visible = false };
@@ -28,6 +32,8 @@ public partial class GameShell : Control
     internal VBoxContainer Navigation { get; } = new() { Name = "Items" };
     internal Rect2 SceneArea { get; private set; }
     internal event Action? LayoutChanged;
+    internal event Action<WorldObjectId>? LocateRequested;
+    internal event Action<WorldObjectId>? SceneRequested;
     internal Func<bool>? CloseOverlay { get; set; }
     internal Func<bool>? SceneVisible { get; set; }
     internal Action? OpenMenu { get; set; }
@@ -53,6 +59,23 @@ public partial class GameShell : Control
         AddChild(_navigation);
         AddChild(_listHost);
         AddChild(_inspectorHost);
+        _inspectorHost.AddChild(_inspectorBody);
+        _inspectorHost.AddChild(_objectNavigation);
+        var navigationBody = new VBoxContainer();
+        var actions = new HBoxContainer();
+        _locate = UiStyle.Button("LocateObject", "定位", () =>
+        { if (SelectedObject is { } id) LocateRequested?.Invoke(id); });
+        _locate.TooltipText = "在宏观地图上定位";
+        _enter = UiStyle.Button("EnterScene", "进入场景", () =>
+        { if (SelectedObject is { } id) SceneRequested?.Invoke(id); });
+        actions.AddChild(_locate); actions.AddChild(_enter);
+        navigationBody.AddChild(actions);
+        _navigationReason = UiStyle.Label("");
+        _navigationReason.Name = "NavigationReason";
+        _navigationReason.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        navigationBody.AddChild(_navigationReason);
+        _objectNavigation.AddChild(navigationBody);
+        _objectNavigation.Resized += Arrange;
         AddChild(_mask);
         _mask.AddChild(_workspaceHost);
         AddChild(_switchConfirmation);
@@ -89,7 +112,25 @@ public partial class GameShell : Control
         var previous = InspectorContent;
         SelectedObject = selected;
         InspectorContent = content;
-        Mount(previous, content, _inspectorHost);
+        if (selected is null) _objectNavigation.Hide();
+        Mount(previous, content, _inspectorBody);
+    }
+
+    internal void SetObjectNavigation(bool visible, string? locateReason, string? sceneReason)
+    {
+        var reason = string.Join("\n", new[]
+        {
+            locateReason is null ? null : "定位：" + locateReason,
+            sceneReason is null ? null : "进入场景：" + sceneReason
+        }.OfType<string>());
+        if (_objectNavigation.Visible == visible && _locate.Disabled == (locateReason is not null) &&
+            _enter.Disabled == (sceneReason is not null) && _navigationReason.Text == reason) return;
+        _objectNavigation.Visible = visible;
+        _locate.Disabled = locateReason is not null;
+        _enter.Disabled = sceneReason is not null;
+        _navigationReason.Text = reason;
+        _navigationReason.Visible = _navigationReason.Text.Length > 0;
+        Arrange();
     }
 
     internal void RequestWorkspace(Action open)
@@ -155,7 +196,7 @@ public partial class GameShell : Control
         if (!IsNodeReady() || !IsInsideTree()) return;
         var navigationWidth = _navigation.GetCombinedMinimumSize().X;
         var height = Math.Max(0, Size.Y - TopInset - BottomInset);
-        // 中间至少容得下现有的 280 宽地图图层面板和 240 宽节点小地图。
+        // 中间保留地图工具、图层弹窗和节点小地图的操作空间。
         var width = Math.Max(0, Size.X - navigationWidth - 24 - 280);
         var inspectorWidth = InspectorContent is null ? 0 : Math.Min(440, ListContent is null ? width : width * .62f);
         var listWidth = ListContent is null ? 0 : Math.Min(340, width - inspectorWidth);
@@ -165,6 +206,11 @@ public partial class GameShell : Control
         _listHost.Size = new(listWidth, height);
         _inspectorHost.Position = new(Size.X - inspectorWidth - 8, TopInset + 8);
         _inspectorHost.Size = new(inspectorWidth, Math.Max(0, height - 16));
+        _inspectorHost.Visible = InspectorContent is not null;
+        _objectNavigation.Size = new(inspectorWidth, _objectNavigation.GetCombinedMinimumSize().Y);
+        var navigationHeight = _objectNavigation.Visible ? _objectNavigation.Size.Y + 8 : 0;
+        _inspectorBody.Position = new(0, navigationHeight);
+        _inspectorBody.Size = new(inspectorWidth, Math.Max(0, _inspectorHost.Size.Y - navigationHeight));
         SceneArea = new(new(navigationWidth + listWidth + 8, TopInset + 8),
             new(Math.Max(0, Size.X - navigationWidth - listWidth - inspectorWidth - 24), Math.Max(0, height - 16)));
         _mask.Position = SceneArea.Position;
@@ -178,7 +224,7 @@ public partial class GameShell : Control
     {
         for (Node? ancestor = panel.GetParent(); ancestor is not null; ancestor = ancestor.GetParent())
             if (ancestor is GameShell shell)
-                foreach (var host in new[] { shell._listHost, shell._inspectorHost, shell._workspaceHost })
+                foreach (var host in new[] { shell._listHost, shell._inspectorBody, shell._workspaceHost })
                     if (host.IsAncestorOf(panel)) return host.GetGlobalRect();
         return null;
     }

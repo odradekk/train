@@ -216,7 +216,9 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             var editor = ui.GetParent<Train.App.App>().Editor!;
             var error = ui.GetNode<Control>("Root/ErrorPanel");
             if (error.Visible) await _input.Activate(Find<Button>(error, "Close"));
-            await _input.Click(economy.GetGlobalRect().Position + new Vector2(8, 8));
+            var panelPoint = economy.GetGlobalRect().Position + new Vector2(8, 8);
+            await _input.Click(panelPoint);
+            await _input.DoubleClick(panelPoint);
             await _input.Frames(3);
             Require(clicked is null && !editor.IsOpen && !error.Visible && setup.Session.SubmitCount == 0,
                 "检查器输入穿透到地图、触发了隐藏的改装动作或提交了命令。");

@@ -11,7 +11,7 @@ using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
-public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
+public partial class MacroMapLayerTests(Node testScene) : TestClass(testScene)
 {
     [Test]
     public async Task Independent_layers_map_resources_and_platform_queues_and_refresh_only_on_demand()
@@ -31,7 +31,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
             map.DisplayFailed += message => throw new InvalidOperationException(message);
             await fixture.AddToRoot(map);
-            map.PositionLayerPanel(52);
+            map.PositionTools();
+            var layers = map.GetNode<PopupPanel>("InformationLayers");
             var view = UiWorldFixture.InformationLayers();
             var unconfigured = new FixedCoreReadView(default, HostCoreScenario.Input) { World = view.World };
             map.SetView(unconfigured, content.View);
@@ -46,8 +47,9 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             Require(legends is ["地图信息层", "货物图标 · 名称与剩余储量", "站台 占用/总数 · 排队列车数", "群活动 · 聚落类型与群数"],
                 "信息层图例被改动。");
             await UiCapture.Capture(TestScene, "layers-off");
+            await input.Activate(Find<Button>(map, "Layers"));
 
-            await input.Activate(resources);
+            await input.Activate(resources, layers);
             map.RefreshPlatformQueues(1);
             Require(resources.ButtonPressed && !platforms.ButtonPressed, "资源开关改变了站台开关。");
             var ore = view.World.Nodes[0].Resources[0];
@@ -58,7 +60,7 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             await UiCapture.Capture(TestScene, "layers-resources");
 
             map.SetView(view, content.View);
-            await input.Activate(platforms);
+            await input.Activate(platforms, layers);
             map.RefreshPlatformQueues(0);
             Require(resources.ButtonPressed && platforms.ButtonPressed &&
                 map.PlatformText(view.World.Nodes[0]) == "站台 1/2 · 排队 1" &&
@@ -67,7 +69,7 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             Require(map.HitTest(map.MapToScreen(new(250, 330))) == new WorldObjectId.Train(new(10)),
                 "用于检查标注叠放的线路列车没有位于预期位置。");
             await UiCapture.Capture(TestScene, "layers-both");
-            await input.Activate(resources);
+            await input.Activate(resources, layers);
             Require(!resources.ButtonPressed && platforms.ButtonPressed, "关闭资源改变了站台开关。");
             await UiCapture.Capture(TestScene, "layers-platforms");
 
@@ -82,17 +84,18 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             map.RefreshPlatformQueues(.02);
             Require(map.PlatformText(changed.World.Nodes[0]) == "站台 2/2 · 排队 0", "新快照的排队队龄未刷新。");
             map.RefreshPlatformQueues(1);
-            await input.Activate(resources);
+            await input.Activate(resources, layers);
             await UiCapture.Capture(TestScene, "layers-changed");
 
             map.Hide();
             map.SetView(unconfigured, content.View);
             map.RefreshPlatformQueues(1);
             map.Show();
-            await input.Activate(platforms);
+            await input.Activate(Find<Button>(map, "Layers"));
+            await input.Activate(platforms, layers);
             map.RefreshPlatformQueues(1);
             Require(resources.ButtonPressed && !platforms.ButtonPressed, "隐藏地图重置了图层开关。");
-            await input.Activate(resources);
+            await input.Activate(resources, layers);
             map.SetView(view, content.View, resetCamera: true);
             await UiCapture.Capture(TestScene, "layers-off-again");
         }
@@ -123,7 +126,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             var failures = new List<string>();
             map.DisplayFailed += failures.Add;
             await fixture.AddToRoot(map);
-            map.PositionLayerPanel(52);
+            map.PositionTools();
+            var layers = map.GetNode<PopupPanel>("InformationLayers");
             var scenario = UiWorldFixture.CreatureLayer();
             map.SetView(scenario.View, content.View);
             await input.Frames(2);
@@ -142,7 +146,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             ];
             var before = samples.Select(map.HitTest).ToArray();
             await UiCapture.Capture(TestScene, "creatures-off");
-            await input.Activate(creatures);
+            await input.Activate(Find<Button>(map, "Layers"));
+            await input.Activate(creatures, layers);
             Require(creatures.ButtonPressed && !resources.ButtonPressed && !platforms.ButtonPressed &&
                 map.Offset == offset && map.Zoom == zoom, "打开世界生物层改变了其他开关或相机。");
             var after = samples.Select(map.HitTest).ToArray();
@@ -164,8 +169,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
                 map.LairText(scenario.Nest) == "巢穴 · 3 群" && map.LairText(scenario.Hive) == "大型巢群 · 2 群",
                 "聚落标注没有使用内容显示名和 FindLair 的群数。");
             await UiCapture.Capture(TestScene, "creatures-on");
-            await input.Activate(resources);
-            await input.Activate(platforms);
+            await input.Activate(resources, layers);
+            await input.Activate(platforms, layers);
             Require(creatures.ButtonPressed && resources.ButtonPressed && platforms.ButtonPressed &&
                 map.Offset == offset && map.Zoom == zoom, "另外两层改变了世界生物开关或相机。");
             await UiCapture.Capture(TestScene, "creatures-all");

@@ -276,27 +276,4 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         setup.Session.AssertComplete();
     }
 
-    [Test]
-    public async Task Map_click_selects_the_line_and_opens_its_inspector()
-    {
-        var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.Create(), RailwayWorkUiFixture.Content());
-        LineScene? opened = null;
-        var scenes = new FixedDisplayFactory
-        {
-            OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(opened = new(binding))
-        };
-        await Run(setup, async ui =>
-        {
-            var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
-            await _input.Click(map.GlobalPosition + Midpoint(map, ui.View!, RailwayWorkUiFixture.ActiveEdge));
-            await _input.Frames(2);
-            Require(Find<PanelContainer>(ui, "LineInspector").IsVisibleInTree(), "宏观地图点选线路没有直接打开检查器。");
-            Require(opened?.Target is WorldSceneTarget.Location
-            {
-                Value: WorldLocation.Edge { Id.Value: RailwayWorkUiFixture.ActiveEdge, DistanceMeters: 200 }
-            }, "地图选中线路没有进入线路中点场景。");
-        }, scenes);
-        setup.Session.AssertComplete();
-    }
-
 }
