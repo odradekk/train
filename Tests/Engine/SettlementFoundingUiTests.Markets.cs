@@ -45,22 +45,50 @@ public partial class SettlementFoundingUiTests
         }
     }
 
-    private static (FixedCoreReadView View, FixedContentView Content) FoundingMarkets(bool stocked)
+    [Test]
+    public async Task Node_founding_groups_same_name_markets_before_limiting_locations()
+    {
+        var cases = new (string[] Names, string Food, string Equipment)[]
+        {
+            (["矿业镇经济布局", "自有仓", "敌城", "空市", "受阻市", "矿业镇经济布局", "矿业镇经济布局", "矿业镇经济布局"],
+                "主食：矿业镇经济布局 4 处当前有货。", "设备：矿业镇经济布局当前有货。"),
+            (["青川", "自有仓", "敌城", "空市", "受阻市", "石港", "青川", "石港"],
+                "主食：青川 2 处、石港 2 处当前有货。", "设备：石港当前有货。"),
+            (["青川", "自有仓", "敌城", "空市", "受阻市", "石港", "青川", "柳湾"],
+                "主食：青川 2 处、石港、柳湾当前有货。", "设备：柳湾当前有货。"),
+            (["青川", "自有仓", "敌城", "空市", "受阻市", "石港", "青川", "柳湾", "北原", "石港"],
+                "主食：青川 2 处、石港 2 处、柳湾等 6 处当前有货。", "设备：柳湾当前有货。")
+        };
+        foreach (var (names, food, equipment) in cases)
+        {
+            var (view, content) = FoundingMarkets(true, names);
+            var setup = new HostSimulationTests.HostSetup(view, content);
+            await Run(setup, async ui =>
+            {
+                await OpenDetail(ui, 0);
+                var text = Find<Label>(LatestDetail(ui), "FoundingPurchases").Text;
+                Require(text == food + "\n" + equipment,
+                    $"同名市场必须合并计数，按首次出现顺序列前三组，超出时说明总处数。实际：{text}");
+            });
+            setup.Session.AssertComplete();
+        }
+    }
+
+    private static (FixedCoreReadView View, FixedContentView Content) FoundingMarkets(bool stocked, string[]? marketNames = null)
     {
         var basis = SettlementFoundingUiFixture.World(1, null, materialQuantity: 0);
         var source = EconomyFixture.Content(mapPresentation: true, equipmentName: "设备");
         var preview = ((CoreResult<SettlementFoundingPreview>.Success)basis.PreviewSettlement(new(1))).Value;
         var town = ((Lookup<SettlementView>.Found)basis.FindSettlement(new(1))).Value;
         var ground = ((ContentLookup<SettlementLayoutProjection>.Found)source.FindSettlementLayout(new(1))).Value;
-        var names = new[] { "青川", "自有仓", "敌城", "空市", "受阻市", "石港", "柳湾", "北原" };
-        var ids = new ulong[] { 8, 7, 6, 5, 4, 3, 2, 1 };
+        var names = marketNames ?? ["青川", "自有仓", "敌城", "空市", "受阻市", "石港", "柳湾", "北原"];
         var nodes = ImmutableArray.CreateBuilder<NodeMapItem>();
         nodes.Add(basis.World.Nodes[0]);
         var towns = new Dictionary<SettlementId, Lookup<SettlementView>>();
         var layouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>();
         for (var index = 0; index < names.Length; index++)
         {
-            var id = new SettlementId(ids[index]);
+            var id = new SettlementId((ulong)(names.Length - index));
             var relation = index == 1 ? SettlementRelation.PlayerOwned
                 : index == 2 ? SettlementRelation.Hostile : SettlementRelation.NonHostile;
             var node = basis.World.Nodes[0] with
