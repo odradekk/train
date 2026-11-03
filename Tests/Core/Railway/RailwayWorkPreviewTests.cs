@@ -151,4 +151,3 @@ public sealed class RailwayWorkPreviewTests
     private static RailwayWorkPreview Preview(ICoreReadView read, RailwayWorkRequest request, SettlementId? source)
         => ((CoreResult<RailwayWorkPreview>.Success)read.PreviewRailwayWork(request, source)).Value;
 }
-
