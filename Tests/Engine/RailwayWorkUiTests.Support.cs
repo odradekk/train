@@ -48,15 +48,29 @@ public partial class RailwayWorkUiTests
         if (Find<GameShell>(ui, "World").ListContent?.Name != "EdgesList")
             await _input.Activate(Find<Button>(ui, "Edges"));
         await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
-        await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
-        return Find<PanelContainer>(ui, "RailwayWork");
+        await _input.Frames(2);
+        var panel = Find<PanelContainer>(ui, "LineInspector");
+        RequireUnixWorkDescriptions(panel);
+        return panel;
     }
 
-    private async Task DismissError(GameUi ui)
+    private static void RequireUnixWorkDescriptions(Node panel)
     {
-        var panel = ui.GetNode<PanelContainer>("Root/ErrorPanel");
-        if (panel.Visible) await _input.Activate(Find<Button>(panel, "Close"));
+        var descriptions = Find<VBoxContainer>(panel, "Breaks").FindChildren("Description", "Label", true, false)
+            .Cast<Label>().Append(Find<VBoxContainer>(panel, "AddTrackRow").GetNode<Label>("Description"));
+        Require(descriptions.All(label => !label.Text.Contains('\r')), "断点或加轨说明包含 CR 换行。");
     }
+
+    private static Button[] RepairButtons(Node panel) => Find<VBoxContainer>(panel, "Breaks")
+        .FindChildren("*", "Button", true, false).Cast<Button>().ToArray();
+
+    private static string VisibleText(Node node) => string.Join("\n", node.FindChildren("*", "Control", true, false)
+        .OfType<Control>().Where(item => item.IsVisibleInTree()).Select(item => item switch
+        {
+            Label label => label.Text,
+            Button button => button.Text,
+            _ => ""
+        }));
 
     private sealed class LineScene(SceneBinding binding) : IWorldSceneSession
     {
@@ -83,7 +97,6 @@ public partial class RailwayWorkUiTests
     }
     private static EdgeView Edge(HostCoordinator host, ulong id) =>
         ((Lookup<EdgeView>.Found)host.GetStatus()!.View.FindEdge(new(id))).Value;
-    private static PanelContainer LatestDetail(GameUi ui) => Find<PanelContainer>(ui, "Details");
 
     private static void Accept(HostCoordinator host, CoreCommand command)
     {
