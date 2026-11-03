@@ -35,10 +35,36 @@ public partial class BlueprintLibraryUiTests(Node testScene) : TestClass(testSce
             await input.Activate(Button(library, "全部", exact: true));
             await input.Enter(Find<LineEdit>(library, "LibrarySearch"), "");
             await input.PressKey(Key.Backspace);
-            Require(Cards(library).SequenceEqual(new[] { "内容包机车" }), "内容包组只能显示内容包设计。");
+            Require(Cards(library).SequenceEqual(new[] { "内容包机车", "内容包设备" }), "内容包组只能显示内容包设计。");
             Require(Button(library, "复制到本局蓝图库并编辑", exact: true).IsVisibleInTree() &&
                 !library.FindChildren("*", "Button", true, false).OfType<Button>().Any(button =>
                     button.IsVisibleInTree() && button.Text is "编辑" or "删除…"), "内容包不能提供直接编辑和删除。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+
+    [Test]
+    public async Task Package_functional_composite_explains_why_neither_library_can_copy_it()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var library = Library(fixture);
+            var input = new UiTestInput(TestScene);
+            await input.Activate(Button(library, "内容包"));
+            await input.Activate(library.FindChildren("DesignCard", "Button", true, false).OfType<Button>()
+                .Single(card => card.TooltipText == "内容包设备"));
+            Require(!library.FindChildren("*", "Button", true, false).OfType<Button>().Any(button =>
+                button.IsVisibleInTree() && button.Text is "复制到本局蓝图库并编辑" or "复制到用户内容库并编辑"),
+                "根功能复合体不能提供本局或用户库的复制编辑入口。");
+            Require(Shown(library, "内容包里的蓝图只读") && Shown(library, "功能复合体") &&
+                Shown(library, "整件装到其他设计") && Shown(library, "不能复制编辑") && !Shown(library, "复制一份后再编辑"),
+                "详情必须说明功能复合体只能整件用于其他设计，不能暗示它可以复制编辑。");
+            await input.Activate(library.FindChildren("DesignCard", "Button", true, false).OfType<Button>()
+                .Single(card => card.TooltipText == "内容包机车"));
+            Require(Button(library, "复制到本局蓝图库并编辑", exact: true).IsVisibleInTree() &&
+                Button(library, "复制到用户内容库并编辑", exact: true).IsVisibleInTree(),
+                "切回普通内容包蓝图后必须恢复两个复制入口。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
@@ -132,7 +158,8 @@ public partial class BlueprintLibraryUiTests(Node testScene) : TestClass(testSce
             (BlueprintLibrary.Local, "local-wagon", "本局货车", (DesignSpecification)new DesignSpecification.Vehicle(SizeClass.Small)),
             (BlueprintLibrary.Local, "local-warehouse", "本局仓库", (DesignSpecification)new DesignSpecification.Building(PlotSize.Small, BuildingKind.Warehouse, [])),
             (BlueprintLibrary.User, "user-equipment", "用户设备", (DesignSpecification)new DesignSpecification.Assembly(null)),
-            (BlueprintLibrary.Packages, "pack-locomotive", "内容包机车", (DesignSpecification)new DesignSpecification.Vehicle(SizeClass.Medium))
+            (BlueprintLibrary.Packages, "pack-locomotive", "内容包机车", (DesignSpecification)new DesignSpecification.Vehicle(SizeClass.Medium)),
+            (BlueprintLibrary.Packages, "pack-equipment", "内容包设备", (DesignSpecification)new DesignSpecification.FunctionalComposite([new PartCapability.Power(5)], null))
         };
         var records = entries.Select(entry =>
         {
