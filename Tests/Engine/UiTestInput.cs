@@ -157,8 +157,8 @@ internal sealed class UiTestInput(Node scene)
         await Frames();
     }
 
-    internal async Task MouseButton(Vector2 position, Godot.MouseButton button, bool pressed, bool doubleClick = false)
-        => await SendMouseButton(position, button, pressed, false, doubleClick: doubleClick);
+    internal async Task MouseButton(Vector2 position, Godot.MouseButton button, bool pressed)
+        => await SendMouseButton(position, button, pressed, false);
 
     private async Task SendMouseButton(Vector2 position, Godot.MouseButton button, bool pressed, bool control,
         Window? window = null, bool doubleClick = false)
