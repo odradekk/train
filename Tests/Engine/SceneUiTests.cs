@@ -43,7 +43,7 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(map, "Layers"));
             await _input.Activate(resources, layers);
             await _input.Activate(platforms, layers);
-            await _input.PressKey(Key.Escape, window: layers);
+            await _input.PressKey(Key.Escape);
             await _input.Drag(map.GlobalPosition + map.Size / 2, new(20, 15));
             await _input.MouseButton(map.GlobalPosition + map.Size / 2, MouseButton.WheelUp, true);
             var offset = map.Offset;
@@ -107,7 +107,7 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             var layers = map.GetNode<PopupPanel>("InformationLayers");
             await _input.Activate(Find<Button>(map, "Layers"));
             await _input.Activate(resources, layers);
-            await _input.PressKey(Key.Escape, window: layers);
+            await _input.PressKey(Key.Escape);
             var oldCore = setup.Session;
             var panel = app.GetNode<SavePanel>("GameUi/Root/SavePanel");
             await _input.ChooseMenu(Find<MenuButton>(ui, "GameMenu"), "存档与读档");
@@ -158,7 +158,7 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             var layers = map.GetNode<PopupPanel>("InformationLayers");
             await _input.Activate(Find<Button>(map, "Layers"));
             await _input.Activate(platforms, layers);
-            await _input.PressKey(Key.Escape, window: layers);
+            await _input.PressKey(Key.Escape);
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
             var scene = setup.Scenes[^1];
             var returned = 0;

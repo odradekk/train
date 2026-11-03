@@ -137,8 +137,8 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
                     var map = Find<MacroMap>(ui, "MacroMap");
                     await _input.Activate(map.GetNode<Button>("MapTools/Buttons/Layers"));
                     var layers = map.GetNode<PopupPanel>("InformationLayers");
-                    Require(layers.Visible && (window.GetScreenTransform() * shell.SceneArea).Encloses(new Rect2(layers.Position, layers.Size)),
-                        "宏观地图信息层弹窗必须完整留在场景区域内。");
+                    Require(layers.Visible && shell.SceneArea.Encloses(new Rect2(layers.Position, layers.Size)),
+                        $"宏观地图信息层弹窗必须完整留在场景区域内：scale={scale}，popup={new Rect2(layers.Position, layers.Size)}，scene={shell.SceneArea}。");
                     ShellGeometry.Check(ui);
                     await _input.PressKey(Key.Escape);
                     Require(!layers.Visible, "Esc 必须先关闭地图信息层弹窗。");

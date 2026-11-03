@@ -34,7 +34,7 @@ public partial class SceneUiTests
                 "小地图尺寸变化后仍须对齐可用场景区域。");
             await _input.Activate(Find<Button>(ui, "EconomyReports"));
             var workspace = shell.WorkspaceContent!;
-            var point = minimap.GlobalPosition + new Vector2(minimap.Size.X / 2, 4);
+            var point = minimap.GlobalPosition + new Vector2(4, minimap.Size.Y / 2);
             var camera = app.WorldScenes!.View.CameraRig;
             var focus = camera.Focus;
             var ray = setup.Frames[^1].LastPickRay;

@@ -55,6 +55,7 @@ public partial class MacroMap
     private PopupPanel _layers = null!;
     private PanelContainer _tools = null!;
     private WorldObjectId? _clickedObject;
+    internal Rect2 ToolsBounds => _tools.GetGlobalRect();
 
     public override void _Ready()
     {
@@ -107,15 +108,12 @@ public partial class MacroMap
     private void ToggleLayers()
     {
         if (CloseLayers()) return;
-        var scale = GetViewport().GetScreenTransform().Scale;
         var minimum = _layers.GetContentsMinimumSize();
         minimum.X = Math.Max(minimum.X, _layers.MinSize.X);
         minimum = minimum.Ceil();
-        _layers.ContentScaleMode = Window.ContentScaleModeEnum.CanvasItems;
-        _layers.ContentScaleSize = (Vector2I)minimum;
-        var size = (Vector2I)((Vector2)minimum * scale);
-        var position = GetViewport().GetScreenTransform() * _tools.GlobalPosition - new Vector2(0, size.Y + 8 * scale.Y);
-        _layers.PopupOnParent(new((Vector2I)position, size));
+        // 嵌入弹窗使用父视口的逻辑坐标，由父窗口统一缩放。
+        var position = _tools.GlobalPosition - new Vector2(0, minimum.Y + 8);
+        _layers.PopupOnParent(new((Vector2I)position, (Vector2I)minimum));
     }
 
     private void OnResized()
@@ -191,9 +189,9 @@ public partial class MacroMap
                 (_nodes[node.Id].Occupant switch
                 { NodeOccupant.Settlement settlement => WorldPanels.Relation(settlement.Relation),
                     NodeOccupant.Lair => "生物聚落", _ => "未建立聚居地" }),
-            WorldObjectId.Edge edge => WorldPanels.LocationText(new WorldLocation.Edge(edge.Id, _edges[edge.Id].LengthMeters / 2), View, _content) +
-                (_edges[edge.Id].Breaks.IsEmpty ? "\n线路畅通" : "\n线路有断点"),
-            WorldObjectId.Train train => "列车\n" + WorldPanels.Activity(_world!.Trains.First(item => item.Id == train.Id).Activity),
+            WorldObjectId.Edge edge => WorldPanels.NodeName(_edges[edge.Id].Start, View, _content) + "—" +
+                WorldPanels.NodeName(_edges[edge.Id].End, View, _content) + "\n" + WorldListDrawer.EdgeStatus(_edges[edge.Id]),
+            WorldObjectId.Train train => $"列车 {train.Id.Value}\n" + WorldPanels.Activity(_world!.Trains.First(item => item.Id == train.Id).Activity),
             WorldObjectId.Combat combat => "战斗\n" + WorldPanels.LocationText(_world!.Combats.First(item => item.Id == combat.Id).Location, View, _content) + " · 交战中",
             _ => ""
         };

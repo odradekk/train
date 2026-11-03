@@ -97,6 +97,10 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             // 手动推进生产帧入口，等焦点所在分段接入，避免断言依赖并行构建的完成顺序。
             app.SetProcess(false);
             await input.Click(point);
+            Require(map.GetParent<GameShell>().SelectedObject == new WorldObjectId.Edge(edge.Id) && app.WorldScenes!.Display is null,
+                "真实地图单击必须只选中线路，不能创建场景。");
+            await input.MouseButton(point, MouseButton.Left, true, doubleClick: true);
+            await input.MouseButton(point, MouseButton.Left, false);
             await FramesUntil(TestScene, () =>
             {
                 app.WorldScenes!.ProcessFrame(0, false);
@@ -110,7 +114,7 @@ public class ContentTests(Node testScene) : TestClass(testScene)
                 app.WorldScenes!.ProcessFrame(0, false);
                 AssertFocus();
             }
-            Require(!output.Contains("scene_adapter_failed"), "真实地图点击打开场景记录了适配异常。");
+            Require(!output.Contains("scene_adapter_failed"), "真实地图双击打开场景记录了适配异常。");
 
             void AssertFocus()
             {

@@ -33,6 +33,8 @@ public partial class GameUi
         _world.AddChild(top);
         _shell.LayoutChanged += PositionOverlays;
         _minimap.Resized += PositionOverlays;
+        _minimap.VisibilityChanged += PositionOverlays;
+        _map.VisibilityChanged += PositionOverlays;
         _bar = new HFlowContainer { Name = "TopBar" };
         _bar.AddThemeConstantOverride("h_separation", 12);
         top.AddChild(_bar);

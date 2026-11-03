@@ -121,7 +121,7 @@
     "Tests/Engine/EditorUiTests.cs": 17075,
     "Tests/Engine/GoodsIconTests.cs": 6956,
     "Tests/Engine/ObservationIndependenceTests.cs": 6419,
-    "Tests/Engine/RailwayWorkUiTests.cs": 5927,
+    "Tests/Engine/RailwayWorkUiTests.cs": 5187,
     "Tests/Engine/RenderingResourceTests.cs": 7012,
     "Tests/Engine/SceneDisplayTests.cs": 23953,
     "Tests/Engine/VehicleServiceIntegrationTests.cs": 6217,

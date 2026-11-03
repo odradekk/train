@@ -172,9 +172,7 @@ internal sealed class WorldListDrawer
                     1 => edge.Tracks > 0, 2 => !edge.Breaks.IsEmpty, 3 => edge.Tracks == 0, _ => true
                 })) continue;
                 rows.Add(new(new WorldObjectId.Edge(edge.Id), $"{name}\n" +
-                    (edge.Tracks == 0 ? "未建成" : $"铁轨 {edge.Tracks}/{edge.TrackLimit}") +
-                    $" · 长度 {edge.LengthMeters:0.##} 米" +
-                    (edge.Breaks.IsEmpty ? "" : $" · {edge.Breaks.Length} 处断点"), !edge.Breaks.IsEmpty));
+                    EdgeStatus(edge), !edge.Breaks.IsEmpty));
             }
             return rows;
         }
@@ -205,4 +203,9 @@ internal sealed class WorldListDrawer
         }
         return rows;
     }
+
+    internal static string EdgeStatus(EdgeMapItem edge) =>
+        (edge.Tracks == 0 ? "未建成" : $"铁轨 {edge.Tracks}/{edge.TrackLimit}") +
+        $" · 长度 {edge.LengthMeters:0.##} 米" +
+        (edge.Breaks.IsEmpty ? "" : $" · {edge.Breaks.Length} 处断点");
 }

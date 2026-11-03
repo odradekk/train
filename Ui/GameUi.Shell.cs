@@ -194,6 +194,11 @@ public partial class GameUi
         _status.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
         _status.Position = area.Position;
         _status.Size = area.Size;
-        if (_notices is not null) _notices.ToastArea = new(_world.GlobalPosition + area.Position, area.Size);
+        if (_notices is not null)
+        {
+            _notices.ToastArea = new(_world.GlobalPosition + area.Position, area.Size);
+            _notices.ToastObstacle = _map.IsVisibleInTree() ? _map.ToolsBounds :
+                _minimap.IsVisibleInTree() ? _minimap.GetGlobalRect() : null;
+        }
     }
 }

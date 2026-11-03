@@ -1,6 +1,7 @@
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
+using Train.App.Notifications;
 using Train.Core.Contracts;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
@@ -9,6 +10,41 @@ namespace Train.Engine.Tests;
 
 public partial class SceneUiTests
 {
+    [Test]
+    public async Task Scene_toasts_avoid_the_minimap_only_when_they_overlap()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup(minimap: true);
+        var window = TestScene.GetTree().Root;
+        var size = window.Size;
+        Train.App.App? app = null;
+        try
+        {
+            window.Size = new(1920, 1080);
+            app = await Ready(fixture, setup);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            await Open(app, setup, map.GlobalPosition + map.ObjectPoint(new WorldObjectId.Node(new(1)))!.Value, NodeTarget);
+            var minimap = Find<NodeMinimap>(ui, "NodeMinimap");
+            await _input.WaitUntil(minimap.IsVisibleInTree);
+            Find<NotificationPanel>(ui, "NotificationPanel").Add(new(NotificationCategory.Destruction,
+                NotificationLevel.Severe, "小地图通知避让。", null, null), app.Host!.GetStatus()!.View, app.Host.Content!);
+            var toasts = Find<Control>(ui, "Toasts");
+            foreach (var scale in new[] { 1f, 2f })
+            {
+                window.ContentScaleFactor = scale;
+                await _input.Frames(6);
+                Require(toasts.GetChildCount() > 0 && !toasts.GetGlobalRect().Intersects(minimap.GetGlobalRect()),
+                    "提示条不能遮住左下节点小地图。");
+                if (scale == 1)
+                    Require(toasts.GetGlobalRect().End.Y > minimap.GlobalPosition.Y,
+                        "宽窗口中互不重叠时，提示条应继续留在底部。");
+                ShellGeometry.Check(ui);
+            }
+        }
+        finally { await Cleanup(fixture, app); window.Size = size; }
+    }
+
     [Test]
     public async Task Double_click_still_enters_when_the_new_inspector_covers_the_marker()
     {
@@ -141,7 +177,7 @@ public partial class SceneUiTests
             var resources = map.GetNode<CheckBox>("InformationLayers/Body/Resources");
             await _input.Activate(Find<Button>(map, "Layers"));
             await _input.Activate(resources, popup);
-            await _input.PressKey(Key.Escape, window: popup);
+            await _input.PressKey(Key.Escape);
             Require(!popup.Visible && shell.InspectorContent == inspector && resources.ButtonPressed,
                 "Esc 必须先关闭图层弹窗并保留检查器及图层开关。");
             await _input.Activate(Find<Button>(map, "Layers"));

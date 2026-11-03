@@ -121,8 +121,8 @@ public partial class DeveloperDockTests(Node testScene) : TestClass(testScene)
             var map = Find<MacroMap>(ui, "MacroMap");
             await _input.Activate(map.GetNode<Button>("MapTools/Buttons/Layers"));
             var layers = map.GetNode<PopupPanel>("InformationLayers");
-            Require(layers.Visible && (ui.GetViewport().GetScreenTransform() * shell.SceneArea).Encloses(new Rect2(layers.Position, layers.Size)),
-                "地图信息层弹窗必须留在底栏上方的场景区域内。");
+            Require(layers.Visible && shell.SceneArea.Encloses(new Rect2(layers.Position, layers.Size)),
+                $"地图信息层弹窗必须留在底栏上方的场景区域内：popup={new Rect2(layers.Position, layers.Size)}，scene={shell.SceneArea}。");
             await _input.PressKey(Key.Escape);
             ShellGeometry.Check(ui);
             Require(ui.PanelArea.End.Y <= dock.Position.Y, "普通覆盖面板的可用区域也应让出底栏。");
