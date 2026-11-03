@@ -124,7 +124,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             await CloseDetail(ui);
             await OpenDetail(ui, 4);
             var settlement = Find<PanelContainer>(ui, "Settlement");
-            Require(Find<TabContainer>(settlement, "Pages").GetTabCount() == 5 &&
+            Require(Find<TabContainer>(settlement, "Pages").GetTabCount() == 4 &&
                 !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(), "非自有聚居地提供了建城。");
             await CloseDetail(ui);
             await OpenDetail(ui, 3);
@@ -229,7 +229,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
                 shell.InspectorContent is { Visible: true } settlement &&
                 Enumerable.Range(0, Find<TabContainer>(settlement, "Pages").GetTabCount())
                     .Select(Find<TabContainer>(settlement, "Pages").GetTabTitle)
-                    .SequenceEqual(new[] { "概况", "库存", "建筑", "车辆", "建造与工地" }) &&
+                    .SequenceEqual(new[] { "概况", "库存", "建筑", "车辆" }) &&
                 !settlement.FindChildren("FoundSettlement", "Button", true, false).Any(),
                 "占用者变化没有把建城入口替换为聚居地检查器。");
             var entry = Find<Button>(shell.InspectorContent!, "OpenSettlementCombat");

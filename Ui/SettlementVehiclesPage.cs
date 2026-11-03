@@ -15,7 +15,8 @@ namespace Train.Ui;
 internal sealed partial class SettlementVehiclesPage(
     Func<bool> canAct,
     Func<PanelTarget, CoreCommand, SubmissionResult> submit,
-    Action<PanelTarget, NodeId, ImmutableArray<VehicleId>, ICoreReadView, IContentView> formationRequested)
+    Action<PanelTarget, NodeId, ImmutableArray<VehicleId>, ICoreReadView, IContentView> formationRequested,
+    Action manufactureRequested, Action<InstanceId> workRequested)
 {
     private PanelTarget _target = null!;
     private HostBinding _binding;
@@ -24,9 +25,11 @@ internal sealed partial class SettlementVehiclesPage(
     private SettlementView _settlement = null!;
     private VBoxContainer? _body;
     private VBoxContainer _parkedRows = null!, _saleRows = null!;
-    private Label _jobs = null!, _parkedEmpty = null!, _soldOut = null!, _result = null!;
+    private ConstructionJobRows _jobs = null!;
+    private Label _parkedEmpty = null!, _soldOut = null!, _result = null!;
     private Label _purchaseTotal = null!, _saleReason = null!, _repairReason = null!, _dismantleReason = null!;
     private Button _buy = null!, _form = null!, _repair = null!, _sell = null!, _dismantle = null!;
+    private Button _commission = null!, _work = null!;
     private readonly List<VehicleId> _buySelection = [], _parkedSelection = [];
     private readonly Dictionary<VehicleId, CheckBox> _saleChecks = [], _parkedChecks = [];
     private readonly Dictionary<SizeClass, Label> _capacities = [];
@@ -39,7 +42,11 @@ internal sealed partial class SettlementVehiclesPage(
     internal void BuildVehicles(VBoxContainer body, bool owned)
     {
         Close(); _body = body; _owned = owned;
-        _jobs = Text(body, "VehicleJobs", "");
+        _commission = UiStyle.Button("CommissionVehicle", owned ? "制造车辆…" : "委托制造…", () => { if (canAct()) manufactureRequested(); });
+        _commission.Visible = _view.FindSettlement(_target.Object is WorldObjectId.Settlement selected ? selected.Id : default)
+            is Lookup<SettlementView>.Found { Value.Relation: not SettlementRelation.Hostile };
+        body.AddChild(_commission);
+        _jobs = new(canAct, command => submit(_target, command)); _jobs.Build(body);
         Text(body, "ParkedTitle", "停在这里的车辆 · 未编入列车");
         _parkedRows = new() { Name = "ParkedVehicles" }; body.AddChild(_parkedRows);
         _parkedEmpty = Text(body, "ParkedEmpty", "这里没有未编组的玩家车辆。");
@@ -49,6 +56,8 @@ internal sealed partial class SettlementVehiclesPage(
         _repair = UiStyle.Button("RepairVehicles", "修理", () => Execute(_repairBatch, false), true); actions.AddChild(_repair);
         _sell = UiStyle.Button("SellVehicles", "出售", () => Confirm(_sellBatch), true); actions.AddChild(_sell);
         _dismantle = UiStyle.Button("DismantleVehicles", "拆解…", () => Confirm(_dismantleBatch), true); actions.AddChild(_dismantle);
+        _work = UiStyle.Button("OpenSelectedVehicleWork", "修理与改装…", () =>
+        { if (canAct() && _parkedSelection.Count == 1) workRequested(new InstanceId.Vehicle(_parkedSelection[0])); }); actions.AddChild(_work);
         _sell.Visible = !owned; _dismantle.Visible = owned;
         _repairReason = Text(body, "RepairReason", "请勾选停放车辆。");
         _saleReason = Text(body, "SaleReason", ""); _saleReason.Visible = !owned;
@@ -66,14 +75,7 @@ internal sealed partial class SettlementVehiclesPage(
     internal void RefreshVehicles()
     {
         if (_body is null || _settlement is null) return;
-        var jobs = _settlement.CommissionJobs.Concat(_settlement.OwnedJobs).Select(_view.FindJob)
-            .OfType<Lookup<JobView>.Found>().Select(item => item.Value).OfType<JobView.Construction>()
-            .Select(item => item.Value).Where(job => job.Target is ConstructionTarget.NewVehicle
-                or ConstructionTarget.Existing { Instance: InstanceId.Vehicle });
-        var descriptions = jobs.Select(job => DescribeVehicleJob(_view, _content, job)).ToArray();
-        _jobs.Text = descriptions.Length == 0
-            ? _owned ? "没有进行中的修理或拆解。" : "没有进行中的委托。"
-            : (_owned ? "进行中的施工\n" : "进行中的委托\n") + string.Join("\n", descriptions);
+        _jobs.Refresh(_view, _content, _settlement, true);
         var parked = _settlement.ParkedVehicles.Where(id => _view.FindInstance(new InstanceId.Vehicle(id)) is
             Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned }).ToArray();
         SyncVehicles(_parkedRows, _parkedChecks, parked, _parkedSelection, "ParkedVehicle");
@@ -126,6 +128,7 @@ internal sealed partial class SettlementVehiclesPage(
         if (_quotedRevision != _view.Revision)
         { _quotedRevision = _view.Revision; ReadQuotes(); }
         var enabled = canAct();
+        _commission.Disabled = !enabled; _work.Disabled = !enabled || _parkedSelection.Count != 1;
         foreach (var check in _saleChecks.Values.Concat(_parkedChecks.Values)) check.Disabled = !enabled;
         _form.Disabled = !enabled || _parkedSelection.Count == 0;
         _form.Text = $"用所选 {_parkedSelection.Count} 辆编组列车";

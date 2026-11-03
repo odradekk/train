@@ -71,7 +71,7 @@ public partial class GameUi
             _formation.Initialize(_host, SubmitInline);
             _world.AddChild(_formation);
             _plan = new TrainPlanWorkspace();
-            _plan.Initialize(_host, (target, command, reportError) => Submit(target, command, null, reportError));
+            _plan.Initialize(_host, (target, command, reportError) => Submit(target, command, reportError));
             _world.AddChild(_plan);
             _panels.FormationRequested += (target, node, view, content) =>
                 _shell.RequestWorkspace(() => _formation.Open(target, node, view, content));
@@ -80,7 +80,7 @@ public partial class GameUi
             _panels.TrainFormationRequested += (target, train, view, content) =>
                 _shell.RequestWorkspace(() => _formation.Open(target, train, view, content));
             _economy = new EconomyPanels { Name = "EconomyPanels" };
-            _economy.Initialize(_host, Submit, _icons, Submit, SubmitInline);
+            _economy.Initialize(_host, _icons, SubmitInline, SubmitInline);
             _world.AddChild(_economy);
             _founding = new SettlementFoundingPanel { Name = "SettlementFounding" };
             _founding.Initialize(_host, Submit);

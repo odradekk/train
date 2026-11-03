@@ -23,6 +23,8 @@ public sealed class CommissionTests
             Assert.AreEqual(before, session.State);
             Assert.IsEmpty(quote.Blockers);
             Assert.AreEqual(2L, quote.TotalWork);
+            Assert.AreEqual(60d, quote.CapabilityWorkPerSecond);
+            Assert.IsEmpty(quote.Shortages);
             Assert.AreEqual(new Money(funding == JobFunding.OwnInventory ? 0 : 200), quote.MaterialPayment);
             Assert.AreEqual(new Money(funding == JobFunding.OwnInventory ? 0 : 6), quote.ServicePayment);
             if (funding == JobFunding.OwnInventory) Assert.IsEmpty(quote.NpcPurchases);
@@ -73,6 +75,7 @@ public sealed class CommissionTests
         Assert.IsEmpty(quote.Blockers);
         CollectionAssert.AreEqual(new[] { Cargo, acquired.Lease.Inventory }, quote.SourceConsumption.Select(s => s.Inventory).ToArray());
         Assert.IsTrue(quote.SourceConsumption.All(s => s.Goods.Single() == new GoodsQuantity(food, 1)));
+        CollectionAssert.AreEqual(new[] { new JobPurchaseView(clothing, 1, new(97)), new JobPurchaseView(food, 1, new(97)) }, quote.NpcPurchases.ToArray());
         // Both goods have target 10 and stock 13: midpoint 12.5 costs ceil(100 × .875 × 1.1) = 97.
         Assert.AreEqual(new Money(194), quote.MaterialPayment);
         Assert.AreEqual(new Money(12), quote.ServicePayment);
@@ -120,6 +123,7 @@ public sealed class CommissionTests
         var quote = WorldFixture.Success(session.Read().GetJobQuote(CommissionFixture.BuildRequest(content), JobFunding.NpcCommission));
         Assert.IsEmpty(quote.Blockers);
         Assert.AreEqual(new Money(97 + 102 + 108), quote.MaterialPayment);
+        CollectionAssert.AreEqual(new[] { new JobPurchaseView(food, 3, new(307)) }, quote.NpcPurchases.ToArray());
         Assert.AreEqual(new Money(9), quote.ServicePayment);
         Accept(session, new CoreCommand.CommissionVehicleWork(quote.Request, new(316)));
         Assert.AreEqual(new Money(10000 - 316), session.Read().Economy.Wallet);
@@ -143,65 +147,6 @@ public sealed class CommissionTests
         Assert.AreEqual("insufficient_goods", quote.Blockers[0].Code);
         Reject(session, new CoreCommand.CommissionVehicleWork(request, new(long.MaxValue)), code: "insufficient_goods");
         Reject(session, CommissionFixture.Commission(content, Local), "Sources[0]", "access_denied");
-    }
-
-    [TestMethod]
-    [DataRow(JobFunding.OwnInventory, false)]
-    [DataRow(JobFunding.NpcCommission, false)]
-    [DataRow(JobFunding.OwnInventory, true)]
-    [DataRow(JobFunding.NpcCommission, true)]
-    public void Missing_goods_quote_lists_every_shortage_in_key_order_without_consuming_partial_allocations(JobFunding funding, bool lastOnly)
-    {
-        GoodId first = new GoodId.Voxel(new("fixture:aa-first"));
-        GoodId last = new GoodId.Voxel(new("fixture:zz-last"));
-        var baseline = CommissionFixture.Content();
-        var content = baseline with
-        {
-            Goods = [..baseline.Goods, baseline.Goods[0] with { Good = first }, baseline.Goods[0] with { Good = last }],
-            Designs = baseline.Designs.Select(d => d.Design != WorldFixture.Vehicle ? d : d with
-                { BillOfMaterials = [new(last, 1), new(Material, 2), new(first, 1)], BillOfMaterialsItemCount = 4 }).ToImmutableArray()
-        };
-        using var original = funding == JobFunding.OwnInventory ? Session(content) : CommissionFixture.Session(content);
-        var cargo = ImmutableArray.Create(new GoodsQuantity(Material, funding == JobFunding.OwnInventory ? 2 : 1));
-        if (funding == JobFunding.OwnInventory && lastOnly) cargo = cargo.Add(new(first, 1));
-        using var session = new CoreSession(original.State with { World = original.State.World with
-        {
-            Inventories = original.State.World.Inventories.Select(i => i.Id == Cargo ? i with { Goods = cargo }
-                : i.Id == Local ? i with { Goods = lastOnly ? [new(Material, 10), new(first, 1)] : [new(Material, 10)] } : i).ToImmutableArray(),
-            Trains = original.State.World.Trains.Select(t => t with { Activity = TrainActivity.Servicing,
-                Plan = new(false, [new PlanStop.Station(original.State.World.Settlements.Single().Node, 100, [])]),
-                NextStopIndex = 0, RemainingDwellSteps = 100,
-                CurrentRun = Train.Core.Trading.RunReports.Begin(original.State.Position) }).ToImmutableArray()
-        } });
-        var request = CommissionFixture.BuildRequest(content, Cargo);
-        var before = session.State;
-        var quote = WorldFixture.Success(session.Read().GetJobQuote(request, funding));
-        Assert.AreEqual(before, session.State);
-        Assert.IsNull(quote.TotalPayment);
-        var blocker = quote.Blockers.Single();
-        Assert.AreEqual("insufficient_goods", blocker.Code);
-        Assert.AreEqual("Sources", blocker.Field);
-        var expected = lastOnly ? new[] { "voxel:fixture:zz-last" }
-            : new[] { "voxel:fixture:aa-first", "voxel:fixture:zz-last" };
-        CollectionAssert.AreEqual(expected, blocker.RelatedIdentities.ToArray());
-        Assert.AreEqual(Cargo, quote.SourceConsumption.Single().Inventory);
-        if (funding == JobFunding.NpcCommission)
-            Assert.IsTrue(quote.NpcPurchases.Contains(new GoodsQuantity(Material, 1)));
-        else
-        {
-            Assert.IsEmpty(quote.NpcPurchases);
-            Assert.AreEqual(new Money(0), quote.MaterialPayment);
-            Assert.AreEqual(new Money(0), quote.ServicePayment);
-        }
-        CoreCommand command = funding == JobFunding.OwnInventory ? new CoreCommand.StartOwnedJob(request)
-            : new CoreCommand.CommissionVehicleWork(request, new(long.MaxValue));
-        var result = Submit(session, command);
-        var rejected = (CommandDecision.Rejected)result.Receipt.Decision;
-        Assert.AreEqual(blocker.Code, rejected.Problems.Single().Code);
-        Assert.AreEqual(blocker.Field, rejected.Problems.Single().Field);
-        CollectionAssert.AreEqual(expected, rejected.Problems.Single().RelatedIdentities.ToArray());
-        Assert.AreEqual(before.World, session.State.World);
-        Assert.IsEmpty(result.Events);
     }
 
     [TestMethod]

@@ -80,7 +80,11 @@
 
 受理时在选中的租库建立完整返还预留，任务的 `ReturnInventory` 指向该库存。施工期间租约到期或库存冻结，预留仍参与全城 `TotalReserved` 和容量统计；完成时照常存入该租库，完成或失败均释放整份预留。
 
-`RequiredGoods` 是整份需求，`SourceConsumption` 仅为玩家来源，`NpcPurchases` 是缺额补购。拒绝时，`SourceConsumption` 和 `NpcPurchases` 只包含到失败检查为止算出的部分分配，仅供诊断参考，不能据此消费材料或执行补购。`OwnInventory` 的补购为空，`MaterialPayment` 与 `ServicePayment` 为零。启动条件不足时 `TotalPayment` 为空；仅限价或钱包不足时仍保留已算出的总额。工钱为冻结总工作量乘市场规则的 `CommissionMoneyPerWork`，无最低费用。接受时一次提交全部玩家材料消费、NPC 补购、总付款、工钱累计及任务建立，发 `ConstructionStarted`，携带资金来源和两项实际付款。材料款只影响钱包及事件；只有工钱计入 `Economy.UnassignedServicePayments`，不计入任何列车运行的 `ServicePayments`。
+`RequiredGoods` 是整份需求，`SourceConsumption` 按请求顺序列出实际消费的玩家来源。`NpcPurchases` 按货物键的 Ordinal 顺序列出真实可购的正数量；每行 `JobPurchaseView` 的 `Payment` 为该数量逐件边际价格的合计，全部材料可用时，各行金额之和等于 `MaterialPayment`。即使库存只能满足部分需求，报价仍返回这部分可购数量和金额。`Shortages` 是玩家来源及 NPC 可购材料分配后剩余的正数量，两种资金来源均填写，并按货物键的 Ordinal 顺序排列；未到达材料分配检查的早期拒绝返回空集合。
+
+`CapabilityWorkPerSecond` 为该目标可用的完好施工能力，单位为工作量／秒，复用任务执行的能力计算。无法取得能力或在能力检查前拒绝时为零。它不计电力、劳动力、队列和后续损毁，调用方只能在能力为正时用 `TotalWork` 除以它估计工期，不能把估计当作完成承诺。
+
+拒绝时，`SourceConsumption` 和 `NpcPurchases` 只包含到失败检查为止算出的部分分配，仅供诊断参考，不能据此消费材料或执行补购。`OwnInventory` 的补购为空，`MaterialPayment` 与 `ServicePayment` 为零。NPC 缺料时 `MaterialPayment` 和 `TotalPayment` 为空，采购行仍可用于说明可购部分。启动条件不足时 `TotalPayment` 为空；仅限价或钱包不足时仍保留已算出的总额。工钱为冻结总工作量乘市场规则的 `CommissionMoneyPerWork`，无最低费用。接受时一次提交全部玩家材料消费、NPC 补购、总付款、工钱累计及任务建立，发 `ConstructionStarted`，携带资金来源和两项实际付款。材料款只影响钱包及事件；只有工钱计入 `Economy.UnassignedServicePayments`，不计入任何列车运行的 `ServicePayments`。
 
 每个 `FacilityKey` 以 `JobId` 派生严格 FIFO，不保存第二套队列。队首未结束时，后续任务为 `Queued`，进度和速率为零，不请求资源，即使队首为 `ResourceBlocked` 也不跳队。不同设施可并行；请求 `Priority` 仅参与当地资源仲裁，不影响队列顺序。队首完成或失败后，下一步才处理后继任务，开工通过既有 `ConstructionStateChanged` 可见。排队任务同样检查设施被毁、失去归属或资格、目标消失或被毁的失败条件，不退款。修理和改装从受理起取得锁，排队期间同样适用全部施工锁限制。
 

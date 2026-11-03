@@ -45,11 +45,6 @@ internal static class EconomyPanelControls
             !warnings.IsDefaultOrEmpty || reason is not null ? UiStyle.Warning : UiStyle.Foreground);
     }
 
-    internal static void ResetQuote<T>(ref T? quote, Label label, string reason = "输入已改变，请获取报价。") where T : class
-    { quote = null; label.Text = "报价不锁定。" + reason; label.AddThemeColorOverride("font_color", UiStyle.Foreground); }
-    internal static void MissingSelection<T>(ref T? quote, Label label, string selection) where T : class =>
-        ResetQuote(ref quote, label, $"已不存在：所选{selection}，请重新选择。");
-
     internal static Label Text(Node parent, string name, string value)
     {
         var label = UiStyle.Label(value); label.Name = name;

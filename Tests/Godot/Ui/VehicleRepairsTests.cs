@@ -77,6 +77,20 @@ public sealed class VehicleRepairsTests
     }
 
     [TestMethod]
+    public void WhenAllFacilitiesAreBlockedKeepsTheFirstFacilityReason()
+    {
+        var view = new RepairReadView(20, Vehicle(8, structure: 6));
+        view.Add(RepairQuote(40, 8, new(4), new CoreProblem("insufficient_goods", "Sources", null, [])));
+        view.Add(RepairQuote(20, 8, new(7), new CoreProblem("capability_zero", "Facility", null, [])));
+
+        var result = VehicleRepairs.Quote([new(8)], Settlement(Building(40), Building(20)), view, new FixedContentView());
+
+        Assert.AreEqual("货物不足。", result.Reason);
+        Assert.IsEmpty(result.Jobs);
+        Assert.IsNull(result.Total);
+    }
+
+    [TestMethod]
     public void RejectsAnOtherwiseUnblockedQuoteWithoutTotalPayment()
     {
         var view = new RepairReadView(20, Vehicle(8, structure: 6));
@@ -185,7 +199,7 @@ public sealed class VehicleRepairsTests
 
     private static JobQuote RepairQuote(ulong building, ulong vehicle, Money? total, params CoreProblem[] blockers) => new(
         new JobRequest.Repair(new(new(building), CapabilityKind.Construction), new InstanceId.Vehicle(new(vehicle)), [], 0),
-        JobFunding.NpcCommission, new(5), 17, [], [], [], new(0), total, total, [.. blockers]);
+        JobFunding.NpcCommission, new(5), 17, 1, [], [], [], [], new(0), total, total, [.. blockers]);
 
     private sealed class RepairReadView : ICoreReadView
     {

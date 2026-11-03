@@ -54,7 +54,7 @@ public partial class VehicleServiceUiTests
                 "混选完好车时仍应允许修理受损车，并说明使用库存材料。");
             await _input.Activate(Find<CheckBox>(panel, "ParkedVehicle9"));
             var repairQuotes = view.RepairRequests.Count;
-            Require(button.Disabled && Find<Label>(panel, "RepairReason").Text == "没有损伤，不需要修理",
+            Require(button.Disabled && Find<Label>(button.GetParent().GetParent(), "RepairReason").Text == "没有损伤，不需要修理",
                 "只选完好车时，应禁用修理并说明没有损伤。");
             Require(view.RepairRequests.All(request => request.Instance == new InstanceId.Vehicle(new(9))),
                 "只选完好车时，不应为完好车获取修理报价。");
@@ -107,7 +107,7 @@ public partial class VehicleServiceUiTests
         {
             var overview = Find<Label>(panel, "Commissions").Text.Split('\n').Skip(1).Single();
             await Vehicles(panel);
-            var jobs = Find<Label>(panel, "VehicleJobs").Text;
+            var jobs = Find<Label>(Find<Control>(panel, "ConstructionJob_4"), "JobDescription").Text;
             Require(jobs.Contains(overview) && jobs.Contains("20%"), "车辆页和概况应显示同一份委托进度与预计时间说明。");
             Require(setup.Session.SubmitCount == 0 && view.QuoteCount == 0, "仅浏览委托不应提交命令或请求修理报价。");
         });
