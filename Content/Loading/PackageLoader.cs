@@ -98,22 +98,27 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
             changed = false;
             foreach (var package in packages.Where(p => p.State == C.PackageState.Available && !p.BuiltIn))
             {
-                for (var index = 0; index < package.Metadata!.Dependencies.Length; index++)
-                {
-                    var dependency = package.Metadata.Dependencies[index];
-                    var field = package.ImplicitCoreDependency && index == package.Metadata.Dependencies.Length - 1
-                        ? "/dependencies" : $"/dependencies/{index}";
-                    var target = packages.FirstOrDefault(p => p.Metadata?.Id == dependency.Package && p.State == C.PackageState.Available);
-                    if (target is null)
-                        DependencyFailure(package, "dependency_missing", $"依赖包不可用：{dependency.Package.Value}。", field);
-                    else if (CompareVersions(target.Metadata!.Version, dependency.MinimumVersion) < 0)
-                        DependencyFailure(package, "dependency_version", $"依赖包版本过低：{dependency.Package.Value}。", field + "/min_version");
-                    else continue;
-                    changed = true;
-                    break;
-                }
+                if (FirstDependencyProblem(package, packages.Select(value => value.Status)) is not { } problem) continue;
+                DependencyFailure(package, problem.Code, problem.Message, problem.Field);
+                changed = true;
             }
         } while (changed);
+    }
+
+    internal static C.ContentDiagnostic? FirstDependencyProblem(LoadPackage package, IEnumerable<C.PackageStatus> packages)
+    {
+        for (var index = 0; index < package.Metadata!.Dependencies.Length; index++)
+        {
+            var dependency = package.Metadata.Dependencies[index];
+            var field = package.ImplicitCoreDependency && index == package.Metadata.Dependencies.Length - 1
+                ? "/dependencies" : $"/dependencies/{index}";
+            var target = packages.FirstOrDefault(value => value.Metadata?.Id == dependency.Package && value.State == C.PackageState.Available);
+            if (target is null)
+                return new("dependency_missing", C.ContentDiagnosticSeverity.Error, "load", null, null, field, null, $"依赖包不可用：{dependency.Package.Value}。");
+            if (CompareVersions(target.Metadata!.Version, dependency.MinimumVersion) < 0)
+                return new("dependency_version", C.ContentDiagnosticSeverity.Error, "load", null, null, field + "/min_version", null, $"依赖包版本过低：{dependency.Package.Value}。");
+        }
+        return null;
     }
 
     private static void DependencyFailure(LoadPackage package, string code, string message, string field = "/dependencies")
@@ -199,7 +204,7 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
         }
     }
 
-    private static int CompareVersions(string left, string right)
+    internal static int CompareVersions(string left, string right)
     {
         var a = left.Split('+')[0].Split('-', 2);
         var b = right.Split('+')[0].Split('-', 2);

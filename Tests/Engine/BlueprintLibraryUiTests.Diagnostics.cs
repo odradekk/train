@@ -14,7 +14,7 @@ public partial class BlueprintLibraryUiTests
         const string failure = "fixture library evaluation failure";
         var draft = new SavedContentDraft(new(Guid.NewGuid()), new(1), new DraftTarget.LocalBlueprint(null),
             new DraftPayload.Design(EditorPreviewSession.Draft));
-        var fixture = await Ready(drafts: [draft], configure: factory => factory.EvaluateDesignCall = (_, _) =>
+        var fixture = await Ready(drafts: [draft], configure: factory => factory.EvaluateDesignCall = (_, _, _) =>
             throw new InvalidOperationException(failure));
         try
         {

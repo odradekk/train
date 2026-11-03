@@ -175,7 +175,8 @@ public static class ConsumerExamples
         IContentView content, SettlementId settlement) => content.FindSettlementLayout(settlement);
 
     public static ContentResult<DesignEvaluation> InspectDraft(IContentFactory factory,
-        IContentView content, DesignDraft draft) => factory.EvaluateDesign(content, draft);
+        IContentView content, DesignDraft draft, CompositeDefinitionId? compositeIdentity = null) =>
+        factory.EvaluateDesign(content, draft, compositeIdentity);
 
     public static ContentResult<IContentCandidate> CopyBlueprint(IContentFactory factory,
         IContentView content, DesignDraft draft) => factory.PrepareEdit(content,
@@ -192,6 +193,16 @@ public static class ConsumerExamples
 
     public static ContentLookup<ContentAsset> ReadAsset(IContentView view, AssetRevision revision)
         => view.FindAsset(revision);
+
+    public static ContentResult<ImmutableArray<AuthoringReferenceChoice>> ReadAuthoringChoices(
+        IContentFactory factory, IAuthoringPackage source, IContentView content,
+        ImmutableArray<PackageEdit> pending) => factory.QueryAuthoringReferences(source, content, pending);
+
+    public static ContentResult<ImmutableArray<ContentDiagnostic>> ValidateCapturedDefinition(
+        IContentFactory factory, IAuthoringPackage source, IContentView content,
+        ImmutableArray<PackageEdit> otherChanges, AuthoringDefinitionAddress definition, DefinitionDraft captured)
+        => factory.ValidateAuthoringDefinition(source, content,
+            otherChanges.Add(new PackageEdit.WriteDefinition(captured)), definition);
 
     public static ContentResult<PackageWritePlan> EncodeAuthoringChange(IContentFactory factory,
         IAuthoringPackage source, DefinitionDraft draft) => factory.PreparePackageWrite(source,
