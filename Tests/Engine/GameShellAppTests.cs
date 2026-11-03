@@ -134,9 +134,14 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
                     await _input.Frames(6);
                     var toasts = Find<Control>(ui, "Toasts");
                     Require(toasts.GetChildCount() > 0, "布局检查必须包含真实通知提示。");
-                    var layers = Find<Control>(ui, "InformationLayers");
-                    Require(layers.IsVisibleInTree(), "宏观地图布局检查必须显示真实地图信息层。");
+                    var map = Find<MacroMap>(ui, "MacroMap");
+                    await _input.Activate(map.GetNode<Button>("MapTools/Buttons/Layers"));
+                    var layers = map.GetNode<PopupPanel>("InformationLayers");
+                    Require(layers.Visible && (window.GetScreenTransform() * shell.SceneArea).Encloses(new Rect2(layers.Position, layers.Size)),
+                        "宏观地图信息层弹窗必须完整留在场景区域内。");
                     ShellGeometry.Check(ui);
+                    await _input.PressKey(Key.Escape);
+                    Require(!layers.Visible, "Esc 必须先关闭地图信息层弹窗。");
                     await ShellGeometry.CheckNavigationAndListText(TestScene, ui);
                     var pages = Find<TabContainer>(shell.InspectorContent!, "Pages");
                     if (scale == 2f && pages.GetTabBar().GetOffsetButtonsVisible())

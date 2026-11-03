@@ -29,8 +29,8 @@ public partial class SceneUiTests
             minimap.Size += new Vector2(16, 12);
             await _input.Frames(2);
             var shell = (GameShell)ui.World;
-            Require(Mathf.IsEqualApprox(minimap.GetGlobalRect().End.X, shell.SceneArea.End.X) &&
-                Mathf.IsEqualApprox(minimap.GlobalPosition.Y, shell.SceneArea.Position.Y),
+            Require(Mathf.IsEqualApprox(minimap.GlobalPosition.X, shell.SceneArea.Position.X) &&
+                Mathf.IsEqualApprox(minimap.GetGlobalRect().End.Y, shell.SceneArea.End.Y),
                 "小地图尺寸变化后仍须对齐可用场景区域。");
             await _input.Activate(Find<Button>(ui, "EconomyReports"));
             var workspace = shell.WorkspaceContent!;

@@ -9,8 +9,6 @@ public partial class MacroMap
     private static readonly Color CombatBorder = new("c9423a");
     private static readonly Texture2D CombatSymbol = GD.Load<Texture2D>("res://Ui/Symbols/train-combat.png");
 
-    internal event Action<CombatId>? CombatClicked;
-
     private void DrawCombats()
     {
         if (_world is null) return;

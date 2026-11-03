@@ -212,13 +212,18 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(confirmation.GetCancelButton(), confirmation);
             var map = Find<MacroMap>(ui, "MacroMap");
             WorldObjectId? clicked = null;
+            WorldObjectId? activated = null;
             map.ObjectClicked += id => clicked = id;
+            map.ObjectActivated += id => activated = id;
             var editor = ui.GetParent<Train.App.App>().Editor!;
             var error = ui.GetNode<Control>("Root/ErrorPanel");
             if (error.Visible) await _input.Activate(Find<Button>(error, "Close"));
-            await _input.Click(economy.GetGlobalRect().Position + new Vector2(8, 8));
+            var panelPoint = economy.GetGlobalRect().Position + new Vector2(8, 8);
+            await _input.Click(panelPoint);
+            await _input.MouseButton(panelPoint, MouseButton.Left, true, doubleClick: true);
+            await _input.MouseButton(panelPoint, MouseButton.Left, false);
             await _input.Frames(3);
-            Require(clicked is null && !editor.IsOpen && !error.Visible && setup.Session.SubmitCount == 0,
+            Require(clicked is null && activated is null && !editor.IsOpen && !error.Visible && setup.Session.SubmitCount == 0,
                 "检查器输入穿透到地图、触发了隐藏的改装动作或提交了命令。");
         });
         setup.Session.AssertComplete();

@@ -21,9 +21,7 @@ public partial class MacroMap : Control
     private bool _dragging;
     private bool _fitPending;
     private float _fitZoom = 1;
-    private PanelContainer _layers = null!;
     private CheckBox _resources = null!, _platforms = null!, _creatures = null!;
-    private float _layersTop;
     private readonly Dictionary<NodeId, int> _platformQueues = [];
     private ICoreReadView? _queueView;
     private double _queueDelay;
@@ -34,38 +32,10 @@ public partial class MacroMap : Control
     internal event Action<WorldObjectId>? ObjectClicked;
     internal event Action<string>? DisplayFailed;
 
+    internal event Action<WorldObjectId>? ObjectActivated;
+
     internal void RaiseObjectClicked(WorldObjectId target) => ObjectClicked?.Invoke(target);
-
-    public override void _Ready()
-    {
-        MouseFilter = MouseFilterEnum.Stop;
-        ClipContents = true;
-        Resized += OnResized;
-        _layers = new PanelContainer { Name = "InformationLayers", CustomMinimumSize = new(280, 0),
-            MouseFilter = MouseFilterEnum.Stop, MouseForcePassScrollEvents = false };
-        var body = new VBoxContainer { Name = "Body", MouseFilter = MouseFilterEnum.Ignore };
-        body.AddThemeConstantOverride("separation", 6);
-        body.AddChild(UiStyle.Label("地图信息层", true));
-        _resources = new CheckBox { Name = "Resources", Text = "节点资源" };
-        _platforms = new CheckBox { Name = "Platforms", Text = "站台占用" };
-        _creatures = new CheckBox { Name = "Creatures", Text = "世界生物" };
-        AddLayer(_resources, "货物图标 · 名称与剩余储量");
-        AddLayer(_platforms, "站台 占用/总数 · 排队列车数");
-        AddLayer(_creatures, "群活动 · 聚落类型与群数");
-        _layers.AddChild(body);
-        AddChild(_layers);
-        _layers.Resized += () => PositionLayerPanel(_layersTop);
-
-        void AddLayer(CheckBox toggle, string legend)
-        {
-            body.AddChild(toggle);
-            var label = UiStyle.Label(legend);
-            label.AddThemeFontSizeOverride("font_size", 12);
-            label.AddThemeColorOverride("font_color", new Color("#9aa3ad"));
-            body.AddChild(label);
-            toggle.Toggled += _ => QueueRedraw();
-        }
-    }
+    internal void RaiseObjectActivated(WorldObjectId target) => ObjectActivated?.Invoke(target);
 
     internal void RefreshPlatformQueues(double delta)
     {
@@ -98,6 +68,7 @@ public partial class MacroMap : Control
         _world = world;
         _nodes.Clear();
         foreach (var node in world.Nodes) _nodes.Add(node.Id, node);
+        ArrangeTrains();
         _edges.Clear();
         foreach (var edge in world.Edges) _edges.Add(edge.Id, edge);
         if (geometryChanged) BuildRegions();
@@ -113,56 +84,10 @@ public partial class MacroMap : Control
         QueueRedraw();
     }
 
-    private void OnResized()
-    {
-        FitCamera();
-        PositionLayerPanel(_layersTop);
-        QueueRedraw();
-    }
-
-    private void FitCamera()
-    {
-        if (!_fitPending || _world is null || Size.X <= 0 || Size.Y <= 0) return;
-        Zoom = Math.Min(Math.Max(1, Size.X - 120) / (float)Math.Max(1, _world.WidthMeters),
-            Math.Max(1, Size.Y - 120) / (float)Math.Max(1, _world.HeightMeters));
-        _fitZoom = Zoom;
-        Offset = (Size - new Vector2((float)_world.WidthMeters, (float)_world.HeightMeters) * Zoom) / 2;
-        _fitPending = false;
-    }
-
-    internal Vector2 MapToScreen(MapPoint point) => new Vector2((float)point.X, (float)point.Y) * Zoom + Offset;
-
-    public override void _GuiInput(InputEvent input)
-    {
-        if (input is InputEventMouseButton button)
-        {
-            if (button.ButtonIndex == MouseButton.Middle) _dragging = button.Pressed;
-            else if (button.Pressed && button.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
-            {
-                var next = Math.Clamp(Zoom * (button.ButtonIndex == MouseButton.WheelUp ? 1.2f : 1 / 1.2f),
-                    _fitZoom / 8, _fitZoom * 8);
-                Offset = button.Position - (button.Position - Offset) * (next / Zoom);
-                Zoom = next;
-                QueueRedraw();
-            }
-            else if (button.Pressed && button.ButtonIndex == MouseButton.Left)
-            {
-                if (CombatAt(button.Position) is { } combat) CombatClicked?.Invoke(combat);
-                else if (HitTest(button.Position) is { } hit) RaiseObjectClicked(hit);
-            }
-            AcceptEvent();
-        }
-        else if (input is InputEventMouseMotion motion && _dragging)
-        {
-            if ((motion.ButtonMask & MouseButtonMask.Middle) == 0) _dragging = false;
-            else { Offset += motion.Relative; QueueRedraw(); }
-            AcceptEvent();
-        }
-    }
-
     internal WorldObjectId? HitTest(Vector2 point)
     {
         if (_world is null) return null;
+        if (CombatAt(point) is { } combat) return new WorldObjectId.Combat(combat);
         foreach (var train in _world.Trains.Reverse())
             if (TrainPoint(train) is { } p && new Rect2(p - new Vector2(14, 7), new Vector2(28, 14)).HasPoint(point))
                 return new WorldObjectId.Train(train.Id);
@@ -177,7 +102,7 @@ public partial class MacroMap : Control
 
     public override void _Draw()
     {
-        DrawRect(new Rect2(Vector2.Zero, Size), new Color("#b7c4a6"));
+        DrawRect(new Rect2(Vector2.Zero, Size), new Color("#34423a"));
         if (_world is null) return;
         foreach (var region in _regions)
         {
@@ -405,7 +330,7 @@ public partial class MacroMap : Control
     private Vector2? TrainPoint(TrainMapItem train)
     {
         if (train.Position is TrainPosition.Node node && _nodes.TryGetValue(node.Id, out var at))
-            return MapToScreen(at.Position) + new Vector2(25, -22);
+            return MapToScreen(at.Position) + _trainOffsets[train.Id];
         if (train.Position is TrainPosition.Edge moving)
             return EdgeDistancePoint(moving.Id, moving.DistanceMeters);
         return null;
@@ -503,7 +428,7 @@ public partial class MacroMap : Control
         }
     }
 
-    private static Color TerrainColor(TerrainTypeId id) => new(id.Value switch
+    private static Color TerrainColor(TerrainTypeId id) => new Color(id.Value switch
     {
         "core:plains" => "#bccf93",
         "core:hills" => "#cbb37e",
@@ -511,5 +436,5 @@ public partial class MacroMap : Control
         "core:desert" => "#e5cf95",
         "core:mountains" => "#a69d92",
         _ => "#b7c4a6"
-    });
+    }).Darkened(.4f);
 }

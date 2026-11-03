@@ -56,15 +56,17 @@ public partial class SceneUiTests
             var shell = (GameShell)ui.World;
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             var node = new WorldObjectId.Node(new(1));
-            map.RaiseObjectClicked(node);
+            await _input.Click(map.GlobalPosition + map.ObjectPoint(node)!.Value);
+            var inspector = shell.InspectorContent;
+            await _input.Activate(Find<Button>(ui, "EnterScene"));
             Require(!app.WorldScenes!.View.Visible && ui.ErrorText.Contains("fixture_node_failed") &&
-                shell.SelectedObject == node && panels.IsObjectOpen(node),
+                shell.SelectedObject == node && panels.IsObjectOpen(node) && shell.InspectorContent == inspector,
                 "场景请求失败仍须选中节点并显示检查器。");
             var instance = new WorldObjectId.Instance(Vehicle);
             map.RaiseObjectClicked(instance);
             Require(shell.SelectedObject == instance && panels.IsObjectOpen(instance) &&
-                ui.ErrorText.Contains("对象没有可观察的场景目标"),
-                "有效对象没有场景目标时，仍须切换到该对象的检查器。");
+                !Find<Control>(shell, "ObjectNavigation").IsVisibleInTree(),
+                "车辆检查器不应显示地图导航按钮。");
             map.RaiseObjectClicked(new WorldObjectId.Node(new(999)));
             Require(shell.SelectedObject == instance && panels.IsObjectOpen(instance) &&
                 ui.ErrorText.Contains("对象已不存在或所属对局已更换"),
