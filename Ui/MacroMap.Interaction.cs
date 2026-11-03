@@ -13,7 +13,7 @@ public partial class MacroMap
     {
         if (_tools is null) return;
         var area = MapArea;
-        _tools.Position = new(area.End.X - _tools.Size.X, Math.Max(area.Position.Y, area.End.Y - _tools.Size.Y));
+        _tools.Position = new(area.Position.X, Math.Max(area.Position.Y, area.End.Y - _tools.Size.Y));
     }
 
     internal Vector2? ObjectPoint(WorldObjectId id) => id switch
@@ -30,7 +30,7 @@ public partial class MacroMap
     internal void CenterOn(WorldObjectId id)
     {
         if (ObjectPoint(id) is not { } point) return;
-        Offset += Size / 2 - point;
+        Offset += MapArea.GetCenter() - point;
         QueueRedraw();
     }
 
@@ -152,7 +152,7 @@ public partial class MacroMap
         var previous = _clickedObject;
         _clickedObject = null;
         // 单击后出现的检查器可能覆盖原标记；同一标记的第二次点击仍属于地图的双击。
-        if (false && button.DoubleClick && previous is not null && HitTest(GetGlobalTransformWithCanvas().AffineInverse() * button.Position) == previous)
+        if (button.DoubleClick && previous is not null && HitTest(GetGlobalTransformWithCanvas().AffineInverse() * button.Position) == previous)
         {
             RaiseObjectActivated(previous);
             GetViewport().SetInputAsHandled();
@@ -189,9 +189,9 @@ public partial class MacroMap
             WorldObjectId.Node node => WorldPanels.NodeName(node.Id, View, _content) + "\n" +
                 (_nodes[node.Id].Occupant switch
                 { NodeOccupant.Settlement settlement => WorldPanels.Relation(settlement.Relation),
-                    NodeOccupant.Lair => "生物聚落", _ => "Empty" }),
+                    NodeOccupant.Lair => "生物聚落", _ => "未建立聚居地" }),
             WorldObjectId.Edge edge => WorldPanels.NodeName(_edges[edge.Id].Start, View, _content) + "—" +
-                WorldPanels.NodeName(_edges[edge.Id].End, View, _content) + "\n" + "线路中点 100 米",
+                WorldPanels.NodeName(_edges[edge.Id].End, View, _content) + "\n" + WorldListDrawer.EdgeStatus(_edges[edge.Id]),
             WorldObjectId.Train train => $"列车 {train.Id.Value}\n" + WorldPanels.Activity(_world!.Trains.First(item => item.Id == train.Id).Activity),
             WorldObjectId.Combat combat => "战斗\n" + WorldPanels.LocationText(_world!.Combats.First(item => item.Id == combat.Id).Location, View, _content) + " · 交战中",
             _ => ""
