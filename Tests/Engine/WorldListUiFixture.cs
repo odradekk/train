@@ -8,6 +8,8 @@ namespace Train.Engine.Tests;
 
 internal static class WorldListUiFixture
 {
+    private static readonly GoodId Rail = new GoodId.Voxel(new("fixture:list-rail"));
+
     internal static FixedContentView Content()
     {
         var scene = new DesignSceneProjection(null, null, null, true, null, null, [], [], [], [], []);
@@ -21,6 +23,8 @@ internal static class WorldListUiFixture
         };
         return new(projection, new(1))
         {
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
+            { [Rail] = new ContentLookup<GoodPresentation>.Found(new(Rail, new(new("钢轨", ""), null, null, false), null, false)) },
             DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
             {
                 [new CoreDefinitionReference.Terrain(new("fixture:long-plain"))] = new ContentLookup<ContentDisplay>.Found(
@@ -73,9 +77,21 @@ internal static class WorldListUiFixture
         var town = ((Lookup<SettlementView>.Found)EconomyFixture.Create().FindSettlement(new(1))).Value;
         return new(new(0, revision), basis.InputIdentity, revision: new(revision))
         {
+            RailwayWorkPreviews = new Dictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>
+            {
+                [(new RailwayWorkRequest.AddTrack(new(3)), new SettlementId(1))] =
+                    new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, 17)], 90000, [])),
+                [(new RailwayWorkRequest.RepairBreak(new(2), new(1)), new SettlementId(1))] =
+                    new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, 11)], 48, []))
+            },
             Economy = basis.Economy,
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
-                { [prototype.Inventory] = basis.FindInventory(prototype.Inventory) },
+                {
+                    [prototype.Inventory] = basis.FindInventory(prototype.Inventory),
+                    [town.Inventory] = new Lookup<InventoryView>.Found(new(town.Inventory,
+                        new InventoryOwner.Settlement(new(1)), new WorldLocation.Node(owned.Id),
+                        InventoryAccess.ReadWrite, 100, 18, 0, 82, 0.504, [new(Rail, 18, false)], []))
+                },
             World = basis.World with { Nodes = [.. nodes], Edges = [.. edges],
                 Combats = [new(new(1), new WorldLocation.Node(first.Id))],
                 Trains = [.. trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity))] },

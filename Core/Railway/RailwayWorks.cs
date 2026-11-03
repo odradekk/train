@@ -12,7 +12,7 @@ internal sealed record RailwayWorkState(JobId Id, EdgeId Edge, RailwayWorkKind K
 
 internal sealed record AutomaticRailRepair(EdgeId Edge, SettlementId MaterialSource);
 
-internal static class RailwayWorks
+internal static partial class RailwayWorks
 {
     internal static RailwayWorkView Read(WorldState world, RailwayWorkState job)
     {
@@ -271,20 +271,8 @@ internal static class RailwayWorks
     {
         if (RuleProblem(world, content, edge) is { } rule) return new(null, 0, 0, rule);
         if (SettlementProblem(world, source) is { } settlement) return new(Rail(world, content), 0, 0, settlement);
-        var projection = content.RailwayRules.Single(item => item.Id == world.Source.Configuration.Rules.Railway);
-        var good = Rail(world, content);
-        var units = kind == RailwayWorkKind.RepairBreak
-            ? projection.RepairRailUnitsPerBreak
-            : checked((long)Math.Ceiling(edge.LengthMeters * projection.RailUnitsPerMeter));
-        var seconds = kind == RailwayWorkKind.AddTrack
-            ? edge.LengthMeters * projection.BuildSecondsPerMeter : projection.RepairSecondsPerBreak;
-        var ticks = checked((ulong)Math.Ceiling(seconds * SimulationTime.StepsPerSecond));
-        var have = world.Inventories.Single(item => item.Id == Inventory(world, source)).Goods
-            .SingleOrDefault(item => item.Good == good)?.Quantity ?? 0;
-        return have < units
-            ? new(good, units, ticks, new("insufficient_goods", "MaterialSource.Inventory",
-                new WorldObjectId.Settlement(source), [WorldReferences.GoodKey(good)]))
-            : new(good, units, ticks, null);
+        var price = Estimate(world, content, edge, kind);
+        return price with { Problem = MaterialProblem(world, source, price) };
     }
 
     private static GoodId.Voxel Rail(WorldState world, CoreContentProjection content)

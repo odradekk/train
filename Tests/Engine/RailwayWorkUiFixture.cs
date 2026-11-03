@@ -20,14 +20,23 @@ internal static class RailwayWorkUiFixture
     internal static FixedCoreReadView Create(ulong revision = 1) =>
         Build(revision, [StartedWork(), UnstartedWork()], new(1), 18);
 
-    internal static FixedCoreReadView WithManyBreaks() =>
-        Build(1, [StartedWork(), UnstartedWork()], new(1), 18, activeBreaks: 60);
+    internal static FixedCoreReadView WithManyBreaks(ulong revision = 1) =>
+        Build(revision, [StartedWork(), UnstartedWork()], new(1), 18, activeBreaks: 60);
 
     internal static FixedCoreReadView WithoutAutomaticRepair(ulong revision) =>
         Build(revision, [StartedWork()], null, 18);
 
     internal static FixedCoreReadView WithAcceptedRepair(ulong revision) =>
         Build(revision, [StartedWork(), AcceptedRepair()], null, 7);
+
+    internal static FixedCoreReadView ReadyToRepair() => Build(1, [StartedWork()], null, 18);
+
+    internal static FixedCoreReadView WithStock(long stock, bool automaticRepair = true) =>
+        Build(1, [], automaticRepair ? new(1) : null, stock);
+
+    internal static FixedCoreReadView WithoutSource() => Build(1, [], null, 18, ownedSource: false);
+
+    internal static FixedCoreReadView AtTrackLimit() => Build(1, [], null, 18, activeTracks: 2);
 
     internal static RailwayWorkView StartedWork() => new(new(2), RailwayWorkKind.AddTrack, 2, null, new(1),
         [new(Rail, StartedUnits)], 0.25, []);
@@ -40,7 +49,7 @@ internal static class RailwayWorkUiFixture
     internal static CoreProblem Blocker() => new("insufficient_goods", "MaterialSource.Inventory",
         new WorldObjectId.Settlement(new(1)), ["voxel:fixture:rail"]);
 
-    internal static FixedContentView Content(bool railwayRule = true)
+    internal static FixedContentView Content(bool railwayRule = true, bool missingGood = false, ulong generation = 1)
     {
         var type = new SettlementTypeId("fixture:town-type");
         var template = new SettlementTemplateId("fixture:town");
@@ -57,11 +66,11 @@ internal static class RailwayWorkUiFixture
         };
         var png = ImmutableArray.CreateRange(Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
-        return new(projection, new(1))
+        return new(projection, new(generation))
         {
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
             {
-                [Rail] = new ContentLookup<GoodPresentation>.Found(new(Rail, new(new("夹具钢轨", ""), null, null, false), null, false))
+                [Rail] = missingGood ? new ContentLookup<GoodPresentation>.NotFound() : new ContentLookup<GoodPresentation>.Found(new(Rail, new(new("夹具钢轨", ""), null, null, false), null, false))
             },
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {
@@ -82,13 +91,13 @@ internal static class RailwayWorkUiFixture
     }
 
     private static FixedCoreReadView Build(ulong revision, ImmutableArray<RailwayWorkView> activeWorks, SettlementId? autoRepair, long railQuantity,
-        int activeBreaks = 1)
+        int activeBreaks = 1, bool ownedSource = true, int activeTracks = 1)
     {
         var terrain = new TerrainView(new("core:plains"), 0, []);
         NodeMapItem Node(ulong id, double x, double y, NodeOccupant occupant) => new(new(id), new(x, y), terrain, occupant, [], 0, 1, null);
         var nodes = new[]
         {
-            Node(1, 500, 350, new NodeOccupant.Settlement(new(1), SettlementRelation.PlayerOwned)),
+            Node(1, 500, 350, new NodeOccupant.Settlement(new(1), ownedSource ? SettlementRelation.PlayerOwned : SettlementRelation.NonHostile)),
             Node(2, 1500, 350, new NodeOccupant.Settlement(new(2), SettlementRelation.NonHostile)),
             Node(3, 1500, 850, new NodeOccupant.Empty()),
             Node(4, 500, 850, new NodeOccupant.Empty())
@@ -98,15 +107,15 @@ internal static class RailwayWorkUiFixture
             ImmutableArray<RailwayWorkView> works, SettlementId? auto)
         {
             var map = new EdgeMapItem(new(id), new(start), new(end), length, terrain, tracks, 2, breaks, works);
-            var trackViews = Enumerable.Range(1, tracks).Select(number => new TrackView(number, null, [])).ToImmutableArray();
+            var trackViews = Enumerable.Range(1, tracks).Select(number => new TrackView(number, null, id == ActiveEdge && number == 1 ? [new(987654)] : [])).ToImmutableArray();
             return new(map, trackViews, auto);
         }
         var edges = new[]
         {
             Edge(ZeroTrackEdge, 1, 2, 800, 0, [], [], null),
             Edge(BreakEdge, 2, 3, 500, 1, [new(new(1), 1, 120)], [unstartedRepair], new(1)),
-            Edge(ActiveEdge, 3, 4, ActiveLengthMeters, 1,
-                [.. Enumerable.Range(0, activeBreaks).Select(index => new TrackBreakView(new((ulong)index + 2), 1, 80 + index * 10))],
+            Edge(ActiveEdge, 3, 4, ActiveLengthMeters, activeTracks,
+                [.. Enumerable.Range(0, activeBreaks).Select(index => new TrackBreakView(new((ulong)index + 2), 1, 80 + index * 5))],
                 activeWorks, autoRepair)
         };
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -121,23 +130,70 @@ internal static class RailwayWorkUiFixture
             return new(new(id), new InventoryOwner.Settlement(new(settlement)), new WorldLocation.Node(new(settlement)),
                 InventoryAccess.ReadWrite, 100, quantity, 0, 100, 0.028 * quantity, stacks, []);
         }
+        var scene = UiWorldFixture.Scene();
+        var train = ((Lookup<TrainView>.Found)scene.FindTrain(new(7))).Value with
+        {
+            Id = new(987654), Inventory = new(3), Activity = TrainActivity.Running,
+            Position = new TrainPosition.Edge(new(ActiveEdge), 1, TravelDirection.Forward, 35)
+        };
+        var location = new WorldLocation.Edge(new(ActiveEdge), 35);
+        var vehicle = ((Lookup<InstanceView>.Found)scene.FindInstance(new InstanceId.Vehicle(new(9)))).Value with
+        {
+            Location = location,
+            Details = new InstanceDetails.Vehicle(SizeClass.Medium, train.Id)
+        };
+        var trainInventory = ((Lookup<InventoryView>.Found)scene.FindInventory(new(1))).Value with
+        {
+            Id = train.Inventory, Owner = new InventoryOwner.Train(train.Id), Location = location
+        };
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
         {
+            RailwayWorkPreviews = Previews(edges, railQuantity),
+            Trains = new Dictionary<TrainId, Lookup<TrainView>>
+            {
+                [train.Id] = new Lookup<TrainView>.Found(train)
+            },
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+            { [vehicle.Id] = new Lookup<InstanceView>.Found(vehicle) },
             Economy = UiWorldFixture.Economy,
             World = new(7, new("fixture:railway"), 2000, 1200, nodes.ToImmutableArray(),
-                edges.Select(edge => edge.Map).ToImmutableArray(), [], [], []),
+                edges.Select(edge => edge.Map).ToImmutableArray(),
+                [new(new(987654), new TrainPosition.Edge(new(ActiveEdge), 1, TravelDirection.Forward, 35), TrainActivity.Running)], [], []),
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 40, 80))),
             Edges = edges.ToDictionary(edge => edge.Map.Id, edge => (Lookup<EdgeView>)new Lookup<EdgeView>.Found(edge)),
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             {
-                [new(1)] = new Lookup<SettlementView>.Found(Settlement(1, 1, SettlementRelation.PlayerOwned, 1)),
+                [new(1)] = new Lookup<SettlementView>.Found(Settlement(1, 1, ownedSource ? SettlementRelation.PlayerOwned : SettlementRelation.NonHostile, 1)),
                 [new(2)] = new Lookup<SettlementView>.Found(Settlement(2, 2, SettlementRelation.NonHostile, 2))
             },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
             {
                 [new(1)] = new Lookup<InventoryView>.Found(Inventory(1, 1, railQuantity)),
-                [new(2)] = new Lookup<InventoryView>.Found(Inventory(2, 2, 0))
+                [new(2)] = new Lookup<InventoryView>.Found(Inventory(2, 2, 0)),
+                [train.Inventory] = new Lookup<InventoryView>.Found(trainInventory)
             }
         };
     }
+    private static IReadOnlyDictionary<(RailwayWorkRequest Request, SettlementId? MaterialSource), CoreResult<RailwayWorkPreview>>
+        Previews(IEnumerable<EdgeView> edges, long stock)
+    {
+        var result = new Dictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>();
+        foreach (var edge in edges)
+        {
+            var requests = new RailwayWorkRequest[] { new RailwayWorkRequest.AddTrack(edge.Map.Id) }
+                .Concat(edge.Map.Breaks.Select(item => (RailwayWorkRequest)new RailwayWorkRequest.RepairBreak(edge.Map.Id, item.Id)));
+            foreach (var request in requests)
+            foreach (SettlementId? source in new SettlementId?[] { null, new(1) })
+            {
+                var amount = request is RailwayWorkRequest.RepairBreak ? 11L : 17L;
+                result[(request, source)] = new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, amount)],
+                    request is RailwayWorkRequest.RepairBreak ? 48UL : 90000UL,
+                    edge.Map.Works.Any(work => request is RailwayWorkRequest.AddTrack ? work.Kind == RailwayWorkKind.AddTrack : request is RailwayWorkRequest.RepairBreak repair && work.RepairingBreak == repair.Break) ? [new CoreProblem("railway_work_exists", "Edge", null, [])]
+                    : source is null ? [new CoreProblem("material_source_required", "MaterialSource", null, [])]
+                    : stock < amount ? [Blocker()] : []));
+            }
+        }
+        return result;
+    }
+
 }

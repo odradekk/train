@@ -48,9 +48,20 @@ public partial class RailwayWorkUiTests
         if (Find<GameShell>(ui, "World").ListContent?.Name != "EdgesList")
             await _input.Activate(Find<Button>(ui, "Edges"));
         await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
-        await _input.Activate(Find<Button>(LatestDetail(ui), "RailwayWork"));
-        return Find<PanelContainer>(ui, "RailwayWork");
+        await _input.Frames(2);
+        return Find<PanelContainer>(ui, "LineInspector");
     }
+
+    private static Button[] RepairButtons(Node panel) => Find<VBoxContainer>(panel, "Breaks")
+        .FindChildren("*", "Button", true, false).Cast<Button>().ToArray();
+
+    private static string VisibleText(Node node) => string.Join("\n", node.FindChildren("*", "Control", true, false)
+        .OfType<Control>().Where(item => item.IsVisibleInTree()).Select(item => item switch
+        {
+            Label label => label.Text,
+            Button button => button.Text,
+            _ => ""
+        }));
 
     private async Task DismissError(GameUi ui)
     {

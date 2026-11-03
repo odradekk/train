@@ -18,6 +18,12 @@ public static class ConsumerExamples
         ImmutableArray<VehicleId> orderedVehicles, TrainId? train)
         => session.Read().PreviewTrainFormation(orderedVehicles, train);
 
+    public static CoreResult<RailwayWorkPreview> PreviewRailway(ICoreReadView view,
+        EdgeId edge, BreakId? broken, SettlementId? materialSource)
+        => view.PreviewRailwayWork(broken is { } id
+            ? new RailwayWorkRequest.RepairBreak(edge, id)
+            : new RailwayWorkRequest.AddTrack(edge), materialSource);
+
     public static SubmissionResult ReplaceFormation(ICoreSession session, TrainId train,
         ImmutableArray<VehicleId> orderedVehicles)
         => session.Submit(new CoreCommand.ReplaceTrainFormation(train, orderedVehicles),
