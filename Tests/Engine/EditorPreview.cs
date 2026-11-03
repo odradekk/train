@@ -45,7 +45,7 @@ public partial class EditorPreview : Node
             { Blueprints = [], LocalDrafts = [], Voxels = [], GenerationProfiles = [] };
             CoreSession = new(Core ?? WorldSceneFixture.EmptyWorld(new(0, 0)));
             var host = WorldSceneFixture.CreateHost(CoreSession, content, logger);
-            ((ScriptedContentFactory)host.ContentFactory).EvaluateDesignCall = (_, draft) => new ContentResult<DesignEvaluation>.Success(EditorPreviewSession.Evaluate(draft, OccupiedBounds));
+            ((ScriptedContentFactory)host.ContentFactory).EvaluateDesignCall = (_, draft, _) => new ContentResult<DesignEvaluation>.Success(EditorPreviewSession.Evaluate(draft, OccupiedBounds));
             return host;
         };
         App.CreateScenes = () => Factory;

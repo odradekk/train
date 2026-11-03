@@ -32,13 +32,11 @@ public sealed partial class EditorServiceTests
         var diagnostic = new ContentDiagnostic("evaluation_failed", ContentDiagnosticSeverity.Error, "evaluate",
             new ContentReference.Design(new("unavailable-design-hash")), new(new("fixture-package"), "design.json"),
             "definition", new DesignElementPath.Cell([0], 3), "设计内容不可用。");
-        fixture.Host.Factory.EvaluateDesignCall = (_, _) => faulted
+        fixture.Host.Factory.EvaluateDesignCall = (_, _, _) => faulted
             ? new ContentResult<DesignEvaluation>.Faulted(diagnostic.Code, $"{diagnostic.Subject} · {diagnostic.Element}", "fault stack")
             : new ContentResult<DesignEvaluation>.Failure([diagnostic]);
-
         fixture.Editor.Open(Draft("failed evaluation"), new DraftTarget.LocalBlueprint(null));
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
-
         Assert.IsFalse(fixture.Editor.IsOpen);
         Assert.IsTrue(fixture.Editor.HasError);
         StringAssert.Contains(fixture.Editor.Message!, faulted ? "失败" : diagnostic.Message);
@@ -50,7 +48,6 @@ public sealed partial class EditorServiceTests
         if (faulted)
             Assert.IsTrue(fixture.Host.Logs.Any(log => log.Attributes.Values.Contains("fault stack")));
     }
-
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -87,9 +84,7 @@ public sealed partial class EditorServiceTests
                     new ScriptedCoreSession(view), HostCoreScenario.References));
             };
         });
-
         fixture.Editor.OpenInstance(id);
-
         Assert.IsFalse(fixture.Editor.IsOpen);
         Assert.IsTrue(fixture.Editor.HasError);
         StringAssert.Contains(fixture.Editor.Message!, "设计");
@@ -98,7 +93,6 @@ public sealed partial class EditorServiceTests
         Assert.IsTrue(fixture.Host.Logs.Any(log => log.Message.Contains(hash.Value, StringComparison.Ordinal)
             || log.Attributes.Values.Any(value => value is string text && text.Contains(hash.Value, StringComparison.Ordinal))));
     }
-
     [TestMethod]
     public void Cancel_keeps_dirty_session_and_discard_runs_pending_action_once()
     {
@@ -121,7 +115,6 @@ public sealed partial class EditorServiceTests
         Assert.AreEqual(1, continued);
         Assert.AreEqual(0, session.Saved.Count);
     }
-
     [TestMethod]
     public void Failed_close_save_keeps_session_dirty_and_does_not_run_pending_action()
     {
@@ -145,7 +138,6 @@ public sealed partial class EditorServiceTests
         Assert.IsFalse(fixture.Editor.Message.Contains("save-rejected", StringComparison.Ordinal));
         Assert.IsFalse(fixture.Editor.Message.Contains("cannot save", StringComparison.Ordinal));
     }
-
     [TestMethod]
     public void Failed_blueprint_prepare_reopens_same_snapshot_without_saving_a_draft()
     {
@@ -222,7 +214,7 @@ public sealed partial class EditorServiceTests
         using var olderStarted = new ManualResetEventSlim();
         using var releaseOlder = new ManualResetEventSlim();
         var session = fixture.Session;
-        fixture.Host.Factory.EvaluateDesignCall = (_, draft) =>
+        fixture.Host.Factory.EvaluateDesignCall = (_, draft, _) =>
         {
             if (draft.Display.Name == "older")
             {
@@ -393,7 +385,6 @@ public sealed partial class EditorServiceTests
         StringAssert.Contains(fixture.Editor.Message!, "fixture scene opening failed");
         Assert.AreEqual(0, fixture.Scenes.Sessions.Count);
     }
-
     [TestMethod]
     public void Cancel_editor_close_aborts_save_service_leave_before_game_leave_prompt_or_continuation()
     {
@@ -758,7 +749,7 @@ public sealed partial class EditorServiceTests
                 }, HostFixture.HangTimeout));
             }
             else { Host.ReadyHost(); Coordinator = Host.Host; }
-            Host.Factory.EvaluateDesignCall = (_, draft) => new ContentResult<DesignEvaluation>.Success(Evaluation(draft));
+            Host.Factory.EvaluateDesignCall = (_, draft, _) => new ContentResult<DesignEvaluation>.Success(Evaluation(draft));
             Editor = new(Coordinator, Scenes, new FileSaveStore(_root), Host.Logger);
         }
         internal void Open()

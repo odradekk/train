@@ -14,7 +14,7 @@ public static class ContentFactory
     public static C.IContentFactory Create() => new InitialContentFactory();
 }
 
-internal sealed class InitialContentFactory : C.IContentFactory
+internal sealed partial class InitialContentFactory : C.IContentFactory
 {
     public C.ContentResult<ImmutableArray<C.PackageStatus>> Discover(C.ContentInstallation installation, C.IContentFiles files)
     {
@@ -118,16 +118,18 @@ internal sealed class InitialContentFactory : C.IContentFactory
             new(new(before.Id.Split(':')[0]), after.Path), required.Field, null, "流程种类改变视为删除原流程；仍被引用时不能发布。");
     }
 
-    public C.ContentResult<C.DesignEvaluation> EvaluateDesign(C.IContentView content, C.DesignDraft draft)
+    public C.ContentResult<C.DesignEvaluation> EvaluateDesign(C.IContentView content, C.DesignDraft draft,
+        K.CompositeDefinitionId? compositeIdentity = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(draft);
         if (content is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(content));
+        if (draft.Specification is C.DesignSpecification.FunctionalComposite && compositeIdentity is null)
+            throw new ArgumentException("根功能复合体草稿缺少定义身份，不能推断货物标识。");
         try
         {
-            return new C.ContentResult<C.DesignEvaluation>.Success(DesignEvaluator.Evaluate(view, draft));
+            return new C.ContentResult<C.DesignEvaluation>.Success(DesignEvaluator.Evaluate(view, draft, compositeIdentity: compositeIdentity));
         }
-        catch (NotImplementedException) { throw; }
         catch (Exception exception)
         {
             return new C.ContentResult<C.DesignEvaluation>.Faulted("content_fault", exception.Message, exception.StackTrace);

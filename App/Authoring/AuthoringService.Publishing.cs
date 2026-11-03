@@ -84,8 +84,8 @@ internal sealed partial class AuthoringService
             : written?.Success == true ? "文件已写入，但内容重载失败。游戏里的内容没有切换，草稿还在。"
             : WriteStage == AuthoringWriteStage.WriteFiles ? "写入已停止，已完成项保留。游戏里的内容没有切换，草稿还在。"
             : "一个文件也没写，游戏里的内容保持原样，草稿还在。";
-        var hostMessage = result.Succeeded ? "" : string.Join("；", result.Problems
-            .Select(problem => CommandDiagnostics.Describe(problem, host.Content)).Prepend(result.Message)
+        var hostMessage = result.Succeeded ? "" : result.Status == HostOperationStatus.Faulted ? InternalError
+            : string.Join("；", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, host.Content)).Prepend(result.Message)
             .Where(message => !string.IsNullOrWhiteSpace(message)));
         Report(outcome + (hostMessage.Length == 0 ? "" : " " + hostMessage));
     }

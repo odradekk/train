@@ -9,12 +9,15 @@ internal partial class AuthoringPanel
 {
     private Control _confirm = null!, _writeDialog = null!, _problemDialog = null!, _leave = null!, _newMod = null!, _newDefinition = null!, _delete = null!;
     private VBoxContainer _confirmItems = null!, _writeItems = null!, _problemItems = null!;
-    private Label _deleteText = null!, _modIdentity = null!;
+    private Label _deleteText = null!, _modIdentity = null!, _newIdentity = null!, _newProblem = null!;
+    private Button _createDefinition = null!;
     private LineEdit _modName = null!, _modAuthor = null!, _newId = null!;
     private OptionButton _newKind = null!;
     private PackageId _newPackageId;
     private AuthoringDefinitionAddress? _deleteAddress;
     private bool _showWrite;
+    private FileDialog _assetDialog = null!;
+    private Action<string>? _assetSelected;
     private Control? _activeDialog, _beforeDialog;
 
     private void BuildDialogs()
@@ -50,11 +53,15 @@ internal partial class AuthoringPanel
         Text(definition, "定义种类"); _newKind = new OptionButton { Name = "NewDefinitionKind" }; definition.AddChild(_newKind);
         foreach (var kind in NewDefinitions) _newKind.AddItem(kind.Name);
         Text(definition, "本地 ID"); _newId = new LineEdit { Name = "NewDefinitionId" }; definition.AddChild(_newId);
+        _newIdentity = Text(definition, ""); _newIdentity.Name = "NewDefinitionFullId";
+        _newProblem = Text(definition, ""); _newProblem.Name = "NewDefinitionProblem";
+        _newId.TextChanged += _ => ValidateNewDefinition(); _newKind.ItemSelected += _ => ValidateNewDefinition();
         definitionActions.AddChild(UiStyle.Button("CancelNewDefinition", "取消", () => HideModal(_newDefinition)));
-        definitionActions.AddChild(UiStyle.Button("CreateDefinition", "创建", () =>
+        _createDefinition = UiStyle.Button("CreateDefinition", "创建", () =>
         {
+            if (!ValidateNewDefinition()) return;
             HideModal(_newDefinition); _service.NewDefinition(NewDefinitions[_newKind.Selected].Create(_newId.Text));
-        }, true));
+        }, true); definitionActions.AddChild(_createDefinition);
         _delete = Modal("DeleteDefinitionDialog", "删除定义？", out var deletion, out var deleteActions);
         _deleteText = Text(deletion, "");
         deleteActions.AddChild(UiStyle.Button("CancelDelete", "取消", () => HideModal(_delete)));
@@ -84,7 +91,7 @@ internal partial class AuthoringPanel
         parent.AddChild(label); return label;
     }
 
-    private void ShowModal(Control modal) { modal.Show(); modal.MoveToFront(); UpdateDialogFocus(); }
+    private void ShowModal(Control modal) { if (modal == _newDefinition) ValidateNewDefinition(); modal.Show(); modal.MoveToFront(); UpdateDialogFocus(); }
     private void HideModal(Control modal) { modal.Hide(); UpdateDialogFocus(); }
     private void UpdateDialogFocus()
     {
@@ -204,11 +211,29 @@ internal partial class AuthoringPanel
         }
     }
 
-    private void BuildAssets(VBoxContainer body)
+    private bool ValidateNewDefinition()
     {
-        var relative = new LineEdit { Name = "AssetRelativePath", PlaceholderText = "资产包相对路径，如 textures/metal.png" }; body.AddChild(relative);
-        var asset = new FileDialog { Title = "选择资产文件", Access = FileDialog.AccessEnum.Filesystem, FileMode = FileDialog.FileModeEnum.OpenFile };
-        AddChild(asset); asset.FileSelected += source => _service.AddAsset(relative.Text, source);
-        body.AddChild(UiStyle.Button("AddAsset", "选择并加入资产", () => asset.PopupCentered(new(900, 650))));
+        _newIdentity.Text = (_service.Package?.Package.Value ?? "") + ":" + _newId.Text;
+        var problem = _service.NewDefinitionProblem(NewDefinitions[_newKind.Selected].Create(_newId.Text));
+        _newProblem.Text = problem ?? ""; _createDefinition.Disabled = problem is not null;
+        return problem is null;
+    }
+
+    private void BuildAssets()
+    {
+        var asset = _assetDialog = new FileDialog { Name = "ChooseAuthoringAsset", Title = "选择资产文件", Access = FileDialog.AccessEnum.Filesystem, FileMode = FileDialog.FileModeEnum.OpenFile };
+        AddChild(asset);
+        asset.FileSelected += source => { var selected = _assetSelected; _assetSelected = null; selected?.Invoke(source); };
+        asset.Canceled += () => _assetSelected = null;
+        _form.AssetRequested += fill =>
+        {
+            var definition = _service.Form; var package = _service.Package;
+            _assetSelected = source =>
+            {
+                if (!ReferenceEquals(definition, _service.Form) || !ReferenceEquals(package, _service.Package)) return;
+                var path = _service.SelectAsset(source); if (path is not null) fill(path);
+            };
+            asset.PopupCentered(new(900, 650));
+        };
     }
 }

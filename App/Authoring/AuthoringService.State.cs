@@ -20,7 +20,7 @@ internal sealed partial class AuthoringService
     internal AuthoringDefinitionAddress? DirtyDefinition => formDirty && Form is { } form ? Address(form)
         : editor.IsDirty && editor.Target is DraftTarget.PackageDefinition target && target.Package == Target?.Package
             ? new(target.Kind, target.LocalId) : null;
-    internal ImmutableArray<AuthoringIssue> Issues => sourceIssues.Concat(writeIssues)
+    internal ImmutableArray<AuthoringIssue> Issues => sourceIssues.Concat(writeIssues).Concat(FormDiagnostics.Select(d => Issue(d, Form is null ? null : Address(Form))))
         .Concat(captureIssue is null ? [] : new[] { captureIssue })
         .Where(issue => issue.Diagnostic.Severity != ContentDiagnosticSeverity.Information).Distinct().ToImmutableArray();
     internal AuthoringWriteStage WriteStage { get; private set; }
@@ -47,13 +47,6 @@ internal sealed partial class AuthoringService
         captureIssue = new(new("invalid_form", ContentDiagnosticSeverity.Error, "authoring", null, null, "", null, message),
             Form is { } form ? Address(form) : null);
         Report(message);
-    }
-
-    internal void AddAsset(string relativePath, string source)
-    {
-        if (!CanUse || IsBusy || package is null) return;
-        try { assetEdits.Add(new PackageEdit.WriteAsset(relativePath, [.. File.ReadAllBytes(source)])); Report("资产已加入待写入修改。"); }
-        catch (Exception error) { Report(error.Message); }
     }
 
     private AuthoringIssue Issue(ContentDiagnostic diagnostic, AuthoringDefinitionAddress? known = null)
