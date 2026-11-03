@@ -83,6 +83,8 @@ public partial class EconomyUiTests
         var parked = new FixedCoreReadView(basis.Position, basis.InputIdentity, revision: basis.Revision)
         {
             World = basis.World with { Nodes = [node] }, Economy = basis.Economy,
+            FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>>
+            { [node.Id] = new CoreResult<SettlementFoundingPreview>.Failure([new("content_missing", "ConstructionRule", null, [])]) },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
                 { [node.Id] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)) },
             Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
@@ -107,12 +109,12 @@ public partial class EconomyUiTests
             var detail = shell.InspectorContent!;
             var nodeText = Find<Label>(detail, "Description").Text;
             Require(nodeText.Contains("占据者：") && !nodeText.Contains('\r'), nodeText);
-            Require(Named(detail, "RefitParkedVehicle").Any(button => button.Text.Contains("车辆 9")) &&
-                !Named(detail, "ParkedVehicleServices").Any(button => button.Text.Contains("车辆 9")),
+            Require(Named(detail, "RefitParkedVehicle").Any(button => button.Text.Contains("第 1 辆停放车辆")) &&
+                !Named(detail, "ParkedVehicleServices").Any(button => button.Text.Contains("第 1 辆停放车辆")),
                 "非自有停放车辆出现了服务按钮。");
             panels.Refresh(host.GetStatus()!.Binding, owned, host.Content!);
-            Require(detail.Visible && Named(detail, "ParkedVehicleServices").Any(button => button.Text == "车辆 9 服务…") &&
-                Named(detail, "RefitParkedVehicle").Any(button => button.Text.Contains("车辆 9")),
+            Require(detail.Visible && Named(detail, "ParkedVehicleServices").Any(button => button.Text == "第 1 辆停放车辆服务…") &&
+                Named(detail, "RefitParkedVehicle").Any(button => button.Text.Contains("第 1 辆停放车辆")),
                 "停放车辆改为自有后没有补上服务按钮，或关闭了详情。");
             panels.OpenObject(new WorldObjectId.Train(new(7)));
             await _input.Frames();

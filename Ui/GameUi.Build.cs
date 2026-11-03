@@ -82,16 +82,6 @@ public partial class GameUi
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, _icons, SubmitInline, SubmitInline);
             _world.AddChild(_economy);
-            _founding = new SettlementFoundingPanel { Name = "SettlementFounding" };
-            _founding.Initialize(_host, Submit);
-            _world.AddChild(_founding);
-            _panels.FoundingRequested += (target, node) => _shell.RequestWorkspace(() =>
-                { _founding.Open(target, node); _shell.ShowWorkspace(_founding.Content); });
-            _founding.SettlementRequested += id =>
-            {
-                if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
-                _economy.OpenSettlement(new(status.Binding, content.Generation, new WorldObjectId.Settlement(id)), id);
-            };
             _railway = new RailwayWorkPanel { Name = "RailwayWork" };
             _railway.Initialize(_host, Submit);
             _world.AddChild(_railway);

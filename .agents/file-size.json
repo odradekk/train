@@ -117,7 +117,7 @@
     "Tests/Core/World/WorldPublicationTests.cs": 5623,
     "Tests/Engine/ArtCaptureTests.cs": 7351,
     "Tests/Engine/CombatEffectTests.cs": 13724,
-    "Tests/Engine/CombatUiTests.cs": 8978,
+    "Tests/Engine/CombatUiTests.cs": 6303,
     "Tests/Engine/EditorUiTests.cs": 17075,
     "Tests/Engine/GoodsIconTests.cs": 6956,
     "Tests/Engine/ObservationIndependenceTests.cs": 6419,

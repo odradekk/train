@@ -148,6 +148,9 @@ internal static class UiWorldFixture
         return new(tick, input)
         {
             Economy = UiWorldFixture.Economy,
+            FoundingPreviews = new[] { first.Id, second.Id }.ToDictionary(id => id,
+                _ => (CoreResult<SettlementFoundingPreview>)new CoreResult<SettlementFoundingPreview>.Failure(
+                    [new("content_missing", "ConstructionRule", null, [])])),
             World = new(1, new("fixture:railway"), 1000, 600, [first, second],
                 scenario == Scenario.Scene ? [edge] : [], formed ? [new(train.Id, position, train.Activity)] : [],
                 [], inCombat ? [new(new(1), location)] : []),

@@ -74,6 +74,8 @@ internal static class WorldListUiFixture
         return new(new(0, revision), basis.InputIdentity, revision: new(revision))
         {
             Economy = basis.Economy,
+            FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>>
+            { [first.Id] = new CoreResult<SettlementFoundingPreview>.Failure([new("content_missing", "ConstructionRule", null, [])]) },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
                 { [prototype.Inventory] = basis.FindInventory(prototype.Inventory) },
             World = basis.World with { Nodes = [.. nodes], Edges = [.. edges],
