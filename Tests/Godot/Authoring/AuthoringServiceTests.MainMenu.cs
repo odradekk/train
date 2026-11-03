@@ -18,11 +18,11 @@ public sealed partial class AuthoringServiceTests
         Assert.IsFalse(fixture.Service.CanUse);
         fixture.Start();
         Assert.IsTrue(fixture.Service.CanUse);
-        using var release = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, false, fixture.Mods, fixture.Core);
+        using var release = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, false, fixture.Mods, fixture.Core, fixture.Host.Logger);
         Assert.IsFalse(release.CanUse);
         release.OpenCore();
         Assert.IsNull(release.Target);
-        using var exported = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, true, fixture.Mods, null);
+        using var exported = new AuthoringService(fixture.Coordinator, fixture.Editor, fixture.Scenes, true, fixture.Mods, null, fixture.Host.Logger);
         Assert.IsFalse(exported.CanWriteCore);
         exported.OpenCore();
         StringAssert.Contains(exported.Message!, "只读");

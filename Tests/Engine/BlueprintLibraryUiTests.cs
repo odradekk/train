@@ -160,7 +160,7 @@ public partial class BlueprintLibraryUiTests(Node testScene) : TestClass(testSce
         TestScene.AddChild(fixture);
         await FramesUntil(TestScene, () => fixture.Editor.Session is not null);
         fixture.Editor.RequestClose(() => { });
-        ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).EvaluateDesignCall = (_, draft) =>
+        ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).EvaluateDesignCall = (_, draft, _) =>
         {
             var evaluation = (DesignEvaluation.Complete)EditorPreviewSession.Evaluate(draft);
             return new ContentResult<DesignEvaluation>.Success(evaluation with

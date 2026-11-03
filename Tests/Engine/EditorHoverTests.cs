@@ -170,7 +170,7 @@ public partial class EditorUiTests
         {
             var panel = EditorPanel(fixture);
             var session = fixture.Factory.Session!;
-            ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).EvaluateDesignCall = (_, _) =>
+            ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).EvaluateDesignCall = (_, _, _) =>
                 new ContentResult<DesignEvaluation>.Success(evaluationGate.Task.GetAwaiter().GetResult());
             session.PreviewCall = _ => new SceneResult<IEditPreview>.Success(new FixedEditPreview(session.Capture().Stamp)
             {

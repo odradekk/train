@@ -10,7 +10,7 @@ using K = Train.Core.Contracts;
 
 namespace Train.Content.Authoring;
 
-internal sealed class AuthoringPackage : C.IAuthoringPackage
+internal sealed partial class AuthoringPackage : C.IAuthoringPackage
 {
     private static readonly JsonSerializerOptions FileJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly ImmutableDictionary<string, ImmutableArray<byte>> _files;

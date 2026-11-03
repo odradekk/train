@@ -325,7 +325,7 @@ internal partial class DesignEditorPanel : Control
         };
         foreach (var orientation in orientations) { _allowedOrientations.Add(orientation); _orientation.AddItem(OrientationText(orientation)); }
     }
-    private static string OrientationText(VoxelOrientation orientation)
+    internal static string OrientationText(VoxelOrientation orientation)
     {
         var name = orientation.ToString();
         return $"右 {Axis(name[..2])} · 上 {Axis(name[2..])}";

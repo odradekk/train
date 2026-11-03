@@ -46,7 +46,7 @@ internal sealed partial class AuthoringService
             { Report("请选择 user://mods 下的本地模组目录。"); return; }
             if (editor.RequestClose(() => StartOpen(new(id, full, isCore))) is { } failure) Report(failure.Message);
         }
-        catch (Exception error) { Report(error.Message); }
+        catch (Exception error) { Report(Unexpected(error)); }
     }
 
     private static bool SamePath(string first, string second) => string.Equals(first, second,
@@ -65,7 +65,7 @@ internal sealed partial class AuthoringService
     private void ReadSource(AuthoringTarget target)
     {
         binding = host.GetStatus()?.Binding;
-        package = null; snapshot = null;
+        package = null; snapshot = null; FormDiagnostics = []; ReferenceChoices = []; pendingFeedback = null; lastFeedback = null;
         var manifestDiagnostics = Sources.FirstOrDefault(source => SamePath(source.Directory, target.Directory))?.Diagnostics ?? [];
         var loadedDiagnostics = host.Content!.Packages.FirstOrDefault(status => status.Metadata?.Id == target.Package)?.Diagnostics ?? [];
         sourceIssues = manifestDiagnostics.Concat(loadedDiagnostics).Distinct().Select(item => Issue(item)).ToImmutableArray();
@@ -86,13 +86,13 @@ internal sealed partial class AuthoringService
                 var target = created.GetAwaiter().GetResult();
                 StartOpen(target); RefreshSources();
             }
-            catch (Exception error) { Report("新建模组失败：" + error.Message); }
+            catch (Exception error) { Report(Unexpected(error, "新建模组失败，详情见日志。")); }
         }
         if (discovering is { IsCompleted: true } discovered)
         {
             discovering = null;
             try { Sources = discovered.GetAwaiter().GetResult(); Changed?.Invoke(); }
-            catch (Exception error) { Report("无法列出本地模组：" + error.Message); }
+            catch (Exception error) { Report(Unexpected(error, "读取本地模组列表失败，详情见日志。")); }
         }
         if (opening is { IsCompleted: true } opened)
         {
@@ -117,7 +117,7 @@ internal sealed partial class AuthoringService
                     else ReportOpenFailure(Describe(value.Result));
                 }
             }
-            catch (Exception error) { ReportOpenFailure(error.Message); }
+            catch (Exception error) { ReportOpenFailure(Unexpected(error, "读取源包失败，详情见日志。")); }
         }
     }
 

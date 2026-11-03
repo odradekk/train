@@ -22,18 +22,22 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
         await fixture.Open();
         var controller = new TemplateSceneController(fixture.Service, fixture.Editor);
         TestScene.AddChild(controller.View);
-        var form = new AuthoringDefinitionForm { Name = "RealTemplateForm", Position = new(12, 12), CustomMinimumSize = new(320, 0) };
-        var overlay = new CanvasLayer(); TestScene.AddChild(overlay); overlay.AddChild(form);
+        var panel = new AuthoringPanel(); panel.Initialize(fixture.Service, fixture.Editor, controller); TestScene.AddChild(panel);
+        controller.PlotSelected += panel.SelectPlot;
         try
         {
             var draft = new DefinitionDraft.SettlementTemplate(new("repeated-plots", new("", ""), new("core:agricultural-town"), 1,
                 new(fixture.PackageId.Value + ":preview-ground"),
                 [new(7, PlotSize.Small, new(-32, 1, 0), VoxelOrientation.PxPy, null),
                  new(7, PlotSize.Small, new(32, 1, 0), VoxelOrientation.PxPy, null)], [], [], []));
-            fixture.Service.NewDefinition(draft); form.Load(draft);
-            form.Edited += fixture.Service.MarkFormDirty;
-            controller.PlotSelected += form.SelectPlot;
-            await fixture.Service.PreviewTemplate(form.Capture());
+            fixture.Service.NewDefinition(draft);
+            Require(fixture.Service.Form == draft, "预览夹具必须先打开模板表单。");
+            panel.Open();
+            var form = Find<AuthoringDefinitionForm>(panel, "DefinitionForm");
+            var input = new UiTestInput(TestScene);
+            var previewArea = Find<Control>(panel, "AuthoringPreview");
+            if (!previewArea.IsVisibleInTree()) await input.Activate(Find<Button>(panel, "TogglePreview"));
+            var container = previewArea.GetChildren().OfType<SubViewportContainer>().Single();
             await fixture.Pump(() => { controller.Process(0); return controller.View.Interactive; });
             var preview = fixture.Service.TemplatePreview!;
             Require(preview.Frame.Readiness == SceneReadiness.Ready &&
@@ -52,11 +56,11 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
 
             var camera = controller.View.CameraRig;
             camera.PlaceAbsolute(new(12, 1, 0), 150, 0.12f, 0.8f);
-            var input = new UiTestInput(TestScene);
             await input.Frames(3);
             await UiCapture.Capture(TestScene, "authoring-real-template-ground-outlines");
             var second = preview.Plots[1].Pose.Position;
             var screen = camera.Camera.UnprojectPosition(new(second.X, second.Y, second.Z));
+            screen += container.GetGlobalRect().Position;
             await input.MouseButton(screen, MouseButton.Left, true);
             await input.MouseButton(screen, MouseButton.Left, false);
             var fields = form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().ToArray();
@@ -69,16 +73,24 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
             Require(fixture.Service.TemplatePreview is null && !controller.View.Interactive,
                 "表单修改必须立即阻止旧真实帧拾取。");
             controller.Process(0);
-            await fixture.Service.PreviewTemplate(form.Capture());
             await fixture.Pump(() => { controller.Process(0); return controller.View.Interactive; });
             Require(!ReferenceEquals(preview, fixture.Service.TemplatePreview), "刷新必须生成新的真实预览。");
             Require(camera.Focus.IsEqualApprox(focus) && camera.Camera.Transform.IsEqualApprox(transform),
                 "表单修改后的真实预览刷新必须保留焦点、距离和观察角度。");
             await UiCapture.Capture(TestScene, "authoring-real-template-refreshed-camera");
+
+            await input.Enter(fields.Single(field => field.TooltipText == "权重（可空）"), "overflow");
+            var hint = previewArea.GetChildren().OfType<Label>().Single(label => label.Text != "预览");
+            Require(fixture.Service.TemplatePreview is null && hint.Visible && hint.Text.Contains("表单存在错误"),
+                "本地数字格式错误隐藏预览时，提示必须说明表单错误。");
+            await input.Enter(fields.Single(field => field.TooltipText == "权重（可空）"), "3");
+            Require(!hint.Visible || !hint.Text.Contains("表单存在错误"), "修正本地格式后，等待新预览不能继续报告表单错误。");
+            await fixture.Pump(() => { controller.Process(0); return controller.View.Interactive; });
+            Require(!hint.Visible, "恢复真实预览后必须隐藏错误提示。");
         }
         finally
         {
-            controller.Dispose(); controller.View.QueueFree(); overlay.QueueFree();
+            controller.Dispose(); panel.QueueFree();
             await new UiTestInput(TestScene).Frames(3);
         }
     }

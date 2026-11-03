@@ -53,7 +53,7 @@ public partial class AuthoringIntegrationTests(Node testScene) : TestClass(testS
         var form = new AuthoringDefinitionForm(); TestScene.AddChild(form);
         try
         {
-            form.Load(fixture.Service.Form!); form.Edited += fixture.Service.MarkFormDirty;
+            form.Load(fixture.Service.Form!, fixture.PackageId, fixture.Service.ReferenceChoices); form.Edited += fixture.Service.MarkFormDirty;
             await new UiTestInput(TestScene).Enter(Field(form, "名称"), "真实表单写回");
             fixture.Service.Publish();
             Require(fixture.Service.Leaving && fixture.Service.LastWrite is null, "未保存表单必须先结束编辑。");

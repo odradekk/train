@@ -110,7 +110,7 @@ public partial class BlueprintLibraryUiTests
         var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var draft = new SavedContentDraft(new(Guid.NewGuid()), new(1), new DraftTarget.LocalBlueprint(null), new DraftPayload.Design(EditorPreviewSession.Draft));
         var uiThread = System.Environment.CurrentManagedThreadId;
-        var fixture = await Ready(drafts: [draft], configure: factory => factory.EvaluateDesignCall = (_, design) =>
+        var fixture = await Ready(drafts: [draft], configure: factory => factory.EvaluateDesignCall = (_, design, _) =>
         {
             entered.TrySetResult(System.Environment.CurrentManagedThreadId);
             try { release.Wait(TimeSpan.FromSeconds(5)); return new ContentResult<DesignEvaluation>.Success(EditorPreviewSession.Evaluate(design)); }
