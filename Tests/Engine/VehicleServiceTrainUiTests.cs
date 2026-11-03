@@ -18,18 +18,31 @@ public partial class VehicleServiceUiTests
         var draft = new DesignDraft(new("入口草稿", ""), new DesignSpecification.Vehicle(SizeClass.Medium), new([], [], []));
         var saved = new SavedContentDraft(new(Guid.Parse("00000000-0000-0000-0000-00000000000a")), new(1),
             new DraftTarget.Instance(new InstanceId.Vehicle(new(10))), new DraftPayload.Design(draft));
-        var setup = new HostSimulationTests.HostSetup(new ServiceView(), EconomyFixture.Content(drafts: [saved]));
+        var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
+            new(new("entry-target"), new("entry-composition"), new DesignKind.Vehicle(SizeClass.Medium, 2),
+                [], 100, 1, 1, new(1), [], [], 0, [], true, []), []);
+        var content = EconomyFixture.Content(drafts: [saved]);
+        var view = new ServiceView(expectedDesign: design);
+        var change = new DesignChangeProjection(new("fixture-vehicle"), new("fixture-composition"), design, [], [], [], 1);
+        var setup = new HostSimulationTests.HostSetup(view, content);
+        using var candidate = new ScriptedContentCandidate(content, content, ContentChange.Persistent,
+            edit: new PreparedContentEdit.InstanceTarget(new(change, [], false, [])));
         await Run(setup, async (ui, economy) =>
         {
+            setup.ContentFactory!.PrepareEditCall = (basis, edit) =>
+            {
+                Require(ReferenceEquals(basis, content) && edit is ContentEdit.InstanceTarget target && ReferenceEquals(target.Target, draft),
+                    "原车辆入口未准备固定实例的已保存草稿。");
+                return new ContentResult<IContentCandidate>.Success(candidate);
+            };
             await _input.Activate(Find<Button>(ui, "Fleet"));
             await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             await _input.ChooseTab(Find<TabContainer>(Find<PanelContainer>(ui, "Details"), "Pages"), 3);
             await _input.Activate(Find<Button>(Find<PanelContainer>(ui, "Details"), "VehicleServices"));
-            var tabs = Find<TabContainer>(economy, "Pages");
-            Require(tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地", "车辆入口没有打开建造与工地页。");
-            Require(Find<OptionButton>(economy, "ServiceTargetKind").Selected == 1, "没有预选已保存草稿。");
-            var drafts = Find<OptionButton>(economy, "ServiceDraft");
-            Require(drafts.Selected > 0 && drafts.GetItemText(drafts.Selected).Contains("入口草稿"), "已保存草稿没有预选。");
+            var work = Find<Control>(ui, "ConstructionWorkspace");
+            Require(work.IsVisibleInTree() && Find<Button>(work, "Draft_0").Text.Contains("入口草稿") &&
+                view.LastQuote?.Request is JobRequest.Refit { Instance: InstanceId.Vehicle { Id.Value: 10 } },
+                "原VehicleServices入口未打开固定实例并预选已有草稿。");
         });
         setup.Session.AssertComplete();
     }
@@ -60,16 +73,14 @@ public partial class VehicleServiceUiTests
             var stop = Find<Button>(train, "Stop");
             Require(!stop.Disabled, "列车详情在制造前不可停车。");
             await _input.ChooseTab(Find<TabContainer>(train, "Pages"), 3);
-            await _input.Activate(Find<Button>(train, "VehicleServices"));
-            await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 0);
-            await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
-            await _input.Choose(Find<OptionButton>(economy, "ServiceBlueprint"), 0);
-            await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
+            shell.Inspect(new WorldObjectId.Settlement(new(1)), economy);
+            var work = await OpenManufacture(ui, economy);
+            await _input.Activate(Find<Button>(work, "Blueprint_0"));
             var quote = before.LastQuote!;
             var payment = quote.TotalPayment ?? throw new InvalidOperationException("制造报价没有总额。");
             setup.Session.QueueSubmit(new CoreCommand.CommissionVehicleWork(quote.Request, payment), CommandSource.UserInterface,
                 Completed(1, before, before, new CommandDecision.Accepted([], [])), before);
-            await _input.Activate(Find<Button>(economy, "ConfirmService"));
+            await _input.Activate(Find<Button>(work, "ConfirmWork"));
             await _input.WaitUntil(() => candidate.Activations == 1);
             await _input.Frames(2);
             var host = ui.GetParent<Train.App.App>().Host!;
@@ -134,7 +145,6 @@ public partial class VehicleServiceUiTests
                 Require(ReferenceEquals(basis, content) && edit is ContentEdit.SaveBlueprint, "保存蓝图没有按当前内容准备。");
                 return new ContentResult<IContentCandidate>.Success(candidate);
             };
-            await Services(economy);
             await _input.Activate(Find<Button>(ui, "Fleet"));
             await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "FleetList"), "Objects"), 0);
             var shell = Find<GameShell>(ui, "*");
@@ -147,13 +157,12 @@ public partial class VehicleServiceUiTests
             await _input.Frames(2);
             Require(!Find<Label>(train, "Description").Text.Contains("已不存在"), "发布蓝图后列车详情失效。");
             await _input.ChooseTab(Find<TabContainer>(train, "Pages"), 3);
-            await _input.Activate(Find<Button>(train, "VehicleServices"));
-            await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 0);
-            Require(shell.InspectorContent == economy && !Find<Label>(economy, "State").Text.Contains("已不存在"),
-                "发布蓝图后聚居地服务检查器失效。");
-            var choices = Find<OptionButton>(economy, "ServiceBlueprint");
-            Require(Enumerable.Range(0, choices.ItemCount).Any(index => choices.GetItemText(index).Contains("发布后的蓝图")),
-                "发布蓝图后服务页设计下拉没有新蓝图。");
+            shell.Inspect(new WorldObjectId.Settlement(new(1)), economy);
+            var work = await OpenManufacture(ui, economy);
+            Require(!Find<Label>(economy, "State").Text.Contains("已不存在"), "发布蓝图后聚居地检查器失效。");
+            var names = Find<Control>(work, "WorkChoices").FindChildren("Blueprint_*", "Button", true, false).Cast<Button>();
+            Require(names.Any(button => button.Text.Contains("发布后的蓝图")), "发布蓝图后工作区没有新蓝图。");
+            await _input.Activate(Find<Button>(work, "CloseWork"));
             shell.Inspect(new WorldObjectId.Train(new(7)), train);
             await _input.Activate(Find<Button>(ui, "EditPlan"));
             var plan = Find<TrainPlanWorkspace>(ui, "*");

@@ -44,6 +44,10 @@ public static class ConsumerExamples
             ? found.Value.OwnedJobs.Select(view.FindJob).ToImmutableArray()
             : [];
 
+    public static (double Capability, ImmutableArray<JobPurchaseView> Purchases,
+        ImmutableArray<GoodsQuantity> Shortages) ReadConstructionEstimate(JobQuote quote)
+        => (quote.CapabilityWorkPerSecond, quote.NpcPurchases, quote.Shortages);
+
     public static ulong? ReadPlatformQueueEnteredStep(TrainView train)
         => train.PlatformQueueEnteredStep;
 

@@ -195,7 +195,6 @@ public partial class GameUi : CanvasLayer
         ImmutableArray<EventEnvelope> events)
     {
         if (_view is not null && _binding != binding) CloseSessionPanels();
-        _economy?.Observe(binding, view, events);
         if (_notices is not null && _binding.Session != binding.Session) _notices.Begin(binding.Session);
         if (_notices is not null)
         {

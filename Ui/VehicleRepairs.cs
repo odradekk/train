@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using Train.App;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -30,26 +29,10 @@ internal static class VehicleRepairs
                 return new([], null, "车辆已不存在。");
             var instance = found.Value;
             if (!NeedsRepair(instance)) continue;
-            JobQuote? chosen = null;
-            var reason = "当地没有可用的修理设施。";
-            foreach (var building in settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>())
-            {
-                var request = new JobRequest.Repair(new(building.Id, CapabilityKind.Construction), instance.Id, [], 0);
-                switch (view.GetJobQuote(request, JobFunding.NpcCommission))
-                {
-                    case CoreResult<JobQuote>.Success { Value: var quote }:
-                        if (quote.Blockers.IsEmpty) chosen = quote;
-                        else reason = string.Join("\n", quote.Blockers.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, content)));
-                        break;
-                    case CoreResult<JobQuote>.Failure failure:
-                        reason = string.Join("\n", failure.Problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, content)));
-                        break;
-                    case CoreResult<JobQuote>.Faulted:
-                        return new([], null, "核心模拟发生故障，无法获取修理报价。");
-                }
-                if (chosen is not null) break;
-            }
-            if (chosen is null) return new([], null, reason);
+            var chosen = EconomyPanels.FindConstructionQuote(view, content,
+                settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>().Select(building => building.Id),
+                JobFunding.NpcCommission, facility => new JobRequest.Repair(facility, instance.Id, [], 0), out var reason);
+            if (chosen is null || !chosen.Blockers.IsEmpty) return new([], null, reason);
             if (chosen.TotalPayment is not { } payment) return new([], null, "修理报价没有提供金额。");
             jobs.Add(chosen); total = checked(total + payment.Value);
         }

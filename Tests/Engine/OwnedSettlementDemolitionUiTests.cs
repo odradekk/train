@@ -110,7 +110,7 @@ public class OwnedSettlementDemolitionUiTests(Node testScene) : TestClass(testSc
         {
             if (request != Request || funding != JobFunding.OwnInventory)
                 throw new InvalidOperationException("UNCONFIGURED: demolition quote");
-            return new CoreResult<JobQuote>.Success(new(request, funding, Revision, 40, [], [], [], new(0), new(0), new(0),
+            return new CoreResult<JobQuote>.Success(new(request, funding, Revision, 40, 4, [], [], [], [], new(0), new(0), new(0),
                 blocked ? [new("busy", "Facility", null, [])] : []));
         }
         public SimulationPosition Position => basis.Position;

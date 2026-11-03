@@ -175,9 +175,16 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
                 RequireInWindow(Find<Button>(economy, "RepairVehicles"));
                 await Page(economy, 3);
                 RequireInWindow(Find<Button>(economy, "ConfirmLease"));
-                await Page(economy, 7);
-                RequireInWindow(Find<Button>(economy, "ConfirmService"));
-                RequireInWindow(Find<Button>(economy, "RefreshServiceQuote"));
+                await Page(economy, 2);
+                RequireInWindow(Find<Button>(economy, "CommissionVehicle"));
+                await _input.Activate(Find<Button>(economy, "CommissionVehicle"));
+                await _input.Frames(2);
+                var work = Find<Control>(ui, "ConstructionWorkspace");
+                RequireInWindow(Find<Button>(work, "ConfirmWork"));
+                RequireInWindow(Find<Button>(work, "CloseWork"));
+                await _input.Activate(Find<Button>(work, "CloseWork"));
+                Require(!work.IsVisibleInTree() && setup.Session.SubmitCount == 0,
+                    "关闭制造工作区不应提交命令。");
             }
             finally
             {
@@ -239,7 +246,7 @@ public partial class EconomyUiTests(Node testScene) : TestClass(testScene)
 
     private Task Page(Control economy, int index)
     {
-        var title = index switch { 1 => "市场", 2 => "车辆", 3 => "仓库", _ => "建造与工地" };
+        var title = index switch { 1 => "市场", 2 => "车辆", 3 => "仓库", _ => throw new ArgumentOutOfRangeException(nameof(index)) };
         var tabs = Find<TabContainer>(economy, "Pages");
         return _input.ChooseTab(tabs, Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == title));
     }

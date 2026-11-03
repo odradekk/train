@@ -20,7 +20,7 @@ public partial class TrainInspectorUiTests
             { Plots = [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(40)))] };
             var request = new JobRequest.Repair(new(new(40), CapabilityKind.Construction), instance.Id, [], 0);
             view.RepairQuotes[view.Train.Vehicles[0]] = new(request, JobFunding.NpcCommission, view.Revision,
-                1, [], [], [], new(2), new(0), new(2), []);
+                1, 1, [], [], [], [], new(2), new(0), new(2), []);
             return view;
         }
         var view = Damaged();
@@ -85,7 +85,7 @@ public partial class TrainInspectorUiTests
                 Details = new InstanceDetails.Vehicle(SizeClass.Medium, view.Train.Id), Structure = new(50, 100) };
             var request = new JobRequest.Repair(new(new(40), CapabilityKind.Construction), vehicle.Id, [], 0);
             var money = new Money(id.Value == 10 ? 4 : id.Value == 9 ? 7 : 8);
-            view.RepairQuotes[id] = new(request, JobFunding.NpcCommission, view.Revision, 2, [], [], [], money, new(0), money, []);
+            view.RepairQuotes[id] = new(request, JobFunding.NpcCommission, view.Revision, 2, 1, [], [], [], [], money, new(0), money, []);
         }
         view.Settlement = ((Lookup<SettlementView>.Found)view.FindSettlement(new(1))).Value with
         { Plots = [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(40)))] };

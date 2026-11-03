@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using Train.App;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -5,6 +7,38 @@ namespace Train.Ui;
 
 internal partial class EconomyPanels
 {
+    internal static JobQuote? FindConstructionQuote(ICoreReadView view, IContentView content,
+        IEnumerable<BuildingId> buildings, JobFunding funding, Func<FacilityKey, JobRequest> request, out string? error)
+    {
+        JobQuote? first = null;
+        error = null;
+        foreach (var building in buildings)
+        {
+            switch (view.GetJobQuote(request(new(building, CapabilityKind.Construction)), funding))
+            {
+                case CoreResult<JobQuote>.Success { Value: var quote }:
+                    if (quote.Blockers.IsEmpty) return quote;
+                    first ??= quote;
+                    error ??= DescribeProblems(quote.Blockers, content);
+                    break;
+                case CoreResult<JobQuote>.Failure failure:
+                    error ??= DescribeProblems(failure.Problems, content);
+                    break;
+                case CoreResult<JobQuote>.Faulted:
+                    error = "核心模拟发生故障，无法获取报价。";
+                    return null;
+            }
+        }
+        error ??= "这里没有可用的施工设施。";
+        return first;
+    }
+
+    internal static string DescribeProblems(ImmutableArray<CoreProblem> problems, IContentView content) =>
+        string.Join("\n", problems.Select(problem => CommandDiagnostics.Describe(problem with { Subject = null }, content)));
+
+    internal static string DescribeGoods(ImmutableArray<GoodsQuantity> goods, IContentView content) => goods.IsEmpty ? "无" :
+        string.Join("、", goods.Select(item => $"{SettlementOverviewPage.GoodName(item.Good, content)} × {item.Quantity}"));
+
     internal static bool IsConstructionFacility(ICoreReadView view, IContentView content, BuildingId building) =>
         view.FindInstance(new InstanceId.Building(building)) is Lookup<InstanceView>.Found instance &&
         content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found
@@ -36,7 +70,7 @@ internal partial class EconomyPanels
             ConstructionTarget.Existing { Instance: InstanceId.Vehicle vehicle } => VehicleName(vehicle.Id),
             _ => "施工对象不可用"
         };
-        return $"正在{ServiceKind(job.Kind)}{name} · 进度 {job.Progress:P0} · {ServiceRemainingTime(job)}" +
+        return $"正在{ServiceKind(job.Kind)}{name} · 进度 {job.Progress:P0} · {ServiceRemainingTime(job, view)}" +
             (job.State == ConstructionState.Working ? "" : $" · {ServiceState(job.State)}");
     }
 
@@ -52,9 +86,14 @@ internal partial class EconomyPanels
     { ConstructionKind.Construction => "制造", ConstructionKind.Repair => "修理", ConstructionKind.Refit => "改装", ConstructionKind.Deconstruction => "拆解", _ => value.ToString() };
     internal static string ServiceState(ConstructionState value) => value switch
     { ConstructionState.Queued => "排队中", ConstructionState.Working => "进行中", ConstructionState.ResourceBlocked => "资源受阻", ConstructionState.Paused => "已暂停", ConstructionState.Failed => "已失败", ConstructionState.Completed => "已完成", _ => value.ToString() };
-    internal static string ServiceRemainingTime(ConstructionJobView job) => job.ActualWorkPerSecond > 0
-        ? $"预计还需 {Math.Ceiling(Math.Max(0, job.FrozenTotalWork - job.ProgressWork) / job.ActualWorkPerSecond):0} 秒"
-        : "当前未施工";
-    internal static string ServiceLimit(WorkLimit value) => value switch
-    { WorkLimit.Capability => "设施能力", WorkLimit.Power => "电力", WorkLimit.Labor => "劳动力", _ => value.ToString() };
+    internal static string ServiceDuration(ICoreReadView view, double seconds) => seconds < 60
+        ? $"{Math.Ceiling(seconds):0} 秒"
+        : UiInput.FormatTime(view.Position.CompletedSteps + (ulong)Math.Ceiling(seconds * SimulationTime.StepsPerSecond));
+
+    internal static string ServiceRemainingTime(ConstructionJobView job, ICoreReadView view)
+    {
+        if (job.ActualWorkPerSecond <= 0) return "当前未施工";
+        var seconds = Math.Max(0, job.FrozenTotalWork - job.ProgressWork) / job.ActualWorkPerSecond;
+        return (seconds < 60 ? "预计还需 " : "预计完成于 ") + ServiceDuration(view, seconds);
+    }
 }

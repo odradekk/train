@@ -29,8 +29,8 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
             var list = shell.ListContent!;
             await _input.ClickItem(Find<Tree>(list, "Objects"), FirstSelectableItem(Find<Tree>(list, "Objects")));
             Require(shell.SelectedObject == new WorldObjectId.Settlement(new(1)), "聚居地应通过统一选择进入检查器。");
-            Require(Find<TabContainer>(shell.InspectorContent!, "Pages").GetTabCount() == 5,
-                "非敌对聚居地检查器应显示五页。");
+            Require(Find<TabContainer>(shell.InspectorContent!, "Pages").GetTabCount() == 4,
+                "非敌对聚居地检查器应显示四页。");
             await _input.Activate(Find<Button>(ui, "Nodes"));
             Require(shell.ListContent is null && shell.InspectorContent is not null,
                 "再次点导航只收起列表，不能丢掉当前检查器。");
@@ -148,9 +148,17 @@ public partial class GameShellAppTests(Node testScene) : TestClass(testScene)
                     {
                         await _input.ClickTab(pages, page);
                         ShellGeometry.Check(ui);
-                        if (page == 0 || pages.GetTabTitle(page) == "建造与工地")
-                            await UiCapture.Capture(TestScene, $"shell-settlement-{(page == 0 ? "overview" : "services")}-scale-{scale:0}", scale);
+                        if (page == 0)
+                            await UiCapture.Capture(TestScene, $"shell-settlement-overview-scale-{scale:0}", scale);
                     }
+                    await _input.ClickTab(pages, Enumerable.Range(0, pages.GetTabCount()).Single(page => pages.GetTabTitle(page) == "车辆"));
+                    await _input.Activate(Find<Button>(shell.InspectorContent!, "CommissionVehicle"));
+                    await _input.Frames(3);
+                    Require(Find<Control>(ui, "ConstructionWorkspace").IsVisibleInTree(), "制造入口未打开施工工作区。");
+                    ShellGeometry.Check(ui);
+                    await UiCapture.Capture(TestScene, $"shell-construction-workspace-scale-{scale:0}", scale);
+                    await _input.PressKey(Key.Escape);
+                    Require(shell.WorkspaceContent is null, "Esc 必须关闭施工工作区。");
                     foreach (var entry in new[] { "EconomyReports", "BlueprintLibrary" })
                     {
                         await _input.Activate(Find<Button>(ui, entry));
