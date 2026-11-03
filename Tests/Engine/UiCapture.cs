@@ -15,6 +15,25 @@ internal static class UiCapture
         window.Size = new Vector2I(1920, 1080);
     }
 
+    internal static async Task CaptureSizes(Node scene, string name, Window? popup = null)
+    {
+        if (string.IsNullOrWhiteSpace(OutputDirectory)) return;
+        var window = scene.GetTree().Root;
+        var original = window.Size;
+        try
+        {
+            foreach (var size in new[] { new Vector2I(1920, 1080), new Vector2I(1280, 720) })
+            {
+                window.Size = size;
+                await scene.ToSignal(scene.GetTree(), SceneTree.SignalName.ProcessFrame);
+                await scene.ToSignal(scene.GetTree(), SceneTree.SignalName.ProcessFrame);
+                popup?.MoveToCenter();
+                await Capture(scene, $"{name}-{size.X}x{size.Y}", size: size);
+            }
+        }
+        finally { window.Size = original; }
+    }
+
     internal static async Task Capture(Node scene, string name, float scale = 1, Vector2I? size = null)
     {
         var output = OutputDirectory;

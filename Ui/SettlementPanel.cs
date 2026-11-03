@@ -11,11 +11,10 @@ internal sealed class SettlementPanel
 {
     private readonly Control _parent;
     private readonly HostCoordinator _host;
-    private readonly Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit;
     private readonly Action<HostBinding, ICoreReadView, IContentView> _refresh;
     private readonly SettlementVehiclesPage _vehicles;
     private readonly SettlementWarehousePage _warehouse;
-    private readonly SettlementServicesPage _services;
+    private readonly ConstructionWorkspace _construction;
     private readonly GoodsRows _goods;
     private readonly Func<PanelTarget?, CoreCommand, SubmissionResult> _submitInline;
     private SettlementMarketTable? _marketTable;
@@ -36,24 +35,19 @@ internal sealed class SettlementPanel
     private Label _wallet = null!;
     private Button _combat = null!;
 
-    internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
-    internal event Action<InstanceId>? ServiceDesignRequested;
+    internal event Action<PanelTarget, NodeId, ImmutableArray<VehicleId>, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<SettlementId>? SettlementCombatRequested;
     internal event Action<WorldObjectId, Control>? Opened;
 
-    internal SettlementPanel(Control parent, HostCoordinator host,
-        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit,
-        Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget,
+    internal SettlementPanel(Control parent, HostCoordinator host, ConstructionWorkspace construction,
         GoodsRows goods, Action<HostBinding, ICoreReadView, IContentView> refresh,
         Func<PanelTarget?, CoreCommand, SubmissionResult> submitInline)
     {
-        _parent = parent; _host = host; _submit = submit; _refresh = refresh;
-        _goods = goods; _submitInline = submitInline;
-        _vehicles = new(() => CanAct, Quote, Submit, (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content));
+        _parent = parent; _host = host; _refresh = refresh;
+        _goods = goods; _submitInline = submitInline; _construction = construction;
+        _vehicles = new(() => CanAct, SubmitInline, (target, node, vehicles, view, content) => FormationRequested?.Invoke(target, node, vehicles, view, content),
+            () => _construction.OpenManufacture(_target!, _settlementId), _construction.OpenInstance);
         _warehouse = new(() => CanAct, goods, SubmitInline);
-        _services = new(host, () => CanAct, ReadCurrent, submit, submitTarget, RefreshAfterSubmission);
-        _services.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
-        _services.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
     }
 
     internal void Open(PanelTarget source, SettlementId id)
@@ -88,20 +82,21 @@ internal sealed class SettlementPanel
         {
             _overview = new(OpenPage, () => CanAct, command => SubmitInline(_target!, command),
                 good => { OpenPage("库存"); _marketTable!.OpenGood(good); },
-                building => { OpenPage("建筑"); _buildings!.OpenBuilding(building); });
+                building => { OpenPage("建筑"); _buildings!.OpenBuilding(building); },
+                () => _construction.OpenManufacture(_target!, _settlementId));
             _overview.Build(Page(tabs, "概况"), _owned);
             _marketTable = new(() => CanAct, _goods, SubmitInline);
             _marketTable.Build(Page(tabs, _owned ? "库存" : "市场"));
         }
         if (_owned)
         {
-            _buildings = new(() => CanAct, command => SubmitInline(_target!, command));
+            _buildings = new(() => CanAct, command => SubmitInline(_target!, command),
+                plot => _construction.OpenBuilding(_target!, _settlementId, plot), _construction.OpenInstance);
             _buildings.Build(Page(tabs, "建筑"));
         }
-        _vehicles.BuildVehicles(Page(tabs, "现车"));
+        _vehicles.BuildVehicles(Page(tabs, "车辆"), _owned);
         if (!_owned) _warehouse.Build(Page(tabs, "仓库"));
-        _services.BuildServices(Page(tabs, "建造与工地"));
-        tabs.TabChanged += _ => _services.RefreshServices();
+        tabs.TabChanged += _ => _vehicles.UpdateVehicleActions();
         _refresh(_binding, _view, _content);
         Opened?.Invoke(new WorldObjectId.Settlement(id), _panel);
     }
@@ -115,7 +110,6 @@ internal sealed class SettlementPanel
         {
             if (_revision != view.Revision) { _revision = view.Revision; ReadSettlement(); }
             if (_settlement is not null) UpdateActions();
-            if (_settlement is not null) _services.RefreshServices();
         }
     }
 
@@ -127,7 +121,6 @@ internal sealed class SettlementPanel
         _marketTable?.Bind(_view, _content, _settlement!, _locals, _target!);
         _vehicles.Bind(_binding, _view, _content, _settlement!, _target!);
         _warehouse.Bind(_view, _content, _settlement!, _locals, _target!);
-        _services.Bind(_binding, _view, _content, _target, _settlementId, _settlement, _locals);
     }
 
     private void ReadSettlement()
@@ -135,7 +128,7 @@ internal sealed class SettlementPanel
         if (_view.FindSettlement(_settlementId) is not Lookup<SettlementView>.Found found)
         { _settlement = null; BindPages(); Invalidate(_body, _state); return; }
         if (_neutral != (found.Value.Relation == SettlementRelation.NonHostile) || _owned != (found.Value.Relation == SettlementRelation.PlayerOwned))
-        { _services.CloseServices(); Open(_target!, _settlementId); return; }
+        { Open(_target!, _settlementId); return; }
         _settlement = found.Value;
         _wallet.Text = $"资金：{_view.Economy.Wallet.Value}";
         _locals.Clear();
@@ -167,28 +160,19 @@ internal sealed class SettlementPanel
         _state.Text = _view.Fault is { } fault ? CommandDiagnostics.Describe(fault) : _host.IsBusy ? "当前操作尚未结束" : "";
     }
 
-    private void Submit(PanelTarget target, CoreCommand command, Action requote)
-    {
-        if (!CanAct) return;
-        _submit(target, command);
-        if (!RefreshAfterSubmission(null)) return;
-        Quote(requote);
-    }
 
     private SubmissionResult SubmitInline(PanelTarget target, CoreCommand command)
     {
         var result = _submitInline(target, command);
-        RefreshAfterSubmission(null);
+        RefreshAfterSubmission();
         return result;
     }
 
-    private bool RefreshAfterSubmission(Action? beforeRefresh)
+    private void RefreshAfterSubmission()
     {
-        if (!ReadCurrent()) return false;
-        beforeRefresh?.Invoke();
+        if (!ReadCurrent()) return;
         _revision = null;
         _refresh(_binding, _view, _content);
-        return true;
     }
 
     private bool ReadCurrent()
@@ -197,38 +181,8 @@ internal sealed class SettlementPanel
         Bind(status.Binding, status.View, content); return true;
     }
 
-    private void Quote(Action request)
-    {
-        if (!CanAct) return;
-        request(); _refresh(_binding, _view, _content);
-    }
-
-    internal void Observe(HostBinding binding, ICoreReadView view, ImmutableArray<EventEnvelope> events)
-        => _services.Observe(binding, view, events);
-
-    internal void OpenVehicleServices(InstanceId instance)
-    {
-        if (instance is not InstanceId.Vehicle vehicle || !ReadCurrent() ||
-            _view.FindInstance(instance) is not Lookup<InstanceView>.Found { Value.Location: WorldLocation.Node node } ||
-            _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is not NodeOccupant.Settlement settlement) return;
-        var reused = IsCurrent(settlement.Id);
-        if (reused) { _parent.Show(); _panel!.Show(); UiStyle.BringToFront(_panel); }
-        else Open(new(_binding, _content.Generation, new WorldObjectId.Settlement(settlement.Id)), settlement.Id);
-        _services.SelectVehicle(vehicle);
-        var tabs = _body.GetNode<TabContainer>("Pages");
-        tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "建造与工地");
-        _services.ServiceChanged();
-        if (reused) Opened?.Invoke(new WorldObjectId.Settlement(settlement.Id), _panel!);
-    }
-
-    private bool IsCurrent(SettlementId requested) => _panel is not null && GodotObject.IsInstanceValid(_panel) &&
-        _settlementId == requested && _target is { } target && Current(_host, _binding, target.Binding, target.Generation);
-
-    internal void ReleaseResources() => _services.CloseServices();
-
     internal void Close()
     {
-        ReleaseResources();
         RemoveWindow(_panel); _panel = null;
         _marketTable = null; _overview = null; _buildings = null;
         _target = null; _settlement = null; _locals.Clear();

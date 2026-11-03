@@ -65,23 +65,24 @@ internal static partial class ConstructionCommands
     private static (WorldState World, JobQuote Quote, ImmutableArray<GoodsQuantity> Returns, InventoryId? ReturnInventory) Prepare(WorldState world, CoreContentProjection content,
         ulong step, CoreRevision revision, JobRequest request, JobFunding funding, Money? maximumPayment)
     {
-        var (facility, sources, priority) = request switch
+        var (facility, sources) = request switch
         {
-            JobRequest.BuildVehicle build => (build.Facility, build.Sources, build.Priority),
-            JobRequest.BuildBuilding build => (build.Facility, build.Sources, build.Priority),
-            JobRequest.BuildEquipment build => (build.Facility, build.Sources, build.Priority),
-            JobRequest.Refit refit => (refit.Facility, refit.Sources, refit.Priority),
-            JobRequest.Repair repair => (repair.Facility, repair.Sources, repair.Priority),
-            JobRequest.Dismantle dismantle => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
+            JobRequest.BuildVehicle build => (build.Facility, build.Sources),
+            JobRequest.BuildBuilding build => (build.Facility, build.Sources),
+            JobRequest.BuildEquipment build => (build.Facility, build.Sources),
+            JobRequest.Refit refit => (refit.Facility, refit.Sources),
+            JobRequest.Repair repair => (repair.Facility, repair.Sources),
+            JobRequest.Dismantle dismantle => (dismantle.Facility, ImmutableArray<InventoryId>.Empty),
             _ => throw new InvalidOperationException("施工请求无效。")
         };
         var prepared = world;
         long work = 0;
+        double rate = 0;
         ImmutableArray<GoodsQuantity> required = [];
-        ImmutableArray<GoodsQuantity> returns = [];
+        ImmutableArray<GoodsQuantity> returns = [], shortages = [];
         InventoryId? returnInventory = null;
         var consumption = ImmutableArray.CreateBuilder<JobMaterialSourceView>();
-        var purchases = ImmutableArray.CreateBuilder<GoodsQuantity>();
+        var purchases = ImmutableArray.CreateBuilder<JobPurchaseView>();
         Money? materialPayment = funding == JobFunding.OwnInventory ? new(0) : null;
         Money? servicePayment = materialPayment;
         Money? totalPayment = null;
@@ -186,7 +187,8 @@ internal static partial class ConstructionCommands
         DesignKind? tier = request is JobRequest.Dismantle ? null : design.Kind;
         if (ConstructionJobs.Qualification(world, content, settlement.Id, facility, tier, funding) is { } qualification)
             return Result([qualification]);
-        if (ConstructionJobs.WorkRate(world, content, facility, tier) <= 0) return Reject("capability_zero", "Facility");
+        rate = ConstructionJobs.WorkRate(world, content, facility, tier);
+        if (rate <= 0) return Reject("capability_zero", "Facility");
         if (funding == JobFunding.OwnInventory && world.ConstructionJobs.Any(j => j.Facility == facility))
             return Reject("busy", "Facility");
         var ruleId = world.Source.Configuration.Rules.Construction;
@@ -275,38 +277,32 @@ internal static partial class ConstructionCommands
             }
             if (taken.Count > 0) consumption.Add(new(inventory.Id, taken.ToImmutable()));
         }
-        if (funding == JobFunding.OwnInventory)
-        {
-            var missing = needed.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
-                .Select(g => WorldReferences.GoodKey(g.Key)).ToImmutableArray();
-            if (!missing.IsEmpty) return Result([new("insufficient_goods", "Sources", null, missing)]);
-        }
         if (funding == JobFunding.NpcCommission)
         {
             var pricingWorld = Consume(prepared, consumption);
-            var unavailable = ImmutableArray.CreateBuilder<string>();
             long payment = 0;
             foreach (var good in needed.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal))
             {
                 var inventory = pricingWorld.Inventories.Single(i => i.Id == settlement.Inventory);
                 var stock = inventory.Goods.SingleOrDefault(g => g.Good == good.Key)?.Quantity ?? 0;
                 var market = new MarketStockTargets(pricingWorld, content, settlement, step);
-                if (market.Quantity(good.Key, stock, Math.Min(stock, good.Value), true) < good.Value)
-                {
-                    unavailable.Add(WorldReferences.GoodKey(good.Key));
-                    continue;
-                }
-                foreach (var (price, quantity) in MarketPrices.Goods(pricingWorld, content, good.Key, true, market, stock, good.Value))
-                    payment = checked(payment + price.Value * quantity);
-                var purchase = new GoodsQuantity(good.Key, good.Value);
-                purchases.Add(purchase);
-                pricingWorld = Consume(pricingWorld, [new(settlement.Inventory, [purchase])]);
+                var available = market.Quantity(good.Key, stock, Math.Min(stock, good.Value), true);
+                if (available == 0) continue;
+                long cost = 0;
+                foreach (var (price, quantity) in MarketPrices.Goods(pricingWorld, content, good.Key, true, market, stock, available))
+                    cost = checked(cost + price.Value * quantity);
+                payment = checked(payment + cost);
+                purchases.Add(new(good.Key, available, new(cost)));
+                needed[good.Key] -= available;
+                pricingWorld = Consume(pricingWorld, [new(settlement.Inventory, [new(good.Key, available)])]);
             }
-            if (unavailable.Count > 0)
-                return Result([new("insufficient_goods", "Sources", null, unavailable.ToImmutable())]);
-            materialPayment = new(payment);
-            servicePayment = new(checked(work * marketRule!.CommissionMoneyPerWork.Value));
+            if (needed.All(g => g.Value == 0)) materialPayment = new(payment);
         }
+        shortages = needed.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+            .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray();
+        if (!shortages.IsEmpty) return Result([new("insufficient_goods", "Sources", null,
+            shortages.Select(g => WorldReferences.GoodKey(g.Good)).ToImmutableArray())]);
+        if (funding == JobFunding.NpcCommission) servicePayment = new(checked(work * marketRule!.CommissionMoneyPerWork.Value));
         if (!returns.IsEmpty)
         {
             var afterConsumption = Consume(prepared, consumption);
@@ -336,7 +332,7 @@ internal static partial class ConstructionCommands
             || WorldReferences.DesignGoods(value).Any(g => WorldGoods.DefinitionMissing(candidate, published, g.Good));
         void Add(GoodId good, long quantity) => needed[good] = checked(needed.GetValueOrDefault(good) + quantity);
         (WorldState, JobQuote, ImmutableArray<GoodsQuantity>, InventoryId?) Result(ImmutableArray<CoreProblem> problems) => (prepared,
-            new(request, funding, revision, work, required, consumption.ToImmutable(), purchases.ToImmutable(),
+            new(request, funding, revision, work, rate, required, consumption.ToImmutable(), purchases.ToImmutable(), shortages,
                 materialPayment, servicePayment, totalPayment, problems), returns, returnInventory);
         (WorldState, JobQuote, ImmutableArray<GoodsQuantity>, InventoryId?) Reject(string code, string field) => Result([new(code, field, null, [])]);
     }

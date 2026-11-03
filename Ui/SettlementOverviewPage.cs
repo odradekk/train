@@ -11,7 +11,8 @@ namespace Train.Ui;
 /// Decision note: 2026-10-31-object-centric-management-screens
 /// </summary>
 internal sealed partial class SettlementOverviewPage(Action<string> openPage, Func<bool> canAct,
-    Func<CoreCommand, SubmissionResult> submit, Action<GoodId> openGood, Action<BuildingId> openBuilding)
+    Func<CoreCommand, SubmissionResult> submit, Action<GoodId> openGood, Action<BuildingId> openBuilding,
+    Action manufactureRequested)
 {
     private Label _trains = null!, _jobs = null!, _leases = null!, _market = null!;
     private Label _warReason = null!;
@@ -34,8 +35,8 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         _market = Text(body, "MarketTrends", "");
         body.AddChild(UiStyle.Button("OpenMarket", "查看市场", () => openPage("市场")));
         Text(body, "ServicesTitle", "可用服务");
-        body.AddChild(UiStyle.Button("OpenVehicles", "查看现车", () => openPage("现车")));
-        body.AddChild(UiStyle.Button("OpenServices", "委托制造、修理与改装", () => openPage("建造与工地")));
+        body.AddChild(UiStyle.Button("OpenVehicles", "查看车辆", () => openPage("车辆")));
+        body.AddChild(UiStyle.Button("OpenServices", "委托制造…", () => { if (canAct()) manufactureRequested(); }));
         body.AddChild(new HSeparator());
         _warReason = Text(body, "WarReason", "");
         _declare = UiStyle.Button("DeclareWar", "宣战…", () =>
@@ -75,7 +76,7 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
         _trains.Text = "在站列车\n" + Join(trains.Select(train => $"列车 {train.Id.Value} · {WorldPanels.Activity(train.Activity)}"), "没有列车在站");
         _jobs.Text = "进行中的委托\n" + Join(settlement.CommissionJobs.Select(view.FindJob)
             .OfType<Lookup<JobView>.Found>().Select(item => item.Value).OfType<JobView.Construction>()
-            .Select(job => DescribeJob(job.Value, content)), "没有进行中的委托");
+            .Select(job => EconomyPanels.DescribeVehicleJob(view, content, job.Value)), "没有进行中的委托");
         _leases.Text = "租用仓库\n" + Join(locals.Where(item => item.Lease is not null).Select(item =>
             $"用量 {item.Inventory.Used}/{item.Lease!.Capacity} · {UiInput.FormatTime(item.Lease.ExpiresAtStep)}到期" +
             (item.Lease.Expired ? " · 已到期，只能取出" : "")), "尚未租用仓库");
@@ -113,29 +114,6 @@ internal sealed partial class SettlementOverviewPage(Action<string> openPage, Fu
                 Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned }))
             return "这里有玩家车辆，请先让列车离站并移走停放车辆。";
         return "";
-    }
-
-    private string DescribeJob(ConstructionJobView job, IContentView content)
-    {
-        string DesignName(DesignHash design) =>
-            content.FindDesign(design) is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete complete }
-                ? complete.Definition.Display.Name : "设计内容缺失";
-
-        string VehicleName(VehicleId id)
-        {
-            if (_view.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) return "车辆已不存在";
-            if (EconomyPanels.TrainVehicleName(_view, id) is { } name) return name;
-            return $"停放车辆（{DesignName(found.Value.Design)}）";
-        }
-
-        var name = job.Target switch
-        {
-            ConstructionTarget.NewVehicle target => DesignName(target.Design),
-            ConstructionTarget.Existing { Instance: InstanceId.Vehicle vehicle } => VehicleName(vehicle.Id),
-            _ => "施工对象不可用"
-        };
-        return $"正在{EconomyPanels.ServiceKind(job.Kind)}{name} · 进度 {job.Progress:P0} · {EconomyPanels.ServiceRemainingTime(job)}" +
-            (job.State == ConstructionState.Working ? "" : $" · {EconomyPanels.ServiceState(job.State)}");
     }
 
     private static string Join(IEnumerable<string> lines, string empty)

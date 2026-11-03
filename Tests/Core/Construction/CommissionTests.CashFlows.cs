@@ -22,6 +22,8 @@ public sealed partial class CommissionTests
             Assert.AreEqual(before, session.State);
             Assert.IsEmpty(quote.Blockers);
             Assert.AreEqual(2L, quote.TotalWork);
+            Assert.AreEqual(60d, quote.CapabilityWorkPerSecond);
+            Assert.IsEmpty(quote.Shortages);
             Assert.AreEqual(new Money(funding == JobFunding.OwnInventory ? 0 : 200), quote.MaterialPayment);
             Assert.AreEqual(new Money(funding == JobFunding.OwnInventory ? 0 : 6), quote.ServicePayment);
             if (funding == JobFunding.OwnInventory) Assert.IsEmpty(quote.NpcPurchases);

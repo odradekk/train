@@ -13,8 +13,10 @@ internal static partial class EconomyFixture
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
         BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
         ImmutableArray<SavedContentDraft> drafts = default, bool mapPresentation = false, string foodName = "主食", bool armedBuilding = false,
-        string? equipmentName = null, long? leaseDurationTicks = null)
+        string? equipmentName = null, long? leaseDurationTicks = null, bool vehiclePresentation = false,
+        IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? additionalDesigns = null)
     {
+        mapPresentation |= vehiclePresentation;
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
@@ -58,7 +60,11 @@ internal static partial class EconomyFixture
                         new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
                             new("地面", "")), [], new("青川", "有限外壳情景")))
                     : new ContentLookup<SettlementLayoutProjection>.NotFound(),
-                [new(2)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
+                [new(2)] = vehiclePresentation
+                    ? new ContentLookup<SettlementLayoutProjection>.Found(new(new(2), new("fixture:town"),
+                        new(new("fixture-ground"), new(new("fixture-ground"), null, null, true, null, null, [], [], [], [], []),
+                            new("地面", "")), [], new("石港", "有限车辆情景")))
+                    : new ContentLookup<SettlementLayoutProjection>.NotFound()
             },
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
             {
@@ -73,11 +79,15 @@ internal static partial class EconomyFixture
             },
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             {
-                [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
+                [new("fixture-vehicle")] = vehiclePresentation
+                    ? new ContentLookup<DesignEvaluation>.Found(new DesignEvaluation.Complete(new("fixture-vehicle"), new("fixture-composition"),
+                        new(new("货车", ""), new DesignSpecification.Vehicle(SizeClass.Medium), new([], [], [])), null,
+                        new(null, null, null, true, null, null, [], [], [], [], []), true, []))
+                    : new ContentLookup<DesignEvaluation>.Missing([]),
                 [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
                 [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding(armedBuilding)),
                 [new("fixture-food-building")] = new ContentLookup<DesignEvaluation>.Found(FoodBuilding())
-            }
+            }.Concat(additionalDesigns ?? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>()).ToDictionary(item => item.Key, item => item.Value)
         };
     }
 

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -8,6 +9,56 @@ namespace Train.ContractSupport.Tests.Content;
 [TestClass]
 public sealed class HostContentScenarioTests
 {
+    [TestMethod]
+    public void AuthoringReferenceQueryPassesExactInputsAndResult()
+    {
+        var source = new FixedAuthoringPackage(new("fixture"), new("source-v1"), []);
+        var view = new FixedContentView(HostContentScenario.CreateProjection(new CoreInputId("fixture")));
+        ImmutableArray<PackageEdit> edits = [new PackageEdit.WriteDefinition(new DefinitionDraft.SettlementType(new("town", new("城镇", ""), null, true, null, [], null, null)))];
+        var result = new ContentResult<ImmutableArray<AuthoringReferenceChoice>>.Success([
+            new(AuthoringReferenceKind.SettlementType, new ContentReference.Core(new CoreDefinitionReference.SettlementType(new("fixture:town"))), new("城镇", ""))]);
+        var called = false;
+        var factory = new ScriptedContentFactory
+        {
+            QueryAuthoringReferencesCall = (actualSource, actualView, actualEdits) =>
+            {
+                called = true;
+                Assert.AreSame(source, actualSource);
+                Assert.AreSame(view, actualView);
+                Assert.AreEqual(edits, actualEdits);
+                return result;
+            }
+        };
+        Assert.AreSame(result, factory.QueryAuthoringReferences(source, view, edits));
+        Assert.IsTrue(called);
+    }
+
+    [TestMethod]
+    public void AuthoringDefinitionValidationPassesExactInputsAndResult()
+    {
+        var source = new FixedAuthoringPackage(new("fixture"), new("source-v1"), []);
+        var view = new FixedContentView(HostContentScenario.CreateProjection(new CoreInputId("fixture")));
+        var definition = new AuthoringDefinitionAddress(DefinitionKind.SettlementType, "town");
+        ImmutableArray<PackageEdit> edits = [new PackageEdit.WriteDefinition(new DefinitionDraft.SettlementType(new("town", new("城镇", ""), null, true, null, [], null, null)))];
+        var result = new ContentResult<ImmutableArray<ContentDiagnostic>>.Success([
+            new("fixture_error", ContentDiagnosticSeverity.Error, "authoring", null, null, "/simulation/weight", null, "权重错误")]);
+        var called = false;
+        var factory = new ScriptedContentFactory
+        {
+            ValidateAuthoringDefinitionCall = (actualSource, actualView, actualEdits, actualDefinition) =>
+            {
+                called = true;
+                Assert.AreSame(source, actualSource);
+                Assert.AreSame(view, actualView);
+                Assert.AreEqual(edits, actualEdits);
+                Assert.AreSame(definition, actualDefinition);
+                return result;
+            }
+        };
+        Assert.AreSame(result, factory.ValidateAuthoringDefinition(source, view, edits, definition));
+        Assert.IsTrue(called);
+    }
+
     [TestMethod]
     public void CapturePassesExactViewAndReferences()
     {
@@ -122,6 +173,9 @@ public sealed class HostContentScenarioTests
     {
         var factory = new ScriptedContentFactory();
         var view = new FixedContentView(HostContentScenario.CreateProjection(new CoreInputId("fixture")));
+        var authoring = new FixedAuthoringPackage(new("fixture"), new("source-v1"), []);
+        AssertUnconfigured(() => factory.QueryAuthoringReferences(authoring, view, []));
+        AssertUnconfigured(() => factory.ValidateAuthoringDefinition(authoring, view, [], new(DefinitionKind.Blueprint, "unexpected")));
         AssertUnconfigured(() => factory.DecodeCapture("unexpected"));
         AssertUnconfigured(() => factory.Capture(view, new([], [], [], [])));
         AssertUnconfigured(() => factory.CreateWorldInput(view, new GenerationProfileId("unexpected"), 1, "v1"));

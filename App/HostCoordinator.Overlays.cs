@@ -1,7 +1,7 @@
 namespace Train.App;
 
 [Flags]
-internal enum OverlayPauseSource { Saves = 1, Settings = 2 }
+internal enum OverlayPauseSource { Saves = 1, Settings = 2, Authoring = 4 }
 
 internal sealed partial class HostCoordinator
 {

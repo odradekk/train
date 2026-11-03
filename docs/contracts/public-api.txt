@@ -8,6 +8,15 @@ Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetInspectionFail
 Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetInspectionFailure|UnsupportedContent|1
 Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetKind|Glb|1
 Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetKind|Png|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|Building|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|Creature|4
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|InventoryBlueprint|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|InventoryVoxel|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|ProductionProcess|7
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|RecoveryProcess|8
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|SceneModel|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|SettlementType|6
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|TerrainType|5
 Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|Local|2
 Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|Packages|0
 Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|User|1
@@ -104,7 +113,7 @@ Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|Immutable
 Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|ImmutableArray<PackageMetadata> ReferencedPackages { get; }
 Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|string Encode();
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target);
-Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft, CompositeDefinitionId? compositeIdentity = null);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package, PackageSourceVersion sourceVersion, IContentFiles files);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request, IContentFiles files, IAssetInspector inspector);
@@ -112,6 +121,8 @@ Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentRe
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCapture> DecodeCapture(string payload);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentReplayCapture> DecodeReplay(string payload);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<ImmutableArray<AuthoringReferenceChoice>> QueryAuthoringReferences( IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<ImmutableArray<ContentDiagnostic>> ValidateAuthoringDefinition( IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits, AuthoringDefinitionAddress definition);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<SavedContentDraft> DecodeDraft(string payload);
@@ -155,6 +166,8 @@ Train.Content.Contracts|type|Train.Content.Contracts.AssetMetadata|public abstra
 Train.Content.Contracts|type|Train.Content.Contracts.AssetRevision|public readonly record struct AssetRevision(string Value);
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringAssetPath|public readonly record struct AuthoringAssetPath(string Value);
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringDefinitionAddress|public sealed record AuthoringDefinitionAddress(DefinitionKind Kind, string LocalId);
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringReferenceChoice|public sealed record AuthoringReferenceChoice(AuthoringReferenceKind Kind, ContentReference Reference, DisplayText Display);
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringReferenceKind|public enum AuthoringReferenceKind
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation.Cube|public sealed record Cube(ImmutableArray<VoxelShape> Shapes, MaterialCategory Material, int TileSpan, AuthoringAssetPath Top, AuthoringAssetPath Side, AuthoringAssetPath Bottom, AuthoringAssetPath? Front) : AuthoringVoxelPresentation;
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation.Mesh|public sealed record Mesh(AuthoringAssetPath Model, ImmutableArray<MaterialCategory> SurfaceMaterials) : AuthoringVoxelPresentation;
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation|public abstract record AuthoringVoxelPresentation
@@ -786,7 +799,8 @@ Train.Core.Contracts|type|Train.Core.Contracts.InventoryView|public sealed recor
 Train.Core.Contracts|type|Train.Core.Contracts.JobFunding|public enum JobFunding
 Train.Core.Contracts|type|Train.Core.Contracts.JobId|public readonly record struct JobId(ulong Value);
 Train.Core.Contracts|type|Train.Core.Contracts.JobMaterialSourceView|public sealed record JobMaterialSourceView(InventoryId Inventory, ImmutableArray<GoodsQuantity> Goods);
-Train.Core.Contracts|type|Train.Core.Contracts.JobQuote|public sealed record JobQuote(JobRequest Request, JobFunding Funding, CoreRevision Revision, long TotalWork, ImmutableArray<GoodsQuantity> RequiredGoods, ImmutableArray<JobMaterialSourceView> SourceConsumption, ImmutableArray<GoodsQuantity> NpcPurchases, Money? MaterialPayment, Money? ServicePayment, Money? TotalPayment, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.JobPurchaseView|public sealed record JobPurchaseView(GoodId Good, long Quantity, Money Payment);
+Train.Core.Contracts|type|Train.Core.Contracts.JobQuote|public sealed record JobQuote(JobRequest Request, JobFunding Funding, CoreRevision Revision, long TotalWork, double CapabilityWorkPerSecond, ImmutableArray<GoodsQuantity> RequiredGoods, ImmutableArray<JobMaterialSourceView> SourceConsumption, ImmutableArray<JobPurchaseView> NpcPurchases, ImmutableArray<GoodsQuantity> Shortages, Money? MaterialPayment, Money? ServicePayment, Money? TotalPayment, ImmutableArray<CoreProblem> Blockers);
 Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.BuildBuilding|public sealed record BuildBuilding(FacilityKey Facility, PlotId Plot, DesignInput Design, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
 Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.BuildEquipment|public sealed record BuildEquipment(FacilityKey Facility, DesignInput Design, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
 Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.BuildVehicle|public sealed record BuildVehicle(FacilityKey Facility, DesignInput Design, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;

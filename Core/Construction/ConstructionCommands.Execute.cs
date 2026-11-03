@@ -33,7 +33,8 @@ internal static partial class ConstructionCommands
         };
         var rule = content.ConstructionRules.Single(r => r.Id == world.Source.Configuration.Rules.Construction);
         var consumption = quote.SourceConsumption;
-        if (!quote.NpcPurchases.IsEmpty) consumption = consumption.Add(new(settlement.Inventory, quote.NpcPurchases));
+        if (!quote.NpcPurchases.IsEmpty) consumption = consumption.Add(new(settlement.Inventory,
+            quote.NpcPurchases.Select(p => new GoodsQuantity(p.Good, p.Quantity)).ToImmutableArray()));
         var invested = consumption.SelectMany(s => s.Goods).GroupBy(g => g.Good)
             .OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
             .Select(g => new GoodsQuantity(g.Key, g.Sum(x => x.Quantity))).ToImmutableArray();

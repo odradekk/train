@@ -69,6 +69,13 @@ public abstract record DefinitionDraft
     public sealed record SettlementTemplate(SettlementTemplateDraft Value) : DefinitionDraft;
 }
 public sealed record AuthoringDefinitionAddress(DefinitionKind Kind, string LocalId);
+public enum AuthoringReferenceKind
+{
+    InventoryVoxel = 0, InventoryBlueprint = 1, Building = 2, SceneModel = 3, Creature = 4,
+    TerrainType = 5, SettlementType = 6, ProductionProcess = 7, RecoveryProcess = 8
+}
+public sealed record AuthoringReferenceChoice(AuthoringReferenceKind Kind,
+    ContentReference Reference, DisplayText Display);
 public interface IAuthoringPackage
 {
     PackageId Package { get; }

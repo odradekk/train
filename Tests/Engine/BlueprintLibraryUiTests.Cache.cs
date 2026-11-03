@@ -20,7 +20,7 @@ public partial class BlueprintLibraryUiTests
             new DraftTarget.LocalBlueprint(null), new DraftPayload.Design(EditorPreviewSession.Draft with
             { Display = new($"缓存车辆 {number}", ""), Specification = new DesignSpecification.Vehicle(SizeClass.Small) }))).ToImmutableArray();
         var evaluations = 0;
-        var fixture = await Ready(drafts: drafts, configure: factory => factory.EvaluateDesignCall = (_, draft) =>
+        var fixture = await Ready(drafts: drafts, configure: factory => factory.EvaluateDesignCall = (_, draft, _) =>
         {
             Interlocked.Increment(ref evaluations);
             var complete = (DesignEvaluation.Complete)EditorPreviewSession.Evaluate(draft);

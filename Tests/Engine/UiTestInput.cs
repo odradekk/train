@@ -179,6 +179,19 @@ internal sealed class UiTestInput(Node scene)
 
     internal async Task Click(Vector2 position, bool control = false, Window? window = null)
     {
+        if (window is not null && window.IsEmbedded())
+        {
+            // 嵌入窗口的悬停由父窗口更新，鼠标输入也从父窗口传入。
+            position = (Vector2)window.Position + window.GetFinalTransform() * position;
+            window = window.GetParent().GetWindow();
+        }
+        if (window is not null)
+        {
+            window.NotifyMouseEntered();
+            using var motion = new InputEventMouseMotion { Position = position, GlobalPosition = position };
+            window.PushInput(motion, true);
+            await Frames();
+        }
         await SendMouseButton(position, Godot.MouseButton.Left, true, control, window);
         await SendMouseButton(position, Godot.MouseButton.Left, false, control, window);
     }

@@ -258,10 +258,12 @@ public sealed record VehicleTradeQuote(VehicleTradeQuoteRequest Request, CoreRev
 public sealed record LeaseQuote(LeaseRequest Request, CoreRevision Revision, Money? Total,
     long CurrentlyRentableCapacity, ImmutableArray<CoreProblem> Blockers);
 public sealed record JobQuote(JobRequest Request, JobFunding Funding, CoreRevision Revision,
-    long TotalWork, ImmutableArray<GoodsQuantity> RequiredGoods,
-    ImmutableArray<JobMaterialSourceView> SourceConsumption, ImmutableArray<GoodsQuantity> NpcPurchases,
+    long TotalWork, double CapabilityWorkPerSecond, ImmutableArray<GoodsQuantity> RequiredGoods,
+    ImmutableArray<JobMaterialSourceView> SourceConsumption, ImmutableArray<JobPurchaseView> NpcPurchases,
+    ImmutableArray<GoodsQuantity> Shortages,
     Money? MaterialPayment, Money? ServicePayment, Money? TotalPayment,
     ImmutableArray<CoreProblem> Blockers);
+public sealed record JobPurchaseView(GoodId Good, long Quantity, Money Payment);
 public sealed record JobMaterialSourceView(InventoryId Inventory, ImmutableArray<GoodsQuantity> Goods);
 public sealed record AutomaticRuleResult(int StopIndex, int RuleIndex, TradeAction Action, GoodId Good,
     long RequestedQuantity, long CompletedQuantity, Money ActualAmount, ImmutableArray<CoreProblem> IncompleteReasons);

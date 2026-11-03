@@ -64,7 +64,7 @@ public partial class App : Node
             var scenesFactory = createScenes();
             Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
             Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), AuthoringPaths.ModsDirectory(userData),
-                OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null);
+                OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null, _logger);
             Saves = new SaveService(Host, new FileSaveStore(userData), Editor);
             WorldScenes = new(Host, createScenes, _logger);
             Editor.Changed += () =>
@@ -223,8 +223,7 @@ public partial class App : Node
         var status = Host.GetStatus();
         var save = Saves!.Status;
         var exampleVisible = GetNode<MainMenu>("MainMenu").GetNode<Button>("%Example").Visible;
-        var authoringVisible = GetNode<GameUi>("GameUi").FindChildren("OpenAuthoring", "Button", true, false)
-            .OfType<Button>().Any(button => button.IsVisibleInTree());
+        var authoringVisible = GetNode<MainMenu>("MainMenu").GetNode<Button>("%OpenAuthoring").Visible;
         var restored = status is { IsReplay: false } && save is not null;
         var passed = display is ContentLookup<VoxelDisplayProjection>.Found food &&
             content!.FindAsset(food.Value.Icon) is ContentLookup<ContentAsset>.Found

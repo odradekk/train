@@ -24,7 +24,7 @@ public partial class OwnedSettlementInspectorUiTests(Node testScene) : TestClass
         {
             var tabs = Find<TabContainer>(panel, "Pages");
             Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
-                .SequenceEqual(new[] { "概况", "库存", "建筑", "现车", "建造与工地" }), "自有聚居地应显示三个新页和两个保留页。");
+                .SequenceEqual(new[] { "概况", "库存", "建筑", "车辆" }), "自有聚居地应显示概况、库存、建筑和车辆四页。");
             Require(Find<Label>(panel, "Title").Text == "青川", "标题应为聚居地显示名。");
             var population = Find<Label>(panel, "PopulationSummary").Text;
             Require(population.Contains("常住人口 120") && population.Contains("80.0%") && population.Contains("暂无统计"),
@@ -90,7 +90,7 @@ public partial class OwnedSettlementInspectorUiTests(Node testScene) : TestClass
         {
             var tabs = Find<TabContainer>(panel, "Pages");
             Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
-                .SequenceEqual(new[] { "现车", "仓库", "建造与工地" }) && Find<Button>(panel, "OpenSettlementCombat").Visible,
+                .SequenceEqual(new[] { "车辆", "仓库" }) && Find<Button>(panel, "OpenSettlementCombat").Visible,
                 "敌对聚居地应保留战斗入口与剩余旧页，不提前提供概况。");
             return Task.CompletedTask;
         });
@@ -159,7 +159,7 @@ public partial class OwnedSettlementInspectorUiTests(Node testScene) : TestClass
         Lookup<InstanceView> Building(ulong id, string design) => new Lookup<InstanceView>.Found(new(
             new InstanceId.Building(new(id)), new(design), new("private-hash"), new WorldLocation.Node(new(1)),
             SettlementRelation.PlayerOwned, new InstanceDetails.Building(new(id), PlotSize.Small), InstanceLock.None, new(100, 100),
-            [new(new(1), new(id == 4 && defenseDestroyed ? 0 : 50, 100), false, id == 4 && defenseDestroyed)], []));
+            [new(new(1), new(id == 4 ? defenseDestroyed ? 0 : 50 : 100, 100), false, id == 4 && defenseDestroyed)], []));
         return new(basis.Position, basis.InputIdentity, basis.Fault, basis.Revision)
         {
             World = basis.World, Economy = basis.Economy,

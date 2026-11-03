@@ -6,10 +6,11 @@ using System.Text.Json.Nodes;
 using Train.Content.Loading;
 using static Train.Content.Loading.DefinitionJson;
 using C = Train.Content.Contracts;
+using K = Train.Core.Contracts;
 
 namespace Train.Content.Authoring;
 
-internal sealed class AuthoringPackage : C.IAuthoringPackage
+internal sealed partial class AuthoringPackage : C.IAuthoringPackage
 {
     private static readonly JsonSerializerOptions FileJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly ImmutableDictionary<string, ImmutableArray<byte>> _files;
@@ -138,7 +139,10 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
                             DefinitionDraftJson.Read(document.RootElement, address.Kind);
                         Change(path, bytes.ToImmutableArray());
                     }
-                    catch (ArgumentException exception) { Fail("/value", exception.Message); }
+                    catch (DefinitionFormatException exception)
+                    { return new C.ContentResult<C.PackageWritePlan>.Failure([WriteDiagnostic(exception, address, path)]); }
+                    catch (ArgumentException exception)
+                    { return new C.ContentResult<C.PackageWritePlan>.Failure([WriteDiagnostic(new("/value", exception.Message, "invalid_field"), address, path)]); }
                     break;
                 case C.PackageEdit.DeleteDefinition delete:
                     var definitionPath = DefinitionDraftJson.Path(delete.Definition);
@@ -202,6 +206,22 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
     private C.ContentDiagnostic Diagnostic(DefinitionFormatException exception, C.AuthoringDefinitionAddress address) => new(
         exception.Code, C.ContentDiagnosticSeverity.Error, "authoring", null, new(Package,
             EditableDefinitions.Contains(address) ? DefinitionDraftJson.Path(address) : ""), exception.Field, null, exception.Message);
+
+    private C.ContentDiagnostic WriteDiagnostic(DefinitionFormatException exception, C.AuthoringDefinitionAddress address, string path)
+    {
+        var id = Package.Value + ":" + address.LocalId;
+        C.ContentReference subject = address.Kind switch
+        {
+            C.DefinitionKind.Voxel => new C.ContentReference.Core(new K.CoreDefinitionReference.Voxel(new(id))),
+            C.DefinitionKind.Blueprint => new C.ContentReference.Blueprint(new(C.BlueprintLibrary.Packages, new(id))),
+            C.DefinitionKind.SettlementType => new C.ContentReference.Core(new K.CoreDefinitionReference.SettlementType(new(id))),
+            C.DefinitionKind.SettlementTemplate => new C.ContentReference.Core(new K.CoreDefinitionReference.Template(new(id))),
+            C.DefinitionKind.LairType => new C.ContentReference.Core(new K.CoreDefinitionReference.Lair(new(id))),
+            _ => throw new ArgumentOutOfRangeException(nameof(address))
+        };
+        return new(exception.Code, C.ContentDiagnosticSeverity.Error, "authoring", subject,
+            new(Package, path), exception.Field, null, exception.Message);
+    }
 
     private static C.AuthoringDefinitionAddress? Address(string path)
     {

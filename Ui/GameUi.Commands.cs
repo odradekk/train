@@ -7,17 +7,17 @@ namespace Train.Ui;
 public partial class GameUi
 {
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command)
-        => Submit(target, command, null);
-
-    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
-        => Submit(target, command, candidate, ShowError);
+        => Submit(target, command, ShowError);
 
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command,
-        IContentCandidate? candidate, Action<string> reportError)
-        => (SubmitResult(target, command, candidate, reportError) as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
+        Action<string> reportError)
+        => (SubmitResult(target, command, null, reportError) as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
 
     private SubmissionResult SubmitInline(PanelTarget? target, CoreCommand command)
         => SubmitResult(target, command, null, null);
+
+    private SubmissionResult SubmitInline(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
+        => SubmitResult(target, command, candidate, null);
 
     private SubmissionResult SubmitResult(PanelTarget? target, CoreCommand command,
         IContentCandidate? candidate, Action<string>? reportError)

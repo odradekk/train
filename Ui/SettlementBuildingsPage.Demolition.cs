@@ -1,6 +1,6 @@
 using Godot;
-using Train.Content.Contracts;
 using Train.Core.Contracts;
+using static Train.Ui.EconomyPanels;
 
 namespace Train.Ui;
 
@@ -43,10 +43,7 @@ internal sealed partial class SettlementBuildingsPage
         var reason = "这里没有能执行拆除的施工建筑。";
         foreach (var building in _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>().Where(building => building.Id != id))
         {
-            if (_view.FindInstance(new InstanceId.Building(building.Id)) is not Lookup<InstanceView>.Found instance ||
-                _content.FindDesign(instance.Value.Design) is not ContentLookup<DesignEvaluation>.Found
-                    { Value: DesignEvaluation.Complete { Core: { } input } } ||
-                !input.Design.Parts.Any(part => part.Capabilities.Any(capability => capability is PartCapability.Construction))) continue;
+            if (!IsConstructionFacility(_view, _content, building.Id)) continue;
             var request = new JobRequest.Dismantle(new(building.Id, CapabilityKind.Construction), new InstanceId.Building(id), 0);
             switch (_view.GetJobQuote(request, JobFunding.OwnInventory))
             {

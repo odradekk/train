@@ -331,12 +331,12 @@ public sealed class DesignEvaluationTests
     }
 
     [TestMethod]
-    public void Unsupported_functional_root_identity_throws_and_a_creature_without_behavior_is_partial()
+    public void Missing_functional_root_identity_throws_and_a_creature_without_behavior_is_partial()
     {
         using var candidate = DesignFixtures.Content().Load();
         var draft = DesignFixtures.Vehicle();
         var factory = ContentFactory.Create();
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View,
+        Assert.ThrowsExactly<ArgumentException>(() => factory.EvaluateDesign(candidate.View,
             draft with { Specification = new C.DesignSpecification.FunctionalComposite([], null) }));
         var result = factory.EvaluateDesign(candidate.View, draft with
         {

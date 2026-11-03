@@ -11,25 +11,27 @@ internal partial class EconomyPanels : Control
 {
     private SettlementPanel _settlementWindow = null!;
     private EconomyReportsWorkspace _reports = null!;
+    private ConstructionWorkspace _construction = null!;
 
     internal const string ReservedStockHint = "聚居地库存在补货目标以内的部分留给本地，自动装载和买入只取超出部分。";
-    internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
+    internal event Action<PanelTarget, NodeId, ImmutableArray<VehicleId>, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<InstanceId>? ServiceDesignRequested;
     internal event Action<SettlementId>? SettlementCombatRequested;
     internal event Action<WorldObjectId, Control>? InspectorRequested;
     internal event Action<Control>? WorkspaceRequested;
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
 
-    internal void Initialize(HostCoordinator host,
-        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, GoodsIconCache icons,
-        Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget,
+    internal void Initialize(HostCoordinator host, GoodsIconCache icons,
+        Func<PanelTarget?, CoreCommand, IContentCandidate?, SubmissionResult> submitTarget,
         Func<PanelTarget?, CoreCommand, SubmissionResult> submitInline)
     {
         var goods = new GoodsRows(icons);
-        _settlementWindow = new(this, host, submit, submitTarget, goods, Refresh, submitInline);
+        _construction = new(); _construction.Initialize(host, submitTarget); AddChild(_construction);
+        _construction.Opened += () => WorkspaceRequested?.Invoke(_construction);
+        _construction.EditRequested += instance => ServiceDesignRequested?.Invoke(instance);
+        _settlementWindow = new(this, host, _construction, goods, Refresh, submitInline);
         _reports = new(this, host);
-        _settlementWindow.FormationRequested += (target, node, view, content) => FormationRequested?.Invoke(target, node, view, content);
-        _settlementWindow.ServiceDesignRequested += instance => ServiceDesignRequested?.Invoke(instance);
+        _settlementWindow.FormationRequested += (target, node, vehicles, view, content) => FormationRequested?.Invoke(target, node, vehicles, view, content);
         _settlementWindow.SettlementCombatRequested += settlement => SettlementCombatRequested?.Invoke(settlement);
         _settlementWindow.Opened += (target, panel) => InspectorRequested?.Invoke(target, panel);
         _reports.Opened += panel => WorkspaceRequested?.Invoke(panel);
@@ -44,18 +46,16 @@ internal partial class EconomyPanels : Control
     internal void OpenReports(PanelTarget source) => _reports.Open(source);
 
     internal void Close()
-    { _settlementWindow.Close(); _reports.Close(); }
+    { _settlementWindow.Close(); _reports.Close(); _construction.Close(); }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
         _reports.Refresh(binding, view, content);
         _settlementWindow.Refresh(binding, view, content);
+        _construction.Refresh(binding, view, content);
     }
 
-    internal void Observe(HostBinding binding, ICoreReadView view, ImmutableArray<EventEnvelope> events)
-        => _settlementWindow.Observe(binding, view, events);
-    internal void OpenVehicleServices(InstanceId instance) => _settlementWindow.OpenVehicleServices(instance);
-    public override void _ExitTree() => _settlementWindow.ReleaseResources();
+    internal void OpenVehicleServices(InstanceId instance) => _construction.OpenInstance(instance);
 
     internal static void SyncChoices<T>(OptionButton choice, List<T?> options, IEnumerable<T> values, T? selected,
         Func<T, string> title, string? placeholder = null) where T : struct

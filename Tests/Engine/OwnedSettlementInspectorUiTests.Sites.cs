@@ -18,10 +18,13 @@ public partial class OwnedSettlementInspectorUiTests
                 summary.Split('\n').Length == 1, "概况工地应只包含地块上正在建造的建筑，不包含车辆施工任务。");
             var tabs = Find<TabContainer>(panel, "Pages");
             await _input.ClickTab(tabs, 2);
-            var footer = Find<Label>(panel, "OtherPlots");
-            Require(footer.Text == summary, "概况和建筑页应使用相同的工地描述。");
-            Require(panel.FindChildren("Building_*", "VBoxContainer", true, false).All(row => row.GetIndex() < footer.GetIndex()),
-                "工地和空地块应放在建筑行之后。");
+            Require(panel.FindChildren("ConstructionJob_90", "", true, false).Count == 1,
+                "建筑页应只显示一条工地任务。");
+            var description = Find<Label>(Find<Control>(panel, "ConstructionJob_90"), "JobDescription").Text;
+            Require(description.Contains("食品建筑") && description.Contains("50%") && description.Contains("10 秒"),
+                "建筑页任务应显示建筑、进度和剩余时间。");
+            Require(!panel.FindChildren("OtherPlots", "Label", true, false).Cast<Label>().Any(label => label.IsVisibleInTree() && label.Text.Length > 0),
+                "建筑页不应再用工地汇总重复显示任务。");
         });
         setup.Session.AssertComplete();
     }
@@ -35,7 +38,9 @@ public partial class OwnedSettlementInspectorUiTests
             var summary = Find<Label>(panel, "OwnedSites").Text;
             Require(summary.Contains("正在建造建筑内容缺失") && !summary.Contains("fixture-vehicle"), "工地设计缺失时应说明内容缺失，不显示哈希。");
             await _input.ClickTab(Find<TabContainer>(panel, "Pages"), 2);
-            Require(Find<Label>(panel, "OtherPlots").Text == summary, "两页应显示同样的缺失设计和工地进度。");
+            var description = Find<Label>(Find<Control>(panel, "ConstructionJob_90"), "JobDescription").Text;
+            Require(description.Contains("建筑内容缺失") && !description.Contains("fixture-vehicle"),
+                "建筑页任务应显示可读的缺失设计原因。");
         });
         setup.Session.AssertComplete();
     }

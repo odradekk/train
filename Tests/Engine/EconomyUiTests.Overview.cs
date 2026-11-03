@@ -12,15 +12,15 @@ namespace Train.Engine.Tests;
 public partial class EconomyUiTests
 {
     [Test]
-    public async Task Neutral_settlement_starts_with_overview_and_keeps_only_its_five_pages()
+    public async Task Neutral_settlement_starts_with_overview_and_keeps_only_its_four_pages()
     {
         var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(), EconomyFixture.Content(mapPresentation: true));
         await Run(setup, async (_, panel) =>
         {
             var tabs = Find<TabContainer>(panel, "Pages");
             var titles = Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle).ToArray();
-            Require(titles.SequenceEqual(new[] { "概况", "市场", "现车", "仓库", "建造与工地" }),
-                "非敌对聚居地应只显示概况、市场和暂时保留的三个页面。");
+            Require(titles.SequenceEqual(new[] { "概况", "市场", "车辆", "仓库" }),
+                "非敌对聚居地应只显示概况、市场、车辆和仓库四页。");
             Require(tabs.CurrentTab == 0, "选中聚居地后应先显示概况。");
             Require(!panel.FindChildren("OpenSettlementCombat", "Button", true, false).Any(), "概况已提供宣战，不应重复显示战斗入口。");
             Require(!panel.FindChildren("LocalInventory", "OptionButton", true, false).Any(), "非敌对聚居地顶部不应显示本地库存选择。");
@@ -115,7 +115,7 @@ public partial class EconomyUiTests
         var body = new VBoxContainer();
         try
         {
-            var page = new SettlementOverviewPage(_ => { }, () => true, _ => throw new InvalidOperationException("只查看概况，不应提交命令。"), _ => { }, _ => { });
+            var page = new SettlementOverviewPage(_ => { }, () => true, _ => throw new InvalidOperationException("只查看概况，不应提交命令。"), _ => { }, _ => { }, () => { });
             page.Build(body, false);
             page.Refresh(view, EconomyFixture.Content(), settlement, []);
             var text = Find<Label>(body, "Commissions").Text;
@@ -205,8 +205,8 @@ public partial class EconomyUiTests
             var current = Find<PanelContainer>(ui, "Settlement");
             var tabs = Find<TabContainer>(current, "Pages");
             Require(Enumerable.Range(0, tabs.GetTabCount()).Select(tabs.GetTabTitle)
-                .SequenceEqual(new[] { "现车", "仓库", "建造与工地" }) && setup.Session.SubmitCount == 1,
-                "宣战后应只保留敌对聚居地的剩余旧页，而且只提交一次。");
+                .SequenceEqual(new[] { "车辆", "仓库" }) && setup.Session.SubmitCount == 1,
+                "宣战后应只保留车辆和仓库两页，而且只提交一次。");
         });
         setup.Session.AssertComplete();
     }

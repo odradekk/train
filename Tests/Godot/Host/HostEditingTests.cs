@@ -46,10 +46,10 @@ public sealed class HostEditingTests
     }
 
     [TestMethod]
-    public void Editing_requires_an_active_normal_session_and_repeated_entry_is_rejected()
+    public void Editing_requires_loaded_content_and_repeated_world_entry_is_rejected()
     {
         using var fixture = new HostFixture();
-        Assert.AreEqual("simulation_session_unavailable", fixture.Host.BeginEditing()?.Code);
+        Assert.AreEqual("content_unavailable", fixture.Host.BeginEditing()?.Code);
         fixture.ReadyHost();
         Assert.IsNull(fixture.Host.BeginEditing());
         Assert.AreEqual("editing_active", fixture.Host.BeginEditing()?.Code);
