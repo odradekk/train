@@ -52,7 +52,7 @@ public partial class BlueprintLibraryUiTests(Node testScene) : TestClass(testSce
             var library = Library(fixture);
             var input = new UiTestInput(TestScene);
             await input.Activate(Button(library, "内容包"));
-            await input.Activate(library.FindChildren("DesignCard", "Button", true, false).OfType<Button>()
+            await input.Activate(library.FindChildren("*", "Button", true, false).OfType<Button>()
                 .Single(card => card.TooltipText == "内容包设备"));
             Require(!library.FindChildren("*", "Button", true, false).OfType<Button>().Any(button =>
                 button.IsVisibleInTree() && button.Text is "复制到本局蓝图库并编辑" or "复制到用户内容库并编辑"),
@@ -60,7 +60,7 @@ public partial class BlueprintLibraryUiTests(Node testScene) : TestClass(testSce
             Require(Shown(library, "内容包里的蓝图只读") && Shown(library, "功能复合体") &&
                 Shown(library, "整件装到其他设计") && Shown(library, "不能复制编辑") && !Shown(library, "复制一份后再编辑"),
                 "详情必须说明功能复合体只能整件用于其他设计，不能暗示它可以复制编辑。");
-            await input.Activate(library.FindChildren("DesignCard", "Button", true, false).OfType<Button>()
+            await input.Activate(library.FindChildren("*", "Button", true, false).OfType<Button>()
                 .Single(card => card.TooltipText == "内容包机车"));
             Require(Button(library, "复制到本局蓝图库并编辑", exact: true).IsVisibleInTree() &&
                 Button(library, "复制到用户内容库并编辑", exact: true).IsVisibleInTree(),
