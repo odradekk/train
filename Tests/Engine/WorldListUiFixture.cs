@@ -79,6 +79,10 @@ internal static class WorldListUiFixture
         {
             RailwayWorkPreviews = new Dictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>
             {
+                [(new RailwayWorkRequest.AddTrack(new(1)), new SettlementId(1))] =
+                    new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, 17)], 90000, [new("invalid_state", "Edge.Tracks", null, [])])),
+                [(new RailwayWorkRequest.AddTrack(new(2)), new SettlementId(1))] =
+                    new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, 17)], 90000, [new("invalid_state", "Edge.Tracks", null, [])])),
                 [(new RailwayWorkRequest.AddTrack(new(3)), new SettlementId(1))] =
                     new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, 17)], 90000, [])),
                 [(new RailwayWorkRequest.RepairBreak(new(2), new(1)), new SettlementId(1))] =

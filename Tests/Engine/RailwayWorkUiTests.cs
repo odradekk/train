@@ -78,6 +78,8 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
     {
         var initial = RailwayWorkUiFixture.ReadyToRepair();
         var repaired = RailwayWorkUiFixture.WithAcceptedRepair(2);
+        Require(RailwayWorkUiFixture.AcceptedUnits != 11,
+            "已投入材料夹具必须与修复预览的 11 件不同。");
         var setup = new HostSimulationTests.HostSetup(initial, RailwayWorkUiFixture.Content());
         await Run(setup, async ui =>
         {
@@ -94,7 +96,9 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
                 CommandSource.UserInterface, Completed(1, initial, repaired, new CommandDecision.Accepted([], [])), repaired);
             await _input.Activate(repair);
             await _input.Frames(2);
-            Require(Find<Label>(panel, "Works").Text.Contains("11"), "受理后没有显示核心已投入材料。");
+            var works = Find<Label>(panel, "Works").Text;
+            Require(works.Contains($"夹具钢轨 × {RailwayWorkUiFixture.AcceptedUnits}") && !works.Contains("夹具钢轨 × 11"),
+                "受理后的已投入材料不是核心查询值，或误用了预览：" + works);
             await UiCapture.CaptureSizes(TestScene, "line-inspector-normal");
         });
         setup.Session.AssertComplete();
@@ -108,7 +112,7 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         {
             var panel = await OpenFromList(ui, 2);
             var text = VisibleText(Find<VBoxContainer>(panel, "Breaks"));
-            Require(text.Contains("差") && text.Contains("8") && text.Contains("3"), "库存 3、需求 11 时必须说明缺少 8：" + text);
+            Require(text.Contains("还差 8 件夹具钢轨") && text.Contains("来源库存：夹具钢轨 × 3"), "库存 3、需求 11 时必须说明缺少 8：" + text);
             Require(RepairButtons(panel).Single().Disabled, "缺料时修复应禁用。");
             await UiCapture.CaptureSizes(TestScene, "line-inspector-shortage");
         });
@@ -131,6 +135,7 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Construction_names_and_limits_include_the_track_under_construction()
     {
+        string? occupiedDescription = null;
         var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.Create(), RailwayWorkUiFixture.Content());
         await Run(setup, async ui =>
         {
@@ -139,7 +144,10 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             var existing = await OpenFromList(ui, 1);
             Require(Find<Button>(existing, "AddTrack").Text.Contains("加轨"), "已有轨线路应显示加轨。");
             var busy = await OpenFromList(ui, 2);
-            Require(!Find<Button>(busy, "AddTrack").Visible && VisibleText(busy).Contains("施工中"), "在建轨道占满名额时必须隐藏加轨并说明施工中。");
+            occupiedDescription = Find<VBoxContainer>(busy, "AddTrackRow").GetNode<Label>("Description").Text;
+            Require(!Find<Button>(busy, "AddTrack").Visible && occupiedDescription.Contains("施工中")
+                && occupiedDescription.Contains("占用剩余名额") && !occupiedDescription.Contains("已到上限"),
+                "在建轨道占满名额时，加轨行必须说明施工占额：" + occupiedDescription);
             await UiCapture.CaptureSizes(TestScene, "line-inspector-construction");
         });
         setup.Session.AssertComplete();
@@ -147,7 +155,10 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         await Run(full, async ui =>
         {
             var panel = await OpenFromList(ui, 2);
-            Require(!Find<Button>(panel, "AddTrack").Visible && VisibleText(panel).Contains("已到上限"), "实际轨道达到上限时没有明确说明。");
+            var description = Find<VBoxContainer>(panel, "AddTrackRow").GetNode<Label>("Description").Text;
+            Require(!Find<Button>(panel, "AddTrack").Visible && description.Contains("已到上限")
+                && !description.Contains("施工中") && description != occupiedDescription,
+                "实际轨道到上限的加轨说明必须区别于在建占额：" + description);
             await UiCapture.CaptureSizes(TestScene, "line-inspector-track-limit");
         });
         full.Session.AssertComplete();
@@ -232,12 +243,14 @@ public partial class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Missing_content_uses_chinese_without_internal_identifiers()
     {
-        var content = RailwayWorkUiFixture.Content(false, missingGood: true);
+        var content = RailwayWorkUiFixture.Content(missingGood: true);
         var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.Create(), content);
         await Run(setup, async ui =>
         {
             var panel = await OpenFromList(ui, 2);
             var text = VisibleText(panel);
+            Require(RepairButtons(panel).Single().Text.Contains("材料 × 11") &&
+                !RepairButtons(panel).Single().Text.Contains("铁轨"), "缺少名称时应使用中性的材料称呼。");
             Require(!text.Contains("fixture:") && !text.Contains("insufficient_goods") && !text.Contains("voxel:"), "缺少展示内容时泄漏了内部标识：" + text);
         });
         setup.Session.AssertComplete();

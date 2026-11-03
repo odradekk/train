@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 using Train.Core.Tests.Construction;
+using Train.Core.Tests.World;
 using static Train.Core.Tests.Railway.RailwayWorkFixture;
 using static Train.Core.Tests.Railway.TrainDispatchFixture;
 
@@ -43,8 +44,17 @@ public sealed class RailwayWorkPreviewTests
         var state = Prepared(0, 1.5, 0.5, 0.025, 18, 1, 0);
         var player = Player(state);
         if (scenario == "not-owned") state = state with { World = state.World with
-        { Settlements = state.World.Settlements.Select(s => s.Id == player.Id ? s with { Relation = SettlementRelation.NonHostile } : s).ToImmutableArray() } };
+        {
+            Settlements = state.World.Settlements.Select(s => s.Id == player.Id ? s with { Relation = SettlementRelation.NonHostile } : s).ToImmutableArray(),
+            Nodes = state.World.Nodes.Select(node => node.Id != player.Node ? node : node with
+            { Occupant = new NodeOccupant.Settlement(player.Id, SettlementRelation.NonHostile) }).ToImmutableArray(),
+            Instances = state.World.Instances.Select(instance => instance.Id is InstanceId.Building building
+                && player.Plots.Any(plot => plot.Building == building.Id)
+                ? instance with { Ownership = SettlementRelation.NonHostile } : instance).ToImmutableArray()
+        } };
         using var session = new CoreSession(state);
+        var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        WorldFixture.Success(CoreFactory.Create().DecodeState(capture.Encode()));
         SettlementId? source = scenario == "none" ? null : scenario == "missing" ? new SettlementId(999) : player.Id;
         var preview = Preview(session.Read(), new RailwayWorkRequest.AddTrack(new(1)), source);
         Assert.AreEqual(1L, preview.RequiredMaterials.Single().Quantity);
@@ -63,7 +73,34 @@ public sealed class RailwayWorkPreviewTests
         var blocked = Preview(session.Read(), new RailwayWorkRequest.AddTrack(new(1)), Player(state).Id);
         Assert.AreEqual("Edge.Tracks", blocked.Blockers.Single().Field);
         Advance(session, 60);
+        var completed = ((Lookup<EdgeView>.Found)session.Read().FindEdge(new(1))).Value.Map;
+        Assert.AreEqual(1, completed.Tracks);
+        Assert.IsTrue(completed.Works.IsEmpty);
         Assert.AreEqual("Edge.Tracks", Preview(session.Read(), new RailwayWorkRequest.AddTrack(new(1)), Player(state).Id).Blockers.Single().Field);
+    }
+
+    [TestMethod]
+    public void Expansion_preview_reports_both_queued_track_limit_and_missing_source()
+    {
+        var state = Prepared(0, 1, 1, 1, 1, 1);
+        state = state with { World = state.World with { Edges = [state.World.Edges[0] with { TrackLimit = 1 }] } };
+        using var session = new CoreSession(state);
+        Accepted(session, new CoreCommand.ExpandRail(new(1), Player(state).Id));
+        var preview = Preview(session.Read(), new RailwayWorkRequest.AddTrack(new(1)), null);
+        CollectionAssert.AreEquivalent(new[] { ("invalid_state", "Edge.Tracks"), ("invalid_state", "MaterialSource") },
+            preview.Blockers.Select(problem => (problem.Code, problem.Field)).ToArray());
+    }
+
+    [TestMethod]
+    public void Missing_rule_does_not_report_missing_material_source()
+    {
+        var state = Prepared(0, 1, 1, 1, 1, 1);
+        state = state with { Content = state.Content with { RailwayRules = [] } };
+        using var session = new CoreSession(state);
+        var preview = Preview(session.Read(), new RailwayWorkRequest.AddTrack(new(1)), null);
+        Assert.AreEqual(("content_missing", "RailwayRule"), (preview.Blockers.Single().Code, preview.Blockers.Single().Field));
+        Assert.IsTrue(preview.RequiredMaterials.IsEmpty);
+        Assert.AreEqual(0UL, preview.DurationTicks);
     }
 
     [TestMethod]

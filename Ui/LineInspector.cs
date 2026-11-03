@@ -62,7 +62,8 @@ internal sealed partial class LineInspector
         {
             if (!ReadCurrent()) return;
             _choosingAutomaticSource = enabled;
-            if (!enabled) Submit(new CoreCommand.SetAutomaticRailRepair(_edge.Map.Id, null));
+            if (!enabled && _edge.AutoRepairMaterialSource is not null)
+                Submit(new CoreCommand.SetAutomaticRailRepair(_edge.Map.Id, null));
             RefreshAutomaticRepair();
         };
         _automaticSource.ItemSelected += index =>
@@ -103,14 +104,7 @@ internal sealed partial class LineInspector
             Panel.GetNode<Label>("Layout/Heading/Title").Text = $"{Place(map.Start)}—{Place(map.End)}";
             _summary.Text = $"长度 {map.LengthMeters:0.##} 米 · 铁轨 {map.Tracks}/{map.TrackLimit}";
             RefreshWorks(); RefreshTrains(); RefreshBreaks();
-            _add.Button.Visible = map.Tracks + map.Works.Count(work => work.Kind == RailwayWorkKind.AddTrack) < map.TrackLimit;
-            if (_add.Button.Visible)
-                RefreshPreview(_add, new RailwayWorkRequest.AddTrack(map.Id), map.Tracks == 0 ? "建设线路" : "加轨");
-            else
-            {
-                _add.CanStart = false;
-                _add.Description.Text = map.Tracks >= map.TrackLimit ? "铁轨数已到上限。" : "加轨施工中，已占用剩余名额。";
-            }
+            RefreshPreview(_add, new RailwayWorkRequest.AddTrack(map.Id), map.Tracks == 0 ? "建设线路" : "加轨");
         }
         _sources.Disabled = _host.IsBusy || _sourceIds.Count == 0;
         foreach (var row in _repairs.Values.Append(_add)) row.Button.Disabled = _host.IsBusy || !row.CanStart;

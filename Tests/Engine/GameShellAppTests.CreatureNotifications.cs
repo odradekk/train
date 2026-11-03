@@ -101,6 +101,11 @@ public class CreatureNotificationTests(Node testScene) : TestClass(testScene)
         var atEdge = atNode with { Id = new(2), Location = new WorldLocation.Edge(edge.Id, 250), Direction = TravelDirection.Forward };
         return new(default, HostCoreScenario.Input, revision: new(1))
         {
+            RailwayWorkPreviews = new Dictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>
+            {
+                [(new RailwayWorkRequest.AddTrack(edge.Id), null)] = new CoreResult<RailwayWorkPreview>.Success(
+                    new([], 0, [new("invalid_state", "Edge.Tracks", null, []), new("invalid_state", "MaterialSource", null, [])]))
+            },
             Economy = UiWorldFixture.Economy,
             World = basis.World with
             {

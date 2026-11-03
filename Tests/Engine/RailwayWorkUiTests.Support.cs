@@ -49,7 +49,16 @@ public partial class RailwayWorkUiTests
             await _input.Activate(Find<Button>(ui, "Edges"));
         await _input.ClickItem(Find<Tree>(Find<PanelContainer>(ui, "EdgesList"), "Objects"), edgeIndex);
         await _input.Frames(2);
-        return Find<PanelContainer>(ui, "LineInspector");
+        var panel = Find<PanelContainer>(ui, "LineInspector");
+        RequireUnixWorkDescriptions(panel);
+        return panel;
+    }
+
+    private static void RequireUnixWorkDescriptions(Node panel)
+    {
+        var descriptions = Find<VBoxContainer>(panel, "Breaks").FindChildren("Description", "Label", true, false)
+            .Cast<Label>().Append(Find<VBoxContainer>(panel, "AddTrackRow").GetNode<Label>("Description"));
+        Require(descriptions.All(label => !label.Text.Contains('\r')), "断点或加轨说明包含 CR 换行。");
     }
 
     private static Button[] RepairButtons(Node panel) => Find<VBoxContainer>(panel, "Breaks")
@@ -62,12 +71,6 @@ public partial class RailwayWorkUiTests
             Button button => button.Text,
             _ => ""
         }));
-
-    private async Task DismissError(GameUi ui)
-    {
-        var panel = ui.GetNode<PanelContainer>("Root/ErrorPanel");
-        if (panel.Visible) await _input.Activate(Find<Button>(panel, "Close"));
-    }
 
     private sealed class LineScene(SceneBinding binding) : IWorldSceneSession
     {
@@ -94,7 +97,6 @@ public partial class RailwayWorkUiTests
     }
     private static EdgeView Edge(HostCoordinator host, ulong id) =>
         ((Lookup<EdgeView>.Found)host.GetStatus()!.View.FindEdge(new(id))).Value;
-    private static PanelContainer LatestDetail(GameUi ui) => Find<PanelContainer>(ui, "Details");
 
     private static void Accept(HostCoordinator host, CoreCommand command)
     {

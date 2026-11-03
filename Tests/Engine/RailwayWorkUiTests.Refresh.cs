@@ -18,8 +18,75 @@ public partial class RailwayWorkUiTests
         await Run(setup, async ui =>
         {
             var panel = await OpenFromList(ui, 2);
-            Require(RepairButtons(panel).Single().Disabled, "已有未开工维修时仍能重复手动修复。");
+            var repair = RepairButtons(panel).Single();
+            Require(repair.Disabled, "已有未开工维修时仍能重复手动修复。");
+            repair.EmitSignal(BaseButton.SignalName.Pressed);
             Require(setup.Session.SubmitCount == 0, "检查既有维修提交了命令。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Cancelling_automatic_repair_before_choosing_a_source_submits_nothing()
+    {
+        var initial = RailwayWorkUiFixture.WithStock(0, automaticRepair: false);
+        var setup = new HostSimulationTests.HostSetup(initial, RailwayWorkUiFixture.Content());
+        await Run(setup, async ui =>
+        {
+            var panel = await OpenFromList(ui, 2);
+            var toggle = Find<CheckButton>(panel, "AutomaticRepair");
+            await _input.Activate(toggle);
+            Require(Find<OptionButton>(panel, "AutomaticRepairSource").Visible, "打开自动修复没有显示来源选择。");
+            await _input.Activate(toggle);
+            Require(!toggle.ButtonPressed && !Find<OptionButton>(panel, "AutomaticRepairSource").Visible,
+                "取消待启用的自动修复没有隐藏来源选择。");
+            Require(setup.Session.SubmitCount == 0 && Find<Label>(panel, "Feedback").Text.Length == 0,
+                "没有选来源就关闭开关，仍提交了命令或显示受理反馈。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Building_a_line_submits_its_source_and_shows_a_chinese_rejection()
+    {
+        var initial = RailwayWorkUiFixture.Create();
+        var setup = new HostSimulationTests.HostSetup(initial, RailwayWorkUiFixture.Content());
+        await Run(setup, async ui =>
+        {
+            var panel = await OpenFromList(ui, 0);
+            var row = Find<VBoxContainer>(panel, "AddTrackRow");
+            var description = row.GetNode<Label>("Description").Text;
+            Require(description.Contains("需要：夹具钢轨 × 17") && description.Contains("来源：自有镇")
+                && description.Contains("来源库存：夹具钢轨 × 18") && description.Contains("工期：")
+                && description.Contains("时") && description.Contains("分") && !description.Contains("90000") && !description.Contains("tick"),
+                "建设说明没有显示预览材料、来源库存和可读工期：" + description);
+            setup.Session.QueueSubmit(new CoreCommand.ExpandRail(new(RailwayWorkUiFixture.ZeroTrackEdge), new(1)),
+                CommandSource.UserInterface, Completed(1, initial, initial,
+                    new CommandDecision.Rejected([RailwayWorkUiFixture.Blocker()])), initial);
+            await _input.Activate(Find<Button>(panel, "AddTrack"));
+            await _input.Frames(2);
+            var feedback = Find<Label>(panel, "Feedback").Text;
+            Require(setup.Session.SubmitCount == 1 && feedback.Contains("货物不足") && feedback.Contains("夹具钢轨")
+                && !feedback.Contains("insufficient_goods") && !feedback.Contains("voxel:") && !feedback.Contains("fixture:"),
+                "建设拒绝没有显示中文材料反馈：" + feedback);
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Missing_rules_disable_work_without_inventing_materials_or_duration()
+    {
+        var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.MissingRules(), RailwayWorkUiFixture.Content());
+        await Run(setup, async ui =>
+        {
+            var panel = await OpenFromList(ui, 2);
+            var descriptions = Find<VBoxContainer>(panel, "Breaks").FindChildren("Description", "Label", true, false)
+                .Cast<Label>().Append(Find<VBoxContainer>(panel, "AddTrackRow").GetNode<Label>("Description")).ToArray();
+            Require(descriptions.Length == 2 && descriptions.All(label => label.Text.Contains("材料需求不可用")
+                && !label.Text.Contains("工期") && !label.Text.Contains("content_missing")),
+                "缺少铁路规则时应说明材料不可用，不能显示虚构工期。");
+            Require(RepairButtons(panel).Single().Disabled && Find<Button>(panel, "AddTrack").Disabled,
+                "缺少铁路规则时仍能提交施工。");
         });
         setup.Session.AssertComplete();
     }

@@ -1,5 +1,6 @@
 using System.Text;
 using Godot;
+using Train.App;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using static Train.Ui.EconomyPanelControls;
@@ -49,6 +50,15 @@ internal sealed partial class LineInspector
             return;
         }
         var preview = success.Value;
+        if (request is RailwayWorkRequest.AddTrack)
+        {
+            row.Button.Visible = !preview.Blockers.Any(problem => problem is { Code: "invalid_state", Field: "Edge.Tracks" });
+            if (!row.Button.Visible)
+            {
+                row.Description.Text = _edge.Map.Tracks >= _edge.Map.TrackLimit ? "铁轨数已到上限。" : "加轨施工中，已占用剩余名额。";
+                return;
+            }
+        }
         var text = new StringBuilder();
         if (location is not null) text.AppendLine(location);
         text.AppendLine("需要：" + Materials(preview.RequiredMaterials));
@@ -62,8 +72,9 @@ internal sealed partial class LineInspector
         }
         if (preview.DurationTicks > 0) text.AppendLine("工期：" + Duration(preview.DurationTicks));
         foreach (var problem in preview.Blockers)
-            if (problem.Code != "insufficient_goods") text.AppendLine(ProblemText(problem));
-        row.Description.Text = text.ToString().TrimEnd();
+            if (problem is not { Code: "insufficient_goods" } and not { Code: "invalid_state", Field: "MaterialSource" or "Edge.Tracks" })
+                text.AppendLine(ProblemText(problem));
+        row.Description.Text = text.ToString().TrimEnd().ReplaceLineEndings("\n");
         if (!preview.RequiredMaterials.IsDefaultOrEmpty) row.Button.Text += " · " + Materials(preview.RequiredMaterials);
         row.CanStart = _source is not null && preview.Blockers.IsDefaultOrEmpty;
     }
@@ -74,23 +85,12 @@ internal sealed partial class LineInspector
             ? inventory.Value.Stacks.Where(item => item.Good == good).Sum(item => item.Quantity) : 0;
 
     private string GoodName(GoodId good) => _content.FindGood(good) is ContentLookup<GoodPresentation>.Found { Value.Missing: false } found
-        ? found.Value.Display.Text.Name : "铁轨";
+        ? found.Value.Display.Text.Name : "材料";
 
     private string Materials(System.Collections.Immutable.ImmutableArray<GoodsQuantity> goods) => goods.IsDefaultOrEmpty
         ? "材料需求不可用" : string.Join("、", goods.Select(item => $"{GoodName(item.Good)} × {item.Quantity}"));
 
-    private static string ProblemText(CoreProblem problem) => (problem.Code, problem.Field) switch
-    {
-        ("invalid_state", "MaterialSource") => "请选择材料来源。",
-        ("invalid_state", "Edge.Tracks") => "铁轨数量或在建任务已到上限。",
-        ("busy", _) => "已有施工任务或当前操作尚未结束。",
-        ("object_missing", _) => "线路、断点或材料来源已不存在。",
-        ("content_missing", _) => "铁路规则或材料内容不可用。",
-        ("not_owned", _) => "材料来源必须是自有聚居地。",
-        ("insufficient_goods", _) => "来源库存材料不足。",
-        ("identity_exhausted", _) => "当前无法创建新的施工任务。",
-        _ => "当前不能施工，请检查来源和线路状态。"
-    };
+    private string ProblemText(CoreProblem problem) => CommandDiagnostics.Describe(problem with { Subject = null }, _content);
 
     private void RefreshWorks()
     {

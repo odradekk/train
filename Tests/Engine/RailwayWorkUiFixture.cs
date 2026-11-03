@@ -12,7 +12,7 @@ internal static class RailwayWorkUiFixture
     internal const ulong BreakEdge = 2;
     internal const ulong ActiveEdge = 3;
     internal const long StartedUnits = 7;
-    internal const long AcceptedUnits = 11;
+    internal const long AcceptedUnits = 5;
     internal const double ActiveLengthMeters = 400;
     internal const double RailUnitsPerMeter = 0.7;
     internal static readonly GoodId Rail = new GoodId.Voxel(new("fixture:rail"));
@@ -23,11 +23,10 @@ internal static class RailwayWorkUiFixture
     internal static FixedCoreReadView WithManyBreaks(ulong revision = 1) =>
         Build(revision, [StartedWork(), UnstartedWork()], new(1), 18, activeBreaks: 60);
 
-    internal static FixedCoreReadView WithoutAutomaticRepair(ulong revision) =>
-        Build(revision, [StartedWork()], null, 18);
-
     internal static FixedCoreReadView WithAcceptedRepair(ulong revision) =>
-        Build(revision, [StartedWork(), AcceptedRepair()], null, 7);
+        Build(revision, [StartedWork(), AcceptedRepair()], null, 18 - AcceptedUnits);
+
+    internal static FixedCoreReadView MissingRules() => Build(1, [], null, 18, missingRules: true);
 
     internal static FixedCoreReadView ReadyToRepair() => Build(1, [StartedWork()], null, 18);
 
@@ -49,7 +48,7 @@ internal static class RailwayWorkUiFixture
     internal static CoreProblem Blocker() => new("insufficient_goods", "MaterialSource.Inventory",
         new WorldObjectId.Settlement(new(1)), ["voxel:fixture:rail"]);
 
-    internal static FixedContentView Content(bool railwayRule = true, bool missingGood = false, ulong generation = 1)
+    internal static FixedContentView Content(bool missingGood = false, ulong generation = 1)
     {
         var type = new SettlementTypeId("fixture:town-type");
         var template = new SettlementTemplateId("fixture:town");
@@ -59,8 +58,8 @@ internal static class RailwayWorkUiFixture
             new(new("fixture:town-model"), scene, new(name, "")), [], new(name, ""));
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
-            RailwayRules = railwayRule ? [new RailwayRuleProjection(new("fixture:railway"), new("fixture-railway-v1"),
-                0.7, 0.15, 28, new("fixture:rail"), RailUnitsPerMeter, 3, 18, 48, 80, 80, 15)] : [],
+            RailwayRules = [new RailwayRuleProjection(new("fixture:railway"), new("fixture-railway-v1"),
+                0.7, 0.15, 28, new("fixture:rail"), RailUnitsPerMeter, 3, 18, 48, 80, 80, 15)],
             SettlementTemplates = [new(template, type, 1, [], [], [], [], 40)],
             Goods = [new(Rail, new("fixture-good-v1"), new Money(1), 0.028, true, null)]
         };
@@ -91,7 +90,7 @@ internal static class RailwayWorkUiFixture
     }
 
     private static FixedCoreReadView Build(ulong revision, ImmutableArray<RailwayWorkView> activeWorks, SettlementId? autoRepair, long railQuantity,
-        int activeBreaks = 1, bool ownedSource = true, int activeTracks = 1)
+        int activeBreaks = 1, bool ownedSource = true, int activeTracks = 1, bool missingRules = false)
     {
         var terrain = new TerrainView(new("core:plains"), 0, []);
         NodeMapItem Node(ulong id, double x, double y, NodeOccupant occupant) => new(new(id), new(x, y), terrain, occupant, [], 0, 1, null);
@@ -148,7 +147,7 @@ internal static class RailwayWorkUiFixture
         };
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
         {
-            RailwayWorkPreviews = Previews(edges, railQuantity),
+            RailwayWorkPreviews = Previews(edges, railQuantity, missingRules),
             Trains = new Dictionary<TrainId, Lookup<TrainView>>
             {
                 [train.Id] = new Lookup<TrainView>.Found(train)
@@ -175,7 +174,7 @@ internal static class RailwayWorkUiFixture
         };
     }
     private static IReadOnlyDictionary<(RailwayWorkRequest Request, SettlementId? MaterialSource), CoreResult<RailwayWorkPreview>>
-        Previews(IEnumerable<EdgeView> edges, long stock)
+        Previews(IEnumerable<EdgeView> edges, long stock, bool missingRules)
     {
         var result = new Dictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>();
         foreach (var edge in edges)
@@ -185,12 +184,23 @@ internal static class RailwayWorkUiFixture
             foreach (var request in requests)
             foreach (SettlementId? source in new SettlementId?[] { null, new(1) })
             {
+                if (missingRules)
+                {
+                    result[(request, source)] = new CoreResult<RailwayWorkPreview>.Success(new([], 0,
+                        [new("content_missing", "RailwayRule", new WorldObjectId.Edge(edge.Map.Id), ["fixture:railway"])]));
+                    continue;
+                }
+                var blockers = ImmutableArray.CreateBuilder<CoreProblem>();
+                if (request is RailwayWorkRequest.AddTrack && edge.Map.Tracks +
+                    edge.Map.Works.Count(work => work.Kind == RailwayWorkKind.AddTrack) >= edge.Map.TrackLimit)
+                    blockers.Add(new("invalid_state", "Edge.Tracks", new WorldObjectId.Edge(edge.Map.Id), []));
+                if (request is RailwayWorkRequest.RepairBreak repair && edge.Map.Works.Any(work => work.RepairingBreak == repair.Break))
+                    blockers.Add(new("busy", "Break", new WorldObjectId.Edge(edge.Map.Id), []));
                 var amount = request is RailwayWorkRequest.RepairBreak ? 11L : 17L;
+                if (source is null) blockers.Add(new("invalid_state", "MaterialSource", null, []));
+                else if (stock < amount) blockers.Add(Blocker());
                 result[(request, source)] = new CoreResult<RailwayWorkPreview>.Success(new([new(Rail, amount)],
-                    request is RailwayWorkRequest.RepairBreak ? 48UL : 90000UL,
-                    edge.Map.Works.Any(work => request is RailwayWorkRequest.AddTrack ? work.Kind == RailwayWorkKind.AddTrack : request is RailwayWorkRequest.RepairBreak repair && work.RepairingBreak == repair.Break) ? [new CoreProblem("railway_work_exists", "Edge", null, [])]
-                    : source is null ? [new CoreProblem("material_source_required", "MaterialSource", null, [])]
-                    : stock < amount ? [Blocker()] : []));
+                    request is RailwayWorkRequest.RepairBreak ? 48UL : 90000UL, blockers.ToImmutable()));
             }
         }
         return result;
