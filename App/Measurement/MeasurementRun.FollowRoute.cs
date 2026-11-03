@@ -72,7 +72,6 @@ internal sealed partial class MeasurementRun
             if (host.Submit(host.GetStatus()!.Binding, new CoreCommand.StartTrain(train.Id), CommandSource.AutomationTest)
                 is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
                 throw new InvalidOperationException("无法启动测量列车。");
-            _sceneClick = Seconds();
             map.RaiseObjectActivated(_sceneTarget);
             _routeStarted = Seconds();
             var gcStart = GcReading.Current;
