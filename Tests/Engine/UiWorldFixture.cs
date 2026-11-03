@@ -147,6 +147,12 @@ internal static class UiWorldFixture
         ImmutableArray<EdgeId> connected = scenario == Scenario.Scene ? [edge.Id] : [];
         return new(tick, input)
         {
+            RailwayWorkPreviews = scenario == Scenario.Scene
+                ? new Dictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>
+                {
+                    [(new RailwayWorkRequest.AddTrack(edge.Id), null)] = new CoreResult<RailwayWorkPreview>.Success(
+                        new([], 0, [new("invalid_state", "Edge.Tracks", null, []), new("invalid_state", "MaterialSource", null, [])]))
+                } : [],
             Economy = UiWorldFixture.Economy,
             FoundingPreviews = new[] { first.Id, second.Id }.ToDictionary(id => id,
                 _ => (CoreResult<SettlementFoundingPreview>)new CoreResult<SettlementFoundingPreview>.Failure(

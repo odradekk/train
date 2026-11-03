@@ -8,6 +8,15 @@ Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetInspectionFail
 Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetInspectionFailure|UnsupportedContent|1
 Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetKind|Glb|1
 Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetKind|Png|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|Building|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|Creature|4
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|InventoryBlueprint|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|InventoryVoxel|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|ProductionProcess|7
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|RecoveryProcess|8
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|SceneModel|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|SettlementType|6
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AuthoringReferenceKind|TerrainType|5
 Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|Local|2
 Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|Packages|0
 Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|User|1
@@ -104,7 +113,7 @@ Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|Immutable
 Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|ImmutableArray<PackageMetadata> ReferencedPackages { get; }
 Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|string Encode();
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target);
-Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft, CompositeDefinitionId? compositeIdentity = null);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package, PackageSourceVersion sourceVersion, IContentFiles files);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request, IContentFiles files, IAssetInspector inspector);
@@ -112,6 +121,8 @@ Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentRe
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCapture> DecodeCapture(string payload);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentReplayCapture> DecodeReplay(string payload);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<ImmutableArray<AuthoringReferenceChoice>> QueryAuthoringReferences( IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<ImmutableArray<ContentDiagnostic>> ValidateAuthoringDefinition( IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits, AuthoringDefinitionAddress definition);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits);
 Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<SavedContentDraft> DecodeDraft(string payload);
@@ -155,6 +166,8 @@ Train.Content.Contracts|type|Train.Content.Contracts.AssetMetadata|public abstra
 Train.Content.Contracts|type|Train.Content.Contracts.AssetRevision|public readonly record struct AssetRevision(string Value);
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringAssetPath|public readonly record struct AuthoringAssetPath(string Value);
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringDefinitionAddress|public sealed record AuthoringDefinitionAddress(DefinitionKind Kind, string LocalId);
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringReferenceChoice|public sealed record AuthoringReferenceChoice(AuthoringReferenceKind Kind, ContentReference Reference, DisplayText Display);
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringReferenceKind|public enum AuthoringReferenceKind
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation.Cube|public sealed record Cube(ImmutableArray<VoxelShape> Shapes, MaterialCategory Material, int TileSpan, AuthoringAssetPath Top, AuthoringAssetPath Side, AuthoringAssetPath Bottom, AuthoringAssetPath? Front) : AuthoringVoxelPresentation;
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation.Mesh|public sealed record Mesh(AuthoringAssetPath Model, ImmutableArray<MaterialCategory> SurfaceMaterials) : AuthoringVoxelPresentation;
 Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation|public abstract record AuthoringVoxelPresentation
@@ -501,6 +514,7 @@ Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreFault? Fault 
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreInputId InputIdentity { get; }
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<LeaseQuote> QuoteLease(LeaseRequest request);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request);
 Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<TrainFormationPreview> PreviewTrainFormation(ImmutableArray<VehicleId> orderedVehicles, TrainId? train);
@@ -873,6 +887,10 @@ Train.Core.Contracts|type|Train.Core.Contracts.ProductionProcessDefinitionId|pub
 Train.Core.Contracts|type|Train.Core.Contracts.ProductionState|public enum ProductionState
 Train.Core.Contracts|type|Train.Core.Contracts.RailwayRuleProjection|public sealed record RailwayRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, double BrakingDeceleration, double MinimumAcceleration, double MinimumGapMeters, VoxelDefinitionId RailGood, double RailUnitsPerMeter, double BuildSecondsPerMeter, long RepairRailUnitsPerBreak, double RepairSecondsPerBreak, double ApproachLengthMeters, double DepartureLengthMeters, double NodeSpeedLimitMetersPerSecond);
 Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkKind|public enum RailwayWorkKind
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkPreview|public sealed record RailwayWorkPreview(ImmutableArray<GoodsQuantity> RequiredMaterials, ulong DurationTicks, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkRequest.AddTrack|public sealed record AddTrack(EdgeId Edge) : RailwayWorkRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkRequest.RepairBreak|public sealed record RepairBreak(EdgeId Edge, BreakId Break) : RailwayWorkRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkRequest|public abstract record RailwayWorkRequest
 Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkView|public sealed record RailwayWorkView(JobId Id, RailwayWorkKind Kind, int Track, BreakId? RepairingBreak, SettlementId MaterialSource, ImmutableArray<GoodsQuantity> InvestedGoods, double Progress, ImmutableArray<CoreProblem> Blockers);
 Train.Core.Contracts|type|Train.Core.Contracts.RecordedCommand|public sealed record RecordedCommand(CommandSource Source, string CanonicalPayload, CommandReceipt Result, CoreInputId InputBefore, CoreInputId InputAfter);
 Train.Core.Contracts|type|Train.Core.Contracts.RecordingGap|public sealed record RecordingGap(SimulationPosition From, SimulationPosition? Until, string Code);

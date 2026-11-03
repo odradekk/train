@@ -45,7 +45,7 @@ public partial class GameShellAppTests
     }
 
     [Test]
-    public async Task Railway_work_content_remains_reachable_in_the_narrow_workspace()
+    public async Task Railway_work_content_remains_reachable_in_the_narrow_inspector()
     {
         var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.WithManyBreaks(), RailwayWorkUiFixture.Content());
         await Run(async (ui, shell) =>
@@ -54,12 +54,13 @@ public partial class GameShellAppTests
             await _input.ClickItem(Find<Tree>(shell.ListContent!, "Objects"), 2);
             Require(shell.SelectedObject == new WorldObjectId.Edge(new(RailwayWorkUiFixture.ActiveEdge)),
                 "铁路施工检查必须选中包含全部断点的线路。");
-            await _input.Activate(Find<Button>(shell.InspectorContent!, "RailwayWork"));
-            await CheckNarrowWorkspaceContent(ui);
+            Require(shell.InspectorContent?.Name == "LineInspector" && shell.WorkspaceContent is null,
+                "选中线路应直接打开检查器，不应创建施工工作区。");
+            await CheckNarrowScrollableContent(ui, shell.InspectorContent!);
         }, setup);
     }
 
-    private async Task CheckNarrowWorkspaceContent(GameUi ui)
+    private async Task CheckNarrowScrollableContent(GameUi ui, Control content)
     {
         var window = TestScene.GetTree().Root;
         var size = window.Size;
@@ -69,7 +70,7 @@ public partial class GameShellAppTests
             window.ContentScaleFactor = 2;
             await _input.Frames(6);
             ShellGeometry.Check(ui);
-            var scroll = Find<ScrollContainer>(((GameShell)ui.World).WorkspaceContent!, "Content");
+            var scroll = Find<ScrollContainer>(content, "Content");
             scroll.ScrollHorizontal = (int)scroll.GetHScrollBar().MaxValue;
             scroll.ScrollVertical = (int)scroll.GetVScrollBar().MaxValue;
             await _input.Frames(3);
@@ -78,7 +79,7 @@ public partial class GameShellAppTests
             if (scroll.GetVScrollBar().IsVisibleInTree()) area.Size -= new Vector2(scroll.GetVScrollBar().Size.X, 0);
             var end = scroll.GetChild<Control>(0).GetGlobalRect().End;
             Require(area.HasArea() && end.X <= area.End.X + 1 && end.Y <= area.End.Y + 1,
-                $"最窄工作区必须能滚到全部内容的右下角：end={end}，area={area}。");
+                $"最窄面板必须能滚到全部内容的右下角：end={end}，area={area}。");
         }
         finally { window.Size = size; }
     }

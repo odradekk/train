@@ -72,7 +72,7 @@ internal sealed partial class EditorService : IDisposable
         _draft = new(Guid.NewGuid());
         _forceDirty = unsaved;
         var content = FixedContent;
-        _opening = new(draft, Task.Run(() => Host.ContentFactory.EvaluateDesign(content, draft)));
+        _opening = new(draft, EvaluateAsync(content, draft));
         SceneUnavailable = false;
         Message = "正在准备编辑器…";
         Changed?.Invoke();
@@ -186,7 +186,7 @@ internal sealed partial class EditorService : IDisposable
                 var snapshot = session.Capture();
                 _evaluating = snapshot.Stamp;
                 var content = FixedContent!;
-                _evaluations.Add(new(session, snapshot, Task.Run(() => Host.ContentFactory.EvaluateDesign(content, snapshot.Draft))));
+                _evaluations.Add(new(session, snapshot, EvaluateAsync(content, snapshot.Draft)));
                 Changed?.Invoke();
             }
             catch (Exception error)

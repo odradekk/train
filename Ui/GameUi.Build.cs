@@ -82,11 +82,6 @@ public partial class GameUi
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, _icons, SubmitInline, SubmitInline);
             _world.AddChild(_economy);
-            _railway = new RailwayWorkPanel { Name = "RailwayWork" };
-            _railway.Initialize(_host, Submit);
-            _world.AddChild(_railway);
-            _panels.RailwayWorkRequested += (target, edge) => _shell.RequestWorkspace(() =>
-                { _railway.Open(target, edge); _shell.ShowWorkspace(_railway.Content); });
             _economy.FormationRequested += (target, node, vehicles, view, content) =>
                 _shell.RequestWorkspace(() => _formation.Open(target, node, vehicles, view, content));
             _combat = new CombatPanel { Name = "CombatPanel" };

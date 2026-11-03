@@ -64,8 +64,7 @@ internal sealed class InitialLoader
                         missing = true;
                     }
                     if (missing) continue;
-                    var result = DesignEvaluator.Evaluate(evaluationView, blueprint.Definition,
-                        compositeIdentity: functional ? new K.CompositeDefinitionId(blueprint.Address.Id.Value) : null);
+                    var result = DesignEvaluator.Evaluate(evaluationView, blueprint);
                     if (result is not C.DesignEvaluation.Complete evaluation || !evaluation.IsValid)
                     {
                         var failures = result is C.DesignEvaluation.Failed failed

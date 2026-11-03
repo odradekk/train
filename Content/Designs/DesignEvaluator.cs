@@ -7,15 +7,13 @@ using K = Train.Core.Contracts;
 
 namespace Train.Content.Designs;
 
-internal static class DesignEvaluator
+internal static partial class DesignEvaluator
 {
-    internal static K.DesignHash Identity(C.DesignDraft draft) => new(DesignTraversal.Hash(DesignTraversal.Normalize(draft), false));
-
     internal static C.DesignEvaluation Evaluate(ContentView content, C.DesignDraft draft, bool allowMissing = false,
         K.CompositeDefinitionId? compositeIdentity = null, int depth = 1)
     {
         if (draft.Specification is C.DesignSpecification.FunctionalComposite && compositeIdentity is null)
-            throw new NotImplementedException("根功能复合体草稿缺少定义身份，不能推断货物标识。");
+            throw new ArgumentException("根功能复合体草稿缺少定义身份，不能推断货物标识。", nameof(compositeIdentity));
 
         draft = DesignTraversal.Normalize(draft);
 

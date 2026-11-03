@@ -18,6 +18,7 @@ public partial class WorldPanels : Control
     private DetailPanelControls? _detail;
     private TrainInspector? _trainInspector;
     private NodeInspector? _nodeInspector;
+    private LineInspector? _lineInspector;
     private Func<PanelTarget?, CoreCommand, SubmissionResult> _submitInline = null!;
     private ConfirmationDialog _disband = null!;
     private PanelTarget? _disbandTarget;
@@ -25,7 +26,6 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? TrainFormationRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
-    internal event Action<PanelTarget, EdgeId>? RailwayWorkRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
     internal event Action<TrainId>? TrainCombatRequested;
@@ -58,6 +58,7 @@ public partial class WorldPanels : Control
         foreach (var entry in _lists.Values) entry.Refresh(view, content);
         _trainInspector?.Refresh(binding, view, content);
         _nodeInspector?.Refresh(binding, view, content);
+        _lineInspector?.Refresh(binding, view, content);
         if (_detail is { } detail)
         {
             var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
@@ -106,7 +107,8 @@ public partial class WorldPanels : Control
     internal bool IsObjectOpen(WorldObjectId target) =>
         _detail is { } detail && detail.Target.Object == target && detail.Panel.IsVisibleInTree() ||
         _nodeInspector is { } node && node.Target.Object == target && node.Panel.IsVisibleInTree() ||
-        _trainInspector is { } train && train.Target.Object == target && train.Panel.IsVisibleInTree();
+        _trainInspector is { } train && train.Target.Object == target && train.Panel.IsVisibleInTree() ||
+        _lineInspector is { } line && line.Target.Object == target && line.Panel.IsVisibleInTree();
 
     internal void OpenObject(WorldObjectId target)
     {
@@ -115,6 +117,8 @@ public partial class WorldPanels : Control
         { node.Panel.Show(); InspectorOpened?.Invoke(target, node.Panel); return; }
         if (_trainInspector is { } opened && opened.Target == bound)
         { opened.Panel.Show(); InspectorOpened?.Invoke(target, opened.Panel); return; }
+        if (_lineInspector is { } line && line.Target == bound)
+        { line.Panel.Show(); InspectorOpened?.Invoke(target, line.Panel); return; }
         if (_detail is { } existing && existing.Target == bound)
         { existing.Panel.Show(); InspectorOpened?.Invoke(target, existing.Panel); return; }
         CloseDetail();
@@ -126,6 +130,13 @@ public partial class WorldPanels : Control
                 id => RefitRequested?.Invoke(id), id => VehicleServiceRequested?.Invoke(id));
             Refresh(_binding, _view, _content);
             InspectorOpened?.Invoke(target, _nodeInspector.Panel);
+            return;
+        }
+        if (target is WorldObjectId.Edge)
+        {
+            _lineInspector = new(this, _host, bound, _submitInline, id => SelectionRequested?.Invoke(id));
+            Refresh(_binding, _view, _content);
+            InspectorOpened?.Invoke(target, _lineInspector.Panel);
             return;
         }
         if (target is WorldObjectId.Train trainTarget)
@@ -146,8 +157,6 @@ public partial class WorldPanels : Control
         Action<InstanceId> service = id => VehicleServiceRequested?.Invoke(id);
         var detail = target switch
         {
-            WorldObjectId.Edge { Id: var edgeId } => new EdgeDetailPanel(panel, body, bound, edgeId, () => Available(bound),
-                (source, id) => RailwayWorkRequested?.Invoke(source, id)).Controls,
             WorldObjectId.Instance { Id: var instanceId } => new InstanceDetailPanel(panel, body, bound, instanceId, () => Available(bound),
                 refit, service).Controls,
             _ => new DetailPanelControls(panel, body, bound, (_, _) => "已不存在", _ => [])
@@ -160,11 +169,11 @@ public partial class WorldPanels : Control
 
     private void CloseDetail()
     {
-        var panel = _nodeInspector?.Panel ?? _trainInspector?.Panel ?? _detail?.Panel;
+        var panel = _nodeInspector?.Panel ?? _lineInspector?.Panel ?? _trainInspector?.Panel ?? _detail?.Panel;
         if (panel is null) return;
         panel.GetParent()?.RemoveChild(panel);
         panel.QueueFree();
-        _nodeInspector = null; _trainInspector = null; _detail = null;
+        _nodeInspector = null; _lineInspector = null; _trainInspector = null; _detail = null;
         _disband.Hide(); _disbandTarget = null;
     }
 

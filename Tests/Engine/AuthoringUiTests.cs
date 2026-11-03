@@ -18,7 +18,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
     private AuthoringDefinitionForm Mount(DefinitionDraft draft)
     {
         var form = new AuthoringDefinitionForm { Name = "AuthoringFormUnderTest" };
-        TestScene.AddChild(form); form.Load(draft); return form;
+        TestScene.AddChild(form); form.Load(draft, new("fixture"), []); return form;
     }
     private static LineEdit Field(AuthoringDefinitionForm form, string title) =>
         form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().Single(edit => edit.TooltipText == title);
@@ -31,7 +31,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
         TestScene.AddChild(form);
         try
         {
-            form.Load(draft);
+            form.Load(draft, new("fixture"), []);
             Require(edits == 0, "加载表单不得产生未保存修改。");
             await new UiTestInput(TestScene).Frames(2);
             await new UiTestInput(TestScene).Enter(Field(form, "权重（可空）"), "99999999999999999999999");
@@ -53,7 +53,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
         try
         {
             await new UiTestInput(TestScene).Frames(2);
-            await new UiTestInput(TestScene).Enter(Field(form, "牵引力 kN"), "42");
+            await new UiTestInput(TestScene).Enter(Field(form, "牵引力"), "42");
             var result = (DefinitionDraft.Blueprint)form.Capture();
             var specification = (DesignSpecification.FunctionalComposite)result.Value.Specification;
             Require(specification.Behaviors[0] is PartCapability.Propulsion { TractionKilonewtons: 42, RatedSpeedMetersPerSecond: 34 } && specification.Behaviors[1] is PartCapability.Control,
@@ -213,9 +213,13 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
                     return new SceneResult<ITemplatePreview>.Success(preview);
                 }
             };
-            service = new(fixture.Editor.Host, fixture.Editor, scenes, true, Path.Combine(temporary, "mods"), coreDirectory);
+            service = new(fixture.Editor.Host, fixture.Editor, scenes, true, Path.Combine(temporary, "mods"), coreDirectory, fixture.App.Logger);
             ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).OpenAuthoringPackageCall = (_, id, version, _) =>
                 new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, []));
+            ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).QueryAuthoringReferencesCall = (_, _, _) =>
+                new ContentResult<System.Collections.Immutable.ImmutableArray<AuthoringReferenceChoice>>.Success([]);
+            ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).ValidateAuthoringDefinitionCall = (_, _, _, _) =>
+                new ContentResult<System.Collections.Immutable.ImmutableArray<ContentDiagnostic>>.Success([]);
             controller = new(service, fixture.Editor); TestScene.AddChild(controller.View);
             panel = new AuthoringPanel { Name = "TemplatePickingPanel" }; panel.Initialize(service, fixture.Editor, controller); TestScene.AddChild(panel);
             controller.PlotSelected += panel.SelectPlot;
@@ -225,7 +229,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
                 [new(5, PlotSize.Small, new(0, 0, 0), VoxelOrientation.PxPy, null), new(5, PlotSize.Large, new(8, 0, 0), VoxelOrientation.PxPy, null)], [], [], [])));
             panel.Open();
             await FramesUntil(TestScene, () => { service.Process(); return !service.IsBusy; });
-            _ = service.PreviewTemplate(service.Form!);
+            service.Process();
             await FramesUntil(TestScene, () => { service.Process(); controller.Process(0); return controller.View.Interactive; });
             Require(preview is not null, "模板预览入口必须创建配置的预览。");
             Require(ReferenceEquals(service.TemplatePreview, preview), "显示与拾取必须使用同一份服务预览。");

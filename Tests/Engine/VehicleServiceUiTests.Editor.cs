@@ -21,7 +21,7 @@ public partial class VehicleServiceUiTests
         await Run(setup, async (ui, _) =>
         {
             var draft = new DesignDraft(new("改装", ""), new DesignSpecification.Vehicle(SizeClass.Medium), new([], [], []));
-            setup.ContentFactory!.EvaluateDesignCall = (_, design) => new ContentResult<DesignEvaluation>.Success(
+            setup.ContentFactory!.EvaluateDesignCall = (_, design, _) => new ContentResult<DesignEvaluation>.Success(
                 new DesignEvaluation.Complete(new("design"), new("composition"), design, null,
                     new(null, null, null, true, null, null, [], [], [], [], []), true, []));
             var work = await OpenRepair(ui, new InstanceId.Vehicle(new(9)));

@@ -8,7 +8,8 @@ public interface IContentFactory
     ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files);
     ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request,
         IContentFiles files, IAssetInspector inspector);
-    ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft);
+    ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft,
+        CompositeDefinitionId? compositeIdentity = null);
     ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content,
         DesignHash current, DesignDraft target);
     ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit);
@@ -27,6 +28,11 @@ public interface IContentFactory
         PackageId package, PackageSourceVersion sourceVersion, IContentFiles files);
     ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis,
         ImmutableArray<PackageEdit> edits);
+    ContentResult<ImmutableArray<AuthoringReferenceChoice>> QueryAuthoringReferences(
+        IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits);
+    ContentResult<ImmutableArray<ContentDiagnostic>> ValidateAuthoringDefinition(
+        IAuthoringPackage source, IContentView content, ImmutableArray<PackageEdit> edits,
+        AuthoringDefinitionAddress definition);
 }
 
 public abstract record ContentLoadPurpose

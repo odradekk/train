@@ -54,7 +54,7 @@ internal sealed class RealAuthoringFixture : IDisposable
             Installation, logger, sessionOptions: new(new("authoring-real", "core-session-v1", "Windows", "x64", "10"), true, 1));
         Host.OperationEnded += result => LastOperation = result;
         Editor = new(Host, Scenes, new FileSaveStore(UserData), logger);
-        Service = new(Host, Editor, Scenes, true, Mods, writableCore);
+        Service = new(Host, Editor, Scenes, true, Mods, writableCore, logger);
     }
 
     internal async Task Start()
