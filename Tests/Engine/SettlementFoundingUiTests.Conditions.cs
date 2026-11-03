@@ -20,8 +20,7 @@ public partial class SettlementFoundingUiTests
             var conditions = Find<Label>(inspector, "FoundingConditions");
             Require(Find<Label>(inspector, "Description").Text.Contains("主食：37"), "检查器没有列出节点资源储量。");
             Require(conditions.Text.Contains("0 / 12"), "空节点检查器没有显示每种材料的已有和需要数量。");
-            await _input.Choose(Find<OptionButton>(inspector, "MaterialSource"), 1);
-            Require(conditions.Text.Contains("✓") && conditions.Text.Contains("✗") && conditions.Text.Contains("还差 12"),
+            Require(conditions.Text.Contains("✓ 列车 7 停在这里") && conditions.Text.Contains("× 主食") && conditions.Text.Contains("还差 12"),
                 "条件清单没有区分已停靠列车和缺少的材料。");
             Require(Find<Button>(inspector, "FoundSettlement").Disabled &&
                 Find<Label>(inspector, "FoundingReason").Text.Contains("还差 12"), "材料不足时必须置灰并解释缺项。");
@@ -32,15 +31,18 @@ public partial class SettlementFoundingUiTests
     }
 
     [Test]
-    public async Task Exact_materials_allow_confirmation_and_cancel_consumes_nothing()
+    public async Task First_parked_train_is_selected_and_cancel_consumes_nothing()
     {
         var setup = new HostSimulationTests.HostSetup(World(1, null), EconomyFixture.Content());
         await Run(setup, async ui =>
         {
             await OpenDetail(ui, 0);
-            await _input.Choose(Find<OptionButton>(LatestDetail(ui), "MaterialSource"), 1);
+            var trains = Find<OptionButton>(LatestDetail(ui), "MaterialSource");
+            Require(trains.ItemCount == 1 && trains.Selected == 0 && trains.GetItemText(0) == "列车 7",
+                "唯一停靠列车应默认选中，不能显示选择列车占位项。");
             var conditions = Find<Label>(LatestDetail(ui), "FoundingConditions").Text;
-            Require(conditions.Contains("12 / 12") && !conditions.Contains("✗"), "材料恰好足够时应满足清单全部条件。");
+            Require(conditions.Contains("✓ 列车 7 停在这里") && conditions.Contains("12 / 12") && !conditions.Contains("×"),
+                "打开检查器后应直接显示材料列车和已满足的全部条件。");
             await _input.Activate(Find<Button>(LatestDetail(ui), "FoundSettlement"));
             var confirmation = Find<ConfirmationDialog>(LatestDetail(ui), "FoundingConfirmation");
             Require(confirmation.Visible && confirmation.DialogText.Contains("主食 × 12") &&
@@ -63,7 +65,6 @@ public partial class SettlementFoundingUiTests
         await Run(setup, async ui =>
         {
             await OpenDetail(ui, 0);
-            await _input.Choose(Find<OptionButton>(LatestDetail(ui), "MaterialSource"), 1);
             await _input.Activate(Find<Button>(LatestDetail(ui), "FoundSettlement"));
             var confirmation = Find<ConfirmationDialog>(LatestDetail(ui), "FoundingConfirmation");
             await UiCapture.CaptureSizes(TestScene, "founding-confirmation", confirmation);
@@ -90,19 +91,43 @@ public partial class SettlementFoundingUiTests
         {
             await OpenDetail(ui, 0);
             var trains = Find<OptionButton>(LatestDetail(ui), "MaterialSource");
-            Require(trains.ItemCount == 3 && trains.GetItemText(1) == "列车 7" && trains.GetItemText(2) == "列车 8",
+            Require(trains.ItemCount == 2 && trains.Selected == 0 && trains.GetItemText(0) == "列车 7" && trains.GetItemText(1) == "列车 8",
                 "材料来源只能列本节点列车，不能附带速度或其他内部文本。");
-            await _input.Choose(trains, 1);
             Require(!Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled, "第一列车材料足够却不可建立。");
-            await _input.Choose(trains, 2);
+            await _input.Choose(trains, 1);
             Require(Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled &&
                 Find<Label>(LatestDetail(ui), "FoundingConditions").Text.Contains("0 / 12"),
                 "不能合计多列车库存，也不能沿用上一列车的材料。");
             setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
             Require(ui.GetParent<Train.App.App>().Host!.Step(1).Problem is null, "无法刷新材料列车。");
             await _input.Frames(3);
-            Require(trains.Selected == 2 && Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled,
+            Require(trains.Selected == 1 && Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled,
                 "刷新不应替玩家换成另一列材料足够的列车。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Selected_material_train_leaving_selects_first_remaining_train()
+    {
+        var before = World(1, null, secondTrain: true);
+        var after = World(2, null);
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        await Run(setup, async ui =>
+        {
+            await OpenDetail(ui, 0);
+            var trains = Find<OptionButton>(LatestDetail(ui), "MaterialSource");
+            await _input.Choose(trains, 1);
+            Require(Find<Label>(LatestDetail(ui), "FoundingConditions").Text.Contains("✓ 列车 8 停在这里"),
+                "玩家改选后没有采用列车 8。");
+            setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
+            Require(ui.GetParent<Train.App.App>().Host!.Step(1).Problem is null, "无法发布材料列车离场。");
+            await _input.Frames(3);
+            var conditions = Find<Label>(LatestDetail(ui), "FoundingConditions").Text;
+            Require(trains.ItemCount == 1 && trains.Selected == 0 && trains.GetItemText(0) == "列车 7" &&
+                conditions.Contains("✓ 列车 7 停在这里") && conditions.Contains("12 / 12") &&
+                !Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled,
+                "已选列车离场后应采用剩下的第一列，并重新核对它的材料。");
         });
         setup.Session.AssertComplete();
     }
@@ -130,7 +155,6 @@ public partial class SettlementFoundingUiTests
             await Run(setup, async ui =>
             {
                 await OpenDetail(ui, 0);
-                await _input.Choose(Find<OptionButton>(LatestDetail(ui), "MaterialSource"), 1);
                 Require(Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled == blocked, reason);
                 if (blocked) Require(Find<Label>(LatestDetail(ui), "FoundingReason").Text.Length > 0, "置灰必须说明原因。");
             });

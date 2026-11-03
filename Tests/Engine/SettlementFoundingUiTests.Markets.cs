@@ -22,17 +22,22 @@ public partial class SettlementFoundingUiTests
             {
                 await OpenDetail(ui, 0);
                 var text = Find<Label>(LatestDetail(ui), "FoundingPurchases").Text;
+                var food = text.Split('\n').Single(line => line.StartsWith("主食：", StringComparison.Ordinal));
+                var equipment = text.Split('\n').Single(line => line.StartsWith("设备：", StringComparison.Ordinal));
                 if (stocked)
                 {
-                    var first = text.IndexOf("青川", StringComparison.Ordinal);
-                    var second = text.IndexOf("石港", StringComparison.Ordinal);
-                    var third = text.IndexOf("柳湾", StringComparison.Ordinal);
-                    Require(first >= 0 && second > first && third > second && text.Contains("等 4 处"),
+                    var first = food.IndexOf("青川", StringComparison.Ordinal);
+                    var second = food.IndexOf("石港", StringComparison.Ordinal);
+                    var third = food.IndexOf("柳湾", StringComparison.Ordinal);
+                    Require(first >= 0 && second > first && third > second && food.Contains("等 4 处"),
                         $"补货地点必须按世界节点顺序显示前三处，并说明总共有四处：{text}");
-                    Require(!new[] { "北原", "自有仓", "敌城", "空市", "受阻市" }.Any(text.Contains),
+                    Require(!new[] { "北原", "自有仓", "敌城", "空市", "受阻市" }.Any(food.Contains),
                         $"补货提示不能列出第四个名称、自有或敌对聚居地、无货或受阻市场：{text}");
+                    Require(equipment.Contains("北原") && !equipment.Contains('、') && !equipment.Contains("等 "),
+                        $"另一种材料只能列出出售该货物的市场：{text}");
                 }
-                else Require(text.Contains("目前没有市场有货"), $"没有可购买主食的市场时必须说明：{text}");
+                else Require(food.Contains("目前没有市场有货") && equipment.Contains("目前没有市场有货"),
+                    $"每种缺少的材料都必须说明没有市场有货：{text}");
                 Require(!new[] { "价格", "单价", "距离", "米", "元" }.Any(text.Contains),
                     $"补货地点提示不应承诺价格或距离：{text}");
             });
@@ -43,7 +48,8 @@ public partial class SettlementFoundingUiTests
     private static (FixedCoreReadView View, FixedContentView Content) FoundingMarkets(bool stocked)
     {
         var basis = SettlementFoundingUiFixture.World(1, null, materialQuantity: 0);
-        var source = EconomyFixture.Content(mapPresentation: true);
+        var source = EconomyFixture.Content(mapPresentation: true, equipmentName: "设备");
+        var preview = ((CoreResult<SettlementFoundingPreview>.Success)basis.PreviewSettlement(new(1))).Value;
         var town = ((Lookup<SettlementView>.Found)basis.FindSettlement(new(1))).Value;
         var ground = ((ContentLookup<SettlementLayoutProjection>.Found)source.FindSettlementLayout(new(1))).Value;
         var names = new[] { "青川", "自有仓", "敌城", "空市", "受阻市", "石港", "柳湾", "北原" };
@@ -66,7 +72,8 @@ public partial class SettlementFoundingUiTests
             ImmutableArray<CoreProblem> blockers = index == 4 ? [new("content_missing", "Good", null, [])] : [];
             var market = town.Market with
             {
-                Goods = [new(EconomyFixture.Food, 100, 0, 0, stocked && index != 3 ? 20 : 0, 100, 0, blockers)]
+                Goods = [new(EconomyFixture.Food, 100, 0, 0, stocked && index != 3 ? 20 : 0, 100, 0, blockers),
+                    new(EconomyFixture.Equipment, 100, 0, 0, stocked && index == 7 ? 10 : 0, 100, 0, [])]
             };
             towns.Add(id, new Lookup<SettlementView>.Found(town with
             {
@@ -89,7 +96,11 @@ public partial class SettlementFoundingUiTests
             Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
                 { [new InstanceId.Vehicle(new(7))] = basis.FindInstance(new InstanceId.Vehicle(new(7))) },
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>> { [train.Inventory] = basis.FindInventory(train.Inventory) },
-            FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>> { [new(1)] = basis.PreviewSettlement(new(1)) }
+            FoundingPreviews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>>
+            {
+                [new(1)] = new CoreResult<SettlementFoundingPreview>.Success(preview with
+                    { RequiredMaterials = [new(EconomyFixture.Food, 12), new(EconomyFixture.Equipment, 2)] })
+            }
         };
         var icon = new AssetRevision("fixture-food-png");
         var content = new FixedContentView(source.Core, source.Generation, source.PersistentRevision, source.Packages)
@@ -101,7 +112,11 @@ public partial class SettlementFoundingUiTests
                 [new CoreDefinitionReference.Terrain(new("fixture:plain"))] = source.FindDefinitionDisplay(new CoreDefinitionReference.Terrain(new("fixture:plain"))),
                 [new CoreDefinitionReference.SettlementType(town.Type)] = source.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(town.Type))
             },
-            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>> { [EconomyFixture.Food] = source.FindGood(EconomyFixture.Food) },
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
+            {
+                [EconomyFixture.Food] = source.FindGood(EconomyFixture.Food),
+                [EconomyFixture.Equipment] = source.FindGood(EconomyFixture.Equipment)
+            },
             Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>> { [icon] = source.FindAsset(icon) },
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
                 { [new("fixture-vehicle")] = source.FindDesign(new("fixture-vehicle")) }

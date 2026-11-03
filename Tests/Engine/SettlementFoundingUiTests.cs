@@ -42,7 +42,6 @@ public partial class SettlementFoundingUiTests(Node testScene) : TestClass(testS
             preview = Find<Label>(LatestDetail(ui), "FoundingPreview");
             Require(preview.Text.Contains("初始人口：40") && preview.Text.Contains("主食 1.5/秒") &&
                 Find<Label>(LatestDetail(ui), "FoundingConditions").Text.Contains("12") && !preview.Text.Contains("建立进度"), "确认前没有显示核心预览。");
-            await _input.Choose(Find<OptionButton>(LatestDetail(ui), "MaterialSource"), 1);
             setup.Session.QueueSubmit(new CoreCommand.FoundSettlement(new(1), new(7)), CommandSource.UserInterface,
                 Completed(1, before, after, new CommandDecision.Accepted([new WorldObjectId.Job(new(4))],
                     [new OwnedSettlementTemplateReference(new(91), new("fixture:template"), [])])), after);
@@ -109,7 +108,6 @@ public partial class SettlementFoundingUiTests(Node testScene) : TestClass(testS
             var blockedTitle = LatestDetail(ui).FindChildren("*", "Label", true, false).Cast<Label>().First().Text;
             Require(blocked.Contains("节点已被占据") && !blocked.Contains("节点 3") && !blocked.Contains("node_occupied"),
                 $"有阻止原因时没有显示中文原因。title={blockedTitle} text={blocked}");
-            await _input.Choose(Find<OptionButton>(LatestDetail(ui), "MaterialSource"), 1);
             Require(Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled, "预览存在阻止原因时仍可确认。");
             await CloseDetail(ui);
             await OpenDetail(ui, 1);
@@ -117,7 +115,6 @@ public partial class SettlementFoundingUiTests(Node testScene) : TestClass(testS
             Require(unavailable.Contains("建立条件暂不可用") && unavailable.Contains("所需内容缺失") && !unavailable.Contains("content_missing") &&
                 !unavailable.Contains("Population.Rule") && !unavailable.Contains("短缺"),
                 "人口规则缺失被写成物资短缺或露出了内部标识。");
-            await _input.Choose(Find<OptionButton>(LatestDetail(ui), "MaterialSource"), 1);
             Require(Find<Button>(LatestDetail(ui), "FoundSettlement").Disabled, "无法核对消耗时仍允许建立。");
             await CloseDetail(ui);
             await OpenDetail(ui, 4);
