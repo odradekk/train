@@ -207,6 +207,23 @@ public sealed class FixedCoreReadViewTests
         AssertUnconfigured(() => new FixedCoreReadView().PreviewTrainFormation([new(2)], null));
     }
 
+    [TestMethod]
+    public void RailwayPreviewsMatchWholeRequestAndNullableSourceAndCopyConfiguration()
+    {
+        RailwayWorkRequest request = new RailwayWorkRequest.RepairBreak(new(2), new(3));
+        var result = new CoreResult<RailwayWorkPreview>.Success(new([], 10, []));
+        var entries = new Dictionary<(RailwayWorkRequest Request, SettlementId? MaterialSource), CoreResult<RailwayWorkPreview>>
+            { [(request, null)] = result };
+        var view = new FixedCoreReadView { RailwayWorkPreviews = entries };
+        entries.Clear();
+        Assert.AreSame(result, view.PreviewRailwayWork(new RailwayWorkRequest.RepairBreak(new(2), new(3)), null));
+        AssertUnconfigured(() => view.PreviewRailwayWork(request, new(1)));
+        AssertUnconfigured(() => view.PreviewRailwayWork(new RailwayWorkRequest.AddTrack(new(2)), null));
+        AssertUnconfigured(() => view.PreviewRailwayWork(new RailwayWorkRequest.RepairBreak(new(2), new(4)), null));
+        AssertUnconfigured(() => view.PreviewRailwayWork(new RailwayWorkRequest.RepairBreak(new(4), new(3)), null));
+        AssertUnconfigured(() => new FixedCoreReadView().PreviewRailwayWork(request, null));
+    }
+
     private static void AssertUnconfigured(Action operation)
     {
         var error = Assert.ThrowsExactly<InvalidOperationException>(operation);

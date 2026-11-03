@@ -31,6 +31,7 @@ public sealed partial class CombatFrameTests
         public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => inner.QuoteLease(request);
         public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => inner.GetJobQuote(request, funding);
         public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => inner.PreviewSettlement(node);
+        public CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource) => inner.PreviewRailwayWork(request, materialSource);
         public CoreResult<TrainFormationPreview> PreviewTrainFormation(System.Collections.Immutable.ImmutableArray<VehicleId> orderedVehicles, TrainId? train) => inner.PreviewTrainFormation(orderedVehicles, train);
     }
 }

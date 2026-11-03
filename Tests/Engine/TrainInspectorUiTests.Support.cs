@@ -106,6 +106,7 @@ public partial class TrainInspectorUiTests
                 ? new CoreResult<JobQuote>.Success(quote) : _basis.GetJobQuote(request, funding);
         }
         public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => _basis.PreviewSettlement(node);
+        public CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource) => _basis.PreviewRailwayWork(request, materialSource);
         public CoreResult<TrainFormationPreview> PreviewTrainFormation(ImmutableArray<VehicleId> orderedVehicles, TrainId? train) =>
             train == Train.Id && orderedVehicles.SequenceEqual(Train.Vehicles)
                 ? new CoreResult<TrainFormationPreview>.Success(new(20, 10, 100, 100, [], null))

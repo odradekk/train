@@ -39,3 +39,9 @@
 `PreviewTrainFormation(orderedVehicles, train)` 在当前读视图预览有序编组。`train` 为空时预览新编组，非空时预览该列车的原地重编，允许其现有成员。未初始化数组、零车辆身份或零列车身份抛 `ArgumentException`；成员、归属和位置不满足编组条件时只返回首个领域问题。成功返回 `TrainFormationPreview`：`LengthMeters`、`MassTons`、`TractionKilonewtons`、`Capacity`、`Blockers`、`DepartureProblem`。计算沿用列车实际能力规则；新编组按空库存计算，重编包含原库存货物。
 
 容量不足和身份耗尽等提交阻塞放在 `Blockers`，仍可读取成功预览的指标。`DepartureProblem` 只返回首个出发问题，优先顺序为缺控制、缺牵引、库存内容缺失、超载，与实际出发相同；新编组的 `DepartureProblem.Subject` 为 `null`，已有列车则为该列车主体。加速度恰等于下限允许出发。查询不修改世界、不占用身份，也不生成命令或录制。宿主用缺控制和缺牵引提示不可出发，超载显示警告；提交时仍由 Core 重新检查当前状态。
+
+`PreviewRailwayWork(request, materialSource)` 在当前读视图预览扩建一轨或修复指定断点，返回 `RailwayWorkPreview`。`RequiredMaterials` 是完整材料需求，`DurationTicks` 是按当前铁路规则计算的总模拟步数，`Blockers` 是当前阻塞。结果不含金额；铁路施工不花钱。查询不扣材料、不占用任务编号、不生成命令，也不改变旧读视图。提交仍由核心按当时状态重新检查。
+
+`request` 为 `RailwayWorkRequest.AddTrack(Edge)` 或 `RepairBreak(Edge, Break)`。空请求抛 `ArgumentNullException`，零线路、断点或非空的零来源身份抛 `ArgumentException`。`materialSource = null` 是合法预览，返回 `invalid_state / MaterialSource` 阻塞，同时保留可确定的材料和工期。来源不存在、非玩家所有或缺材料时分别返回 `object_missing`、`not_owned`、`insufficient_goods`，也保留估算。线路不存在或铁路规则、钢轨定义缺失时返回相应阻塞，材料为空、工期为零。
+
+预览同时报告适用的阻塞：现有轨数与在建加轨任务数之和达到上限、断点不存在或已有修复任务、规则或来源问题、任务编号耗尽。缺规则时不继续检查来源；来源不可用时不检查其库存。预览阻塞不承诺与命令首个拒绝的顺序相同。内部计算故障返回 `CoreResult.Faulted`，不冻结会话。返回值为可保留的不可变值，线程与生命周期沿用读视图约定。
