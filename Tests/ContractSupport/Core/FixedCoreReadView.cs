@@ -212,6 +212,16 @@ public sealed class FixedCoreReadView : ICoreReadView
         throw Unconfigured(nameof(PreviewTrainFormation));
     }
 
+    private ImmutableDictionary<(RailwayWorkRequest Request, SettlementId? MaterialSource), CoreResult<RailwayWorkPreview>> railwayWorkPreviews =
+        ImmutableDictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>.Empty;
+    public IReadOnlyDictionary<(RailwayWorkRequest Request, SettlementId? MaterialSource), CoreResult<RailwayWorkPreview>> RailwayWorkPreviews
+    {
+        init => railwayWorkPreviews = value.ToImmutableDictionary();
+    }
+    public CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource)
+        => railwayWorkPreviews.TryGetValue((request, materialSource), out var result)
+            ? result : throw Unconfigured(nameof(PreviewRailwayWork));
+
     private static InvalidOperationException Unconfigured(string member)
         => new($"UNCONFIGURED: {member}");
 }

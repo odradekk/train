@@ -30,6 +30,7 @@ public interface ICoreReadView
     CoreResult<LeaseQuote> QuoteLease(LeaseRequest request);
     CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding);
     CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node);
+    CoreResult<RailwayWorkPreview> PreviewRailwayWork(RailwayWorkRequest request, SettlementId? materialSource);
 }
 
 public sealed record WorldSummary(ulong WorldSeed, RuleDefinitionId RailwayRule,
@@ -63,6 +64,14 @@ public sealed record RailwayWorkView(JobId Id, RailwayWorkKind Kind, int Track,
     BreakId? RepairingBreak, SettlementId MaterialSource, ImmutableArray<GoodsQuantity> InvestedGoods,
     double Progress, ImmutableArray<CoreProblem> Blockers);
 public enum RailwayWorkKind { AddTrack, RepairBreak }
+public abstract record RailwayWorkRequest
+{
+    private RailwayWorkRequest() { }
+    public sealed record AddTrack(EdgeId Edge) : RailwayWorkRequest;
+    public sealed record RepairBreak(EdgeId Edge, BreakId Break) : RailwayWorkRequest;
+}
+public sealed record RailwayWorkPreview(ImmutableArray<GoodsQuantity> RequiredMaterials,
+    ulong DurationTicks, ImmutableArray<CoreProblem> Blockers);
 public sealed record LocationView(WorldLocation Location, ImmutableArray<TrainId> Trains,
     ImmutableArray<InstanceId> Instances, ImmutableArray<CreatureGroupId> CreatureGroups,
     ImmutableArray<CombatId> Combats, NodeOccupant? Occupant);

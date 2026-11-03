@@ -37,8 +37,8 @@ public class CreatureNotificationTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             await _input.Activate(Find<Button>(Find<Control>(ui, "Toasts"), "Notice"));
             Require(ui.ErrorText.Length == 0 && shell.SelectedObject == new WorldObjectId.Edge(new(1)) &&
-                shell.InspectorContent is { } edgeInspector && edgeInspector.IsVisibleInTree() &&
-                Find<Label>(edgeInspector, "Description").Text.Contains("线路长度"),
+                shell.InspectorContent is { } edgeInspector && edgeInspector.Name == "LineInspector" && edgeInspector.IsVisibleInTree() &&
+                Find<Label>(edgeInspector, "Summary").Text.Contains("长度 500 米"),
                 "提示条必须打开生物群当前线路的检查器，不能保留通知里记录的旧节点。");
             Require(!app.WorldScenes!.View.Visible, "点击生物群通知不能隐式进入局部场景。");
         });
@@ -101,6 +101,11 @@ public class CreatureNotificationTests(Node testScene) : TestClass(testScene)
         var atEdge = atNode with { Id = new(2), Location = new WorldLocation.Edge(edge.Id, 250), Direction = TravelDirection.Forward };
         return new(default, HostCoreScenario.Input, revision: new(1))
         {
+            RailwayWorkPreviews = new Dictionary<(RailwayWorkRequest, SettlementId?), CoreResult<RailwayWorkPreview>>
+            {
+                [(new RailwayWorkRequest.AddTrack(edge.Id), null)] = new CoreResult<RailwayWorkPreview>.Success(
+                    new([], 0, [new("invalid_state", "Edge.Tracks", null, []), new("invalid_state", "MaterialSource", null, [])]))
+            },
             Economy = UiWorldFixture.Economy,
             World = basis.World with
             {
