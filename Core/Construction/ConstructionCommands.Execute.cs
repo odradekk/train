@@ -58,6 +58,16 @@ internal static partial class ConstructionCommands
         {
             ConstructionJobs = prepared.ConstructionJobs.Add(job), Next = prepared.Next with { Job = checked(world.Next.Job + 1) },
             Money = new(checked(world.Money.Value - quote.TotalPayment!.Value.Value)),
+            CashFlows = quote.TotalPayment.Value.Value == 0 ? prepared.CashFlows : prepared.CashFlows.Add(new(default,
+                job.Kind switch
+                {
+                    ConstructionKind.Refit => CashFlowKind.Refit,
+                    ConstructionKind.Repair => CashFlowKind.Repair,
+                    ConstructionKind.Deconstruction => CashFlowKind.Deconstruction,
+                    _ => CashFlowKind.Construction
+                }, -quote.TotalPayment.Value.Value, settlement.Id,
+                instance is { } target && world.Instances.Single(i => i.Id == target).Details is InstanceDetails.Vehicle vehicle
+                    ? vehicle.Train : null, null, 0)),
             UnassignedServicePayments = new(checked(world.UnassignedServicePayments.Value + quote.ServicePayment!.Value.Value))
         };
         if (job.ReturnInventory is { } destination)

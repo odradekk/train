@@ -21,6 +21,7 @@ public sealed class VehicleDeconstructionTests
         Accept(session, new CoreCommand.DisbandTrain(new(1)));
         var job = Start(session, new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(Facility, Vehicle, 0)));
         Assert.AreEqual(2L, job.FrozenTotalWork);
+        Assert.IsEmpty(session.Read().Economy.CashFlows);
         var before = ((Lookup<InventoryView>.Found)session.Read().FindInventory(Local)).Value;
         Assert.AreEqual(2L, before.Reserved);
         CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 2) }, before.Reservations.Single().ExpectedReturns.ToArray());

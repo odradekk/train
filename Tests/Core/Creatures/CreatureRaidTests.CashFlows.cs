@@ -43,6 +43,7 @@ public sealed partial class CreatureRaidTests
         Assert.IsFalse(session.State.World.Lairs.Any(item => item.Id == lair.Id));
         Assert.IsInstanceOfType<NodeOccupant.Empty>(session.State.World.Nodes.Single(node => node.Id == home).Occupant);
         Assert.AreEqual(money + reward.Value, session.State.World.Money.Value);
+        Assert.AreEqual(new CashFlowEntry(session.Read().Position, CashFlowKind.LairReward, 40, null, null, null, 0), session.Read().Economy.CashFlows.Single());
         var events = result.Events.Select(envelope => envelope.Event).ToArray();
         var cleared = events.OfType<CoreEvent.LairCleared>().Single();
         Assert.AreEqual(reward, cleared.Reward);

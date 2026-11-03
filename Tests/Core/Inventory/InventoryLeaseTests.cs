@@ -26,6 +26,7 @@ public sealed class InventoryLeaseTests
         var acquired = Accept(session, new CoreCommand.AcquireLease(request, new(amount)))
             .Events.Select(e => e.Event).OfType<CoreEvent.LeaseAcquired>().Single();
         Assert.AreEqual(new Money(amount), acquired.ActualPayment);
+        Assert.AreEqual(new CashFlowEntry(session.Read().Position, CashFlowKind.Rent, -amount, settlement, null, null, 0), session.Read().Economy.CashFlows.Single());
         Assert.AreEqual(request.DurationSteps, acquired.Lease.ExpiresAtStep);
         var tooLarge = WorldFixture.Success(session.Read().QuoteLease(new LeaseRequest.Rent(settlement, 100, request.DurationSteps)));
         Assert.IsNull(tooLarge.Total);

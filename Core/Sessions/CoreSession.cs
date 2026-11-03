@@ -155,7 +155,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 NextCommandNumber = checked(before.NextCommandNumber + 1),
                 Revision = new(checked(before.Revision.Value + 1)),
                 Content = effect is CommandEffect.Accepted change ? change.Content : before.Content,
-                World = effect is CommandEffect.Accepted { World: { } world } ? world : before.World
+                World = effect is CommandEffect.Accepted { World: { } world } ? PositionCashFlows(before.World, world, position) : before.World
             };
             result = new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
                 after.Position, decision), events, null);
@@ -186,7 +186,10 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         ImmutableArray<GoodDefinitionProjection>? fuels = null;
         return AdvanceWorld(steps, before =>
         {
-            var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
+            var start = checked(before.Position.CompletedSteps + 1) % (SimulationTime.StepsPerSecond * 86400UL) == 0
+                ? before.World with { Settlements = before.World.Settlements.Select(s => s with { TodayProduction = [] }).ToImmutableArray() }
+                : before.World;
+            var (world, events) = TrainOperations.Advance(start, before.Content, before.Position.CompletedSteps);
             var creatures = CreatureOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
             world = creatures.World;
             events = events.AddRange(creatures.Events);
@@ -278,7 +281,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                     Position = position,
                     Revision = new(checked(before.Revision.Value + 1)),
                     Content = change.Content,
-                    World = change.World
+                    World = PositionCashFlows(before.World, change.World, position)
                 };
                 events.AddRange(stepEvents);
                 State = after;
@@ -298,6 +301,15 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             }
         }
         return new(completed, State.Position, events.ToImmutable(), State.Fault, diagnostic);
+    }
+
+    private static WorldState PositionCashFlows(WorldState before, WorldState after, SimulationPosition position)
+    {
+        if (before.CashFlows.Length == after.CashFlows.Length) return after;
+        var entries = after.CashFlows.ToBuilder();
+        for (var index = before.CashFlows.Length; index < entries.Count; index++)
+            entries[index] = entries[index] with { Position = position };
+        return after with { CashFlows = entries.ToImmutable() };
     }
 
     private static ImmutableArray<EventEnvelope> Envelopes(SimulationPosition position, ImmutableArray<CoreEvent> events)

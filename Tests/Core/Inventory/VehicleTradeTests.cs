@@ -26,12 +26,16 @@ public sealed class VehicleTradeTests
         var sold = sale.Events.Select(e => e.Event).OfType<CoreEvent.VehicleTraded>().Single();
         Assert.AreEqual(new CoreEvent.VehicleTraded(new(1), Town(session), VehicleTradeAction.Sell, new(54)), sold);
         Assert.AreEqual(vehicle with { Ownership = SettlementRelation.NonHostile }, Vehicle(session));
-        Assert.AreEqual(before with { Money = new(before.Money.Value + 54), Instances = session.State.World.Instances }, session.State.World);
+        Assert.AreEqual(before with { Money = new(before.Money.Value + 54), Instances = session.State.World.Instances,
+            CashFlows = session.State.World.CashFlows }, session.State.World);
         Assert.AreEqual(SettlementRelation.PlayerOwned, ((Lookup<InstanceView>.Found)old.FindInstance(vehicle.Id)).Value.Ownership);
         Assert.AreEqual(new Money(66), Quote(session, VehicleTradeAction.Buy).Total);
         Accept(session, new CoreCommand.BuyVehicle(Town(session), new(1), new(66)));
         Assert.AreEqual(vehicle, Vehicle(session));
         Assert.AreEqual(new Money(before.Money.Value - 12), session.State.World.Money);
+        CollectionAssert.AreEqual(new[] { CashFlowKind.VehicleSale, CashFlowKind.VehiclePurchase }, session.Read().Economy.CashFlows.Skip(before.CashFlows.Length).Select(e => e.Kind).ToArray());
+        CollectionAssert.AreEqual(new long[] { 54, -66 }, session.Read().Economy.CashFlows.Skip(before.CashFlows.Length).Select(e => e.Amount).ToArray());
+        Assert.IsTrue(session.Read().Economy.CashFlows.Skip(before.CashFlows.Length).All(e => e.Settlement == Town(session) && e.Train is null && e.Good is null && e.Quantity == 0));
         CollectionAssert.AreEqual(before.Settlements.Single().ParkedVehicles.ToArray(), session.State.World.Settlements.Single().ParkedVehicles.ToArray());
     }
 
@@ -51,6 +55,7 @@ public sealed class VehicleTradeTests
         using var session = Damage(initial, 1, 1);
         Assert.AreEqual(new Money(0), Quote(session, VehicleTradeAction.Sell).Total);
         Accept(session, new CoreCommand.SellVehicle(Town(session), new(1), new(0)));
+        Assert.IsEmpty(session.Read().Economy.CashFlows.Skip(initial.Read().Economy.CashFlows.Length));
         Assert.AreEqual(new Money(1), Quote(session, VehicleTradeAction.Buy).Total);
         Accept(session, new CoreCommand.BuyVehicle(Town(session), new(1), new(1)));
     }

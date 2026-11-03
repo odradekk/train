@@ -38,7 +38,8 @@ internal static class SettlementQueries
             OwnedJobs: settlement.Relation != SettlementRelation.PlayerOwned ? [] : world.ConstructionJobs
                 .Where(j => j.Settlement == settlement.Id && j.Funding == JobFunding.OwnInventory)
                 .OrderBy(j => j.Id.Value).Select(j => j.Id).ToImmutableArray(),
-            world.Leases.Where(l => l.Settlement == settlement.Id).Select(l => l.Id).ToImmutableArray(), market);
+            world.Leases.Where(l => l.Settlement == settlement.Id).Select(l => l.Id).ToImmutableArray(), market,
+            settlement.Relation == SettlementRelation.PlayerOwned ? settlement.TodayProduction : []);
     }
 
     internal static EconomyView Economy(WorldState world, CoreContentProjection content)
@@ -47,7 +48,7 @@ internal static class SettlementQueries
         return new(world.Money, MarketRule(world, content),
             Rule(content, rules.Population, content.PopulationRules.SingleOrDefault(r => r.Id == rules.Population)?.Revision, "Population"),
             Rule(content, rules.Construction, content.ConstructionRules.SingleOrDefault(r => r.Id == rules.Construction)?.Revision, "Construction"),
-            UnassignedServicePayments: world.UnassignedServicePayments, RecentRunReports: world.RecentRunReports);
+            UnassignedServicePayments: world.UnassignedServicePayments, RecentRunReports: world.RecentRunReports, CashFlows: world.CashFlows);
     }
 
     private static RuleStatusView MarketRule(WorldState world, CoreContentProjection content)

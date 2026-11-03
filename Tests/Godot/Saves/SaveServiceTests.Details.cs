@@ -152,7 +152,7 @@ public sealed partial class SaveServiceTests
                 [Node(1, SettlementRelation.PlayerOwned), Node(2, SettlementRelation.NonHostile), Node(3, SettlementRelation.NonHostile)],
                 [new(new(1), new(1), new(2), 10, new(new("fixture:terrain"), 0, []), 1, 1, [], [])],
                 [Train(1), Train(2)], [], []),
-            Economy = new(new(funds), rule, rule, rule, new(0), [])
+            Economy = new(new(funds), rule, rule, rule, new(0), [], [])
         };
     }
 }

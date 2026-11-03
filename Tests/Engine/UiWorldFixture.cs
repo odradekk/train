@@ -9,7 +9,7 @@ internal static class UiWorldFixture
     private enum Scenario { Map, Save, Scene, Formation }
 
     // 顶栏每帧显示资金，凡是交给 GameUi 的固定读视图都要配置经济视图。
-    internal static EconomyView Economy { get; } = new(new(0), Rule, Rule, Rule, new(0), []);
+    internal static EconomyView Economy { get; } = new(new(0), Rule, Rule, Rule, new(0), [], []);
     private static RuleStatusView Rule => new(new("fixture:economy"), null, []);
 
     internal static ScriptedCoreSession Session(ICoreReadView view)

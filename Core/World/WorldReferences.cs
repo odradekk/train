@@ -66,6 +66,7 @@ internal static class WorldReferences
             }
             foreach (var remainder in settlement.PopulationState.ConsumptionRemaining)
                 Good(remainder.Good, path + ".PopulationState.ConsumptionRemaining");
+            foreach (var good in settlement.TodayProduction) Good(good.Good, path + ".TodayProduction");
             foreach (var facility in settlement.ProductionFacilities)
             {
                 var field = path + $".ProductionFacilities[{facility.Facility.Building.Value}:{facility.Facility.Capability}]";
@@ -79,6 +80,8 @@ internal static class WorldReferences
                     Good(good.Good, field + $".OutputBuffer[{GoodKey(good.Good)}]");
             }
         }
+        for (var index = 0; index < world.CashFlows.Length; index++)
+            if (world.CashFlows[index].Good is { } good) Good(good, $"World.CashFlows[{index}].Good");
         foreach (var lair in world.Lairs) Add(new CoreDefinitionReference.Lair(lair.Type), $"World.Lairs[{lair.Id.Value}].Type");
         foreach (var group in world.CreatureGroups)
             foreach (var creature in group.Creatures)

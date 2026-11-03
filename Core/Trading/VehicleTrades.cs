@@ -105,6 +105,9 @@ internal static class VehicleTrades
             [new CoreEvent.VehicleTraded(request.Vehicle, request.Settlement, request.Action, amount)], world with
             {
                 Money = new(checked(buy ? world.Money.Value - amount.Value : world.Money.Value + amount.Value)),
+                CashFlows = amount.Value == 0 ? world.CashFlows : world.CashFlows.Add(new(default,
+                    buy ? CashFlowKind.VehiclePurchase : CashFlowKind.VehicleSale,
+                    buy ? -amount.Value : amount.Value, request.Settlement, null, null, 0)),
                 Instances = world.Instances.Select(i => i.Id == new InstanceId.Vehicle(request.Vehicle)
                     ? i with { Ownership = owner } : i).ToImmutableArray()
             });

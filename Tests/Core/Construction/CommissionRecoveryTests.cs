@@ -34,6 +34,10 @@ public sealed class CommissionRecoveryTests
         var change = new DesignChangeProjection(input.Design.Design, input.Design.Composition, target,
             [], [], [new(Material, 1, [new(0)], [], [])], 1);
         var job = Start(original, new CoreCommand.CommissionVehicleWork(new JobRequest.Refit(Facility, Vehicle, change, [], 0), new(long.MaxValue)));
+        var refitFlow = original.Read().Economy.CashFlows.Last();
+        Assert.AreEqual(CashFlowKind.Refit, refitFlow.Kind);
+        Assert.IsTrue(refitFlow.Amount < 0);
+        Assert.AreEqual(new TrainId(1), refitFlow.Train);
         Step(original);
         var world = original.State.World;
         using var session = new CoreSession(original.State with { World = !frozen ? world : world with

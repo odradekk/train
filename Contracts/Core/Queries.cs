@@ -127,7 +127,7 @@ public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementType
     ImmutableArray<FacilityView> Facilities, PowerPoolView Power, PopulationView Population,
     SettlementEngagementRules Engagement, double MoraleRatio, bool Surrendered,
     ImmutableArray<JobId> CommissionJobs, ImmutableArray<JobId> OwnedJobs,
-    ImmutableArray<LeaseId> Leases, MarketView Market);
+    ImmutableArray<LeaseId> Leases, MarketView Market, ImmutableArray<GoodsQuantity> TodayProduction);
 public abstract record PlotOccupant
 {
     private PlotOccupant() { }
@@ -270,5 +270,9 @@ public sealed record RunAccumulatorView(SimulationPosition StartedAt, Money Sale
     ImmutableArray<AutomaticRuleResult> IncompleteRules);
 public enum RunEndReason { PlanCompleted, LoopCompleted, PlanReplaced, TrainDisbanded, AllVehiclesDestroyed }
 public sealed record RunReport(TrainId Train, SimulationPosition EndedAt, RunEndReason Reason, RunAccumulatorView Totals);
+public enum CashFlowKind { GoodsSale, GoodsPurchase, VehicleSale, VehiclePurchase, Construction, Refit, Repair, Deconstruction, Rent, LairReward }
+public sealed record CashFlowEntry(SimulationPosition Position, CashFlowKind Kind, long Amount,
+    SettlementId? Settlement, TrainId? Train, GoodId? Good, long Quantity);
 public sealed record EconomyView(Money Wallet, RuleStatusView MarketRule, RuleStatusView PopulationRule,
-    RuleStatusView ConstructionRule, Money UnassignedServicePayments, ImmutableArray<RunReport> RecentRunReports);
+    RuleStatusView ConstructionRule, Money UnassignedServicePayments, ImmutableArray<RunReport> RecentRunReports,
+    ImmutableArray<CashFlowEntry> CashFlows);

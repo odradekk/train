@@ -280,7 +280,7 @@ public sealed class TrainPlanEvaluationTests
             [], [], 0, 1, 0, [], [], [], new(0, 0, 0, 0),
             new(rule, 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
             new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], lease is null ? [] : [lease.Id],
-            new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
+            new(rule, new(0, 0, 0, 0, 0, 0, 0), []), []);
         var inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
         {
             [new(10)] = new Lookup<InventoryView>.Found(Inventory(10, new InventoryOwner.Settlement(new(3))))

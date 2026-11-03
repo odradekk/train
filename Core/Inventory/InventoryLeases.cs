@@ -96,7 +96,12 @@ internal static class InventoryLeases
                 Paid = new(checked(old.Paid.Value + payment.Value)) };
             world = world with { Leases = world.Leases.Select(l => l.Id == lease.Id ? lease : l).ToImmutableArray() };
         }
-        world = world with { Money = new(checked(world.Money.Value - payment.Value)) };
+        world = world with
+        {
+            Money = new(checked(world.Money.Value - payment.Value)),
+            CashFlows = payment.Value == 0 ? world.CashFlows : world.CashFlows.Add(new(default,
+                CashFlowKind.Rent, -payment.Value, lease.Settlement, null, null, 0))
+        };
         return new CommandEffect.Accepted(content,
             [new CoreEvent.LeaseAcquired(Read(lease, step), payment, command.Request is LeaseRequest.Renew)], world,
             command.Request is LeaseRequest.Rent ? [new WorldObjectId.Inventory(lease.Inventory)] : []);

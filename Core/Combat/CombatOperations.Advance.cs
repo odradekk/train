@@ -118,7 +118,12 @@ internal static partial class CombatOperations
                 new CombatSummary(combat.StartedAtStep, step, sides)));
             if (clearedLair is not null)
             {
-                world = world with { Money = new(checked(world.Money.Value + reward.Value)) };
+                world = world with
+                {
+                    Money = new(checked(world.Money.Value + reward.Value)),
+                    CashFlows = reward.Value == 0 ? world.CashFlows : world.CashFlows.Add(new(default,
+                        CashFlowKind.LairReward, reward.Value, null, null, null, 0))
+                };
                 events.Add(new CoreEvent.LairCleared(clearedLair.Id, clearedNode, reward));
             }
             foreach (var state in combat.Controllers)

@@ -41,6 +41,8 @@ public sealed partial class AutomaticTradingTests
         var evaluations = Step(session).Events.Select(e => e.Event).OfType<CoreEvent.AutomaticTradeEvaluated>().ToArray();
         CollectionAssert.AreEqual(new TrainId[] { new(1), new(2) }, evaluations.Select(e => e.Train).ToArray());
         Assert.AreEqual(1L, evaluations[0].Results.Single().CompletedQuantity);
+        var flow = session.Read().Economy.CashFlows.Single();
+        Assert.AreEqual(new CashFlowEntry(session.Read().Position, CashFlowKind.GoodsPurchase, -55, settlement.Id, new(1), Voxel, 1), flow);
         Assert.AreEqual(0L, evaluations[1].Results.Single().CompletedQuantity);
         Assert.AreEqual(blocker, evaluations[1].Results.Single().IncompleteReasons.Single().Code);
         foreach (var id in new TrainId[] { new(2), new(1) })

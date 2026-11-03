@@ -137,6 +137,9 @@ internal static class ProductionOperations
         {
             Settlements = world.Settlements.Select(s => s.Id == id ? s with
             {
+                TodayProduction = s.TodayProduction.Concat(completed.SelectMany(c => c.Batch.FrozenOutputs))
+                    .GroupBy(g => g.Good).OrderBy(g => g.Key, WorldReferences.GoodComparer)
+                    .Select(g => new GoodsQuantity(g.Key, g.Sum(item => item.Quantity))).ToImmutableArray(),
                 ProductionFacilities = facilities.Values.OrderBy(f => f.Facility.Building.Value)
                     .ThenBy(f => f.Facility.Capability).ToImmutableArray()
             } : s).ToImmutableArray(),

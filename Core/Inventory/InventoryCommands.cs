@@ -211,6 +211,9 @@ internal static class InventoryCommands
         var after = world with
         {
             Money = new(money),
+            CashFlows = money == world.Money.Value ? world.CashFlows : world.CashFlows.Add(new(default,
+                incoming ? CashFlowKind.GoodsPurchase : CashFlowKind.GoodsSale, money - world.Money.Value,
+                request.Settlement, request.Train, request.Good, request.Quantity)),
             Trains = world.Trains.Select(t => t.Id == train.Id ? RunReports.Transferred(t, request.Action, request.Quantity, amount) : t).ToImmutableArray(),
             Inventories = world.Inventories.Select(i => i.Id == source ? Move(i, -request.Quantity)
                 : i.Id == destination ? Move(i, request.Quantity) : i).ToImmutableArray()

@@ -12,6 +12,7 @@ internal static partial class WorldStateValidation
 {
     internal static void Validate(WorldState world)
     {
+        ValidateEconomy(world);
         Ordered(world.Nodes, n => n.Id.Value, "/world/nodes");
         Ordered(world.Edges, e => e.Id.Value, "/world/edges");
         Ordered(world.Settlements, s => s.Id.Value, "/world/settlements");
@@ -1006,59 +1007,6 @@ internal static partial class WorldStateValidation
         CombatOwner.Creatures => (2, 0),
         _ => throw new CoreStateFormatException("/world/combats/sides/owner")
     };
-
-    internal static void ValidateBoundary(WorldState world, SimulationPosition boundary)
-    {
-        var completedSteps = boundary.CompletedSteps;
-        foreach (var job in world.FoundingJobs)
-            Require(job.ElapsedTicks <= completedSteps, "/world/founding_jobs/elapsed_ticks");
-        foreach (var job in world.RailwayJobs)
-            Require(job.ElapsedTicks <= completedSteps, "/world/railway_jobs/elapsed_ticks");
-        foreach (var report in world.RecentRunReports)
-            Require(NotAfter(report.EndedAt, boundary), "/world/recent_run_reports/ended_at");
-        foreach (var train in world.Trains)
-            Require(train.CurrentRun is not { } run || NotAfter(run.StartedAt, boundary), "/world/trains/current_run/started_at");
-        foreach (var state in world.ResourceRegenerations)
-        {
-            var interval = WorldResources.IntervalSteps(world.Source.Configuration.Resources.Single(e => e.Good == state.Good).RegenerationIntervalSeconds);
-            Require(interval is not { } period
-                ? state.Sequence == 0
-                : state.Sequence <= completedSteps / period,
-                "/world/resource_regenerations");
-        }
-        foreach (var train in world.Trains)
-            Require(train.QueueEnteredStep is null || train.QueueEnteredStep <= completedSteps,
-                "/world/trains/queue_entered_step");
-        foreach (var combat in world.Combats)
-        {
-            Require(combat.StartedAtStep > 0 && combat.StartedAtStep <= completedSteps,
-                "/world/combats/started_at_step");
-            foreach (var controller in combat.Controllers)
-                Require(controller.JoinedAtStep >= combat.StartedAtStep && controller.JoinedAtStep <= completedSteps,
-                    "/world/combats/controllers/joined_at_step");
-            foreach (var creature in combat.Creatures)
-                Require(creature.JoinedAtStep >= combat.StartedAtStep && creature.JoinedAtStep <= completedSteps,
-                    "/world/combats/creatures/joined_at_step");
-        }
-        foreach (var group in world.CreatureGroups)
-            Require(group.ActivityStartedAtStep <= completedSteps, "/world/creature_groups/activity_started_at_step");
-        foreach (var settlement in world.Settlements)
-        {
-            Require(settlement.PopulationState.LastSettlement is not { } report || report.Position.CompletedSteps <= completedSteps,
-                "/world/settlements/population_state/last_settlement/position");
-            var previousSettlement = settlement.PopulationState.LastSettlement?.Position.CompletedSteps ?? 0;
-            if (settlement.PopulationState.Period is not { } period) continue;
-            const string field = "/world/settlements/population_state/period";
-            Require(period.LastAdvancedStep >= previousSettlement && period.LastAdvancedStep <= completedSteps,
-                field + "/last_advanced_step");
-            var sinceAnchor = settlement.PopulationState.Available ? completedSteps - period.LastAdvancedStep : 0;
-            Require(sinceAnchor < (ulong)(period.Rule.StatisticsPeriodTicks - period.ElapsedSteps), field + "/elapsed_steps");
-            var elapsed = (ulong)period.ElapsedSteps + sinceAnchor;
-            Require(elapsed > 0 && elapsed <= completedSteps - previousSettlement, field + "/elapsed_steps");
-            if (elapsed < (ulong)period.Rule.ConsumptionIntervalTicks)
-                Require(period.Required.All(r => r == 0) && period.Satisfied.All(s => s == 0), field);
-        }
-    }
 
     private static void ValidateResources(WorldState world, IReadOnlyDictionary<NodeId, NodeMapItem> nodes)
     {

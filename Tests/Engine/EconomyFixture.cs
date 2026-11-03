@@ -25,7 +25,8 @@ internal static partial class EconomyFixture
         IReadOnlyList<ConstructionJobView>? commissionJobs = null,
         double foodExpectedNetChangePerSecond = 0, double equipmentExpectedNetChangePerSecond = 0,
         TrainActivity trainActivity = TrainActivity.Stopped, RunPlan? trainPlan = null, bool emptyTrainInventory = false,
-        ulong completedSteps = 0, ulong? leaseExpiresAt = null, InventoryView? leaseInventory = null)
+        ulong completedSteps = 0, ulong? leaseExpiresAt = null, InventoryView? leaseInventory = null,
+        ImmutableArray<CashFlowEntry> cashFlows = default, ImmutableArray<GoodsQuantity> todayProduction = default)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -62,7 +63,8 @@ internal static partial class EconomyFixture
                     new("invalid_state", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:invalid-market"])] } : rule,
                 new(100, 5, 2, 20, 0, 75, 50),
                 [new(Food, 42, 50, 2, 40, 20, foodExpectedNetChangePerSecond, []),
-                 new(Equipment, 3, 5, 0, 3, 2, equipmentExpectedNetChangePerSecond, [])]));
+                 new(Equipment, 3, 5, 0, 3, 2, equipmentExpectedNetChangePerSecond, [])]),
+            todayProduction.IsDefault ? [] : todayProduction);
         if (commissionJobs is not null) settlement = settlement with { CommissionJobs = [.. commissionJobs.Select(job => job.Id)] };
         InventoryView Inventory(ulong id, InventoryOwner owner)
         {
@@ -106,7 +108,7 @@ internal static partial class EconomyFixture
                 trainAtNode ? [] : [edge], vehicle == VehicleState.Formed
                 ? [new(train.Id, train.Position, train.Activity), new(purchasedTrain.Id, purchasedTrain.Position, purchasedTrain.Activity)]
                 : [new(train.Id, train.Position, train.Activity)], [], []),
-            Economy = new(new(wallet), rule, rule, rule, new(0), []),
+            Economy = new(new(wallet), rule, rule, rule, new(0), [], cashFlows.IsDefault ? [] : cashFlows),
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [edge.Id] = new Lookup<EdgeView>.Found(new(edge, [], null)) },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {

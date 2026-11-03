@@ -30,11 +30,34 @@ public sealed partial class CommissionTests
                 : new CoreCommand.CommissionVehicleWork(request, quote.TotalPayment!.Value);
             var started = Accept(session, command).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionStarted>().Single();
             Assert.AreEqual(funding, started.Funding);
+            if (funding == JobFunding.OwnInventory) Assert.IsEmpty(session.Read().Economy.CashFlows);
+            else Assert.AreEqual(new CashFlowEntry(session.Read().Position, CashFlowKind.Construction, -206, started.Job.Settlement, null, null, 0), session.Read().Economy.CashFlows.Single());
             Assert.AreEqual(quote.MaterialPayment, started.MaterialPayment);
             Assert.AreEqual(quote.ServicePayment, started.ServicePayment);
             Assert.AreEqual(quote.TotalWork, started.Job.FrozenTotalWork);
             CollectionAssert.AreEqual(quote.RequiredGoods.ToArray(), started.Job.InvestedGoods.ToArray());
         }
+    }
+
+    [TestMethod]
+    public void Commission_repair_locks_the_player_vehicle_and_rejects_a_second_repair()
+    {
+        var content = CommissionFixture.Content();
+        using var session = CommissionFixture.Session(content, damaged: true);
+        Start(session, CommissionFixture.Commission(content));
+        var request = new JobRequest.Repair(Facility, Vehicle, [], 0);
+        var quote = WorldFixture.Success(session.Read().GetJobQuote(request, JobFunding.NpcCommission));
+        Assert.IsEmpty(quote.Blockers);
+        var job = Start(session, new CoreCommand.CommissionVehicleWork(request, quote.TotalPayment!.Value));
+        Assert.AreEqual(ConstructionKind.Repair, job.Kind);
+        var flow = session.Read().Economy.CashFlows.Last();
+        Assert.AreEqual(CashFlowKind.Repair, flow.Kind);
+        Assert.AreEqual(-quote.TotalPayment!.Value.Value, flow.Amount);
+        Assert.AreEqual(new TrainId(1), flow.Train);
+        Assert.AreEqual(ConstructionState.Queued, job.State);
+        Reject(session, new CoreCommand.CommissionVehicleWork(request, new(long.MaxValue)), "Instance", "instance_locked");
+        Assert.AreEqual(InstanceLock.UnderRepair, ((Lookup<InstanceView>.Found)session.Read().FindInstance(Vehicle)).Value.Lock);
+        Reject(session, new CoreCommand.StartTrain(new(1)), "Train", "instance_locked");
     }
 
 }

@@ -44,6 +44,12 @@ public static class ConsumerExamples
             ? found.Value.OwnedJobs.Select(view.FindJob).ToImmutableArray()
             : [];
 
+    public static (ImmutableArray<CashFlowEntry> CashFlows, ImmutableArray<GoodsQuantity> TodayProduction)
+        ReadEconomyReport(ICoreReadView view, SettlementId settlement)
+        => (view.Economy.CashFlows, view.FindSettlement(settlement) is Lookup<SettlementView>.Found found
+            ? found.Value.TodayProduction
+            : []);
+
     public static ulong? ReadPlatformQueueEnteredStep(TrainView train)
         => train.PlatformQueueEnteredStep;
 

@@ -53,7 +53,7 @@ public partial class ArtCaptureTests
                     [], 0, 0, 0, [], [], [], new(0, 0, 0, 0),
                     new(new(new("fixture:population"), null, []), 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
                     new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [],
-                    new(new(new("fixture:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), [])))
+                    new(new(new("fixture:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), []), []))
             } : new Dictionary<SettlementId, Lookup<SettlementView>>(),
             Lairs = new Dictionary<LairId, Lookup<LairView>>
             {

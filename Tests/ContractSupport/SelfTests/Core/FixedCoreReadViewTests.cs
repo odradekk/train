@@ -110,7 +110,7 @@ public sealed class FixedCoreReadViewTests
         var inventories = new Dictionary<InventoryId, Lookup<InventoryView>> { [new(2)] = inventory };
         var leases = new Dictionary<LeaseId, Lookup<LeaseView>> { [new(3)] = lease };
         var rule = new RuleStatusView(new("rule"), null, []);
-        var economy = new EconomyView(new(42), rule, rule, rule, new(0), []);
+        var economy = new EconomyView(new(42), rule, rule, rule, new(0), [], []);
         var view = new FixedCoreReadView { Economy = economy, Settlements = settlements, Inventories = inventories, Leases = leases };
         settlements.Clear();
         inventories.Clear();
@@ -133,7 +133,7 @@ public sealed class FixedCoreReadViewTests
             SettlementRelation.PlayerOwned, new(2), [], [], 0, 0, 0, [], [], [],
             new(0, 0, 0, 0), new(rule, 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
             new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(3), new(7)], [],
-            new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
+            new(rule, new(0, 0, 0, 0, 0, 0, 0), []), []);
         var entries = new Dictionary<SettlementId, Lookup<SettlementView>>
             { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) };
         var view = new FixedCoreReadView { Settlements = entries };

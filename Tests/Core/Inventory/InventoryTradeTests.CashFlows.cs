@@ -31,6 +31,7 @@ public sealed partial class InventoryTradeTests
         Assert.AreEqual(sell.State.World.Trains.Single().Inventory, transfer.Source);
         Assert.AreEqual(sellRequest.LocalInventory, transfer.Destination);
         Assert.AreEqual(new Money(10092), sell.Read().Economy.Wallet);
+        Assert.AreEqual(new CashFlowEntry(sale.Receipt.After, CashFlowKind.GoodsSale, 92, sellRequest.Settlement, sellRequest.Train, Clothing, 1), sell.Read().Economy.CashFlows.Single());
         Assert.AreEqual(10L, ReadInventory(sell, sellRequest.LocalInventory).Stacks.Single().Quantity);
         Assert.IsTrue(ReadInventory(sell, transfer.Source).Stacks.IsEmpty);
         using var owned = Session(local: [new(Clothing, 10)], cargo: [new(Clothing, 1)], relation: SettlementRelation.PlayerOwned);
@@ -45,6 +46,7 @@ public sealed partial class InventoryTradeTests
         Accept(owned, Command(load));
         Accept(owned, Command(unload));
         Assert.AreEqual(wallet, owned.Read().Economy.Wallet);
+        Assert.IsEmpty(owned.Read().Economy.CashFlows);
     }
 
 }

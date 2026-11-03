@@ -114,7 +114,7 @@ internal static class RailwayWorkUiFixture
             new("fixture:town-type"), new("fixture:town"), relation, new(inventory), [], [], 4, 1, 0, [], [], [],
             new(0, 0, 0, 0), new(rule, 10, 10, 0, 10, new PopulationExecution.NotStarted([]), null, []),
             new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [],
-            new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
+            new(rule, new(0, 0, 0, 0, 0, 0, 0), []), []);
         InventoryView Inventory(ulong id, ulong settlement, long quantity)
         {
             ImmutableArray<InventoryStackView> stacks = quantity == 0 ? [] : [new(Rail, quantity, false)];

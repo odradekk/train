@@ -24,6 +24,7 @@ internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementT
     double FuelEnergyRemaining, ImmutableArray<ProductionFacilityState> ProductionFacilities,
     PopulationState PopulationState, SettlementEngagementRules Engagement)
 {
+    [JsonRequired] public ImmutableArray<GoodsQuantity> TodayProduction { get; init; } = [];
     [JsonRequired] public double LastConstructionPowerDemand { get; init; }
     [JsonRequired] public double LastConstructionActualSupply { get; init; }
     [JsonRequired] public double LastConstructionAllocatedLabor { get; init; }
@@ -88,6 +89,7 @@ internal sealed partial record WorldState(WorldGenerationInput Source, Immutable
     ImmutableArray<LeaseState> Leases, ImmutableArray<ResourceRegenerationState> ResourceRegenerations,
     ImmutableArray<ResourceRecoveryState> ResourceRecovery)
 {
+    [JsonRequired] public ImmutableArray<CashFlowEntry> CashFlows { get; init; } = [];
     [JsonRequired] public ImmutableArray<RunReport> RecentRunReports { get; init; } = [];
     [JsonRequired] public ImmutableArray<ConstructionJobState> ConstructionJobs { get; init; } = [];
     [JsonRequired] public ImmutableArray<FoundingJobState> FoundingJobs { get; init; } = [];
@@ -195,22 +197,6 @@ internal sealed partial record WorldState(WorldGenerationInput Source, Immutable
             var design = content.Designs.Single(d => d.Design == hash);
             return CreateInstance(id, design, ownership, details);
         }
-    }
-
-    internal static SettlementState CreateSettlement(SettlementId id, NodeId node, SettlementTypeId type,
-        SettlementRelation relation, long population, SettlementTemplateProjection template,
-        PlotId firstPlot, BuildingId firstBuilding, InventoryId inventory)
-    {
-        var building = firstBuilding.Value;
-        var plots = template.Plots.Select((plot, index) => new PlotState(new(checked(firstPlot.Value + (ulong)index)),
-            plot.Number, plot.Size, plot.PrebuiltDesign is null ? null : new BuildingId(building++))).ToImmutableArray();
-        var facilities = template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
-            .Select(p => (Plan: p, Building: plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
-            .Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value).ThenBy(p => p.Plan.Capability)
-            .Select(p => new ProductionFacilityState(new(p.Building!.Value, p.Plan.Capability), null, [], 0, [], 0, 0, 0))
-            .ToImmutableArray();
-        return new(id, node, type, relation, population, template, plots, inventory, [], 0, facilities,
-            PopulationState.Initial, CombatRules.DefaultSettlementEngagement);
     }
 
     internal static InstanceState CreateInstance(InstanceId id, DesignProjection design,

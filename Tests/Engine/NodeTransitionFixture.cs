@@ -100,7 +100,7 @@ internal static class NodeTransitionFixture
             [new(new(1), 1, PlotSize.SmallStation, [BuildingKind.Station], new PlotOccupant.Building(new(1)))], [], 0, 2, 0, [], [], [], new(0, 0, 0, 0),
             new(new(new("preview:population"), null, []), 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
             new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [],
-            new(new(new("preview:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), []));
+            new(new(new("preview:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), []), []);
         return new(new FixedCoreReadView
         {
             Position = new(step, 0),

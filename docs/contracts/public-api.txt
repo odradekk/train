@@ -363,6 +363,16 @@ Train.Core.Contracts|enum|global::Train.Core.Contracts.CapabilityKind|Extraction
 Train.Core.Contracts|enum|global::Train.Core.Contracts.CapabilityKind|Production|0
 Train.Core.Contracts|enum|global::Train.Core.Contracts.CapturePurpose|Diagnostic|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.CapturePurpose|Save|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|Construction|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|Deconstruction|7
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|GoodsPurchase|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|GoodsSale|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|LairReward|9
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|Refit|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|Rent|8
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|Repair|6
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|VehiclePurchase|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CashFlowKind|VehicleSale|2
 Train.Core.Contracts|enum|global::Train.Core.Contracts.CommandSource|AutomationTest|2
 Train.Core.Contracts|enum|global::Train.Core.Contracts.CommandSource|Console|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.CommandSource|UserInterface|0
@@ -558,6 +568,8 @@ Train.Core.Contracts|type|Train.Core.Contracts.BuildingId|public readonly record
 Train.Core.Contracts|type|Train.Core.Contracts.BuildingKind|public enum BuildingKind
 Train.Core.Contracts|type|Train.Core.Contracts.CapabilityKind|public enum CapabilityKind
 Train.Core.Contracts|type|Train.Core.Contracts.CapturePurpose|public enum CapturePurpose
+Train.Core.Contracts|type|Train.Core.Contracts.CashFlowEntry|public sealed record CashFlowEntry(SimulationPosition Position, CashFlowKind Kind, long Amount, SettlementId? Settlement, TrainId? Train, GoodId? Good, long Quantity);
+Train.Core.Contracts|type|Train.Core.Contracts.CashFlowKind|public enum CashFlowKind
 Train.Core.Contracts|type|Train.Core.Contracts.CheckpointComparison.Different|public sealed record Different(CheckpointDifference Difference) : CheckpointComparison;
 Train.Core.Contracts|type|Train.Core.Contracts.CheckpointComparison.Equal|public sealed record Equal : CheckpointComparison;
 Train.Core.Contracts|type|Train.Core.Contracts.CheckpointComparison|public abstract record CheckpointComparison
@@ -721,7 +733,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.DestroyedUnit.Creature|public sea
 Train.Core.Contracts|type|Train.Core.Contracts.DestroyedUnit.Instance|public sealed record Instance(InstancePresentationRef Value) : DestroyedUnit;
 Train.Core.Contracts|type|Train.Core.Contracts.DestroyedUnit|public abstract record DestroyedUnit
 Train.Core.Contracts|type|Train.Core.Contracts.DurabilityView|public sealed record DurabilityView(long EffectiveCurrent, long Maximum);
-Train.Core.Contracts|type|Train.Core.Contracts.EconomyView|public sealed record EconomyView(Money Wallet, RuleStatusView MarketRule, RuleStatusView PopulationRule, RuleStatusView ConstructionRule, Money UnassignedServicePayments, ImmutableArray<RunReport> RecentRunReports);
+Train.Core.Contracts|type|Train.Core.Contracts.EconomyView|public sealed record EconomyView(Money Wallet, RuleStatusView MarketRule, RuleStatusView PopulationRule, RuleStatusView ConstructionRule, Money UnassignedServicePayments, ImmutableArray<RunReport> RecentRunReports, ImmutableArray<CashFlowEntry> CashFlows);
 Train.Core.Contracts|type|Train.Core.Contracts.EdgeId|public readonly record struct EdgeId(ulong Value);
 Train.Core.Contracts|type|Train.Core.Contracts.EdgeMapItem|public sealed record EdgeMapItem(EdgeId Id, NodeId Start, NodeId End, double LengthMeters, TerrainView Terrain, int Tracks, int TrackLimit, ImmutableArray<TrackBreakView> Breaks, ImmutableArray<RailwayWorkView> Works);
 Train.Core.Contracts|type|Train.Core.Contracts.EdgeView|public sealed record EdgeView(EdgeMapItem Map, ImmutableArray<TrackView> Tracks, SettlementId? AutoRepairMaterialSource);
@@ -906,7 +918,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.SettlementTemplateId|public reado
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementTemplateProjection|public sealed record SettlementTemplateProjection(SettlementTemplateId Id, SettlementTypeId Type, int Weight, ImmutableArray<TemplatePlotProjection> Plots, ImmutableArray<FoundingBuildingProjection> FoundingBuildings, ImmutableArray<GoodsQuantity> SpecialInitialInventory, ImmutableArray<TemplateProductionPlan> ProductionPlans, double PlatformLengthMeters);
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementTypeId|public readonly record struct SettlementTypeId(string Value);
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementTypeProjection|public sealed record SettlementTypeProjection(SettlementTypeId Id, SemanticRevision Revision, int Weight, ImmutableArray<TerrainTypeId> PreferredTerrain, long MinimumInitialPopulation, long MaximumInitialPopulation);
-Train.Core.Contracts|type|Train.Core.Contracts.SettlementView|public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementTypeId Type, SettlementTemplateId? SourceTemplateId, SettlementRelation Relation, InventoryId Inventory, ImmutableArray<PlotView> Plots, ImmutableArray<VehicleId> ParkedVehicles, int ParkingCapacity, int Platforms, int OccupiedPlatforms, ImmutableArray<VehicleId> VehiclesForSale, ImmutableArray<VehiclePurchaseCapacity> VehiclePurchaseCapacities, ImmutableArray<FacilityView> Facilities, PowerPoolView Power, PopulationView Population, SettlementEngagementRules Engagement, double MoraleRatio, bool Surrendered, ImmutableArray<JobId> CommissionJobs, ImmutableArray<JobId> OwnedJobs, ImmutableArray<LeaseId> Leases, MarketView Market);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementView|public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementTypeId Type, SettlementTemplateId? SourceTemplateId, SettlementRelation Relation, InventoryId Inventory, ImmutableArray<PlotView> Plots, ImmutableArray<VehicleId> ParkedVehicles, int ParkingCapacity, int Platforms, int OccupiedPlatforms, ImmutableArray<VehicleId> VehiclesForSale, ImmutableArray<VehiclePurchaseCapacity> VehiclePurchaseCapacities, ImmutableArray<FacilityView> Facilities, PowerPoolView Power, PopulationView Population, SettlementEngagementRules Engagement, double MoraleRatio, bool Surrendered, ImmutableArray<JobId> CommissionJobs, ImmutableArray<JobId> OwnedJobs, ImmutableArray<LeaseId> Leases, MarketView Market, ImmutableArray<GoodsQuantity> TodayProduction);
 Train.Core.Contracts|type|Train.Core.Contracts.SimulationPosition|public readonly record struct SimulationPosition(ulong CompletedSteps, ulong Sequence);
 Train.Core.Contracts|type|Train.Core.Contracts.SimulationTime|public static class SimulationTime
 Train.Core.Contracts|type|Train.Core.Contracts.SizeClass|public enum SizeClass

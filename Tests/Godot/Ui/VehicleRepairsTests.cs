@@ -181,7 +181,7 @@ public sealed class VehicleRepairsTests
         SettlementRelation.NonHostile, new(1), [.. plots], [], 0, 1, 0, [], [], [], new(0, 0, 0, 0),
         new(Rule, 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
         new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [],
-        new(Rule, new(0, 0, 0, 0, 0, 0, 0), []));
+        new(Rule, new(0, 0, 0, 0, 0, 0, 0), []), []);
 
     private static JobQuote RepairQuote(ulong building, ulong vehicle, Money? total, params CoreProblem[] blockers) => new(
         new JobRequest.Repair(new(new(building), CapabilityKind.Construction), new InstanceId.Vehicle(new(vehicle)), [], 0),
@@ -198,7 +198,7 @@ public sealed class VehicleRepairsTests
             {
                 Revision = new(5),
                 Fault = null,
-                Economy = new(new(wallet), Rule, Rule, Rule, new(0), []),
+                Economy = new(new(wallet), Rule, Rule, Rule, new(0), [], []),
                 Instances = vehicles.ToDictionary(vehicle => vehicle.Id,
                     vehicle => (Lookup<InstanceView>)new Lookup<InstanceView>.Found(vehicle))
             };

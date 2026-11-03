@@ -184,7 +184,7 @@ public sealed class WorldCountsTests
             new(0, 0, 0, 0), new(rule, 10, 10, 0, 10, new PopulationExecution.NotStarted([]), null, []),
             new(TargetPriority.ArmedFirst, TargetScope.All), 1, false,
             relation == SettlementRelation.PlayerOwned ? [] : jobs,
-            relation == SettlementRelation.PlayerOwned ? jobs : [], [], new(rule, new(100, 0, 0, 0, 0, 100, 0), []));
+            relation == SettlementRelation.PlayerOwned ? jobs : [], [], new(rule, new(100, 0, 0, 0, 0, 100, 0), []), []);
     }
 
     private static InstanceView Instance(InstanceId id, string design, WorldLocation location,
