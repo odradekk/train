@@ -125,9 +125,9 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 & ./scripts/measure/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/standard-world/save.json -OutputDirectory TestResults/measure-selected -Scenario @('scene-route-1x', 'scene-route-8x')
 ```
 
-`identity.game_build`／`identity.build_commit` 来自已加载程序集的 `AssemblyInformationalVersion`。脚本执行 `git rev-parse <commit>:docs/contracts/public-api.txt`，计算并记录 `identity.public_api_git_blob`；构建提交须在本地仓库。脚本记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以 HEAD 代替二进制来源。
+`identity.game_build`／`identity.build_commit` 来自已加载程序集的 `AssemblyInformationalVersion`。脚本用 `git rev-parse <commit>:docs/contracts/public-api.txt` 计算并记录 `identity.public_api_git_blob`，构建提交须在本地仓库。记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以 HEAD 代替二进制来源。
 
-生产入口是 `--measure=<场景>`，输入存档不变。报告核对该程序集的 SHA-256 与构建提交，记录窗口／viewport、GPU／驱动、录制、自动存档和遇敌自动降速设置。`identity.encounter_action` 记录实际值 `value` 和产品默认值 `default_value`，仅测量主动关闭时带 `reason`。`timing.frames` 记录 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停和模拟工作时间，保留卡顿帧。单位为秒和字节；分位数用 nearest-rank，不插值；实际倍速为完成步数除以 60 和采样秒数。模拟工作时间含帧驱动推进及边界消费者，不含候选准备和渲染提交；5 ms 预算触及次数不作失败阈值。
+入口 `--measure=<场景>` 使用原存档。报告核对程序集 SHA-256 和构建提交，记录窗口／viewport、GPU／驱动、录制、自动存档及遇敌自动降速设置。`identity.encounter_action` 记录实际 `value`、产品默认 `default_value`，仅主动关闭时带 `reason`。`timing.frames` 记录 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停及模拟工作时间，保留卡顿帧。单位为秒、字节；分位数用 nearest-rank，不插值；实际倍速为完成步数除以 60 和采样秒数。模拟工作时间含帧驱动推进及边界消费者，不含候选准备和渲染提交；5 ms 预算触及次数不作失败阈值。
 
 报告判定见[说明](../scripts/measure/README.md#逐项性能判定)。
 
@@ -146,27 +146,27 @@ pwsh -NoProfile -File scripts/measure/measure.ps1 -ExecutablePath TestResults/me
 
 | 情景 | 实际路径 |
 | --- | --- |
-| `scene-reference` | 参考运行暂停至初始 Ready，恢复仿真观察 10 秒；各空间首次 Ready 和焦点移动 16 m 后的 Ready 帧记录对象、地形，输出 `scene-reference.json`，不计性能样本。仅 `standard-world` 额外记录存在的节点 3、边 15 |
-| `scene-map` | 同存档新进程纯地图内存；末段固定保持 60 秒，不受 `measure_seconds` 控制；其他地图保持仍为 5 秒，旧 5 秒读数不可比。无需新增测量参数。 |
-| `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
+| `scene-reference` | 暂停至初始 Ready 后恢复仿真观察 10 秒；记录各空间首次及焦点移动 16 m 后 Ready 帧的对象、地形，输出 `scene-reference.json`，不计性能样本。仅 `standard-world` 另记存在的节点 3、边 15 |
+| `scene-map` | 同存档新进程测纯地图内存；末段固定保持 60 秒，不受 `measure_seconds` 控制；其他地图仍保持 5 秒，旧 5 秒读数不可比；无需新测量参数 |
+| `scene-node` | 地图首开节点 2、回地图重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
-| `scene-edge` | 地图首次打开线路 11、返回地图后重开、读档回地图后立即再开线路 |
-| `scene-follow` | 双击列车 1 进入，跟随参考中心所在车辆 |
-| `scene-follow-8x` | 经同一 UI 路径跟随，遇敌自动降速设为 `None`；8× 预热 5 秒后采样 120 秒（`DurationSeconds` 可缩短） |
+| `scene-edge` | 地图首开线路 11、回地图重开、读档回地图后立即再开线路 |
+| `scene-follow` | 选中列车 1 后进入，跟随参考中心所在车辆 |
+| `scene-follow-8x` | 沿用上述进入顺序，遇敌自动降速为 `None`；8× 预热 5 秒后采样 120 秒 |
 | `scene-route-1x`、`scene-route-2x`、`scene-route-4x`、`scene-route-8x` | seed 40 起步贸易存档，跟随列车 1 完成线路→节点→线路；终点节点显示帧定位到车头（按编组朝向取首车或末车）后，补齐交接后的车身轨迹。记录 Scenes／实际显示的前方覆盖、车身覆盖、边界截断和未知；倍率取自原生帧循环。仅 `scene-route-8x` 将遇敌自动降速设为 `None` |
 | `scene-route-capture-1x`、`scene-route-capture-8x` | 同一路线的独立截图运行，截图开销不计作计时证据 |
 | `scene-memory` | 重复打开节点并返回地图；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
 | `scene-soak` | 窗口长测，配置见[测量目标](../scripts/measure/targets.md)及下文[窗口长测](#窗口长测) |
-| `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
+| `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使其不能作时延或内存证据 |
 | `scene-editor` | 地图稳态 5 秒并强制 GC 后，经蓝图库「复制到本局…」打开泰坦样机 `core:titan-armed-vehicle`，记录点击到会话就绪和首个 Ready 编辑帧绘制的时间、样机格数、部件数与编辑帧几何量；保持编辑器 30 秒采样帧时间与内存（`DurationSeconds` 可改为 1–120 秒）。编辑序列与 `Tests/Engine/TitanEditingTests.cs` 一致：在样机空长方体中加入 5,000 格，再单格删除 49 次，连续撤销 50 步、重做 50 步，每步等待新修订实际绘制。`editor-step` 记录调用耗时（含准备工作）、调用到新修订绘制的时延、首次 `session.Present` 耗时（含几何构建与帧差分）、首次 Present 至首次提交的 process 帧数（两端包含，同帧为 1）、该区间实际绘制最长帧（含 Present 阻塞帧），以及行文本与 `ShowElements` 更新耗时。编辑器自身 `SceneDisplay` 的准备与提交耗时沿用 `scene-resource-frames.jsonl`；格数、步数或撤销重做结果不符时测量失败。最后经「退出」「放弃本次修改」回到地图，稳态 5 秒后再强制 GC |
 
-`-TrainId`／`-NodeId`／`-EdgeId` 替换列车、节点、线路目标；默认值、`-SoakProfile` 见[测量目标](../scripts/measure/targets.md)。跟随对象为列车参考中心所在车辆（[设计 01](design/01-voxel-engine-and-scenes.md#跟随列车时的场景切换)）。目标不存在或空编组即失败；每组目标各需一份参考。`ready-geometry` 的 `followed_train` 按成员记录已发布车体及其子对象的网格、顶点和三角形数；`active-load` 的列车状态带编组车辆数和位置。负载计数还记录战斗（地点和参战方数）、生物群（地点、活动、数量和存活数）及生物总数；打开记录在点击时（`load_at_click`）和观察结束时（`load`）各记一次，`scene-follow-8x` 在采样窗口开始和结束各写一条 `sample-load`。
+`-TrainId`／`-NodeId`／`-EdgeId` 替换目标；默认值和 `-SoakProfile` 见[测量目标](../scripts/measure/targets.md)。跟随列车参考中心所在车辆（[设计 01](design/01-voxel-engine-and-scenes.md#跟随列车时的场景切换)）；缺目标或空编组即失败，每组需独立参考。`ready-geometry` 的 `followed_train` 按成员记录已发布车体及子对象的网格、顶点、三角形数；`active-load` 记录列车编组车辆数和位置。负载还含战斗地点及参战方数、生物群的地点、活动、数量、存活数和生物总数；进入（`load_at_click`）和观察结束（`load`）各记一次负载，`scene-follow-8x` 采样窗首尾各记一条 `sample-load`。
 
-`Repeat` 控制每情景的新进程数量，默认是 3；`DurationSeconds=0` 使用情景默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短默认的 120 秒采样窗口。输入规模及测量、探针和判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
+`Repeat` 为每情景新进程数，默认 3；`DurationSeconds=0` 使用默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短 120 秒采样窗。输入规模、测量、探针及判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
 
-除 `scene-reference`、`scene-map`、`scene-editor` 和 `scene-route-*` 外，所有 `scene-*` 情景必须传 `-ReferencePath`，指向同一构建提交、同一输入 SHA 的 `scene-reference.json`；参考运行不计入性能样本。整路测量及混选路线须用 `DurationSeconds=0`（runner 的 `measure_seconds=0`）；非零只作提前结束预演。
+除 `scene-reference`、`scene-map`、`scene-editor` 和 `scene-route-*` 外，`scene-*` 必须传 `-ReferencePath`，指向同构建提交、同输入 SHA 的 `scene-reference.json`。整路及混选路线须用 `DurationSeconds=0`（runner 的 `measure_seconds=0`）；非零仅供提前结束预演。
 
-整路首次打开仅对初始空间单列 `route-analysis.json.startup`：从首个可操作帧起，以显示帧 `displayed_readiness` 在 5 秒内达到 Ready 判定。状态为 `passed`、`failed`、`unknown` 或 `not_observed`；历史记录缺少 readiness 为未知，初始空间从未可操作为未观察。初始空间在 Ready 前切走时，下一空间的 Ready 不能补算成功。初始空间这 5 秒内的判定帧以 `excluded_reason=initial_startup` 排除出 criterion 2 始终覆盖统计，逐帧原始覆盖仍保留；恰好第 5 秒起恢复统计，期间发生的跟随空间切换也立即恢复统计。该分类不改变 D18 near32 首次 Partial 的语义。
+整路首次打开只判初始空间，记入 `route-analysis.json.startup`：首个可操作帧起 5 秒内，显示帧 `displayed_readiness` 须达到 Ready。状态为 `passed`、`failed`、`unknown` 或 `not_observed`；旧记录缺 readiness 为未知，初始空间从未可操作为未观察。初始空间 Ready 前切走，后续空间不能补算成功。首开 5 秒内的判定帧记 `excluded_reason=initial_startup`，不计 criterion 2 始终覆盖，但保留逐帧原始覆盖；满 5 秒恢复统计，若期间发生跟随空间切换则立即恢复。D18 near32 首次 Partial 语义不变。
 
 整路前方距离沿后续实际车头轨迹计算。Core 在列车参考中心过界时切换位置，因此空间边界估计为跨空间拼接轨迹中新空间首帧的车头位置，沿弧长回退半列车总长；容差取 2 米与跨界帧行驶距离的较大者。到达估计边界即截断，边界容差内发现的缺口记 `boundary_limited`；其他缺口仍计失败，轨迹不足或不能拼接仍记未知。车身覆盖独立检查，不因前方边界截断而豁免。
 
