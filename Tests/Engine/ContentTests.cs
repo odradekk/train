@@ -99,8 +99,7 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             await input.Click(point);
             Require(map.GetParent<GameShell>().SelectedObject == new WorldObjectId.Edge(edge.Id) && app.WorldScenes!.Display is null,
                 "真实地图单击必须只选中线路，不能创建场景。");
-            await input.MouseButton(point, MouseButton.Left, true, doubleClick: true);
-            await input.MouseButton(point, MouseButton.Left, false);
+            await input.DoubleClick(point);
             await FramesUntil(TestScene, () =>
             {
                 app.WorldScenes!.ProcessFrame(0, false);

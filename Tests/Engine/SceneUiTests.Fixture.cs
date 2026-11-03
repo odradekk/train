@@ -36,8 +36,7 @@ public partial class SceneUiTests
     {
         await _input.Click(point);
         Require(!app.WorldScenes!.View.Visible, "单击地图不能进入场景。");
-        await _input.MouseButton(point, MouseButton.Left, true, doubleClick: true);
-        await _input.MouseButton(point, MouseButton.Left, false);
+        await _input.DoubleClick(point);
         await _input.WaitUntil(() => app.WorldScenes!.View.Visible && app.WorldScenes.View.Interactive);
         Require(setup.Scenes[^1].RequestCalls.SequenceEqual(new[] { target }), "地图点击未请求对应世界场景目标。");
     }

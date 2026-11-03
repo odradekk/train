@@ -90,8 +90,7 @@ public partial class UiTests
             Require(clicked == new WorldObjectId.Node(nodes[0].Id), "主要聚居地在圆心外 18 像素处未被实际左键选中。");
             Require(scenes.OpenCalls.Count == 0, "地图单击选中聚居地时不应打开场景。");
             var majorPoint = map.GlobalPosition + map.MapToScreen(nodes[0].Position) + new Vector2(18, 0);
-            await _input.MouseButton(majorPoint, MouseButton.Left, true, doubleClick: true);
-            await _input.MouseButton(majorPoint, MouseButton.Left, false);
+            await _input.DoubleClick(majorPoint);
             Require(scenes.OpenCalls.Count == 1, "地图双击没有发出唯一的场景打开请求。");
             Require(!output.Contains("scene_adapter_failed"), "地图点击打开场景记录了适配异常。");
         }
@@ -166,14 +165,14 @@ public partial class UiTests
             await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Resources"), layerPanel);
             await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Platforms"), layerPanel);
             await _input.PressKey(Key.Escape);
-            WorldObjectId? clicked = null;
+            WorldObjectId? clicked = null, activated = null;
             map.ObjectClicked += value => clicked = value;
+            map.ObjectActivated += value => activated = value;
             var nodePoint = map.GlobalPosition + map.MapToScreen(view.World.Nodes[1].Position);
             await _input.Click(nodePoint);
             Require(clicked == new WorldObjectId.Node(view.World.Nodes[1].Id), "实际左键没有命中地图节点。");
             Require(scenes.OpenCalls.Count == 0, "地图单击选中节点时不应打开场景。");
-            await _input.MouseButton(nodePoint, MouseButton.Left, true, doubleClick: true);
-            await _input.MouseButton(nodePoint, MouseButton.Left, false);
+            await _input.DoubleClick(nodePoint);
 
             var free = map.GlobalPosition + map.Size * new Vector2(.75f, .8f);
             var before = map.Offset;
@@ -217,9 +216,13 @@ public partial class UiTests
             await _input.Drag(free, covered - nodePosition);
             Require(map.HitTest(covered - map.GlobalPosition) == new WorldObjectId.Node(view.World.Nodes[1].Id),
                 "遮挡情景下方没有预期地图节点。");
-            clicked = null;
+            clicked = null; activated = null;
+            var openCalls = scenes.OpenCalls.Count;
             await _input.Click(covered);
             Require(clicked is null, "上层列表的左键输入穿透并选中了地图对象。");
+            await _input.DoubleClick(covered);
+            Require(clicked is null && activated is null && scenes.OpenCalls.Count == openCalls,
+                "列表覆盖地图节点时，双击不能选中或进入下面的节点。");
             before = map.Offset;
             zoom = map.Zoom;
             await _input.Drag(covered, new Vector2(20, 12));

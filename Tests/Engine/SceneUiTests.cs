@@ -83,8 +83,7 @@ public partial class SceneUiTests(Node testScene) : TestClass(testScene)
             setup.RejectNext = true;
             await _input.WaitUntil(() => map.IsVisibleInTree());
             await _input.Click(map.GlobalPosition + map.MapToScreen(new(250, 300)));
-            await _input.MouseButton(map.GlobalPosition + map.MapToScreen(new(250, 300)), MouseButton.Left, true, doubleClick: true);
-            await _input.MouseButton(map.GlobalPosition + map.MapToScreen(new(250, 300)), MouseButton.Left, false);
+            await _input.DoubleClick(map.GlobalPosition + map.MapToScreen(new(250, 300)));
             await _input.WaitUntil(() => map.IsVisibleInTree() && ui.ErrorText.Contains("fixture_node_failed"));
             Require(!app.WorldScenes!.View.Visible, "节点构建失败仍保留场景。");
             await UiCapture.Capture(TestScene, "phase5-map");

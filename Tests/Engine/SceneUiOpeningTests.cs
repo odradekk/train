@@ -33,8 +33,7 @@ public partial class SceneUiTests
                 shell.SelectedObject == new WorldObjectId.Node(new(1)) && inspections == 1,
                 "单击节点必须只显示检查器，不请求场景。");
             var inspector = shell.InspectorContent;
-            await _input.MouseButton(point, MouseButton.Left, true, doubleClick: true);
-            await _input.MouseButton(point, MouseButton.Left, false);
+            await _input.DoubleClick(point);
             await _input.WaitUntil(() => app.WorldScenes!.View.Interactive);
             Require(setup.Scenes.Single().RequestCalls.SequenceEqual([NodeTarget]) && inspections == 1 &&
                 shell.InspectorContent == inspector, "双击应进入节点场景，并保留已经构建的检查器。");

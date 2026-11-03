@@ -37,8 +37,7 @@ public partial class RailwayWorkUiTests
             Require(!panel.Visible && scenes.OpenCalls.Count == 0 &&
                 Find<GameShell>(ui, "World").SelectedObject == new WorldObjectId.Edge(edge.Id),
                 "单击线路必须只选中并打开详情，不能进入场景或打开施工面板。");
-            await _input.MouseButton(point, MouseButton.Left, true, doubleClick: true);
-            await _input.MouseButton(point, MouseButton.Left, false);
+            await _input.DoubleClick(point);
             Require(opened?.Target is WorldSceneTarget.Location
             {
                 Value: WorldLocation.Edge { Id.Value: RailwayWorkUiFixture.ActiveEdge, DistanceMeters: var distance }

@@ -196,6 +196,13 @@ internal sealed class UiTestInput(Node scene)
         await SendMouseButton(position, Godot.MouseButton.Left, false, control, window);
     }
 
+    // 调用者已完成第一次单击；这里只发送双击的第二次按下和释放。
+    internal async Task DoubleClick(Vector2 position)
+    {
+        await SendMouseButton(position, Godot.MouseButton.Left, true, false, doubleClick: true);
+        await SendMouseButton(position, Godot.MouseButton.Left, false, false);
+    }
+
     internal async Task Drag(Vector2 start, Vector2 delta)
     {
         await MouseButton(start, Godot.MouseButton.Middle, true);
@@ -229,7 +236,6 @@ internal sealed class UiTestInput(Node scene)
     {
         await ClickItem(list, index);
         var position = list.GlobalPosition + list.GetItemRect(index).GetCenter();
-        await SendMouseButton(position, Godot.MouseButton.Left, true, false, doubleClick: true);
-        await SendMouseButton(position, Godot.MouseButton.Left, false, false);
+        await DoubleClick(position);
     }
 }

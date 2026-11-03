@@ -61,8 +61,7 @@ public partial class CombatUiTests
             var shell = (GameShell)app.GetNode<GameUi>("GameUi").World;
             Require(scene is null && shell.SelectedObject == new WorldObjectId.Combat(new(5)) &&
                 shell.InspectorContent is CombatPanel, "单击战斗标记必须只显示现有战斗检查器。");
-            await _input.MouseButton(point, MouseButton.Left, true, doubleClick: true);
-            await _input.MouseButton(point, MouseButton.Left, false);
+            await _input.DoubleClick(point);
             Require(scene?.RequestCalls.Count == 1 && scene.RequestCalls[0] == target,
                 $"战斗标记没有打开线路 100 m：count={scene?.RequestCalls.Count}，point={point}，start={start}，end={end}。");
         }

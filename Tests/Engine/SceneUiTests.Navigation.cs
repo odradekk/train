@@ -61,8 +61,9 @@ public partial class SceneUiTests
             var shell = (GameShell)ui.World;
             Require(shell.InspectorContent!.GetGlobalRect().HasPoint(point) && setup.Scenes.Count == 0,
                 "此用例必须由首次单击后出现的检查器覆盖原标记。");
-            await _input.MouseButton(point, MouseButton.Left, true, doubleClick: true);
-            await _input.MouseButton(point, MouseButton.Left, false);
+            await _input.DoubleClick(point);
+            Require(setup.Scenes.Count == 1 && setup.Scenes[0].RequestCalls.SequenceEqual([NodeTarget]),
+                "检查器覆盖原标记后，双击必须发出原对象的打开请求。");
             await _input.WaitUntil(() => app.WorldScenes!.View.Interactive);
             Require(setup.Scenes.Single().RequestCalls.SequenceEqual([NodeTarget]),
                 "检查器覆盖原标记后，双击仍须进入原对象的场景。");
@@ -112,7 +113,7 @@ public partial class SceneUiTests
             var inspector = shell.InspectorContent;
             var inspections = 0;
             ui.GetNode<WorldPanels>("Root/World/WorldPanels").InspectorOpened += (_, _) => inspections++;
-            await _input.Activate(Find<Button>(ui, "EnterScene"));
+            await _input.Click(Find<Button>(ui, "EnterScene").GetGlobalRect().GetCenter());
             await _input.WaitUntil(() => app.WorldScenes!.View.Interactive);
             Require(setup.Scenes.Single().RequestCalls.SequenceEqual([NodeTarget]) && inspections == 0 &&
                 shell.InspectorContent == inspector, "检查器进入场景不能重新构建检查器。");
@@ -127,9 +128,31 @@ public partial class SceneUiTests
             await _input.Activate(Find<Button>(ui, "LocateObject"));
             Require(map.ObjectPoint(node)!.Value.DistanceTo(shell.SceneArea.GetCenter()) < .01f,
                 "定位必须扣除同时打开的列表和检查器区域。");
+        }
+        finally { await Cleanup(fixture, app); }
+    }
+
+    [Test]
+    public async Task Map_tools_fit_the_whole_world_inside_the_visible_area_and_zoom()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup();
+        Train.App.App? app = null;
+        try
+        {
+            app = await Ready(fixture, setup);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            var shell = (GameShell)ui.World;
+            await _input.Click(map.GlobalPosition + map.ObjectPoint(new WorldObjectId.Node(new(1)))!.Value);
+            await _input.Activate(Find<Button>(ui, "Fleet"));
             await _input.Activate(Find<Button>(map, "FitMap"));
-            Require(map.MapToScreen(new(500, 300)).DistanceTo(shell.SceneArea.GetCenter()) < .01f,
+            var world = ui.View!.World;
+            Require(map.MapToScreen(new(world.WidthMeters / 2, world.HeightMeters / 2)).DistanceTo(shell.SceneArea.GetCenter()) < .01f,
                 "全图必须按可见地图区域居中世界。");
+            Require(shell.SceneArea.HasPoint(map.MapToScreen(new(0, 0))) &&
+                shell.SceneArea.HasPoint(map.MapToScreen(new(world.WidthMeters, world.HeightMeters))),
+                "全图必须让世界两角都落在可见地图区域内。");
             var before = map.Zoom;
             await _input.Activate(Find<Button>(map, "ZoomIn"));
             Require(map.Zoom > before, "放大按钮必须放大地图。");
@@ -150,11 +173,16 @@ public partial class SceneUiTests
             app = await Ready(fixture, setup);
             var ui = app.GetNode<GameUi>("GameUi");
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
-            await _input.Click(map.GlobalPosition + map.ObjectPoint(new WorldObjectId.Train(new(7)))!.Value);
+            var point = map.GlobalPosition + map.ObjectPoint(new WorldObjectId.Train(new(7)))!.Value;
+            await _input.Click(point);
             var reason = Find<Label>(ui, "NavigationReason");
             Require(Find<Button>(ui, "EnterScene").Disabled && !Find<Button>(ui, "LocateObject").Disabled &&
                 reason.IsVisibleInTree() && reason.Text.Contains("列车没有车辆") && setup.Scenes.Count == 0,
                 "空列车仍可定位，进入场景必须置灰并在旁边说明原因。");
+            Require(ui.ErrorText.Length == 0, "双击前不能已有操作错误。");
+            await _input.DoubleClick(point);
+            Require(setup.Scenes.Count == 0 && Find<Control>(ui, "ErrorPanel").IsVisibleInTree() &&
+                ui.ErrorText.Contains("场景目标"), "空列车双击不能打开场景，并须显示没有场景目标的原因。");
         }
         finally { await Cleanup(fixture, app); }
     }
